@@ -1,0 +1,6 @@
+# LF everywhere: the codegen staleness check compares bytes, and the Windows runner checks out with autocrlf.
+* text=auto eol=lf
+
+*.ico binary
+*.icns binary
+*.png binary

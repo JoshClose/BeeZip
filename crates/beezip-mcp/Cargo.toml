@@ -1,0 +1,18 @@
+[package]
+name = "beezip-mcp"
+description = "BeeZip MCP server: exposes the command registry as MCP tools"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+beezip-commands.workspace = true
+rmcp.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+
+[lints]
+workspace = true

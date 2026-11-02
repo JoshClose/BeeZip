@@ -1,0 +1,55 @@
+name: CI
+on:
+  push: { branches: [master] }
+  pull_request:
+  workflow_dispatch:
+permissions: { contents: read }
+concurrency: { group: ci-${{ github.ref }}, cancel-in-progress: true }
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+  BEEZIP_GIT_SHA: ${{ github.sha }}
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    defaults: { run: { shell: bash } }   # bash -e: a failing first line fails the step (pwsh only checks the last exit code)
+    steps:
+      - uses: actions/checkout@v7
+      - run: rustup toolchain install    # reads rust-toolchain.toml
+      - uses: Swatinem/rust-cache@v2
+      - uses: pnpm/action-setup@v6
+        with: { package_json_file: apps/desktop/package.json }
+      - uses: actions/setup-node@v7
+        with: { node-version: 24, cache: pnpm, cache-dependency-path: apps/desktop/pnpm-lock.yaml }
+
+      - name: rustfmt
+        run: cargo fmt --all --check
+      - name: Generated TS bindings are current
+        run: |
+          cargo xtask codegen
+          git diff --exit-code -- apps/desktop/src/gen
+      - name: clippy
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - name: test
+        run: cargo test --workspace --locked
+      - uses: taiki-e/install-action@v2    # cargo-deny-action is a Docker action, so Linux-only
+        with: { tool: cargo-deny@0.20.2 }
+      - name: cargo-deny
+        run: cargo deny check
+      - name: pnpm install
+        working-directory: apps/desktop
+        run: pnpm install --frozen-lockfile
+      - name: Tauri build smoke test (runs tsc + vite build via beforeBuildCommand)
+        working-directory: apps/desktop
+        run: pnpm tauri build --debug --no-bundle
+
+  linux:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test --locked -p beezip-core -p beezip-commands -p beezip-mcp -p beezip-cli

@@ -111,9 +111,10 @@ pub trait Command: Send + Sync + 'static {
     const EFFECT: Effect;            // ReadOnly | Writes | Destructive | System  (→ MCP hints, sandbox, UI confirms)
     const SURFACES: Surfaces = Surfaces::ALL;  // front ends that expose it (entry.open, shell.* are hidden from MCP)
     const CLI: Option<CliSpec> = None;         // generated subcommand name + aliases, e.g. "extract" / ["x"]
-    type Input:  DeserializeOwned + JsonSchema + clap::Args + ts_rs::TS; // ONE struct for all front ends
-    type Output: Serialize + JsonSchema + ts_rs::TS;
+    type Input:  Serialize + DeserializeOwned + JsonSchema + clap::Args + ts_rs::TS; // ONE struct for all front ends
+    type Output: Serialize + DeserializeOwned + JsonSchema + ts_rs::TS;
     fn run(input: Self::Input, cx: &mut JobCtx) -> Result<Self::Output, CmdError>;
+    fn human(output: &Self::Output) -> Option<String> { None }  // CLI `--output human`; None = pretty JSON
 }
 ```
 - **Registry:** a `Registry` holds type-erased entries (`name`, doc, effect, input/output JSON schema from schemars 1.x, `run(Value) -> Value`). Doc comments on the Input struct become the clap help, the MCP tool description and the TS docs. The registry reads the doc once, from the schemars `description`, and passes it to all three.
@@ -253,7 +254,8 @@ Crate versions were checked on 2026-11-01. Churny crates are pinned exactly behi
 
 Formats that are known not to be supported (or only partly): split/spanned ZIP (.z01) in v1 (not supported by `zip`; reading them may come later via `VolumeSet` + offset fix-up), writing LZMA/Deflate64 inside ZIP, and BCJ2 is read-only.
 
-`cargo-deny` allowlist: MIT, Apache-2.0, BSD-2/3, ISC, Zlib, Unicode-3.0, bzip2-1.0.6. GPL and LGPL are denied.
+`cargo-deny` allowlist: MIT, Apache-2.0, Apache-2.0 WITH LLVM-exception (`target-lexicon`, a Linux build dependency of Tauri; the exception only adds permissions), BSD-2/3, ISC, Zlib, Unicode-3.0, bzip2-1.0.6. GPL and LGPL are denied.
+- **Advisories:** vulnerabilities always fail. Unmaintained-crate advisories only fail for our direct dependencies (`unmaintained = "workspace"`); Tauri 2.12's tree alone carries four (`proc-macro-error`, `zbus_names`, `zvariant`, `zvariant_derive`) that nothing here can fix.
 - **MPL-2.0 is not on the allowlist**, but Tauri 2.12 itself depends on five MPL-2.0 crates (checked 2026-11-01):
   - `option-ext`, via dirs-sys ← dirs ← tauri;
   - `cssparser`, `cssparser-macros`, `dtoa-short` and `selectors`, via dom_query ← tauri-utils.
