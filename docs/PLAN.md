@@ -3,7 +3,7 @@
 ## Context
 BeeZip is a Windows-first desktop archive manager (Tauri 2 + React) that opens, reads and writes the mainstream compression formats and reaches the long tail through optional backends. It must also run fully headless. The CLI and the MCP server are **not** extra features bolted on: the GUI, the CLI and MCP are three thin front ends over one **command engine**, so all three always offer the same features.
 
-`C:\Users\narsh\Projects\CompressionUI` is empty, so nothing exists to reuse yet. Available toolchain: rustc/cargo 1.99.1 and Node 24. pnpm is missing; enable it with `corepack enable pnpm`.
+`C:\Users\narsh\Projects\CompressionUI` was empty when this plan was written, so there was nothing to reuse. Available toolchain: rustc/cargo 1.99.1 and Node 24. pnpm is missing. Node is installed under `C:\Program Files\nodejs`, which non-admin users can't write to, so run `corepack enable pnpm` once from an elevated terminal (or use `corepack enable pnpm --install-directory <dir on PATH>`). The pnpm version is pinned by `packageManager` in `apps/desktop/package.json`, which CI's `pnpm/action-setup` also reads. Node 25+ no longer ships corepack.
 
 **Decisions taken from your answers:**
 - **Formats:** native Rust crates for the mainstream formats, with optional backends for the long tail.
@@ -19,13 +19,17 @@ BeeZip is a Windows-first desktop archive manager (Tauri 2 + React) that opens, 
 | Product / window title | BeeZip |
 | Rust crates | `beezip-core`, `beezip-commands`, `beezip-mcp`, `beezip-cli`, `beezip-shell`, `beezip-desktop` (Tauri) |
 | CLI binary | `beezip.exe`, installed to `<installdir>\bin\` and added to PATH. Optional later: a short alias `bzx` as a tiny forwarding shim in `bin\`. **Avoid** these names: `bz` (Bandizip's CLI, which has the same `x`/`c`/`t`/`l` subcommands), `bzr` (Bazaar), `bzz` (DjVuLibre) and `bzp` (appears as a malware filename) |
-| GUI binary | `BeeZip.exe` at `<installdir>\` |
+| GUI binary | `BeeZip.exe` at `<installdir>\` (installed name; the Cargo bin is `beezip-desktop`, see below) |
 | MCP server | `beezip mcp` (server name `beezip`) |
 | Tauri identifier | `app.beezip.desktop` |
 | Config | `%APPDATA%\BeeZip\config.toml` |
 | Explorer menu | "BeeZip ▸", registry verb key `BeeZip`, `beezip_shell_<ver>.dll`, `beezip-sparse.msix` |
 
 - **Why two folders:** Windows file names are case-insensitive, so `BeeZip.exe` and `beezip.exe` can't share a folder. The CLI therefore lives in `bin\`, which is the only folder added to PATH.
+- **The same clash exists in `target/`.** Tauri 2 names the GUI binary after the Cargo bin (`beezip-desktop.exe`), not after `productName`. The only override is `mainBinaryName`, which `tauri build` applies as an `fs::rename` inside `target/<profile>/`. That folder also holds the CLI's `beezip.exe`. On NTFS the rename replaces the CLI, and a later `cargo build -p beezip-cli` overwrites the GUI. So:
+  - `mainBinaryName` stays unset during development.
+  - Packaging (M3) builds the installer's CLI with its own `--target-dir` and stages it as `bin\beezip.exe` through `bundle.resources`. Only then does it set `mainBinaryName = "BeeZip"`.
+  - An `xtask dist` runs these steps in order.
 - **Domains:** beezip.app and beezip.dev were unregistered as of 2026-11-01. beezip.com has been registered since 2000 and appears parked.
 
 ---
@@ -48,7 +52,7 @@ BeeZip is a Windows-first desktop archive manager (Tauri 2 + React) that opens, 
 ### Workspace layout
 ```
 Cargo.toml                    # workspace; exact-pinned versions for churny crates
-rust-toolchain.toml           # 1.99
+rust-toolchain.toml           # 1.99.1 (exact; "1.99" makes rustup fetch a second toolchain)
 deny.toml                     # cargo-deny license allowlist
 crates/beezip-core/           # format engine (sync Read/Write/Seek; no tokio)
   src/{detect,codec/*,format/*,backend/*,safefs,volume,progress,error}.rs
@@ -104,21 +108,23 @@ tests/fixtures/               # reference archives + manifest.json (entries + ha
 ```rust
 pub trait Command: Send + Sync + 'static {
     const NAME: &'static str;        // "archive.extract"
-    const EFFECT: Effect;            // ReadOnly | Writes | Destructive  (→ MCP hints, sandbox, UI confirms)
+    const EFFECT: Effect;            // ReadOnly | Writes | Destructive | System  (→ MCP hints, sandbox, UI confirms)
+    const SURFACES: Surfaces = Surfaces::ALL;  // front ends that expose it (entry.open, shell.* are hidden from MCP)
+    const CLI: Option<CliSpec> = None;         // generated subcommand name + aliases, e.g. "extract" / ["x"]
     type Input:  DeserializeOwned + JsonSchema + clap::Args + ts_rs::TS; // ONE struct for all front ends
     type Output: Serialize + JsonSchema + ts_rs::TS;
     fn run(input: Self::Input, cx: &mut JobCtx) -> Result<Self::Output, CmdError>;
 }
 ```
-- **Registry:** a `Registry` holds type-erased entries (`name`, doc, effect, input/output JSON schema from schemars 1.x, `run(Value) -> Value`). Doc comments on the Input struct become the clap help, the MCP tool description and the TS docs.
-- **Engine:** `Engine::invoke(name, args, Interactor) -> JobHandle`. The handle has an id, an event stream, `cancel()` and `result()`. Jobs are listed and can be cancelled.
+- **Registry:** a `Registry` holds type-erased entries (`name`, doc, effect, input/output JSON schema from schemars 1.x, `run(Value) -> Value`). Doc comments on the Input struct become the clap help, the MCP tool description and the TS docs. The registry reads the doc once, from the schemars `description`, and passes it to all three.
+- **Engine:** `Engine::invoke(name, args, Interactor) -> JobHandle`. The handle has an id, an event stream, `cancel()` and `result()`. Jobs are listed and can be cancelled. Each job's `run` is wrapped in `catch_unwind`, so a panic in a decoder becomes `CmdError::Internal` instead of taking down the GUI or the MCP server. This is why every profile keeps `panic = "unwind"`, including the release profile the Tauri template sets to `abort`.
 - **`JobEvent`:** `Started | Progress{bytes_done,bytes_total,entries_done,entries_total,current} | Log | Prompt{id, Password|Overwrite{..}} | Finished{output} | Failed{CmdError} | Cancelled`.
 - **`Interactor`:** each front end answers prompts its own way:
   - **CLI:** TTY prompt, or fail with a flag hint when not interactive.
   - **GUI:** event out, then a `cmd_respond` call back in.
   - **MCP:** elicitation if the client supports it; otherwise a structured `PasswordRequired` error telling the model which parameter to pass.
 - **`Policy`:** sandbox roots, read_only, limits, default overwrite policy. The engine enforces it before any command runs (path resolution checks the canonicalised parent, so junction and symlink escapes are caught).
-- **`CmdError`:** stable codes. These are `NotFound`, `UnsupportedFormat`, `UnsupportedOperation`, `PasswordRequired`, `WrongPassword`, `Corrupt`, `OutsideSandbox`, `Conflict`, `LimitExceeded`, `Cancelled`, `BackendUnavailable` and `Io`. Each code maps to a CLI exit code, to MCP `isError` + structuredContent, and to a UI toast.
+- **`CmdError`:** stable codes. These are `NotFound`, `UnsupportedFormat`, `UnsupportedOperation`, `PasswordRequired`, `WrongPassword`, `Corrupt`, `OutsideSandbox`, `Conflict`, `LimitExceeded`, `Cancelled`, `BackendUnavailable`, `Io`, `InvalidArgs` (arguments that fail to deserialise or validate, from `beezip run --json` or MCP) and `Internal` (a caught panic or bug). Each code maps to a CLI exit code, to MCP `isError` + structuredContent, and to a UI toast.
 - **Config:** `%APPDATA%\BeeZip\config.toml`, shared by the GUI, the CLI and MCP. It holds default levels, the overwrite policy, the 7-Zip path, MCP roots and limits. The settings commands read and write it.
 - **Index cache:** an LRU of parsed archive indexes keyed by (path, size, mtime). Commands stay stateless, which suits MCP and the CLI, and the GUI can still page through a 1M-entry archive quickly.
 
@@ -155,7 +161,10 @@ pub trait Command: Send + Sync + 'static {
   - **Transport:** stdio first; streamable HTTP on 127.0.0.1 (axum) later.
 - **Desktop (Tauri 2.12.x, staying off the 3.0 alpha):**
   - **IPC:** exactly four Tauri commands: `cmd_run(name, args, Channel<JobEvent>) -> JobId`, `cmd_cancel`, `cmd_respond` and `cmd_list`.
-  - **TS types:** `xtask codegen` uses ts-rs, which is stable; tauri-specta is still an RC. It writes `src/gen/commands.ts`, a typed `CommandMap` so that `run("archive.extract", {...})` is fully typed. CI fails if the generated file is stale.
+  - **TS types:** `xtask codegen` uses ts-rs, which is stable; tauri-specta is still an RC. It writes `src/gen/commands.ts`, a typed `CommandMap` so that `run("archive.extract", {...})` is fully typed. CI fails if the generated file is stale. Codegen details:
+      - It uses ts-rs 12 with `Config::with_large_int("number")`, because the wire format is JSON numbers.
+      - Types don't use `#[ts(export)]`, so `cargo test` writes no files.
+      - The full pipeline is described in [`docs/M0.md`](M0.md) §4.
   - **Libraries:** React 19 + Vite + TS, TanStack Table + Virtual (large archives), Zustand, Tailwind + Radix/shadcn, lucide.
   - **Screens and features:**
     - archive browser: folder tree, virtualised entry table, breadcrumb;
@@ -171,7 +180,7 @@ pub trait Command: Send + Sync + 'static {
     - `bundle.fileAssociations` for every readable extension;
     - `tauri-plugin-single-instance` forwards files to the running window;
     - `tauri-plugin-dialog` and `tauri-plugin-opener`;
-    - NSIS installer that installs `BeeZip.exe` and `bin\beezip.exe`, and adds `bin\` to PATH;
+    - NSIS installer that installs `BeeZip.exe` and `bin\beezip.exe` (the CLI is staged separately; see Naming), and adds `bin\` to PATH;
     - a **job mode**, `BeeZip.exe --job <args.json>`, which opens a compact progress window. If the main app isn't running, the window exits when the job finishes; if it is, single-instance forwards the job to the running app. Explorer menu actions launch through this.
 
 ### Explorer context-menu integration (Windows 11 modern menu + classic menu)
@@ -198,7 +207,10 @@ pub trait Command: Send + Sync + 'static {
   - It does not depend on beezip-core. Deciding whether an item applies uses only the file extension (the list is configurable).
   - Settings come from a small registry value that `settings.set` mirrors, so the DLL never parses TOML.
   - `GetState` returns `ECS_HIDDEN` for items that don't apply.
-  - It never panics across the FFI boundary: there's a `catch_unwind` wrapper, and `panic=abort` is set for the cdylib.
+  - It never lets a panic cross the FFI boundary: every COM method body runs inside `catch_unwind` and returns `E_UNEXPECTED` if it panics. The build keeps `panic = "unwind"`, for three reasons:
+  - with `abort`, `catch_unwind` catches nothing, and a panic would kill explorer.exe;
+  - Cargo can't set `panic` per package anyway;
+  - since Rust 1.81, a panic that escapes an `extern "system"` function aborts the process.
   - Icons are taken from `BeeZip.exe,N`.
 - **Install, upgrade and uninstall** happen in the NSIS `installerHooks` (Tauri `bundle.windows.nsis`), which call `beezip shell install|uninstall`, so the CLI owns the logic.
   - The DLL file name includes the version (`beezip_shell_<ver>.dll`) so an upgrade doesn't fight Explorer's lock on the old file.
@@ -236,25 +248,33 @@ Crate versions were checked on 2026-11-01. Churny crates are pinned exactly behi
 | DMG (UDIF) | ✓ | ✓ | `udif` 0.4 | M5 |
 | ARJ, ACE, ARC, ZOO, HA, UC2, Amiga LZX… | ✓ | ✗ | `unarc-rs` (**license to be checked before adopting**) | M6 |
 | WIM, CHM, MSI, NSIS, VHD(X), VMDK, QCOW2, HFS/APFS, NTFS/FAT/EXT images, UDF, CramFS… | ✓ | ✗ | `SevenZipCli` backend: finds an installed `7z.exe` (configurable path) and parses `7z l -slt`. Extraction goes to a staging dir, then through `FsSink` safety | M6 |
-| XAR/pkg | ✓ | ? | evaluate `zar` (MIT; skip apple-xar, which is MPL) | M6 |
+| XAR/pkg | ✓ | ? | evaluate `zar` (MIT) first; apple-xar (MPL-2.0) is acceptable with a per-crate cargo-deny exception if needed | M6 |
 | libarchive (everything it reads or writes) | ✓ | some | `libarchive2` behind cargo feature `libarchive`, **off** by default (needs vcpkg/CMake on MSVC) | optional |
 
 Formats that are known not to be supported (or only partly): split/spanned ZIP (.z01) in v1 (not supported by `zip`; reading them may come later via `VolumeSet` + offset fix-up), writing LZMA/Deflate64 inside ZIP, and BCJ2 is read-only.
 
-`cargo-deny` allowlist: MIT, Apache-2.0, BSD-2/3, ISC, Zlib, Unicode-3.0, bzip2-1.0.6. The only exception is the UnRAR license (`unrar_sys`). GPL, LGPL and MPL are denied.
+`cargo-deny` allowlist: MIT, Apache-2.0, BSD-2/3, ISC, Zlib, Unicode-3.0, bzip2-1.0.6. GPL and LGPL are denied.
+- **MPL-2.0 is not on the allowlist**, but Tauri 2.12 itself depends on five MPL-2.0 crates (checked 2026-11-01):
+  - `option-ext`, via dirs-sys ← dirs ← tauri;
+  - `cssparser`, `cssparser-macros`, `dtoa-short` and `selectors`, via dom_query ← tauri-utils.
+- These crates get per-crate exceptions and are listed in `THIRD_PARTY_NOTICES`. MPL is file-level copyleft, so using them unmodified in an MIT/Apache app is fine. Any new MPL crate still fails the check until it gets its own exception.
+- The UnRAR license (`unrar_sys`) gets an exception in M3.
+- On the Windows runner, cargo-deny runs as an installed binary, because `cargo-deny-action` is a Docker action and only runs on Linux.
 
 ---
 
 ## 3. Milestones
 After approval I implement **M0 + M1** and then stop for your review before going further.
 
-- **M0 — Scaffold.**
-  - `git init`, the workspace above, `rust-toolchain.toml`, and the Tauri 2 + React app shell (`pnpm create tauri-app`, React-TS template, productName `BeeZip`, identifier `app.beezip.desktop`).
-  - `xtask`, `deny.toml`, and GitHub Actions on `windows-latest` running fmt, clippy `-D warnings`, test, deny and the codegen staleness check. An ubuntu job runs core/cli tests and fuzzing so the code stays portable.
+- **M0 — Scaffold.** Detailed plan: [`docs/M0.md`](M0.md).
+  - The workspace above, `rust-toolchain.toml`, and the Tauri 2 + React app shell (`pnpm create tauri-app`, React-TS template, productName `BeeZip`, identifier `app.beezip.desktop`). The git repo already exists; rename `master` to `main` before adding a remote.
+  - `xtask`, `deny.toml`, and GitHub Actions on `windows-latest` running fmt, clippy `-D warnings`, test, deny, the codegen staleness check and a Tauri build smoke test. An ubuntu job runs the core/commands/mcp/cli tests so the code stays portable.
+  - One command, `app.version`, wired end to end: `beezip version`, `beezip run app.version`, Tauri `cmd_run` shown in the UI, and MCP `tools/list`.
 - **M1 — Engine + CLI.**
   - **beezip-core:** detection, all M1 codecs, the ZIP and TAR formats, the codec-chain composition, `SafeFs`, progress and cancel.
   - **beezip-commands:** registry, engine, policy, config, and the commands `formats.list`, `file.detect`, `archive.{info,list,test,extract,create}`, `entry.read` and `stream.{compress,decompress}`.
   - **beezip-cli:** generated subcommands, `run`/`commands`/`schema`, the output modes and progress bars.
+  - **Fuzzing:** a separate scheduled Linux workflow on nightly (`cargo +nightly fuzz`), because cargo-fuzz needs nightly and the pinned toolchain is stable.
 - **M2 — MCP.**
   - `beezip-mcp` builds its tool list dynamically from the registry, with sandbox roots, read-only mode, progress, cancellation, elicitation and paging.
   - Docs for `claude mcp add beezip -- beezip mcp --root <dir>` and Claude Desktop config.
@@ -281,7 +301,7 @@ After approval I implement **M0 + M1** and then stop for your review before goin
 - **Fixtures:** `tests/fixtures/` holds reference archives made by 7-Zip, WinRAR, Info-ZIP, Windows "Compressed folder", GNU tar/bsdtar and macOS ditto. `manifest.json` records the expected entries and SHA-256 hashes. `xtask gen-fixtures` regenerates the synthetic ones.
 - **Interop:** Windows CI runners already have 7-Zip, so CI runs `7z t` on every archive we produce, and we read every archive 7-Zip produces.
 - **Malicious corpus:** zip-slip, absolute/UNC paths, reserved names, ADS names, symlink escapes, overlapping-entry zip bomb, deep nesting. Each one must be rejected with the correct `CmdError`.
-- **Fuzzing:** cargo-fuzz targets for detection and each pure-Rust reader, run in the Linux CI job on a schedule.
+- **Fuzzing:** cargo-fuzz targets for detection and each pure-Rust reader, run on a schedule in a separate Linux workflow on nightly.
 - **CLI:** `trycmd` snapshot tests. Smoke test: `beezip formats`, `beezip create t.tar.zst src -l 19`, `beezip test t.tar.zst`, `beezip x t.tar.zst -o out`, `beezip run archive.list --json "{\"path\":\"t.tar.zst\"}" --output json`.
 - **Parity test:** for every command in the registry:
   - it can be called through `beezip run`;
@@ -307,7 +327,7 @@ After approval I implement **M0 + M1** and then stop for your review before goin
 - **Solid archives and random access:** previews use the index cache plus a temp extraction cache, and `FormatCaps.random_access` tells the UI when a preview will be slow.
 - **Native drag-out to Explorer from the webview:** stretch goal (M6). The fallback is "Extract to…" plus dragging out a temp extraction.
 - **The Win11 menu needs package identity and a trusted signature.** Unsigned dev builds only get the classic menu until `xtask dev-cert` has been run. Releases need a real certificate.
-- **A shell extension crashing takes Explorer down with it.** Mitigations: keep the DLL tiny and free of beezip-core, `catch_unwind` + `panic=abort`, no file I/O in `GetState`, and fuzz the selection-to-items logic.
+- **A shell extension crashing takes Explorer down with it.** Mitigations: keep the DLL tiny and free of beezip-core, `catch_unwind` in every COM method (with `panic = "unwind"`), no file I/O in `GetState`, and fuzz the selection-to-items logic.
 - **The name:**
   - BeeZip is one letter away from **BreeZip**, an existing open-source Windows archiver. Use distinct bee-themed branding and run a trademark search before the first public release.
   - beezip.com is taken, so use beezip.app as the primary domain. Register beezip.app and beezip.dev soon.
