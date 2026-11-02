@@ -267,7 +267,7 @@ Formats that are known not to be supported (or only partly): split/spanned ZIP (
 After approval I implement **M0 + M1** and then stop for your review before going further.
 
 - **M0 — Scaffold.** Detailed plan: [`docs/M0.md`](M0.md).
-  - The workspace above, `rust-toolchain.toml`, and the Tauri 2 + React app shell (`pnpm create tauri-app`, React-TS template, productName `BeeZip`, identifier `app.beezip.desktop`). The git repo already exists; rename `master` to `main` before adding a remote.
+  - The workspace above, `rust-toolchain.toml`, and the Tauri 2 + React app shell (`pnpm create tauri-app`, React-TS template, productName `BeeZip`, identifier `app.beezip.desktop`). The git repo already exists; its default branch is `master`.
   - `xtask`, `deny.toml`, and GitHub Actions on `windows-latest` running fmt, clippy `-D warnings`, test, deny, the codegen staleness check and a Tauri build smoke test. An ubuntu job runs the core/commands/mcp/cli tests so the code stays portable.
   - One command, `app.version`, wired end to end: `beezip version`, `beezip run app.version`, Tauri `cmd_run` shown in the UI, and MCP `tools/list`.
 - **M1 — Engine + CLI.**
