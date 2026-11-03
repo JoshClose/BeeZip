@@ -23,7 +23,7 @@ rmcp = { workspace = true, features = ["client"] }
 schemars.workspace = true
 serde.workspace = true
 tempfile.workspace = true
-tokio = { workspace = true, features = ["io-util", "rt-multi-thread"] }
+tokio = { workspace = true, features = ["io-util"] }
 ts-rs.workspace = true
 
 [lints]
