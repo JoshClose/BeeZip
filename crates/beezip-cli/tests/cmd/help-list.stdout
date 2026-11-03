@@ -25,7 +25,7 @@ Options:
           Entries to skip, for paging
 
       --limit <LIMIT>
-          At most this many entries
+          At most this many entries (over MCP, at most 500)
 
   -p, --password <PASSWORD>
           The password, if entry names need one
