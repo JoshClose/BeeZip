@@ -1,0 +1,266 @@
+//! Third-party fixtures (docs/M1.md §6): archives made by 7-Zip, GNU tar, bsdtar and .NET, as
+//! recorded in `tests/fixtures/manifest.json` by `make-thirdparty.ps1`. Each must be detected
+//! as its chain, list its entries, extract to the right bytes, and pass its integrity test.
+
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
+use std::{
+    fs,
+    io::Read,
+    path::{Path, PathBuf},
+    time::{Duration, UNIX_EPOCH},
+};
+
+use beezip_core::{
+    EntryKind, FsOptions, Limits, OpenOptions, OverwritePolicy, Selection, SimpleCtx, SkipReason,
+    detect_path, format::normalize, open, ops,
+};
+use serde_json::Value;
+use sha2::{Digest, Sha256};
+
+fn fixtures() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures")
+}
+
+fn manifest() -> Vec<Value> {
+    let text = fs::read_to_string(fixtures().join("manifest.json")).unwrap();
+    let v: Value = serde_json::from_str(&text).unwrap();
+    v["fixtures"].as_array().unwrap().clone()
+}
+
+fn sha256(data: &[u8]) -> String {
+    Sha256::digest(data)
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect()
+}
+
+fn ctx(fx: &Value) -> SimpleCtx {
+    match fx["password"].as_str() {
+        Some(pw) => SimpleCtx::new().with_password(pw),
+        None => SimpleCtx::new(),
+    }
+}
+
+/// 2026-01-01T00:00:00Z, the time `make-thirdparty.ps1` gives every file.
+const MTIME: u64 = 1_767_225_600;
+
+#[test]
+fn every_fixture_reads_correctly() {
+    let all = manifest();
+    assert_eq!(all.len(), 20, "the manifest lists every fixture");
+    let mut failures = Vec::new();
+    for fx in &all {
+        let file = fx["file"].as_str().unwrap();
+        if let Err(e) = check(fx) {
+            failures.push(format!("{file}: {e}"));
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+fn check(fx: &Value) -> Result<(), String> {
+    let path = fixtures()
+        .join("thirdparty")
+        .join(fx["file"].as_str().unwrap());
+    let expected = fx["entries"].as_array().unwrap();
+
+    // Detection.
+    let det = detect_path(&path, &Limits::default()).map_err(|e| e.to_string())?;
+    let chain = fx["chain"].as_str().unwrap();
+    if det.chain() != chain {
+        return Err(format!("detected `{}`, expected `{chain}`", det.chain()));
+    }
+    if path.extension().is_some_and(|e| e == "exe") != det.sfx {
+        return Err(format!("sfx = {}", det.sfx));
+    }
+
+    // Listing.
+    let mut cx = ctx(fx);
+    let mut opened = open(&path, &OpenOptions::default(), &mut cx).map_err(|e| e.to_string())?;
+    let entries = opened
+        .reader
+        .entries(&mut cx)
+        .map_err(|e| e.to_string())?
+        .to_vec();
+    let count = |pred: fn(&EntryKind) -> bool| entries.iter().filter(|e| pred(&e.kind)).count();
+    let hardlinks = count(|k| matches!(k, EntryKind::Hardlink { .. }));
+    let symlinks = count(|k| matches!(k, EntryKind::Symlink { .. }));
+    if hardlinks as u64 != fx["hardlinks"].as_u64().unwrap()
+        || symlinks as u64 != fx["symlinks"].as_u64().unwrap()
+    {
+        return Err(format!(
+            "{hardlinks} hard links and {symlinks} symlinks listed"
+        ));
+    }
+    for want in expected {
+        let p = want["path"].as_str().unwrap();
+        if p == "*" {
+            continue;
+        }
+        let Some(e) = entries.iter().find(|e| normalize(&e.path) == p) else {
+            return Err(format!("`{p}` isn't listed"));
+        };
+        match (want["kind"].as_str().unwrap(), &e.kind) {
+            ("symlink", EntryKind::Symlink { target }) => {
+                if target != want["target"].as_str().unwrap() {
+                    return Err(format!("`{p}` points at `{target}`"));
+                }
+            }
+            ("file", EntryKind::File) => {
+                if e.size != want["size"].as_u64() {
+                    return Err(format!("`{p}` has size {:?}", e.size));
+                }
+            }
+            ("file", EntryKind::Hardlink { .. }) => {}
+            (k, kind) => return Err(format!("`{p}` is {kind:?}, expected {k}")),
+        }
+    }
+
+    // Reading each file through open_entry.
+    for want in expected.iter().filter(|w| w["kind"] == "file") {
+        let p = want["path"].as_str().unwrap();
+        let id = if p == "*" {
+            0
+        } else {
+            entries
+                .iter()
+                .position(|e| normalize(&e.path) == p)
+                .unwrap()
+        };
+        let mut data = Vec::new();
+        opened
+            .reader
+            .open_entry(id, &mut cx)
+            .and_then(|mut r| {
+                r.read_to_end(&mut data)
+                    .map_err(|e| beezip_core::io::read_error(&e))
+            })
+            .map_err(|e| format!("open_entry `{p}`: {e}"))?;
+        if sha256(&data) != want["sha256"].as_str().unwrap() {
+            return Err(format!("open_entry `{p}` read the wrong bytes"));
+        }
+    }
+
+    // Extraction.
+    let dest = tempfile::tempdir().unwrap();
+    let opts = FsOptions {
+        overwrite: OverwritePolicy::Always,
+        ..FsOptions::default()
+    };
+    let report = ops::extract(
+        &path,
+        dest.path(),
+        &Selection::all(),
+        &OpenOptions::default(),
+        opts,
+        &mut ctx(fx),
+    )
+    .map_err(|e| format!("extract: {e}"))?;
+    let refused: Vec<_> = report
+        .skipped
+        .iter()
+        .filter(|s| s.reason != SkipReason::LinksDisabled)
+        .collect();
+    if !refused.is_empty() || report.skipped.len() != symlinks {
+        return Err(format!("skipped {:?}", report.skipped));
+    }
+    for want in expected.iter().filter(|w| w["kind"] == "file") {
+        let p = want["path"].as_str().unwrap();
+        let file = if p == "*" {
+            let only: Vec<_> = fs::read_dir(dest.path()).unwrap().collect();
+            if only.len() != 1 {
+                return Err(format!("{} files from a compressed file", only.len()));
+            }
+            only.into_iter().next().unwrap().unwrap().path()
+        } else {
+            dest.path().join(p)
+        };
+        let data = fs::read(&file).map_err(|e| format!("{}: {e}", file.display()))?;
+        if sha256(&data) != want["sha256"].as_str().unwrap() {
+            return Err(format!("`{p}` extracted to the wrong bytes"));
+        }
+        if fx["utc_mtimes"].as_bool().unwrap() {
+            let t = fs::metadata(&file).unwrap().modified().unwrap();
+            if t != UNIX_EPOCH + Duration::from_secs(MTIME) {
+                return Err(format!("`{p}` has mtime {t:?}"));
+            }
+        }
+    }
+
+    // Integrity test.
+    let tested = ops::test(
+        &path,
+        &Selection::all(),
+        &OpenOptions::default(),
+        &mut ctx(fx),
+    )
+    .map_err(|e| format!("test: {e}"))?;
+    if !tested.ok() {
+        return Err(format!("test found {:?}", tested.errors));
+    }
+    Ok(())
+}
+
+#[test]
+fn a_damaged_fixture_fails_its_test() {
+    let src = fixtures().join("thirdparty/7z-deflate.zip");
+    let mut bytes = fs::read(src).unwrap();
+    // Flip a byte in the middle of random.bin's data.
+    let name = b"tree/data/random.bin";
+    let header = bytes
+        .windows(4)
+        .enumerate()
+        .filter(|(_, w)| *w == b"PK\x03\x04")
+        .map(|(i, _)| i)
+        .find(|&i| bytes[i + 30..].starts_with(name))
+        .unwrap();
+    let extra = usize::from(u16::from_le_bytes([bytes[header + 28], bytes[header + 29]]));
+    let at = header + 30 + name.len() + extra + 1000;
+    bytes[at] ^= 0xFF;
+    let dir = tempfile::tempdir().unwrap();
+    let damaged = dir.path().join("damaged.zip");
+    fs::write(&damaged, &bytes).unwrap();
+    let report = ops::test(
+        &damaged,
+        &Selection::all(),
+        &OpenOptions::default(),
+        &mut SimpleCtx::new(),
+    )
+    .unwrap();
+    assert!(!report.ok());
+    assert_eq!(report.errors[0].kind, beezip_core::ErrorKind::Corrupt);
+
+    let gz = fs::read(fixtures().join("thirdparty/bsdtar.tar.gz")).unwrap();
+    let cut = dir.path().join("cut.tar.gz");
+    fs::write(&cut, &gz[..gz.len() / 2]).unwrap();
+    let report = ops::test(
+        &cut,
+        &Selection::all(),
+        &OpenOptions::default(),
+        &mut SimpleCtx::new(),
+    )
+    .unwrap();
+    assert!(!report.ok(), "a truncated tar.gz must fail its test");
+}
+
+#[test]
+fn info_reports_methods_and_encryption() {
+    let mut cx = SimpleCtx::new();
+    let path = fixtures().join("thirdparty/7z-aes256.zip");
+    let mut opened = open(&path, &OpenOptions::default(), &mut cx).unwrap();
+    let info = opened.reader.info(&mut cx).unwrap();
+    assert_eq!(info.encryption, beezip_core::Encryption::All);
+    // 7-Zip stores the empty file.
+    assert_eq!(info.methods, ["Deflate", "Store"]);
+
+    let path = fixtures().join("thirdparty/7z-sfx.exe");
+    let mut opened = open(&path, &OpenOptions::default(), &mut cx).unwrap();
+    assert!(opened.reader.info(&mut cx).unwrap().sfx);
+
+    let path = fixtures().join("thirdparty/bsdtar.tar.zst");
+    let mut opened = open(&path, &OpenOptions::default(), &mut cx).unwrap();
+    let info = opened.reader.info(&mut cx).unwrap();
+    assert_eq!(info.codecs, [beezip_core::CodecId::Zstd]);
+    assert!(info.solid);
+}

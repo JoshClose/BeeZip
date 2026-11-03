@@ -1,0 +1,51 @@
+name: Fuzz
+on:
+  schedule:
+    - cron: "23 3 * * *"          # nightly; scheduled runs use the default branch (master)
+  pull_request:
+    paths: ["fuzz/**", "crates/beezip-core/**"]
+  workflow_dispatch:
+permissions: { contents: read }
+# Expressions stay in block style: `${{ }}` inside a `{ }` flow map broke CI once (M0).
+concurrency:
+  group: fuzz-${{ github.ref }}
+  cancel-in-progress: true
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  fuzz:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [detect, zip, tar, codecs, paths]
+    env:
+      SECONDS_PER_TARGET: ${{ github.event_name == 'schedule' && '600' || '60' }}
+    steps:
+      - uses: actions/checkout@v7
+      # cargo-fuzz needs nightly; the repo's rust-toolchain.toml pins stable for everything else.
+      - run: rustup toolchain install nightly --profile minimal
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-fuzz@0.13.2
+      - uses: actions/cache@v6
+        with:
+          path: fuzz/corpus/${{ matrix.target }}
+          key: fuzz-corpus-${{ matrix.target }}-${{ github.run_id }}
+          restore-keys: fuzz-corpus-${{ matrix.target }}-
+      - run: mkdir -p fuzz/corpus/${{ matrix.target }}
+      # libFuzzer reads the seed directories recursively, so all of tests/fixtures seeds it.
+      # The prebuilt cargo-fuzz is a musl binary and defaults --target to its own triple, where
+      # the sanitizer can't link, so the target is explicit.
+      - name: Fuzz ${{ matrix.target }}
+        run: >
+          cargo +nightly fuzz run --target x86_64-unknown-linux-gnu ${{ matrix.target }}
+          fuzz/corpus/${{ matrix.target }} tests/fixtures
+          -- -max_total_time=$SECONDS_PER_TARGET -rss_limit_mb=2048
+      - if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: crash-${{ matrix.target }}
+          path: fuzz/artifacts/${{ matrix.target }}

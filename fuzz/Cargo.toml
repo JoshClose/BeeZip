@@ -1,0 +1,58 @@
+[package]
+name = "beezip-fuzz"
+version = "0.0.0"
+description = "cargo-fuzz targets for beezip-core (docs/M1.md §7)"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+# Its own workspace: cargo-fuzz needs nightly, and the main workspace is pinned to stable.
+[workspace]
+
+[dependencies]
+beezip-core = { path = "../crates/beezip-core" }
+libfuzzer-sys = "0.4.13"
+tempfile = "3.27.0"
+
+[[bin]]
+name = "detect"
+path = "fuzz_targets/detect.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "zip"
+path = "fuzz_targets/zip.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "tar"
+path = "fuzz_targets/tar.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "codecs"
+path = "fuzz_targets/codecs.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "paths"
+path = "fuzz_targets/paths.rs"
+test = false
+doc = false
+bench = false
+
+[profile.release]
+debug = 1
+# As in the main workspace: a decoder panic must stay a panic the fuzzer reports.
+panic = "unwind"
