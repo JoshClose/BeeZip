@@ -336,6 +336,7 @@ version = "0.1.0"
 dependencies = [
  "brotli",
  "bzip2",
+ "crc32fast",
  "file-format",
  "filetime",
  "flate2",

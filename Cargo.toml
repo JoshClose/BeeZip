@@ -51,6 +51,7 @@ zip = { version = "=9.2.2", default-features = false, features = [
 tar        = { version = "0.4.46", default-features = false }
 flate2     = { version = "1.1.10", default-features = false, features = ["zlib-rs"] }
 bzip2      = "0.6.1"
+crc32fast  = "1.5.4"
 lzma-rust2 = "=0.23.0"   # the version zip 9.2.2 requires; a newer one would build a second copy
 zstd       = { version = "0.14.3", default-features = false, features = ["zstdmt"] }
 lz4_flex   = "0.14.0"
@@ -89,3 +90,28 @@ codegen-units = 1
 strip = true
 # panic stays "unwind", NOT the Tauri template's "abort": the engine turns a decoder panic into
 # CmdError::Internal, and beezip-shell must catch_unwind in every COM method (PLAN §1, Explorer).
+
+# The pure-Rust codecs are 10-50x slower unoptimised, which makes the round-trip proptests crawl.
+# Optimise just them (and zstd's C) in dev and test builds; our own crates keep full debug info.
+[profile.dev.package.lzma-rust2]
+opt-level = 3
+[profile.dev.package.brotli]
+opt-level = 3
+[profile.dev.package.brotli-decompressor]
+opt-level = 3
+[profile.dev.package.zlib-rs]
+opt-level = 3
+[profile.dev.package.libbz2-rs-sys]
+opt-level = 3
+[profile.dev.package.lz4_flex]
+opt-level = 3
+[profile.dev.package.snap]
+opt-level = 3
+[profile.dev.package.ppmd-rust]
+opt-level = 3
+[profile.dev.package.deflate64]
+opt-level = 3
+[profile.dev.package.zstd-sys]
+opt-level = 3
+[profile.dev.package.crc32fast]
+opt-level = 3
