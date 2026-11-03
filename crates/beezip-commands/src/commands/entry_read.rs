@@ -31,7 +31,7 @@ pub struct EntryReadInput {
     #[arg(long)]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub offset: Option<u64>,
-    /// At most this many bytes [default: 65536; at most 16 MiB].
+    /// At most this many bytes [default: 65536; at most 16 MiB, or 256 KiB over MCP].
     #[arg(long)]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_bytes: Option<u64>,
@@ -88,6 +88,8 @@ impl Command for EntryRead {
                 "max_bytes is at most {MAX_BYTES_CEILING} (16 MiB)"
             )));
         }
+        // A front end's cap (MCP's 256 KiB) shortens the read; `eof: false` says to read on.
+        let max = max.min(cx.policy().max_read_bytes.unwrap_or(u64::MAX));
         let encoding = input.encoding.unwrap_or_default();
         let offset = input.offset.unwrap_or(0);
         let mut opened = open_archive(&input.archive, input.password.as_ref(), cx)?;

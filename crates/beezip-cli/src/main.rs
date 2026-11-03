@@ -10,6 +10,7 @@ mod progress;
 
 use std::{
     io::{IsTerminal, Read},
+    path::PathBuf,
     process::ExitCode,
     sync::{
         Arc, Mutex,
@@ -18,8 +19,10 @@ use std::{
 };
 
 use beezip_commands::{
-    CancelToken, CmdError, Engine, EngineOptions, ErrorCode, Interactor, Policy, config, registry,
+    CancelToken, CmdError, Engine, EngineOptions, ErrorCode, Interactor, McpConfig, Policy, config,
+    registry,
 };
+use beezip_mcp::{BeeZipServer, McpOptions};
 use clap::{Arg, ArgAction, ArgMatches, value_parser};
 use serde_json::Value;
 
@@ -72,7 +75,37 @@ fn cli() -> clap::Command {
                 .about("Print a command's input and output JSON schemas")
                 .arg(Arg::new("name").required(true).value_name("COMMAND")),
         )
-        .subcommand(clap::Command::new("mcp").about("Serve BeeZip's tools over MCP on stdin/stdout"));
+        .subcommand(
+            clap::Command::new("mcp")
+                .about("Serve BeeZip's tools over MCP on stdin/stdout")
+                .long_about(
+                    "Serve BeeZip's tools over MCP on stdin/stdout.\n\n\
+                     Commands that write files may only write under the --root directories \
+                     (or `[mcp] roots` in config.toml). Without either, MCP clients can read \
+                     archives but not write anything. See docs/MCP.md.",
+                )
+                .arg(
+                    Arg::new("root")
+                        .long("root")
+                        .value_name("DIR")
+                        .action(ArgAction::Append)
+                        .value_parser(value_parser!(PathBuf))
+                        .help("A directory commands may write under; repeatable. Replaces `[mcp] roots`"),
+                )
+                .arg(
+                    Arg::new("read-only")
+                        .long("read-only")
+                        .action(ArgAction::SetTrue)
+                        .help("Offer only the commands that don't write"),
+                )
+                .arg(
+                    Arg::new("unrestricted")
+                        .long("unrestricted")
+                        .action(ArgAction::SetTrue)
+                        .conflicts_with_all(["root", "read-only"])
+                        .help("Let commands write anywhere"),
+                ),
+        );
     generated::add_subcommands(root, registry())
 }
 
@@ -112,8 +145,7 @@ fn dispatch(matches: &ArgMatches, out: &Output) -> Result<(), CmdError> {
             out.schema(entry);
             Ok(())
         }
-        Some(("mcp", _)) => beezip_mcp::serve_stdio_blocking(registry())
-            .map_err(|e| CmdError::internal(format!("MCP server failed: {e:#}"))),
+        Some(("mcp", sub)) => mcp(sub, out),
         Some((subcommand, sub)) => {
             let entry = registry()
                 .by_cli_name(subcommand)
@@ -144,6 +176,42 @@ fn install_ctrl_c() {
             _ => std::process::exit(i32::from(ErrorCode::Cancelled.exit_code())),
         }
     });
+}
+
+/// `beezip mcp`: the flags win over `[mcp]` in the config (docs/M2.md §4). Warnings go to
+/// stderr; stdout carries the protocol.
+fn mcp(sub: &ArgMatches, out: &Output) -> Result<(), CmdError> {
+    let loaded = config::load();
+    for w in &loaded.warnings {
+        out.warn(w);
+    }
+    let config = match &loaded.config {
+        Ok(c) => c.mcp.clone(),
+        Err(e) => {
+            out.warn(&format!("{}; `[mcp]` settings are ignored", e.message));
+            McpConfig::default()
+        }
+    };
+    let mut roots: Vec<PathBuf> = sub
+        .get_many::<PathBuf>("root")
+        .map(|r| r.cloned().collect())
+        .unwrap_or_default();
+    if roots.is_empty() {
+        roots = config.roots;
+    }
+    let options = McpOptions {
+        roots,
+        read_only: sub.get_flag("read-only") || config.read_only,
+        unrestricted: sub.get_flag("unrestricted"),
+        ..McpOptions::default()
+    };
+    let engine = Engine::with_options(
+        registry(),
+        EngineOptions::from_config(loaded.config, Policy::unrestricted()),
+    );
+    let server = BeeZipServer::new(engine, &options)?;
+    beezip_mcp::serve_stdio_blocking(server)
+        .map_err(|e| CmdError::internal(format!("MCP server failed: {e:#}")))
 }
 
 fn run(name: &str, args: Value, out: &Output) -> Result<(), CmdError> {

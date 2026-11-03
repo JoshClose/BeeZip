@@ -2,7 +2,7 @@
 
 A Windows archive manager with a desktop app, a command-line tool (`beezip`) and an MCP server, all driven by one Rust command engine.
 
-> **Status:** milestone M1: the engine and the command line work; the desktop app is still a shell. See [`docs/PLAN.md`](docs/PLAN.md) for the architecture and roadmap, and [`docs/M1.md`](docs/M1.md) for the current milestone.
+> **Status:** milestone M2: the engine, the command line and the MCP server work; the desktop app is still a shell. See [`docs/PLAN.md`](docs/PLAN.md) for the architecture and roadmap, and [`docs/M2.md`](docs/M2.md) for the current milestone.
 
 ## Building
 
@@ -74,7 +74,25 @@ codec = "zstd"             # for `beezip compress`
 max_ratio = 10000
 max_entries = 10000000
 decoder_memory_mib = 1024
+
+[mcp]                      # `beezip mcp`; --root and --read-only override these
+roots = ['C:\Users\you\Unpacked']
+read_only = false
 ```
+
+## MCP server
+
+`beezip mcp` serves the same commands as MCP tools over stdin/stdout, so an assistant such as Claude can list, test, read, extract and create archives. Commands that write may only write under the `--root` directories; reads aren't confined.
+
+```powershell
+claude mcp add beezip -- C:\path\to\beezip.exe mcp --root C:\Users\you\Unpacked
+```
+
+- **Overwrites:** BeeZip asks the user about existing files through the client, where the client supports it.
+- **Passwords:** it never asks for them over MCP; the assistant passes them.
+- **Limits:** a list page holds at most 500 entries, and a read returns at most 256 KiB.
+
+[`docs/MCP.md`](docs/MCP.md) covers Claude Desktop, the MCP Inspector, every tool, and the sandbox rules.
 
 ## License
 

@@ -17,7 +17,7 @@ pub mod wire;
 use std::sync::OnceLock;
 
 pub use command::{CliSpec, Command, Effect, Surfaces};
-pub use config::{Config, LoadedConfig};
+pub use config::{Config, LoadedConfig, McpConfig};
 pub use engine::{Engine, EngineOptions, JobHandle, JobInfo};
 pub use error::{CmdError, ErrorCode};
 pub use job::{

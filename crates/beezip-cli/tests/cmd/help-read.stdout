@@ -18,7 +18,7 @@ Options:
           Where to start, in bytes
 
       --max-bytes <MAX_BYTES>
-          At most this many bytes [default: 65536; at most 16 MiB]
+          At most this many bytes [default: 65536; at most 16 MiB, or 256 KiB over MCP]
 
       --encoding <ENCODING>
           How to return the data [default: text]

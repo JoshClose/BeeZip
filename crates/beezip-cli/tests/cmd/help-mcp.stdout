@@ -1,8 +1,20 @@
-Serve BeeZip's tools over MCP on stdin/stdout
+Serve BeeZip's tools over MCP on stdin/stdout.
+
+Commands that write files may only write under the --root directories (or `[mcp] roots` in
+config.toml). Without either, MCP clients can read archives but not write anything. See docs/MCP.md.
 
 Usage: beezip mcp [OPTIONS]
 
 Options:
+      --root <DIR>
+          A directory commands may write under; repeatable. Replaces `[mcp] roots`
+
+      --read-only
+          Offer only the commands that don't write
+
+      --unrestricted
+          Let commands write anywhere
+
   -h, --help
           Print help (see a summary with '-h')
 

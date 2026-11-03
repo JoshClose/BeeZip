@@ -21,6 +21,10 @@
 //! max_ratio = 10000
 //! max_entries = 10000000
 //! decoder_memory_mib = 1024  # no max_total_bytes = unlimited
+//!
+//! [mcp]                      # `beezip mcp` (docs/M2.md §4)
+//! roots = ['C:\work']        # where it may write; `--root` replaces this list
+//! read_only = false
 //! ```
 
 use std::{
@@ -45,6 +49,16 @@ pub struct Config {
     pub levels: BTreeMap<String, i32>,
     pub stream: StreamConfig,
     pub limits: LimitsConfig,
+    pub mcp: McpConfig,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default, Deserialize)]
+#[serde(default)]
+pub struct McpConfig {
+    /// Directories `beezip mcp` may write under, when no `--root` is given.
+    pub roots: Vec<PathBuf>,
+    /// Refuse every command that writes, as `--read-only` does.
+    pub read_only: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default, Deserialize)]
@@ -156,6 +170,7 @@ const KNOWN: &[(&str, &[&str])] = &[
             "max_total_bytes",
         ],
     ),
+    ("mcp", &["roots", "read_only"]),
 ];
 
 fn unknown_keys(table: &toml::Table) -> Vec<String> {
@@ -273,10 +288,19 @@ codec = "gzip"
 max_ratio = 500
 max_entries = 1000
 decoder_memory_mib = 256
+
+[mcp]
+roots = ['C:\work', '/srv/drop']
+read_only = true
 "#;
         let (c, w) = parse(text);
         let c = c.unwrap();
         assert!(w.is_empty(), "{w:?}");
+        assert_eq!(
+            c.mcp.roots,
+            [PathBuf::from(r"C:\work"), PathBuf::from("/srv/drop")]
+        );
+        assert!(c.mcp.read_only);
         assert_eq!(c.extract.overwrite, OverwritePolicy::Rename);
         assert!(c.extract.links);
         assert_eq!(c.extract.mark_of_the_web, MarkOfTheWeb::None);

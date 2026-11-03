@@ -387,9 +387,17 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "beezip-commands",
+ "clap",
  "rmcp",
+ "schemars 1.2.3",
+ "serde",
  "serde_json",
+ "tempfile",
  "tokio",
+ "tokio-util",
+ "ts-rs",
+ "url",
+ "uuid",
 ]
 
 [[package]]
@@ -3622,6 +3630,7 @@ dependencies = [
  "tokio-stream",
  "tokio-util",
  "tracing",
+ "url",
  "uuid",
 ]
 

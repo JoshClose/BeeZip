@@ -236,7 +236,7 @@ glob?: Array<string>,
  */
 offset?: number,
 /**
- * At most this many entries.
+ * At most this many entries (over MCP, at most 500).
  */
 limit?: number,
 /**
@@ -376,7 +376,7 @@ index?: number,
  */
 offset?: number,
 /**
- * At most this many bytes [default: 65536; at most 16 MiB].
+ * At most this many bytes [default: 65536; at most 16 MiB, or 256 KiB over MCP].
  */
 max_bytes?: number,
 /**
