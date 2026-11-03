@@ -11,6 +11,8 @@ pub mod error;
 pub mod format;
 pub mod io;
 pub mod limits;
+pub mod safefs;
+pub mod sinks;
 pub mod time;
 
 pub use codec::{Codec, CodecId, EncodeOpts, FinishWrite, Levels};
@@ -22,3 +24,5 @@ pub use format::{
     FormatId, NewEntry, NewKind, Selection,
 };
 pub use limits::Limits;
+pub use safefs::{ExtractReport, FsOptions, FsSink, OverwritePolicy, SkipReason};
+pub use sinks::{NullSink, TestReport, TestSink};

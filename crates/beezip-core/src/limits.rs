@@ -156,6 +156,10 @@ impl<R: Read> Guarded<R> {
             budget,
         }
     }
+
+    pub fn into_parts(self) -> (R, RatioGuard) {
+        (self.inner, self.ratio)
+    }
 }
 
 impl<R: Read> Read for Guarded<R> {

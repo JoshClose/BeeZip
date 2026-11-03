@@ -5502,6 +5502,9 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "beezip-commands",
+ "bzip2",
+ "crc32fast",
+ "flate2",
  "ts-rs",
 ]
 

@@ -4,3 +4,6 @@
 *.ico binary
 *.icns binary
 *.png binary
+
+# Archives used as test data: never touch their bytes.
+tests/fixtures/** binary

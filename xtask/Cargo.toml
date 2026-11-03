@@ -1,6 +1,6 @@
 [package]
 name = "xtask"
-description = "BeeZip repo tasks: `cargo xtask codegen`"
+description = "BeeZip repo tasks: `cargo xtask codegen`, `cargo xtask gen-fixtures`"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -10,6 +10,9 @@ publish.workspace = true
 [dependencies]
 anyhow.workspace = true
 beezip-commands.workspace = true
+bzip2.workspace = true
+crc32fast.workspace = true
+flate2.workspace = true
 ts-rs.workspace = true
 
 [lints]
