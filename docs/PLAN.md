@@ -81,28 +81,32 @@ tests/fixtures/               # reference archives + manifest.json (entries + ha
   - `add_raw_from(reader, id) -> bool`, which copies an entry without recompressing it (zip `raw_copy_file`).
   - `finish()`.
 - **`Backend`** groups formats: `Native`, `SevenZipCli` and `Libarchive`. The registry picks a backend for each format and operation using capabilities and priority.
+- **No serialization in core:** core doesn't depend on serde, schemars or ts-rs. `beezip-commands` owns every wire type and converts, so core types can change without changing the API the front ends see.
 - **`Source`** is one of:
   - a file (Read+Seek);
   - a `VolumeSet` (`.001…`, `.7z.001`, `.partN.rar`), which concatenates its parts behind Read+Seek;
   - a decoded stream. When a format needs Seek, as `zip.gz` does, the stream is spooled to a temp file.
 - **Detection:**
-  1. `file-format` crate magic bytes;
-  2. our own compound probing: decode the first 64 KiB of a stream codec and re-probe it, so `tar.zst` is recognised;
+  1. BeeZip's own sniffers, one per format and codec: magic bytes plus a structural check where there is one, such as the tar header checksum;
+  2. compound probing: decode the first 64 KiB of a stream codec and re-probe it, so `tar.zst` is recognised;
   3. a scan for SFX signatures in PE overlays;
   4. extension as a tie-breaker.
-- **`SafeFs` / `FsSink`** is the only code that writes extracted files to disk, whatever the backend. It handles:
-  - **Path checks:** zip-slip, absolute/drive/UNC paths, and Windows reserved names (CON, NUL, COM1…).
-  - **Bad characters:** ADS `:`, trailing dots and spaces, `<>"|?*`.
-  - **Long paths:** `\\?\` prefixes.
+
+  The `file-format` crate only labels files that aren't archives (for example "Portable Network Graphics"). It has no brotli or LZMA-alone signature, and it reports DOCX, JAR and EPUB as their own formats, while BeeZip opens them as ZIP.
+- **`SafeFs` / `FsSink`** is the only code that writes extracted files to disk, whatever the backend. The full rules are in [`docs/M1.md`](M1.md) §3.5. It handles:
+  - **Rewritten paths** (extraction continues, and the rewrite is reported): absolute, drive and UNC prefixes are stripped; `<>:"|?*` and control characters become `_` (which also blocks ADS `:`); trailing dots and spaces become `_`; Windows device names (CON, NUL, COM1…) get a `_` prefix.
+  - **Refused entries** (skipped, then the job fails with `Unsafe`): any `..` component (zip-slip), and any parent that leads outside the destination through a symlink or junction. Each existing directory level is canonicalised and checked before anything is created inside it.
+  - **Long paths:** Rust's std already turns long absolute paths into `\\?\` form on Windows, so SafeFs adds no prefixes itself.
   - **Name collisions:** case-insensitive clashes.
-  - **Links:** symlinks/hardlinks are off by default and only allowed inside the destination.
+  - **Links:** symlinks are off by default. When on, a symlink is allowed only inside the destination and is created after every other entry. Hardlinks are always extracted as copies.
   - **Policies:** overwrite (ask/always/never/rename/newer).
-  - **Bomb limits:** compression ratio, total bytes, entry count, nesting depth.
+  - **Bomb limits:** compression ratio, total bytes, entry count, nesting depth and decoder memory, counted on bytes actually written.
   - **Atomic writes:** `.partial` + rename, with cleanup on cancel.
   - **Metadata:** timestamps and attributes are kept (`filetime`).
+  - **Mark of the Web:** on Windows, the archive's `Zone.Identifier` stream is copied to every extracted file, as Explorer does, so SmartScreen and Office Protected View still apply. It is on by default, and config can turn it off.
   - **Filename encoding:** zip CP437 vs UTF-8, with a codepage override (`encoding_rs`/`oem_cp`).
 - **Progress** comes from a `CountingReader` on the compressed input, so it is reliable, and is throttled to about 10 Hz. **Cancellation** is a shared `CancelToken` that is checked between buffers.
-- **Threading:** core is synchronous. The engine runs each job on a blocking worker pool. Parallelism inside a job comes from the codecs (zstdmt, xz MT, zip rayon writer, parallel extraction of non-solid zips).
+- **Threading:** core is synchronous. The engine runs each job on its own thread rather than a worker pool, because jobs are few and long-running. Parallelism inside a job comes from the codecs (zstdmt, xz MT, and in M6 the zip rayon writer and parallel extraction of non-solid zips).
 
 ### Command engine (`beezip-commands`): the single source of truth
 ```rust
@@ -115,6 +119,7 @@ pub trait Command: Send + Sync + 'static {
     type Output: Serialize + DeserializeOwned + JsonSchema + ts_rs::TS;
     fn run(input: Self::Input, cx: &mut JobCtx) -> Result<Self::Output, CmdError>;
     fn human(output: &Self::Output) -> Option<String> { None }  // CLI `--output human`; None = pretty JSON
+    fn access(input: &Self::Input) -> Vec<Access> { Vec::new() } // paths read/written, checked against Policy before run
 }
 ```
 - **Registry:** a `Registry` holds type-erased entries (`name`, doc, effect, input/output JSON schema from schemars 1.x, `run(Value) -> Value`). Doc comments on the Input struct become the clap help, the MCP tool description and the TS docs. The registry reads the doc once, from the schemars `description`, and passes it to all three.
@@ -124,10 +129,16 @@ pub trait Command: Send + Sync + 'static {
   - **CLI:** TTY prompt, or fail with a flag hint when not interactive.
   - **GUI:** event out, then a `cmd_respond` call back in.
   - **MCP:** elicitation if the client supports it; otherwise a structured `PasswordRequired` error telling the model which parameter to pass.
-- **`Policy`:** sandbox roots, read_only, limits, default overwrite policy. The engine enforces it before any command runs (path resolution checks the canonicalised parent, so junction and symlink escapes are caught).
-- **`CmdError`:** stable codes. These are `NotFound`, `UnsupportedFormat`, `UnsupportedOperation`, `PasswordRequired`, `WrongPassword`, `Corrupt`, `OutsideSandbox`, `Conflict`, `LimitExceeded`, `Cancelled`, `BackendUnavailable`, `Io`, `InvalidArgs` (arguments that fail to deserialise or validate, from `beezip run --json` or MCP) and `Internal` (a caught panic or bug). Each code maps to a CLI exit code, to MCP `isError` + structuredContent, and to a UI toast.
+- **`Policy`:** sandbox roots, read_only, limits, default overwrite policy. The engine enforces it before any command runs, using the paths the command's `access()` declares (path resolution checks the canonicalised parent, so junction and symlink escapes are caught).
+- **`CmdError`:** stable codes, plus an optional `details` value for structured extras (the extract report, per-entry test errors, which limit was hit). The codes are:
+  - `NotFound`, `UnsupportedFormat`, `UnsupportedOperation`, `PasswordRequired`, `WrongPassword`, `Corrupt`, `OutsideSandbox`, `Conflict`, `LimitExceeded`, `Cancelled`, `BackendUnavailable`, `Io`;
+  - `Unsafe`: the archive contains something BeeZip refuses to extract (an unsafe path, a link leaving the destination, overlapping entries). The safe entries are still extracted;
+  - `InvalidArgs`: arguments that fail to deserialise or validate, from `beezip run --json` or MCP;
+  - `Internal`: a caught panic or bug.
+
+  Each code maps to a CLI exit code, to MCP `isError` + structuredContent, and to a UI toast.
 - **Config:** `%APPDATA%\BeeZip\config.toml`, shared by the GUI, the CLI and MCP. It holds default levels, the overwrite policy, the 7-Zip path, MCP roots and limits. The settings commands read and write it.
-- **Index cache:** an LRU of parsed archive indexes keyed by (path, size, mtime). Commands stay stateless, which suits MCP and the CLI, and the GUI can still page through a 1M-entry archive quickly.
+- **Index cache (M3):** an LRU of parsed archive indexes keyed by (path, size, mtime). Commands stay stateless, which suits MCP and the CLI, and the GUI can still page through a 1M-entry archive quickly. It arrives with the GUI browser in M3; until then each command re-reads the index.
 
 ### Command catalog (v1)
 | Command | Effect | Notes |
@@ -135,7 +146,7 @@ pub trait Command: Send + Sync + 'static {
 | `formats.list` | RO | capability matrix (the format/backend table) |
 | `file.detect` | RO | format chain + confidence, e.g. `zstd → tar` |
 | `archive.info` | RO | totals, method, solid, encrypted, volumes, comment |
-| `archive.list` | RO | `path` (dir level), `glob`, `recursive`, `offset/limit` paging |
+| `archive.list` | RO | `dir` (folder inside the archive), `glob`, `flat`, `offset/limit` paging |
 | `archive.test` | RO | CRC/integrity check |
 | `entry.read` | RO | `offset/max_bytes`; text, hex or base64 (for preview and MCP) |
 | `archive.extract` | W | all or selected, `dest`, overwrite policy, password, `strip_components`, `--dry-run` |
@@ -147,6 +158,8 @@ pub trait Command: Send + Sync + 'static {
 | `bench.run` | RO | codecs × levels on a sample, giving ratio/speed table (M6) |
 | `settings.get` / `settings.set` | W | config.toml |
 | `shell.status` / `shell.install` / `shell.uninstall` | System | Explorer menus (`--classic`, `--modern`, per-item toggles). Windows only; GUI/CLI only, hidden from MCP |
+
+Every archive command names the archive file `archive`. The M1 inputs and outputs are specified in [`docs/M1.md`](M1.md) §4.3.
 
 ### Front ends
 - **CLI (`beezip`, clap 4.6):**
@@ -227,11 +240,11 @@ Crate versions were checked on 2026-11-01. Churny crates are pinned exactly behi
 
 | Format | R | W | Implementation | Milestone |
 |---|---|---|---|---|
-| ZIP: deflate, bzip2, zstd, xz, ppmd, AES/ZipCrypto, Zip64 | ✓ | ✓ | `zip` 9.2 (zlib-rs deflate; deflate64/lzma/legacy are read-only) | M1 |
-| TAR (ustar/pax/gnu) | ✓ | ✓ | `tar` 0.4 | M1 |
-| gzip / zlib / raw deflate | ✓ | ✓ | `flate2` + zlib-rs; `gzp` (`deflate_rust`) for parallel gzip | M1 |
+| ZIP: deflate, bzip2, zstd, xz, ppmd, AES/ZipCrypto, Zip64 | ✓ | ✓ | `zip` =9.2.2: deflate through zlib-rs (levels 0–9, no zopfli); PPMd read and write; ZipCrypto writing through zip's `unstable` API; deflate64/lzma/legacy are read-only | M1 |
+| TAR (ustar/pax/gnu) | ✓ | ✓ | `tar` 0.4.46 | M1 |
+| gzip / zlib / raw deflate | ✓ | ✓ | `flate2` + zlib-rs. Raw deflate has no magic or extension, so it is never detected (`--codec deflate` only). Parallel gzip (`gzp`) moves to M6: its defaults build C zlib-ng/libdeflate, and its `deflate_rust` feature uses miniz_oxide rather than zlib-rs | M1 |
 | bzip2 | ✓ | ✓ | `bzip2` 0.6 (pure-Rust libbz2-rs-sys) | M1 |
-| xz / lzma / lzip | ✓ | ✓ | `lzma-rust2` (pure Rust, multithreaded) | M1 |
+| xz / lzma / lzip | ✓ | ✓ | `lzma-rust2` =0.23.0 (pure Rust, multithreaded; the version zip 9.2.2 requires, so only one copy is built) | M1 |
 | zstd | ✓ | ✓ | `zstd` 0.14 (bundled C, zstdmt) | M1 |
 | lz4 / brotli / snappy | ✓ | ✓ | `lz4_flex` / `brotli` / `snap` | M1 |
 | tar.{gz,bz2,xz,zst,lz4,br,lz} | ✓ | ✓ | codec chain composition | M1 |
@@ -254,7 +267,7 @@ Crate versions were checked on 2026-11-01. Churny crates are pinned exactly behi
 
 Formats that are known not to be supported (or only partly): split/spanned ZIP (.z01) in v1 (not supported by `zip`; reading them may come later via `VolumeSet` + offset fix-up), writing LZMA/Deflate64 inside ZIP, and BCJ2 is read-only.
 
-`cargo-deny` allowlist: MIT, Apache-2.0, Apache-2.0 WITH LLVM-exception (`target-lexicon`, a Linux build dependency of Tauri; the exception only adds permissions), BSD-2/3, ISC, Zlib, Unicode-3.0, bzip2-1.0.6. GPL and LGPL are denied.
+`cargo-deny` allowlist: MIT, MIT-0 (`ppmd-rust`, used by zip's PPMd support; MIT without the attribution clause), Apache-2.0, Apache-2.0 WITH LLVM-exception (`target-lexicon`, a Linux build dependency of Tauri; the exception only adds permissions), BSD-2/3, ISC, Zlib, Unicode-3.0, bzip2-1.0.6. GPL and LGPL are denied.
 - **Advisories:** vulnerabilities always fail. Unmaintained-crate advisories only fail for our direct dependencies (`unmaintained = "workspace"`); Tauri 2.12's tree alone carries four (`proc-macro-error`, `zbus_names`, `zvariant`, `zvariant_derive`) that nothing here can fix.
 - **MPL-2.0 is not on the allowlist**, but Tauri 2.12 itself depends on five MPL-2.0 crates (checked 2026-11-01):
   - `option-ext`, via dirs-sys ← dirs ← tauri;
@@ -272,11 +285,11 @@ After approval I implement **M0 + M1** and then stop for your review before goin
   - The workspace above, `rust-toolchain.toml`, and the Tauri 2 + React app shell (`pnpm create tauri-app`, React-TS template, productName `BeeZip`, identifier `app.beezip.desktop`). The git repo already exists; its default branch is `master`.
   - `xtask`, `deny.toml`, and GitHub Actions on `windows-latest` running fmt, clippy `-D warnings`, test, deny, the codegen staleness check and a Tauri build smoke test. An ubuntu job runs the core/commands/mcp/cli tests so the code stays portable.
   - One command, `app.version`, wired end to end: `beezip version`, `beezip run app.version`, Tauri `cmd_run` shown in the UI, and MCP `tools/list`.
-- **M1 — Engine + CLI.**
+- **M1 — Engine + CLI.** Detailed plan: [`docs/M1.md`](M1.md). It lands as two PRs: core first, then commands and CLI.
   - **beezip-core:** detection, all M1 codecs, the ZIP and TAR formats, the codec-chain composition, `SafeFs`, progress and cancel.
   - **beezip-commands:** registry, engine, policy, config, and the commands `formats.list`, `file.detect`, `archive.{info,list,test,extract,create}`, `entry.read` and `stream.{compress,decompress}`.
   - **beezip-cli:** generated subcommands, `run`/`commands`/`schema`, the output modes and progress bars.
-  - **Fuzzing:** a separate scheduled Linux workflow on nightly (`cargo +nightly fuzz`), because cargo-fuzz needs nightly and the pinned toolchain is stable.
+  - **Fuzzing:** a separate Linux workflow on nightly (`cargo +nightly fuzz`), because cargo-fuzz needs nightly and the pinned toolchain is stable. It fuzzes each target for 10 minutes nightly and for 1 minute on PRs that touch core or `fuzz/`.
 - **M2 — MCP.**
   - `beezip-mcp` builds its tool list dynamically from the registry, with sandbox roots, read-only mode, progress, cancellation, elicitation and paging.
   - Docs for `claude mcp add beezip -- beezip mcp --root <dir>` and Claude Desktop config.
@@ -300,11 +313,13 @@ After approval I implement **M0 + M1** and then stop for your review before goin
 
 ## 4. Verification
 - **Unit and round-trip tests** (`cargo test --workspace`): every writable format gets a proptest that creates an archive from a random tree, extracts it and checks the result is byte-identical, including metadata where the format supports it.
-- **Fixtures:** `tests/fixtures/` holds reference archives made by 7-Zip, WinRAR, Info-ZIP, Windows "Compressed folder", GNU tar/bsdtar and macOS ditto. `manifest.json` records the expected entries and SHA-256 hashes. `xtask gen-fixtures` regenerates the synthetic ones.
+- **Fixtures:** `tests/fixtures/` holds reference archives made by other tools. `manifest.json` records the expected entries and SHA-256 hashes, and `xtask gen-fixtures` regenerates the malicious corpus.
+  - **M1:** the tools available on Windows: 7-Zip 26.00, GNU tar 1.35, bsdtar 3.8.9 (Windows `tar.exe`) and .NET (`Compress-Archive`).
+  - **Later:** WinRAR, Info-ZIP and macOS ditto.
 - **Interop:** Windows CI runners already have 7-Zip, so CI runs `7z t` on every archive we produce, and we read every archive 7-Zip produces.
 - **Malicious corpus:** zip-slip, absolute/UNC paths, reserved names, ADS names, symlink escapes, overlapping-entry zip bomb, deep nesting. Each one must be rejected with the correct `CmdError`.
-- **Fuzzing:** cargo-fuzz targets for detection and each pure-Rust reader, run on a schedule in a separate Linux workflow on nightly.
-- **CLI:** `trycmd` snapshot tests. Smoke test: `beezip formats`, `beezip create t.tar.zst src -l 19`, `beezip test t.tar.zst`, `beezip x t.tar.zst -o out`, `beezip run archive.list --json "{\"path\":\"t.tar.zst\"}" --output json`.
+- **Fuzzing:** cargo-fuzz targets for detection, each pure-Rust reader, the codecs and the path sanitiser. They run in a separate Linux workflow on nightly: 10 minutes per target each night, and 1 minute per target on PRs that touch core or `fuzz/`.
+- **CLI:** `trycmd` snapshot tests. Smoke test: `beezip formats`, `beezip create t.tar.zst src -l 19`, `beezip test t.tar.zst`, `beezip x t.tar.zst -o out`, `beezip run archive.list --json "{\"archive\":\"t.tar.zst\"}" --output json`.
 - **Parity test:** for every command in the registry:
   - it can be called through `beezip run`;
   - it appears in MCP `tools/list` with the same schema (MCP-excluded commands aside);
