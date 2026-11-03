@@ -36,7 +36,7 @@ pub struct ArchiveListInput {
     #[arg(long)]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub offset: Option<u64>,
-    /// At most this many entries.
+    /// At most this many entries (over MCP, at most 500).
     #[arg(long)]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub limit: Option<u64>,
@@ -129,7 +129,11 @@ impl Command for ArchiveList {
 
         let total = listing.len() as u64;
         let offset = input.offset.unwrap_or(0).min(total);
-        let limit = input.limit.unwrap_or(u64::MAX);
+        // A front end's cap (MCP's 500) shortens the page; `has_more` says to ask for the next.
+        let limit = input
+            .limit
+            .unwrap_or(u64::MAX)
+            .min(cx.policy().max_list_entries.unwrap_or(u64::MAX));
         let page: Vec<EntryInfo> = listing
             .into_iter()
             .skip(usize::try_from(offset).unwrap_or(usize::MAX))

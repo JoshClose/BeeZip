@@ -18,10 +18,15 @@ pub enum Access {
 pub struct Policy {
     /// Refuse every command that isn't read-only.
     pub read_only: bool,
-    /// When set, writes outside these directories fail with `OutsideSandbox`. MCP sets them in
-    /// M2; the CLI and the GUI don't.
+    /// When set, writes outside these directories fail with `OutsideSandbox`. MCP sets them;
+    /// the CLI and the GUI don't.
     pub roots: Option<Vec<PathBuf>>,
     pub limits: Limits,
+    /// The most entries one `archive.list` page holds, whatever `limit` asks for. For front
+    /// ends that pay for every byte of output, like MCP (docs/M2.md §4).
+    pub max_list_entries: Option<u64>,
+    /// The most bytes one `entry.read` returns, whatever `max_bytes` asks for.
+    pub max_read_bytes: Option<u64>,
 }
 
 impl Policy {
@@ -31,6 +36,8 @@ impl Policy {
             read_only: false,
             roots: None,
             limits: Limits::default(),
+            max_list_entries: None,
+            max_read_bytes: None,
         }
     }
 
@@ -55,12 +62,37 @@ impl Policy {
                 if !roots.iter().any(|r| resolved.starts_with(r)) {
                     return Err(CmdError::new(
                         ErrorCode::OutsideSandbox,
-                        format!("`{}` is outside the allowed roots", path.display()),
+                        format!(
+                            "`{}` is outside the directories this session may write to: {}",
+                            display_path(&resolved),
+                            describe_roots(&roots)
+                        ),
                     ));
                 }
             }
         }
         Ok(())
+    }
+}
+
+/// The roots, for messages: `C:\a, C:\b`, or `none`.
+pub fn describe_roots(roots: &[PathBuf]) -> String {
+    if roots.is_empty() {
+        return "none".to_owned();
+    }
+    roots
+        .iter()
+        .map(|r| display_path(r))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+/// A path as people write it: without the `\\?\` prefix `canonicalize` adds on Windows.
+pub fn display_path(path: &Path) -> String {
+    let s = path.display().to_string();
+    match s.strip_prefix(r"\\?\UNC\") {
+        Some(rest) => format!(r"\\{rest}"),
+        None => s.strip_prefix(r"\\?\").map_or(s.clone(), str::to_owned),
     }
 }
 
@@ -119,8 +151,40 @@ mod tests {
         let escape = Access::Write(dir.path().join("..").join("x.zip"));
         let err = p.check("a.b", Effect::Writes, &[escape]).unwrap_err();
         assert_eq!(err.code, ErrorCode::OutsideSandbox);
+        // The message names the roots, as people write them.
+        let root = display_path(&std::fs::canonicalize(dir.path()).unwrap());
+        assert!(err.message.ends_with(&root), "{}", err.message);
+        assert!(!err.message.contains(r"\\?\"), "{}", err.message);
         // Reads aren't confined by roots.
         let read = Access::Read(PathBuf::from("/elsewhere"));
         assert!(p.check("a.b", Effect::ReadOnly, &[read]).is_ok());
+    }
+
+    #[test]
+    fn no_roots_refuse_every_write() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = Policy {
+            roots: Some(Vec::new()),
+            ..Policy::unrestricted()
+        };
+        let err = p
+            .check(
+                "a.b",
+                Effect::Writes,
+                &[Access::Write(dir.path().join("x"))],
+            )
+            .unwrap_err();
+        assert_eq!(err.code, ErrorCode::OutsideSandbox);
+        assert!(err.message.ends_with(": none"), "{}", err.message);
+    }
+
+    #[test]
+    fn display_path_drops_the_verbatim_prefix() {
+        assert_eq!(display_path(Path::new(r"\\?\C:\work")), r"C:\work");
+        assert_eq!(
+            display_path(Path::new(r"\\?\UNC\server\share")),
+            r"\\server\share"
+        );
+        assert_eq!(display_path(Path::new("/tmp/x")), "/tmp/x");
     }
 }

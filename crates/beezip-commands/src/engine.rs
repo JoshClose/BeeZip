@@ -103,6 +103,11 @@ impl Engine {
         self.inner.registry
     }
 
+    /// The policy jobs run under unless [`Engine::invoke_with_policy`] names another.
+    pub fn policy(&self) -> &Policy {
+        &self.inner.policy
+    }
+
     /// Starts `name` with JSON `args` on a new job.
     ///
     /// Fails straight away only if there is no such command. Everything else, including
@@ -114,6 +119,20 @@ impl Engine {
         args: Value,
         interactor: Arc<dyn Interactor>,
         sink: EventSink,
+    ) -> Result<JobHandle, CmdError> {
+        let policy = Arc::clone(&self.inner.policy);
+        self.invoke_with_policy(name, args, interactor, sink, policy)
+    }
+
+    /// [`Engine::invoke`] under `policy` instead of the engine's. MCP builds one per call,
+    /// since the client's roots can change during a session.
+    pub fn invoke_with_policy(
+        &self,
+        name: &str,
+        args: Value,
+        interactor: Arc<dyn Interactor>,
+        sink: EventSink,
+        policy: Arc<Policy>,
     ) -> Result<JobHandle, CmdError> {
         let entry = self
             .inner
@@ -135,7 +154,17 @@ impl Engine {
         let job_cancel = cancel.clone();
         let thread = std::thread::Builder::new()
             .name(format!("job-{id}"))
-            .spawn(move || execute(&inner, id, run, args, job_cancel, sink, interactor))
+            .spawn(move || {
+                let job = JobSetup {
+                    id,
+                    run,
+                    cancel: job_cancel,
+                    sink,
+                    interactor,
+                    policy,
+                };
+                execute(&inner, job, args)
+            })
             .map_err(|e| {
                 self.inner.jobs().remove(&id);
                 CmdError::internal(format!("could not start a job thread: {e}"))
@@ -170,22 +199,32 @@ impl Engine {
     }
 }
 
-fn execute(
-    inner: &Inner,
+/// Everything a job thread needs besides its arguments.
+struct JobSetup {
     id: JobId,
     run: RunFn,
-    args: Value,
     cancel: CancelToken,
     sink: EventSink,
     interactor: Arc<dyn Interactor>,
-) -> Result<Value, CmdError> {
+    policy: Arc<Policy>,
+}
+
+fn execute(inner: &Inner, job: JobSetup, args: Value) -> Result<Value, CmdError> {
+    let JobSetup {
+        id,
+        run,
+        cancel,
+        sink,
+        interactor,
+        policy,
+    } = job;
     sink(JobEvent::Started { job: id });
     let mut cx = JobCtx::new(
         id,
         cancel.clone(),
         Arc::clone(&sink),
         interactor,
-        Arc::clone(&inner.policy),
+        policy,
         Arc::clone(&inner.config),
     );
     let result = if cancel.is_cancelled() {

@@ -679,6 +679,102 @@ fn read_only_and_roots_policies() {
     r.unwrap();
 }
 
+/// A policy given for one job overrides the engine's, and its caps shorten pages and reads.
+#[test]
+fn per_call_policy_and_its_caps() {
+    let root = tempfile::tempdir().unwrap();
+    let src = root.path().join("src");
+    std::fs::create_dir(&src).unwrap();
+    for i in 0..5 {
+        std::fs::write(src.join(format!("f{i}.txt")), "0123456789").unwrap();
+    }
+    let zip = root.path().join("five.zip");
+    run(
+        "archive.create",
+        json!({ "output": zip, "inputs": [src.join("f0.txt"), src.join("f1.txt"),
+            src.join("f2.txt"), src.join("f3.txt"), src.join("f4.txt")] }),
+    )
+    .unwrap();
+
+    let engine = Engine::new(registry());
+    let capped = Arc::new(Policy {
+        max_list_entries: Some(2),
+        max_read_bytes: Some(4),
+        ..Policy::unrestricted()
+    });
+    let call = |name: &str, args: Value, policy: Arc<Policy>| {
+        engine
+            .invoke_with_policy(
+                name,
+                args,
+                Arc::new(NonInteractive),
+                beezip_commands::discard_events(),
+                policy,
+            )
+            .unwrap()
+            .join()
+    };
+
+    // The cap applies with no limit, and to a larger one; a smaller one still wins.
+    for limit in [None, Some(100), Some(1)] {
+        let mut args = json!({ "archive": zip, "flat": true });
+        if let Some(l) = limit {
+            args["limit"] = json!(l);
+        }
+        let page = call("archive.list", args, Arc::clone(&capped)).unwrap();
+        let want = limit.unwrap_or(100).min(2);
+        assert_eq!(page["entries"].as_array().unwrap().len(), want, "{limit:?}");
+        assert_eq!(page["total"], 5);
+        assert_eq!(page["has_more"], true);
+    }
+    let page = call(
+        "archive.list",
+        json!({ "archive": zip, "flat": true, "offset": 4 }),
+        Arc::clone(&capped),
+    )
+    .unwrap();
+    assert_eq!(page["has_more"], false);
+
+    let read = call(
+        "entry.read",
+        json!({ "archive": zip, "entry": "f0.txt", "max_bytes": 1000 }),
+        Arc::clone(&capped),
+    )
+    .unwrap();
+    assert_eq!(read["data"], "0123");
+    assert_eq!(read["eof"], false);
+    // Past the 16 MiB ceiling is still a mistake, cap or not.
+    let err = call(
+        "entry.read",
+        json!({ "archive": zip, "entry": "f0.txt", "max_bytes": 1u64 << 30 }),
+        Arc::clone(&capped),
+    )
+    .unwrap_err();
+    assert_eq!(err.code, ErrorCode::InvalidArgs);
+
+    // Without caps, the engine's own policy applies.
+    let read = call(
+        "entry.read",
+        json!({ "archive": zip, "entry": "f0.txt" }),
+        Arc::new(engine.policy().clone()),
+    )
+    .unwrap();
+    assert_eq!(read["eof"], true);
+
+    // A per-call read-only policy refuses writes on an engine that allows them.
+    let read_only = Arc::new(Policy {
+        read_only: true,
+        ..Policy::unrestricted()
+    });
+    let err = call(
+        "archive.extract",
+        json!({ "archive": zip, "dest": root.path().join("out") }),
+        read_only,
+    )
+    .unwrap_err();
+    assert_eq!(err.code, ErrorCode::UnsupportedOperation);
+}
+
 #[test]
 fn a_bad_config_fails_the_commands_that_need_it() {
     let (config, _) = Config::parse("[extract]\nlinks = 3\n", Path::new("config.toml"));
