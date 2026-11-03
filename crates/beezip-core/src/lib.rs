@@ -8,11 +8,17 @@ pub mod codec;
 pub mod ctx;
 pub mod detect;
 pub mod error;
+pub mod format;
 pub mod io;
 pub mod limits;
 pub mod time;
 
 pub use codec::{Codec, CodecId, EncodeOpts, FinishWrite, Levels};
 pub use ctx::{Ctx, Meter, MeteredCtx, OverwriteChoice, Progress, SimpleCtx};
+pub use detect::{Confidence, Detection, Layer, LayerKind, Probe, detect_bytes, detect_path};
 pub use error::{Error, ErrorKind, Result};
+pub use format::{
+    ArchiveInfo, ArchiveReader, ArchiveWriter, Encryption, Entry, EntryKind, EntrySink, FormatCaps,
+    FormatId, NewEntry, NewKind, Selection,
+};
 pub use limits::Limits;
