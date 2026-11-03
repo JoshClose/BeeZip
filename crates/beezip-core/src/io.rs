@@ -215,6 +215,26 @@ impl<R: Read> Read for ExactReader<R> {
     }
 }
 
+/// Calls [`Ctx::check`] before every read, for data handed to code with its own copy loop
+/// (the tar and zip writers), so those loops stop on cancel and report progress too.
+pub struct Checked<'a, R> {
+    inner: R,
+    cx: &'a mut dyn Ctx,
+}
+
+impl<'a, R: Read> Checked<'a, R> {
+    pub fn new(inner: R, cx: &'a mut dyn Ctx) -> Self {
+        Self { inner, cx }
+    }
+}
+
+impl<R: Read> Read for Checked<'_, R> {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        self.cx.check().map_err(Error::into_io)?;
+        self.inner.read(buf)
+    }
+}
+
 /// Remembers the first write error, for encoders (brotli) whose `finish` swallows them.
 pub struct LatchWriter<W> {
     inner: W,

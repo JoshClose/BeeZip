@@ -345,6 +345,7 @@ dependencies = [
  "lzma-rust2",
  "memchr",
  "proptest",
+ "serde_json",
  "sha2 0.11.1",
  "snap",
  "tar",

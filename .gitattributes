@@ -6,4 +6,5 @@
 *.png binary
 
 # Archives used as test data: never touch their bytes.
-tests/fixtures/** binary
+tests/fixtures/malicious/** binary
+tests/fixtures/thirdparty/** binary
