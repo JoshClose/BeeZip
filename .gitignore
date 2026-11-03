@@ -12,3 +12,8 @@ dist/
 Thumbs.db
 Desktop.ini
 .DS_Store
+
+# cargo-fuzz
+fuzz/corpus/
+fuzz/artifacts/
+fuzz/coverage/
