@@ -18,6 +18,9 @@ pub enum ErrorCode {
     Cancelled,
     BackendUnavailable,
     Io,
+    /// The archive contains something BeeZip refuses to extract: an unsafe path, a link leading
+    /// out of the destination, or overlapping entries. The safe entries are still extracted.
+    Unsafe,
     /// Arguments that fail to deserialise or validate.
     InvalidArgs,
     /// A caught panic or a bug.
@@ -41,6 +44,7 @@ impl ErrorCode {
             Self::LimitExceeded => 11,
             Self::BackendUnavailable => 12,
             Self::Io => 13,
+            Self::Unsafe => 14,
             Self::Internal => 70,
             Self::Cancelled => 130,
         }
@@ -53,6 +57,12 @@ impl ErrorCode {
 pub struct CmdError {
     pub code: ErrorCode,
     pub message: String,
+    /// Structured extras: the extract report for `Unsafe`, per-entry errors for `Corrupt`
+    /// from `archive.test`, `{ limit, value }` for `LimitExceeded`, `{ param }` for
+    /// `PasswordRequired`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub details: Option<serde_json::Value>,
 }
 
 impl CmdError {
@@ -60,7 +70,14 @@ impl CmdError {
         Self {
             code,
             message: message.into(),
+            details: None,
         }
+    }
+
+    #[must_use]
+    pub fn with_details(mut self, details: serde_json::Value) -> Self {
+        self.details = Some(details);
+        self
     }
 
     pub fn not_found(message: impl Into<String>) -> Self {
@@ -81,5 +98,84 @@ impl CmdError {
 
     pub const fn exit_code(&self) -> u8 {
         self.code.exit_code()
+    }
+}
+
+/// Core errors convert 1:1: each `ErrorKind` is one of these codes (docs/M1.md §3.1).
+impl From<beezip_core::Error> for CmdError {
+    fn from(e: beezip_core::Error) -> Self {
+        use beezip_core::ErrorKind as K;
+        let code = match e.kind {
+            K::NotFound => ErrorCode::NotFound,
+            K::UnsupportedFormat => ErrorCode::UnsupportedFormat,
+            K::UnsupportedOperation => ErrorCode::UnsupportedOperation,
+            K::PasswordRequired => ErrorCode::PasswordRequired,
+            K::WrongPassword => ErrorCode::WrongPassword,
+            K::Corrupt => ErrorCode::Corrupt,
+            K::Unsafe => ErrorCode::Unsafe,
+            K::Conflict => ErrorCode::Conflict,
+            K::LimitExceeded => ErrorCode::LimitExceeded,
+            K::Cancelled => ErrorCode::Cancelled,
+            K::Io => ErrorCode::Io,
+            K::InvalidArgs => ErrorCode::InvalidArgs,
+        };
+        let details = (code == ErrorCode::PasswordRequired)
+            .then(|| serde_json::json!({ "param": "password" }));
+        Self {
+            code,
+            message: e.message,
+            details,
+        }
+    }
+}
+
+/// The other way, for errors that come back to core through the `Ctx` adapter (a prompt that
+/// failed, a cancelled job).
+impl From<CmdError> for beezip_core::Error {
+    fn from(e: CmdError) -> Self {
+        use beezip_core::ErrorKind as K;
+        let kind = match e.code {
+            ErrorCode::NotFound => K::NotFound,
+            ErrorCode::UnsupportedFormat => K::UnsupportedFormat,
+            ErrorCode::UnsupportedOperation | ErrorCode::BackendUnavailable => {
+                K::UnsupportedOperation
+            }
+            ErrorCode::PasswordRequired => K::PasswordRequired,
+            ErrorCode::WrongPassword => K::WrongPassword,
+            ErrorCode::Corrupt => K::Corrupt,
+            ErrorCode::Unsafe | ErrorCode::OutsideSandbox => K::Unsafe,
+            ErrorCode::Conflict => K::Conflict,
+            ErrorCode::LimitExceeded => K::LimitExceeded,
+            ErrorCode::Cancelled => K::Cancelled,
+            ErrorCode::Io | ErrorCode::Internal => K::Io,
+            ErrorCode::InvalidArgs => K::InvalidArgs,
+        };
+        beezip_core::Error::new(kind, e.message)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn details_are_left_out_when_empty() {
+        let e = CmdError::invalid_args("bad");
+        let v = serde_json::to_value(&e).unwrap();
+        assert!(v.get("details").is_none());
+        let back: CmdError = serde_json::from_value(v).unwrap();
+        assert_eq!(back, e);
+        let with = e.with_details(serde_json::json!({ "x": 1 }));
+        assert_eq!(serde_json::to_value(&with).unwrap()["details"]["x"], 1);
+    }
+
+    #[test]
+    fn core_kinds_map_one_to_one() {
+        let e: CmdError = beezip_core::Error::new(beezip_core::ErrorKind::Unsafe, "x").into();
+        assert_eq!(e.code, ErrorCode::Unsafe);
+        assert_eq!(e.exit_code(), 14);
+        let e: CmdError =
+            beezip_core::Error::new(beezip_core::ErrorKind::PasswordRequired, "x").into();
+        assert_eq!(e.details.unwrap()["param"], "password");
     }
 }

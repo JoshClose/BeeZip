@@ -15,13 +15,13 @@ use ts_rs::TS;
 
 use crate::{
     CancelToken, CmdError, ErrorCode, EventSink, Interactor, JobCtx, JobEvent, JobId, Registry,
-    registry::RunFn,
+    config::Config, policy::Policy, registry::RunFn,
 };
 
 /// Runs commands as jobs. Cheap to clone; clones share the job table.
 ///
-/// M0 runs each job on its own thread. A blocking worker pool replaces that once commands do
-/// real work.
+/// Each job runs on its own thread: jobs are few and long, and the codecs bring their own
+/// threads (docs/M1.md §11).
 #[derive(Clone)]
 pub struct Engine {
     inner: Arc<Inner>,
@@ -31,6 +31,36 @@ struct Inner {
     registry: &'static Registry,
     next_id: AtomicU64,
     jobs: Mutex<HashMap<JobId, Running>>,
+    policy: Arc<Policy>,
+    config: Arc<Result<Config, CmdError>>,
+}
+
+/// What the front ends set up once: the config (as loaded when the process started) and the
+/// policy every job runs under.
+#[derive(Debug, Clone)]
+pub struct EngineOptions {
+    /// The config, or why it can't be used; commands that need it fail with that error.
+    pub config: Result<Config, CmdError>,
+    pub policy: Policy,
+}
+
+impl Default for EngineOptions {
+    fn default() -> Self {
+        Self {
+            config: Ok(Config::default()),
+            policy: Policy::unrestricted(),
+        }
+    }
+}
+
+impl EngineOptions {
+    /// The loaded config, with the policy's limits taken from its `[limits]`.
+    pub fn from_config(config: Result<Config, CmdError>, mut policy: Policy) -> Self {
+        if let Ok(c) = &config {
+            policy.limits = c.limits();
+        }
+        Self { config, policy }
+    }
 }
 
 struct Running {
@@ -52,12 +82,19 @@ impl Inner {
 }
 
 impl Engine {
+    /// An engine with the default config and an unrestricted policy.
     pub fn new(registry: &'static Registry) -> Self {
+        Self::with_options(registry, EngineOptions::default())
+    }
+
+    pub fn with_options(registry: &'static Registry, options: EngineOptions) -> Self {
         Self {
             inner: Arc::new(Inner {
                 registry,
                 next_id: AtomicU64::new(1),
                 jobs: Mutex::new(HashMap::new()),
+                policy: Arc::new(options.policy),
+                config: Arc::new(options.config),
             }),
         }
     }
@@ -143,7 +180,14 @@ fn execute(
     interactor: Arc<dyn Interactor>,
 ) -> Result<Value, CmdError> {
     sink(JobEvent::Started { job: id });
-    let mut cx = JobCtx::new(id, cancel.clone(), Arc::clone(&sink), interactor);
+    let mut cx = JobCtx::new(
+        id,
+        cancel.clone(),
+        Arc::clone(&sink),
+        interactor,
+        Arc::clone(&inner.policy),
+        Arc::clone(&inner.config),
+    );
     let result = if cancel.is_cancelled() {
         Err(CmdError::cancelled())
     } else {
@@ -155,6 +199,8 @@ fn execute(
             )))
         })
     };
+    // The last progress update always goes out, before the final event.
+    cx.flush_progress();
     inner.jobs().remove(&id);
     sink(match &result {
         Ok(output) => JobEvent::Finished {

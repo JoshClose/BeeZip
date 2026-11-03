@@ -172,6 +172,7 @@ impl Registry {
 fn run_erased<C: Command>(args: Value, cx: &mut JobCtx) -> Result<Value, CmdError> {
     let input: C::Input = serde_json::from_value(args)
         .map_err(|e| CmdError::invalid_args(format!("invalid arguments for `{}`: {e}", C::NAME)))?;
+    cx.policy().check(C::NAME, C::EFFECT, &C::access(&input))?;
     let output = C::run(input, cx)?;
     serde_json::to_value(output).map_err(|e| {
         CmdError::internal(format!(

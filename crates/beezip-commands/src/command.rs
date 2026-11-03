@@ -2,7 +2,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use ts_rs::TS;
 
-use crate::{CmdError, JobCtx};
+use crate::{CmdError, JobCtx, policy::Access};
 
 /// What a command may do to the outside world. It drives the MCP hints, the sandbox and the
 /// UI's confirmation dialogs.
@@ -63,5 +63,11 @@ pub trait Command: Send + Sync + 'static {
     /// A short rendering for the CLI's `--output human`. `None` prints pretty JSON.
     fn human(_output: &Self::Output) -> Option<String> {
         None
+    }
+
+    /// The paths this input reads and writes. The engine checks them against the job's
+    /// `Policy` before `run` (docs/M1.md §4.1).
+    fn access(_input: &Self::Input) -> Vec<Access> {
+        Vec::new()
     }
 }
