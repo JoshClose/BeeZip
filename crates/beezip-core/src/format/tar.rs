@@ -119,8 +119,181 @@ fn is_meta(t: tar::EntryType) -> bool {
 /// Where a plain tar keeps a contiguous file's bytes: (offset, size).
 type Span = Option<(u64, u64)>;
 
-fn convert<R: Read>(id: usize, e: &mut tar::Entry<'_, R>) -> Entry {
-    let raw = e.path_bytes().into_owned();
+/// A GNU sparse file stored the pax way (`tar --sparse --format=pax`), which the tar crate
+/// doesn't decode: the header names a placeholder (`GNUSparseFile.<pid>/name`), and pax records
+/// give the real name and size. Versions 0.0 and 0.1 put the map of data regions in pax
+/// records; 1.0 puts it at the start of the entry's data.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct PaxSparse {
+    name: Option<String>,
+    size: u64,
+    /// `(offset, length)` of each stored region; `None` for 1.0, whose map is in the data.
+    map: Option<Vec<(u64, u64)>>,
+}
+
+fn pax_sparse<R: Read>(e: &mut tar::Entry<'_, R>) -> Option<PaxSparse> {
+    let exts = e.pax_extensions().ok()??;
+    let (mut major, mut name, mut size, mut map01) = (None, None, None, None);
+    let (mut offsets, mut lengths) = (Vec::new(), Vec::new());
+    let mut any = false;
+    for ext in exts.flatten() {
+        let (Ok(key), Ok(value)) = (ext.key(), ext.value()) else {
+            continue;
+        };
+        let Some(field) = key.strip_prefix("GNU.sparse.") else {
+            continue;
+        };
+        any = true;
+        match field {
+            "major" => major = value.parse::<u32>().ok(),
+            "name" => name = Some(value.to_owned()),
+            "realsize" | "size" => size = value.parse::<u64>().ok(),
+            "map" => map01 = Some(value.to_owned()),
+            "offset" => offsets.extend(value.parse::<u64>().ok()),
+            "numbytes" => lengths.extend(value.parse::<u64>().ok()),
+            _ => {}
+        }
+    }
+    if !any {
+        return None;
+    }
+    let map = if major == Some(1) {
+        None
+    } else if let Some(m) = map01 {
+        let nums: Vec<u64> = m.split(',').filter_map(|n| n.trim().parse().ok()).collect();
+        Some(
+            nums.as_chunks::<2>()
+                .0
+                .iter()
+                .map(|&[o, l]| (o, l))
+                .collect(),
+        )
+    } else {
+        Some(offsets.into_iter().zip(lengths).collect())
+    };
+    Some(PaxSparse {
+        name,
+        size: size.unwrap_or_else(|| e.size()),
+        map,
+    })
+}
+
+/// Expands a pax sparse file: stored regions from `inner`, zeros in between and after.
+struct SparseData<R> {
+    inner: R,
+    /// Regions not yet passed, in order. `None` until a 1.0 map has been read from the data.
+    map: Option<std::collections::VecDeque<(u64, u64)>>,
+    size: u64,
+    pos: u64,
+}
+
+impl<R: Read> SparseData<R> {
+    fn new(inner: R, s: &PaxSparse) -> Self {
+        Self {
+            inner,
+            map: s.map.clone().map(Into::into),
+            size: s.size,
+            pos: 0,
+        }
+    }
+
+    /// The 1.0 map: decimal lines (a count, then offset and length pairs), padded to 512 bytes.
+    fn read_map(&mut self) -> io::Result<std::collections::VecDeque<(u64, u64)>> {
+        let mut consumed = 0u64;
+        let mut line = || -> io::Result<u64> {
+            let mut digits = Vec::new();
+            loop {
+                let mut b = [0u8; 1];
+                self.inner.read_exact(&mut b)?;
+                consumed += 1;
+                match b[0] {
+                    b'\n' => break,
+                    d @ b'0'..=b'9' if digits.len() < 20 => digits.push(d),
+                    _ => return Err(bad_map()),
+                }
+            }
+            std::str::from_utf8(&digits)
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .ok_or_else(bad_map)
+        };
+        let count = line()?;
+        if count > 1 << 20 {
+            return Err(bad_map());
+        }
+        let mut map = std::collections::VecDeque::new();
+        for _ in 0..count {
+            let off = line()?;
+            let len = line()?;
+            map.push_back((off, len));
+        }
+        let pad = (512 - consumed % 512) % 512;
+        io::copy(&mut (&mut self.inner).take(pad), &mut io::sink())?;
+        Ok(map)
+    }
+}
+
+fn bad_map() -> io::Error {
+    io::Error::new(io::ErrorKind::InvalidData, "a damaged sparse-file map")
+}
+
+impl<R: Read> Read for SparseData<R> {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        if self.map.is_none() {
+            let map = self.read_map()?;
+            self.map = Some(map);
+        }
+        if buf.is_empty() || self.pos >= self.size {
+            return Ok(0);
+        }
+        let Some(map) = self.map.as_mut() else {
+            return Ok(0);
+        };
+        while map
+            .front()
+            .is_some_and(|&(off, len)| self.pos >= off.saturating_add(len))
+        {
+            map.pop_front();
+        }
+        let want = buf
+            .len()
+            .min(usize::try_from(self.size - self.pos).unwrap_or(usize::MAX));
+        let n = match map.front().copied() {
+            Some((off, len)) if self.pos >= off => {
+                if off.saturating_add(len) > self.size {
+                    return Err(bad_map());
+                }
+                let n = want.min(usize::try_from(off + len - self.pos).unwrap_or(usize::MAX));
+                let got = self.inner.read(&mut buf[..n])?;
+                if got == 0 {
+                    return Err(io::Error::new(
+                        io::ErrorKind::UnexpectedEof,
+                        "a sparse file's data ends early",
+                    ));
+                }
+                got
+            }
+            Some((off, _)) => {
+                let n = want.min(usize::try_from(off - self.pos).unwrap_or(usize::MAX));
+                buf[..n].fill(0);
+                n
+            }
+            None => {
+                buf[..want].fill(0);
+                want
+            }
+        };
+        self.pos += n as u64;
+        Ok(n)
+    }
+}
+
+fn convert<R: Read>(id: usize, e: &mut tar::Entry<'_, R>) -> (Entry, Option<PaxSparse>) {
+    let sparse = pax_sparse(e);
+    let raw = match sparse.as_ref().and_then(|s| s.name.clone()) {
+        Some(name) => name.into_bytes(),
+        None => e.path_bytes().into_owned(),
+    };
     let path = String::from_utf8_lossy(&raw).into_owned();
     let link = e
         .link_name_bytes()
@@ -145,11 +318,12 @@ fn convert<R: Read>(id: usize, e: &mut tar::Entry<'_, R>) -> Entry {
             .and_then(|s| from_unix(i64::try_from(s).ok()?, 0))
     });
     let is_file = kind == EntryKind::File;
-    Entry {
+    let size = sparse.as_ref().map_or_else(|| e.size(), |s| s.size);
+    let entry = Entry {
         id,
         path,
         raw_path: raw,
-        size: is_file.then(|| e.size()),
+        size: is_file.then_some(size),
         packed_size: is_file.then(|| e.header().entry_size().ok()).flatten(),
         modified,
         crc32: None,
@@ -158,6 +332,15 @@ fn convert<R: Read>(id: usize, e: &mut tar::Entry<'_, R>) -> Entry {
         unix_mode: e.header().mode().ok(),
         dos_attrs: None,
         kind,
+    };
+    (entry, sparse.filter(|_| is_file))
+}
+
+/// An entry's data, expanded if it is a pax sparse file.
+fn entry_data<'a, R: Read + 'a>(data: R, sparse: Option<&PaxSparse>) -> Box<dyn Read + 'a> {
+    match sparse {
+        Some(s) => Box::new(SparseData::new(data, s)),
+        None => Box::new(data),
     }
 }
 
@@ -270,8 +453,10 @@ fn walk_entries<R: Read>(
             continue;
         }
         source.limits.check_entries(id as u64 + 1)?;
-        let entry = convert(id, &mut e);
-        let contiguous = entry.kind == EntryKind::File && !e.header().entry_type().is_gnu_sparse();
+        let (entry, sparse) = convert(id, &mut e);
+        let contiguous = entry.kind == EntryKind::File
+            && !e.header().entry_type().is_gnu_sparse()
+            && sparse.is_none();
         spans.push(contiguous.then(|| (e.raw_file_position(), e.size())));
         if let Some((sel, sink)) = visit.as_mut()
             && sel.matches(&entry)
@@ -281,7 +466,7 @@ fn walk_entries<R: Read>(
             let mut mcx = MeteredCtx::new(cx, meter);
             mcx.report();
             if entry.kind == EntryKind::File {
-                let mut data = source.guard(&mut e);
+                let mut data = source.guard(entry_data(&mut e, sparse.as_ref()));
                 sink.entry(&entry, &mut data, &mut mcx)?;
             } else {
                 sink.entry(&entry, &mut io::empty(), &mut mcx)?;
@@ -364,12 +549,13 @@ impl ArchiveReader for TarReader {
         let mut n = 0usize;
         for item in ar.entries().map_err(|e| tar_error(&e))? {
             cx.check()?;
-            let e = item.map_err(|e| tar_error(&e))?;
+            let mut e = item.map_err(|e| tar_error(&e))?;
             if is_meta(e.header().entry_type()) {
                 continue;
             }
             if n == id {
-                return Ok(Box::new(self.source.guard(e)));
+                let (_, sparse) = convert(n, &mut e);
+                return Ok(Box::new(self.source.guard(entry_data(e, sparse.as_ref()))));
             }
             n += 1;
         }

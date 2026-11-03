@@ -354,9 +354,32 @@ mod gnu_tar {
                 "sparse.tar",
                 vec!["--sparse", "--format=gnu", "-cf", "sparse.tar", "tree"],
             ),
+            // pax sparse files, which the tar crate doesn't decode: 1.0 (the default), 0.1, 0.0.
             (
                 "sparse-pax.tar",
                 vec!["--sparse", "--format=pax", "-cf", "sparse-pax.tar", "tree"],
+            ),
+            (
+                "sparse-pax01.tar",
+                vec![
+                    "--sparse",
+                    "--format=pax",
+                    "--sparse-version=0.1",
+                    "-cf",
+                    "sparse-pax01.tar",
+                    "tree",
+                ],
+            ),
+            (
+                "sparse-pax00.tar",
+                vec![
+                    "--sparse",
+                    "--format=pax",
+                    "--sparse-version=0.0",
+                    "-cf",
+                    "sparse-pax00.tar",
+                    "tree",
+                ],
             ),
             ("gz.tar.gz", vec!["-czf", "gz.tar.gz", "tree"]),
             ("zst.tar.zst", vec!["--zstd", "-cf", "zst.tar.zst", "tree"]),
