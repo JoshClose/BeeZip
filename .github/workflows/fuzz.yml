@@ -37,9 +37,12 @@ jobs:
           restore-keys: fuzz-corpus-${{ matrix.target }}-
       - run: mkdir -p fuzz/corpus/${{ matrix.target }}
       # libFuzzer reads the seed directories recursively, so all of tests/fixtures seeds it.
+      # The prebuilt cargo-fuzz is a musl binary and defaults --target to its own triple, where
+      # the sanitizer can't link, so the target is explicit.
       - name: Fuzz ${{ matrix.target }}
         run: >
-          cargo +nightly fuzz run ${{ matrix.target }} fuzz/corpus/${{ matrix.target }} tests/fixtures
+          cargo +nightly fuzz run --target x86_64-unknown-linux-gnu ${{ matrix.target }}
+          fuzz/corpus/${{ matrix.target }} tests/fixtures
           -- -max_total_time=$SECONDS_PER_TARGET -rss_limit_mb=2048
       - if: failure()
         uses: actions/upload-artifact@v7
