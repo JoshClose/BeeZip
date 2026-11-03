@@ -18,7 +18,7 @@ pub struct AppVersionOutput {
     pub commit: Option<String>,
     /// `<os>-<arch>`, e.g. `windows-x86_64`.
     pub platform: String,
-    /// `debug` or `release`.
+    /// `debug` or `release` (CI drill: this doc change is not regenerated).
     pub profile: String,
 }
 
