@@ -1,13 +1,17 @@
-use std::sync::{
-    Arc,
-    atomic::{AtomicBool, Ordering},
+use std::{
+    path::Path,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
+    time::{Duration, Instant},
 };
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
-use crate::{CmdError, ErrorCode};
+use crate::{CmdError, ErrorCode, config::Config, policy::Policy, wire::Secret};
 
 pub type JobId = u64;
 
@@ -120,6 +124,12 @@ impl CancelToken {
     }
 }
 
+/// Progress goes out at most this often; the last update always goes out.
+const PROGRESS_INTERVAL: Duration = Duration::from_millis(100);
+
+/// How many times a job asks for a password before giving up with `WrongPassword`.
+pub const PASSWORD_PROMPTS: u32 = 3;
+
 /// A running command's view of its job.
 pub struct JobCtx {
     id: JobId,
@@ -127,6 +137,13 @@ pub struct JobCtx {
     sink: EventSink,
     interactor: Arc<dyn Interactor>,
     next_prompt: u64,
+    policy: Arc<Policy>,
+    config: Arc<Result<Config, CmdError>>,
+    last_progress: Option<Instant>,
+    pending_progress: Option<Progress>,
+    /// The password given in the input, or the last one a prompt supplied.
+    password: Option<String>,
+    password_prompts: u32,
 }
 
 impl JobCtx {
@@ -135,6 +152,8 @@ impl JobCtx {
         cancel: CancelToken,
         sink: EventSink,
         interactor: Arc<dyn Interactor>,
+        policy: Arc<Policy>,
+        config: Arc<Result<Config, CmdError>>,
     ) -> Self {
         Self {
             id,
@@ -142,11 +161,31 @@ impl JobCtx {
             sink,
             interactor,
             next_prompt: 0,
+            policy,
+            config,
+            last_progress: None,
+            pending_progress: None,
+            password: None,
+            password_prompts: 0,
         }
     }
 
     pub fn id(&self) -> JobId {
         self.id
+    }
+
+    pub fn policy(&self) -> &Policy {
+        &self.policy
+    }
+
+    /// The config, or the error that made it unusable (a value of the wrong type).
+    pub fn config(&self) -> Result<&Config, CmdError> {
+        self.config.as_ref().as_ref().map_err(Clone::clone)
+    }
+
+    /// The password the input gave, tried before anyone is asked.
+    pub fn set_password(&mut self, password: Option<&Secret>) {
+        self.password = password.map(|p| p.expose().to_owned());
     }
 
     pub fn is_cancelled(&self) -> bool {
@@ -162,8 +201,28 @@ impl JobCtx {
         }
     }
 
-    pub fn progress(&self, progress: Progress) {
-        (self.sink)(JobEvent::Progress(progress));
+    /// Reports progress, at most every 100 ms. Updates in between are held, and the engine
+    /// sends the last one before the job's final event.
+    pub fn progress(&mut self, progress: Progress) {
+        let now = Instant::now();
+        let due = self
+            .last_progress
+            .is_none_or(|t| now.duration_since(t) >= PROGRESS_INTERVAL);
+        if due {
+            self.last_progress = Some(now);
+            self.pending_progress = None;
+            (self.sink)(JobEvent::Progress(progress));
+        } else {
+            self.pending_progress = Some(progress);
+        }
+    }
+
+    /// Sends a held progress update, if there is one.
+    pub fn flush_progress(&mut self) {
+        if let Some(p) = self.pending_progress.take() {
+            self.last_progress = Some(Instant::now());
+            (self.sink)(JobEvent::Progress(p));
+        }
     }
 
     pub fn log(&self, level: LogLevel, message: impl Into<String>) {
@@ -182,5 +241,84 @@ impl JobCtx {
             prompt: prompt.clone(),
         });
         self.interactor.prompt(id, &prompt)
+    }
+}
+
+/// The adapter core reaches the job through (docs/M1.md §3.1).
+impl beezip_core::Ctx for JobCtx {
+    fn is_cancelled(&self) -> bool {
+        JobCtx::is_cancelled(self)
+    }
+
+    fn progress(&mut self, p: &beezip_core::Progress) {
+        JobCtx::progress(
+            self,
+            Progress {
+                bytes_done: p.bytes_done,
+                bytes_total: p.bytes_total,
+                entries_done: p.entries_done,
+                entries_total: p.entries_total,
+                current: p.current.clone(),
+            },
+        );
+    }
+
+    fn warn(&mut self, message: String) {
+        self.log(LogLevel::Warn, message);
+    }
+
+    /// The input's password first; then up to [`PASSWORD_PROMPTS`] prompts. A prompt that
+    /// works is kept for the rest of the job. With nobody to ask, a missing password is
+    /// `PasswordRequired` and a wrong one `WrongPassword`.
+    fn password(&mut self, entry: Option<&str>, attempt: u32) -> beezip_core::Result<String> {
+        use beezip_core::{Error, ErrorKind};
+        if attempt == 0
+            && let Some(pw) = &self.password
+        {
+            return Ok(pw.clone());
+        }
+        if self.password_prompts >= PASSWORD_PROMPTS {
+            return Err(Error::new(ErrorKind::WrongPassword, "wrong password"));
+        }
+        let reply = self.prompt(Prompt::Password {
+            entry: entry.map(str::to_owned),
+        });
+        match reply {
+            Ok(PromptReply::Password { password }) => {
+                self.password_prompts += 1;
+                self.password = Some(password.clone());
+                Ok(password)
+            }
+            Ok(PromptReply::Cancel) => Err(Error::cancelled()),
+            Ok(other) => Err(Error::invalid_args(format!(
+                "expected a password, got {other:?}"
+            ))),
+            Err(e) if e.code == ErrorCode::PasswordRequired && attempt > 0 => Err(Error::new(
+                ErrorKind::WrongPassword,
+                "wrong password; pass the right one as the `password` argument",
+            )),
+            Err(e) => Err(e.into()),
+        }
+    }
+
+    fn overwrite(&mut self, existing: &Path) -> beezip_core::Result<beezip_core::OverwriteChoice> {
+        use beezip_core::{Error, OverwriteChoice as C};
+        let reply = self.prompt(Prompt::Overwrite {
+            path: existing.display().to_string(),
+        });
+        match reply {
+            Ok(PromptReply::Overwrite { choice }) => Ok(match choice {
+                OverwriteChoice::Replace => C::Replace,
+                OverwriteChoice::ReplaceAll => C::ReplaceAll,
+                OverwriteChoice::Skip => C::Skip,
+                OverwriteChoice::SkipAll => C::SkipAll,
+                OverwriteChoice::Rename => C::Rename,
+            }),
+            Ok(PromptReply::Cancel) => Err(Error::cancelled()),
+            Ok(other) => Err(Error::invalid_args(format!(
+                "expected an overwrite choice, got {other:?}"
+            ))),
+            Err(e) => Err(e.into()),
+        }
     }
 }

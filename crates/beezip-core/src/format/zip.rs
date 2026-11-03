@@ -599,14 +599,18 @@ fn entry_options<'k>(
     level: Option<i64>,
     entry: &NewEntry,
 ) -> Result<FullFileOptions<'k, 'static>> {
-    let method = match entry.kind {
-        NewKind::File => opts.method.method(),
-        _ => CompressionMethod::Stored,
+    // Empty files are stored, as 7-Zip and Info-ZIP do: an empty compressed stream is just
+    // overhead, and 7-Zip rejects zip's empty xz stream ("data after the end of the payload").
+    let compressed = entry.kind == NewKind::File && entry.size > 0;
+    let method = if compressed {
+        opts.method.method()
+    } else {
+        CompressionMethod::Stored
     };
     let mut o: FullFileOptions<'k, 'static> = SimpleFileOptions::default()
         .compression_method(method)
         .into_full_options();
-    if entry.kind == NewKind::File {
+    if compressed {
         o = o.compression_level(level);
     }
     let mode = match (&entry.kind, entry.unix_mode) {

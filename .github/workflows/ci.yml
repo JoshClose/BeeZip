@@ -17,6 +17,8 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 60
     defaults: { run: { shell: bash } }   # bash -e: a failing first line fails the step (pwsh only checks the last exit code)
+    env:
+      BEEZIP_REQUIRE_7Z: "1"           # the interop tests fail instead of skipping without 7-Zip
     steps:
       - uses: actions/checkout@v7
       - run: rustup toolchain install    # reads rust-toolchain.toml
@@ -50,6 +52,8 @@ jobs:
   linux:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    env:
+      BEEZIP_REQUIRE_GNU_TAR: "1"      # and without GNU tar
     steps:
       - uses: actions/checkout@v7
       - run: rustup toolchain install

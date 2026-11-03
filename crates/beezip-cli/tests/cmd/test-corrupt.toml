@@ -1,0 +1,4 @@
+bin.name = "beezip"
+args = ["test", "malicious/crc-mismatch.zip"]
+status.code = 8
+fs.cwd = "../../../../tests/fixtures"

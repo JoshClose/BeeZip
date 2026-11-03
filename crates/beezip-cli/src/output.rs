@@ -11,6 +11,8 @@ use std::{
 use beezip_commands::{CmdError, Entry, EventSink, JobEvent, LogLevel, Registry};
 use serde_json::{Value, json};
 
+use crate::progress::Bars;
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, clap::ValueEnum)]
 pub enum Mode {
     /// Text for people.
@@ -24,8 +26,11 @@ pub enum Mode {
 
 pub struct Output {
     mode: Mode,
+    /// `--quiet`: no progress bars or info lines; warnings still print.
+    quiet: bool,
     /// Whether a terminal event has been printed in ndjson mode.
     ended: Arc<AtomicBool>,
+    bars: Arc<Bars>,
 }
 
 /// Writes a line to stdout. A closed pipe (`beezip ... | head`) is not an error.
@@ -43,17 +48,26 @@ fn to_pretty_json(value: &impl serde::Serialize) -> String {
 }
 
 impl Output {
-    pub fn new(mode: Mode) -> Self {
+    /// Progress bars draw when `bars` is set: human mode, stderr a terminal, not quiet.
+    pub fn new(mode: Mode, quiet: bool, bars: bool) -> Self {
         Self {
             mode,
+            quiet,
             ended: Arc::new(AtomicBool::new(false)),
+            bars: Arc::new(Bars::new(bars && mode == Mode::Human && !quiet)),
         }
+    }
+
+    pub fn bars(&self) -> Arc<Bars> {
+        Arc::clone(&self.bars)
     }
 
     /// The job event sink for this mode. Called on the job's thread.
     pub fn event_sink(&self) -> EventSink {
         let mode = self.mode;
+        let quiet = self.quiet;
         let ended = Arc::clone(&self.ended);
+        let bars = Arc::clone(&self.bars);
         Arc::new(move |event| match (mode, &event) {
             (Mode::Ndjson, _) => {
                 if matches!(
@@ -66,14 +80,23 @@ impl Output {
             }
             (_, JobEvent::Log { level, message }) => {
                 let level = match level {
+                    LogLevel::Info if quiet => return,
                     LogLevel::Info => "info",
                     LogLevel::Warn => "warning",
                 };
-                eprintln!("{level}: {message}");
+                bars.suspend(|| eprintln!("{level}: {message}"));
             }
-            // Progress bars (indicatif, TTY only) arrive with the first real commands in M1.
+            (_, JobEvent::Progress(p)) => bars.update(p),
+            (_, JobEvent::Finished { .. } | JobEvent::Failed { .. } | JobEvent::Cancelled) => {
+                bars.finish();
+            }
             _ => {}
         })
+    }
+
+    /// A warning from outside a job, such as the config's.
+    pub fn warn(&self, message: &str) {
+        eprintln!("warning: {message}");
     }
 
     /// Prints a successful command output.

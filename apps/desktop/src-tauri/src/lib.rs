@@ -2,13 +2,17 @@
 
 mod ipc;
 
-use beezip_commands::{Engine, registry};
+use beezip_commands::{Engine, EngineOptions, Policy, config, registry};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // The config is read once at startup (docs/M1.md §4.1). Unknown keys only warn; the UI shows
+    // warnings in M3.
+    let loaded = config::load();
+    let options = EngineOptions::from_config(loaded.config, Policy::unrestricted());
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
-        .manage(Engine::new(registry()))
+        .manage(Engine::with_options(registry(), options))
         .invoke_handler(tauri::generate_handler![
             ipc::cmd_run,
             ipc::cmd_cancel,

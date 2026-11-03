@@ -1,0 +1,27 @@
+Detect what a file is: its chain of codecs and archive format (`zstd → tar`), whether it is
+a self-extracting archive, and what it is when it isn't an archive at all.
+
+Usage: beezip detect [OPTIONS] <PATH>
+
+Arguments:
+  <PATH>
+          The file to look at
+
+Options:
+  -h, --help
+          Print help (see a summary with '-h')
+
+Global options:
+      --output <FORMAT>
+          How to print results; ndjson streams every job event
+
+          Possible values:
+          - human:  Text for people
+          - json:   One JSON document on stdout: the output, or `{"error": {...}}`
+          - ndjson: Every job event as a JSON line on stdout, ending with `Finished`, `Failed` or
+            `Cancelled`
+          
+          [default: human]
+
+  -q, --quiet
+          No progress bars or info messages; warnings still print

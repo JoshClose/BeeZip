@@ -1,0 +1,30 @@
+Test an archive's integrity: read every entry to the end, checking CRCs and codec checksums.
+Fails with `Corrupt`, listing the damaged entries in `details`.
+
+Usage: beezip test [OPTIONS] <ARCHIVE>
+
+Arguments:
+  <ARCHIVE>
+          The archive
+
+Options:
+  -p, --password <PASSWORD>
+          The password for encrypted entries
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+Global options:
+      --output <FORMAT>
+          How to print results; ndjson streams every job event
+
+          Possible values:
+          - human:  Text for people
+          - json:   One JSON document on stdout: the output, or `{"error": {...}}`
+          - ndjson: Every job event as a JSON line on stdout, ending with `Finished`, `Failed` or
+            `Cancelled`
+          
+          [default: human]
+
+  -q, --quiet
+          No progress bars or info messages; warnings still print

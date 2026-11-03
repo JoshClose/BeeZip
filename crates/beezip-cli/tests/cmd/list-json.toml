@@ -1,0 +1,3 @@
+bin.name = "beezip"
+args = ["list", "thirdparty/gnutar-ustar.tar", "--flat", "--output", "json"]
+fs.cwd = "../../../../tests/fixtures"

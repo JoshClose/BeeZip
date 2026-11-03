@@ -1,0 +1,50 @@
+Read part of one entry without extracting it, as text, hex or base64. An offset is reached
+by decoding up to it, since a compressed entry can't seek.
+
+Usage: beezip read [OPTIONS] <ARCHIVE> [ENTRY]
+
+Arguments:
+  <ARCHIVE>
+          The archive
+
+  [ENTRY]
+          The entry's path. With duplicates, the last copy; use `index` for another
+
+Options:
+      --index <INDEX>
+          The entry's index in archive order, as `archive.list` shows it
+
+      --offset <OFFSET>
+          Where to start, in bytes
+
+      --max-bytes <MAX_BYTES>
+          At most this many bytes [default: 65536; at most 16 MiB]
+
+      --encoding <ENCODING>
+          How to return the data [default: text]
+
+          Possible values:
+          - text:   UTF-8, with invalid bytes replaced (and `lossy` set)
+          - hex
+          - base64
+
+  -p, --password <PASSWORD>
+          The password for an encrypted entry
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+Global options:
+      --output <FORMAT>
+          How to print results; ndjson streams every job event
+
+          Possible values:
+          - human:  Text for people
+          - json:   One JSON document on stdout: the output, or `{"error": {...}}`
+          - ndjson: Every job event as a JSON line on stdout, ending with `Finished`, `Failed` or
+            `Cancelled`
+          
+          [default: human]
+
+  -q, --quiet
+          No progress bars or info messages; warnings still print

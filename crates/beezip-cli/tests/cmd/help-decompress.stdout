@@ -1,0 +1,36 @@
+Decompress a compressed file, one codec layer per call: `a.tar.zst` → `a.tar`, `a.tgz` →
+`a.tar`, `notes.txt.gz` → `notes.txt`. The output keeps the input's modification time; the
+input is left in place.
+
+Usage: beezip decompress [OPTIONS] <INPUT>
+
+Arguments:
+  <INPUT>
+          The compressed file
+
+Options:
+  -o, --out <PATH>
+          Where to write [default: the input's name without the codec's extension, or `<name>.out`]
+
+      --overwrite[=<OVERWRITE>]
+          Replace the output if it exists
+          
+          [possible values: true, false]
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+Global options:
+      --output <FORMAT>
+          How to print results; ndjson streams every job event
+
+          Possible values:
+          - human:  Text for people
+          - json:   One JSON document on stdout: the output, or `{"error": {...}}`
+          - ndjson: Every job event as a JSON line on stdout, ending with `Finished`, `Failed` or
+            `Cancelled`
+          
+          [default: human]
+
+  -q, --quiet
+          No progress bars or info messages; warnings still print

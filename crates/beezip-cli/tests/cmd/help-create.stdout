@@ -1,0 +1,78 @@
+Create an archive from files and folders. Each input is stored under its own name (`src/`
+becomes `src/…`). The format comes from `format` or the output's extension (`.zip`, `.tar`,
+`.tar.zst`, `.tgz`…). The archive is written to a temporary file and renamed into place, so a
+failed or cancelled create leaves nothing behind.
+
+Usage: beezip create [OPTIONS] <OUTPUT> <INPUTS>...
+
+Arguments:
+  <OUTPUT>
+          The archive to write
+
+  <INPUTS>...
+          Files and folders to add
+
+Options:
+  -f, --format <FORMAT>
+          The archive format [default: from the output's extension]
+          
+          [possible values: zip, tar, tar.gz, tar.bz2, tar.xz, tar.lzma, tar.lz, tar.zst, tar.lz4,
+          tar.br, tar.sz]
+
+  -m, --method <METHOD>
+          The zip compression method [default: deflate]. Zip only
+          
+          [possible values: store, deflate, bzip2, zstd, xz, ppmd]
+
+  -l, --level <LEVEL>
+          The compression level; `formats.list` shows each codec's and method's range
+
+      --threads <THREADS>
+          Compression threads for codecs that have them; 0 is one per core [default: from config]
+
+  -p, --password <PASSWORD>
+          Encrypt the entries with this password. Zip only
+
+      --encryption <ENCRYPTION>
+          How to encrypt [default: aes256]. `zipcrypto` is weak, for tools that can't read AES
+
+          Possible values:
+          - aes256:    AES-256, the default
+          - zipcrypto: The legacy scheme, for tools such as Windows Explorer that can't read AES.
+            Weak
+
+      --exclude <PATTERN>
+          Leave out files and folders matching these patterns
+
+  -L, --follow-links[=<FOLLOW_LINKS>]
+          Store what symlinks point to instead of the links
+          
+          [possible values: true, false]
+
+      --overwrite[=<OVERWRITE>]
+          Replace the output if it exists
+          
+          [possible values: true, false]
+
+      --dry-run[=<DRY_RUN>]
+          Show what would be added without writing anything
+          
+          [possible values: true, false]
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+Global options:
+      --output <FORMAT>
+          How to print results; ndjson streams every job event
+
+          Possible values:
+          - human:  Text for people
+          - json:   One JSON document on stdout: the output, or `{"error": {...}}`
+          - ndjson: Every job event as a JSON line on stdout, ending with `Finished`, `Failed` or
+            `Cancelled`
+          
+          [default: human]
+
+  -q, --quiet
+          No progress bars or info messages; warnings still print

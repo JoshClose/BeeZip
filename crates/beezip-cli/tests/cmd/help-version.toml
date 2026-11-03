@@ -1,0 +1,2 @@
+bin.name = "beezip"
+args = ["version", "--help"]
