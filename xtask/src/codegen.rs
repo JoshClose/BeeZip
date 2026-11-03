@@ -88,7 +88,22 @@ pub fn generate() -> anyhow::Result<String> {
         ));
     }
     out.push_str("};\n\nexport type CommandName = keyof CommandMap;\n");
-    Ok(normalize(&out))
+    Ok(normalize(&escape_doc_lines(&out)))
+}
+
+/// ts-rs copies doc comments verbatim, so a doc mentioning `docs/**/*.md` would close its
+/// JSDoc block early. Inside a block's content lines (` * …`), `*/` becomes `*\/`.
+fn escape_doc_lines(text: &str) -> String {
+    text.lines()
+        .map(|line| {
+            if line.trim_start().starts_with("* ") {
+                line.replace("*/", "*\\/")
+            } else {
+                line.to_owned()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 fn jsdoc(text: &str, indent: &str) -> String {

@@ -240,11 +240,11 @@ Crate versions were checked on 2026-11-01. Churny crates are pinned exactly behi
 
 | Format | R | W | Implementation | Milestone |
 |---|---|---|---|---|
-| ZIP: deflate, bzip2, zstd, xz, ppmd, AES/ZipCrypto, Zip64 | ✓ | ✓ | `zip` =9.2.2: deflate through zlib-rs (levels 0–9, no zopfli); PPMd read and write; ZipCrypto writing through zip's `unstable` API; deflate64/lzma/legacy are read-only | M1 |
+| ZIP: deflate, bzip2, zstd, xz, ppmd, AES/ZipCrypto, Zip64 | ✓ | ✓ | `zip` =9.2.2: deflate through zlib-rs (levels 1–9, no zopfli); PPMd read and write; ZipCrypto writing through zip's `unstable` API; deflate64/lzma/legacy are read-only | M1 |
 | TAR (ustar/pax/gnu) | ✓ | ✓ | `tar` 0.4.46 | M1 |
 | gzip / zlib / raw deflate | ✓ | ✓ | `flate2` + zlib-rs. Raw deflate has no magic or extension, so it is never detected (`--codec deflate` only). Parallel gzip (`gzp`) moves to M6: its defaults build C zlib-ng/libdeflate, and its `deflate_rust` feature uses miniz_oxide rather than zlib-rs | M1 |
 | bzip2 | ✓ | ✓ | `bzip2` 0.6 (pure-Rust libbz2-rs-sys) | M1 |
-| xz / lzma / lzip | ✓ | ✓ | `lzma-rust2` =0.23.0 (pure Rust, multithreaded; the version zip 9.2.2 requires, so only one copy is built) | M1 |
+| xz / lzma / lzip | ✓ | ✓ | `lzma-rust2` =0.23.0 (pure Rust; multithreaded compression, single-threaded decoding in M1; the version zip 9.2.2 requires, so only one copy is built) | M1 |
 | zstd | ✓ | ✓ | `zstd` 0.14 (bundled C, zstdmt) | M1 |
 | lz4 / brotli / snappy | ✓ | ✓ | `lz4_flex` / `brotli` / `snap` | M1 |
 | tar.{gz,bz2,xz,zst,lz4,br,lz} | ✓ | ✓ | codec chain composition | M1 |

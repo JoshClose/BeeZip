@@ -115,7 +115,7 @@ entries?: Array<string>,
 dest?: string,
 /**
  * Extract only entries matching these patterns. Without `/` a pattern matches a name at
- * any depth (`*.txt`); with `/` the whole path (`docs/**/*.md`).
+ * any depth (`*.txt`); with `/` the whole path (`docs/**\/*.md`).
  */
 glob?: Array<string>,
 /**
@@ -228,7 +228,7 @@ dir?: string,
 flat?: boolean,
 /**
  * Only entries matching these patterns (implies `flat`). Without `/` a pattern matches a
- * name at any depth (`*.txt`); with `/` the whole path (`docs/**/*.md`).
+ * name at any depth (`*.txt`); with `/` the whole path (`docs/**\/*.md`).
  */
 glob?: Array<string>,
 /**
