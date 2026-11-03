@@ -34,7 +34,9 @@ pub use stream_decompress::{StreamDecompress, StreamDecompressInput, StreamDecom
 
 use crate::Registry;
 
-pub(crate) fn register_all(registry: &mut Registry) {
+/// Registers every BeeZip command. [`crate::registry`] is built with it; tests that need the
+/// real commands next to their own use it too.
+pub fn register_all(registry: &mut Registry) {
     registry
         .register::<AppVersion>()
         .register::<FormatsList>()
