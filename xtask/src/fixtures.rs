@@ -122,6 +122,17 @@ fn corpus() -> anyhow::Result<Vec<(&'static str, Vec<u8>)>> {
         ("nested5.gz", nested_gz(5)?),
         // Edge cases.
         ("empty.zip", zip(&[])),
+        // Not malicious, just damaged: a stored entry whose CRC doesn't match its data.
+        (
+            "crc-mismatch.zip",
+            zip(&[
+                file("fine.txt", b"this one is intact"),
+                ZipFile {
+                    crc: crc32fast::hash(b"something else"),
+                    ..ZipFile::stored("damaged.txt", b"the stored CRC is for other data")
+                },
+            ]),
+        ),
     ])
 }
 

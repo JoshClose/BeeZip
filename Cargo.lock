@@ -326,6 +326,7 @@ dependencies = [
  "beezip-core",
  "clap",
  "dirs",
+ "filetime",
  "schemars 1.2.3",
  "serde",
  "serde_json",

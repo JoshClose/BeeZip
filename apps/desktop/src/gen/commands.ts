@@ -30,9 +30,280 @@ platform: string,
 profile: string, };
 
 /**
+ * Create an archive from files and folders. Each input is stored under its own name (`src/`
+ * becomes `src/…`). The format comes from `format` or the output's extension (`.zip`, `.tar`,
+ * `.tar.zst`, `.tgz`…). The archive is written to a temporary file and renamed into place, so a
+ * failed or cancelled create leaves nothing behind.
+ */
+export type ArchiveCreateInput = {
+/**
+ * The archive to write.
+ */
+output: string,
+/**
+ * Files and folders to add.
+ */
+inputs: Array<string>,
+/**
+ * The archive format [default: from the output's extension].
+ */
+format?: ArchiveFormatName,
+/**
+ * The zip compression method [default: deflate]. Zip only.
+ */
+method?: ZipMethodName,
+/**
+ * The compression level; `formats.list` shows each codec's and method's range.
+ */
+level?: number,
+/**
+ * Compression threads for codecs that have them; 0 is one per core [default: from config].
+ */
+threads?: number,
+/**
+ * Encrypt the entries with this password. Zip only.
+ */
+password?: Secret,
+/**
+ * How to encrypt [default: aes256]. `zipcrypto` is weak, for tools that can't read AES.
+ */
+encryption?: EncryptionName,
+/**
+ * Leave out files and folders matching these patterns.
+ */
+exclude?: Array<string>,
+/**
+ * Store what symlinks point to instead of the links.
+ */
+follow_links?: boolean,
+/**
+ * Replace the output if it exists.
+ */
+overwrite?: boolean,
+/**
+ * Show what would be added without writing anything.
+ */
+dry_run?: boolean, };
+
+export type ArchiveCreateOutput = { path: string, format: ArchiveFormatName, files: number, dirs: number, links: number, bytes_in: number, bytes_out: number,
+/**
+ * `bytes_out / bytes_in`.
+ */
+ratio: number, dry_run: boolean,
+/**
+ * The archive paths a dry run would add.
+ */
+plan: Array<string> | null, };
+
+/**
+ * Extract an archive, or the selected entries. Unsafe entries (paths climbing out with `..`,
+ * links leading out) are skipped and the rest extracted; the command then fails with `Unsafe`
+ * and the report in `details`. Without `dest`, files go into the current directory.
+ */
+export type ArchiveExtractInput = {
+/**
+ * The archive.
+ */
+archive: string,
+/**
+ * Entries to extract (a folder takes everything under it). All when none are given.
+ */
+entries?: Array<string>,
+/**
+ * Where to extract [default: the current directory].
+ */
+dest?: string,
+/**
+ * Extract only entries matching these patterns. Without `/` a pattern matches a name at
+ * any depth (`*.txt`); with `/` the whole path (`docs/**/*.md`).
+ */
+glob?: Array<string>,
+/**
+ * Leave out entries matching these patterns.
+ */
+exclude?: Array<string>,
+/**
+ * Drop this many leading path components, as with `tar --strip-components`.
+ */
+strip_components?: number,
+/**
+ * If the selection has more than one top-level item, extract into a folder named after the
+ * archive (`a.tar.zst` → `a/`), as Explorer's "Extract here" does.
+ */
+smart?: boolean,
+/**
+ * What to do with files that exist [default: from config, `ask`].
+ */
+overwrite?: OverwritePolicy,
+/**
+ * Create symlinks that stay inside the destination [default: from config, off]. Hard
+ * links are always extracted as copies.
+ */
+links?: boolean,
+/**
+ * The password for encrypted entries.
+ */
+password?: Secret,
+/**
+ * Show what would be extracted, and where, without writing anything.
+ */
+dry_run?: boolean, };
+
+export type ArchiveExtractOutput = { dest: string, files: number, dirs: number, links: number, bytes: number,
+/**
+ * At most 1 000; `skipped_total` counts all.
+ */
+skipped: Array<SkippedInfo>, skipped_total: number,
+/**
+ * At most 1 000; `renamed_total` counts all.
+ */
+renamed: Array<RenamedInfo>, renamed_total: number, unsafe_total: number, dry_run: boolean,
+/**
+ * The entries a dry run would extract.
+ */
+plan: Array<PlannedEntry> | null, };
+
+/**
+ * The archive kinds `archive.create` writes.
+ */
+export type ArchiveFormatName = "zip" | "tar" | "tar.gz" | "tar.bz2" | "tar.xz" | "tar.lzma" | "tar.lz" | "tar.zst" | "tar.lz4" | "tar.br" | "tar.sz";
+
+/**
+ * Summarise an archive: its format chain, entry counts, sizes and compression ratio, methods,
+ * encryption, whether it is solid or self-extracting, and its comment.
+ */
+export type ArchiveInfoInput = {
+/**
+ * The archive.
+ */
+archive: string,
+/**
+ * The password, if entry names or data need one.
+ */
+password?: Secret, };
+
+export type ArchiveInfoOutput = { archive: string,
+/**
+ * `zip`, `tar` or `stream`.
+ */
+format: string,
+/**
+ * `zstd → tar`.
+ */
+chain: string, codecs: Array<string>, entries: number, files: number, dirs: number, links: number,
+/**
+ * The uncompressed size of the files.
+ */
+size: number,
+/**
+ * The archive file's size.
+ */
+packed_size: number,
+/**
+ * `packed_size / size`: 0.25 means the archive is a quarter of the original.
+ */
+ratio: number, methods: Array<string>, encryption: EncryptionState,
+/**
+ * Entries can't be decoded on their own (a compressed tar, a bare compressed file).
+ */
+solid: boolean, sfx: boolean, comment: string | null, };
+
+/**
+ * List an archive's entries. Without `flat`, one folder level at a time (the root, or `dir`),
+ * with folders that only exist as parts of paths shown too; with `flat` or a `glob`, every
+ * entry under `dir`. Results come in pages with `offset` and `limit`.
+ */
+export type ArchiveListInput = {
+/**
+ * The archive.
+ */
+archive: string,
+/**
+ * A folder inside the archive to list instead of the root.
+ */
+dir?: string,
+/**
+ * Every entry below `dir`, not just one level.
+ */
+flat?: boolean,
+/**
+ * Only entries matching these patterns (implies `flat`). Without `/` a pattern matches a
+ * name at any depth (`*.txt`); with `/` the whole path (`docs/**/*.md`).
+ */
+glob?: Array<string>,
+/**
+ * Entries to skip, for paging.
+ */
+offset?: number,
+/**
+ * At most this many entries.
+ */
+limit?: number,
+/**
+ * The password, if entry names need one.
+ */
+password?: Secret, };
+
+export type ArchiveListOutput = { entries: Array<EntryInfo>,
+/**
+ * Entries in this listing before paging.
+ */
+total: number, offset: number, has_more: boolean, };
+
+/**
+ * Test an archive's integrity: read every entry to the end, checking CRCs and codec checksums.
+ * Fails with `Corrupt`, listing the damaged entries in `details`.
+ */
+export type ArchiveTestInput = {
+/**
+ * The archive.
+ */
+archive: string,
+/**
+ * The password for encrypted entries.
+ */
+password?: Secret, };
+
+export type ArchiveTestOutput = { archive: string, entries: number,
+/**
+ * Uncompressed bytes read.
+ */
+bytes: number, };
+
+/**
+ * What BeeZip offers for a format in this release.
+ */
+export type Caps = { list: boolean, extract: boolean, create: boolean, append: boolean, delete: boolean, rename: boolean, encrypt: boolean, encrypt_headers: boolean, solid: boolean, volumes: boolean,
+/**
+ * An entry can be read without decoding the ones before it.
+ */
+random_access: boolean, };
+
+/**
  * An error returned by a command.
  */
-export type CmdError = { code: ErrorCode, message: string, };
+export type CmdError = { code: ErrorCode, message: string,
+/**
+ * Structured extras: the extract report for `Unsafe`, per-entry errors for `Corrupt`
+ * from `archive.test`, `{ limit, value }` for `LimitExceeded`, `{ param }` for
+ * `PasswordRequired`.
+ */
+details?: JsonValue, };
+
+export type CodecInfo = { id: string, name: string, extensions: Array<string>, levels: LevelRange | null,
+/**
+ * Multithreaded compression.
+ */
+threads: boolean,
+/**
+ * Recognised by its content. Raw deflate has no magic and is never detected.
+ */
+detected: boolean, };
+
+/**
+ * A single-stream codec.
+ */
+export type CodecName = "gzip" | "zlib" | "deflate" | "bzip2" | "xz" | "lzma" | "lzip" | "zstd" | "lz4" | "brotli" | "snappy";
 
 /**
  * A command as the front ends list it.
@@ -50,10 +321,148 @@ cli: string | null, };
 export type Effect = "ReadOnly" | "Writes" | "Destructive" | "System";
 
 /**
+ * How a zip with a password is encrypted.
+ */
+export type EncryptionName = "aes256" | "zipcrypto";
+
+/**
+ * How many entries are encrypted.
+ */
+export type EncryptionState = "none" | "some" | "all";
+
+/**
+ * One entry, as `archive.list` shows it.
+ */
+export type EntryInfo = {
+/**
+ * Index in archive order, for `entry.read --index`. `None` for a folder that has no entry
+ * of its own but holds entries.
+ */
+id: number | null,
+/**
+ * `/`-separated, as stored.
+ */
+path: string, kind: EntryKindName, size: number | null, packed_size: number | null,
+/**
+ * RFC 3339, UTC.
+ */
+modified: string | null, crc32: number | null, method: string | null, encrypted: boolean,
+/**
+ * A link's target.
+ */
+target: string | null, };
+
+export type EntryKindName = "file" | "dir" | "symlink" | "hardlink" | "other";
+
+/**
+ * Read part of one entry without extracting it, as text, hex or base64. An offset is reached
+ * by decoding up to it, since a compressed entry can't seek.
+ */
+export type EntryReadInput = {
+/**
+ * The archive.
+ */
+archive: string,
+/**
+ * The entry's path. With duplicates, the last copy; use `index` for another.
+ */
+entry?: string,
+/**
+ * The entry's index in archive order, as `archive.list` shows it.
+ */
+index?: number,
+/**
+ * Where to start, in bytes.
+ */
+offset?: number,
+/**
+ * At most this many bytes [default: 65536; at most 16 MiB].
+ */
+max_bytes?: number,
+/**
+ * How to return the data [default: text].
+ */
+encoding?: TextEncoding,
+/**
+ * The password for an encrypted entry.
+ */
+password?: Secret, };
+
+export type EntryReadOutput = { entry: string, index: number, data: string, encoding: TextEncoding, offset: number, bytes_read: number,
+/**
+ * The entry's size, if the archive records it.
+ */
+size: number | null,
+/**
+ * The read reached the end of the entry.
+ */
+eof: boolean,
+/**
+ * Text only: some bytes weren't UTF-8 and were replaced.
+ */
+lossy: boolean, };
+
+/**
  * Stable error codes. Every front end maps them the same way: a CLI exit code, an MCP
  * `isError` result with structured content, and a UI toast.
  */
-export type ErrorCode = "NotFound" | "UnsupportedFormat" | "UnsupportedOperation" | "PasswordRequired" | "WrongPassword" | "Corrupt" | "OutsideSandbox" | "Conflict" | "LimitExceeded" | "Cancelled" | "BackendUnavailable" | "Io" | "InvalidArgs" | "Internal";
+export type ErrorCode = "NotFound" | "UnsupportedFormat" | "UnsupportedOperation" | "PasswordRequired" | "WrongPassword" | "Corrupt" | "OutsideSandbox" | "Conflict" | "LimitExceeded" | "Cancelled" | "BackendUnavailable" | "Io" | "Unsafe" | "InvalidArgs" | "Internal";
+
+/**
+ * Detect what a file is: its chain of codecs and archive format (`zstd → tar`), whether it is
+ * a self-extracting archive, and what it is when it isn't an archive at all.
+ */
+export type FileDetectInput = {
+/**
+ * The file to look at.
+ */
+path: string, };
+
+export type FileDetectOutput = { path: string, layers: Array<LayerInfo>,
+/**
+ * `zstd → tar`, or `gzip` for a compressed file that isn't an archive. Empty when nothing
+ * was recognised.
+ */
+chain: string,
+/**
+ * The archive format at the bottom (`zip`, `tar`, or `stream` for a bare compressed file).
+ */
+format: string | null,
+/**
+ * A zip inside an executable.
+ */
+sfx: boolean,
+/**
+ * What the file (or a stream's content) is when it isn't an archive, e.g. "Portable
+ * Network Graphics".
+ */
+label: string | null,
+/**
+ * Whether the extension fits what the file is.
+ */
+extension_agrees: boolean, };
+
+export type FormatInfo = { id: string, name: string, extensions: Array<string>, caps: Caps,
+/**
+ * Methods for new archives (zip only).
+ */
+methods: Array<MethodInfo>,
+/**
+ * Encryption for new archives.
+ */
+encryption: Array<string>, };
+
+/**
+ * List the archive formats and codecs BeeZip reads and writes, with their capabilities,
+ * methods, levels and threading.
+ */
+export type FormatsListInput = Record<symbol, never>;
+
+export type FormatsListOutput = { formats: Array<FormatInfo>, codecs: Array<CodecInfo>,
+/**
+ * The `--format` names `archive.create` accepts: `zip`, `tar`, `tar.gz`…
+ */
+create: Array<string>, };
 
 /**
  * Everything a job reports, in order: `Started`, then any `Progress`, `Log` or `Prompt`, then
@@ -68,9 +477,55 @@ export type JobInfo = { id: number, command: string, };
 
 export type JsonValue = number | string | boolean | Array<JsonValue> | { [key in string]: JsonValue } | null;
 
+/**
+ * One layer of a file, outermost first.
+ */
+export type LayerInfo = {
+/**
+ * `codec` or `format`.
+ */
+kind: string,
+/**
+ * The codec or format id, e.g. `zstd` or `tar`.
+ */
+id: string,
+/**
+ * `certain` (magic and a structural check), `likely` (magic only) or `guess` (the
+ * extension only).
+ */
+confidence: string, };
+
+/**
+ * A level range.
+ */
+export type LevelRange = { min: number, max: number, default: number, };
+
 export type LogLevel = "Info" | "Warn";
 
+/**
+ * A zip compression method BeeZip writes.
+ */
+export type MethodInfo = { id: string, levels: LevelRange | null, };
+
 export type OverwriteChoice = "Replace" | "ReplaceAll" | "Skip" | "SkipAll" | "Rename";
+
+/**
+ * What to do when a file to be written already exists.
+ */
+export type OverwritePolicy = "ask" | "always" | "never" | "rename" | "newer";
+
+/**
+ * One entry of a dry run.
+ */
+export type PlannedEntry = { path: string,
+/**
+ * Where it would go, relative to `dest`.
+ */
+to: string | null,
+/**
+ * Why it would be skipped.
+ */
+skip: string | null, };
 
 /**
  * Job progress. Byte counts come from the compressed input, so they are reliable.
@@ -91,15 +546,171 @@ export type Prompt = { "kind": "Password", entry: string | null, } | { "kind": "
  */
 export type PromptReply = { "kind": "Password", password: string, } | { "kind": "Overwrite", choice: OverwriteChoice, } | { "kind": "Cancel" };
 
+export type RenamedInfo = {
+/**
+ * As stored in the archive.
+ */
+from: string,
+/**
+ * As written, relative to `dest`.
+ */
+to: string, };
+
+/**
+ * A password. A plain string on the wire; `Debug` prints `***`, so it never reaches a log.
+ */
+export type Secret = string;
+
+/**
+ * An entry that wasn't extracted.
+ */
+export type SkippedInfo = { path: string,
+/**
+ * `traversal`, `outside-dest`, `links-disabled`, `link-outside`, `link-target-missing`,
+ * `invalid-path`, `unsupported`, `exists`, `not-newer`, `blocked` or `link-failed`.
+ */
+reason: string,
+/**
+ * Refused for safety; these make the command fail with `Unsafe`.
+ */
+refused: boolean, };
+
+/**
+ * Compress one file with a single-stream codec (`a.txt` → `a.txt.zst`). The output keeps the
+ * input's modification time; the input is left in place.
+ */
+export type StreamCompressInput = {
+/**
+ * The file to compress.
+ */
+input: string,
+/**
+ * Where to write [default: the input's name plus the codec's extension].
+ */
+output?: string,
+/**
+ * The codec [default: from config, zstd].
+ */
+codec?: CodecName,
+/**
+ * The compression level; `formats.list` shows each codec's range.
+ */
+level?: number,
+/**
+ * Compression threads for codecs that have them; 0 is one per core [default: from config].
+ */
+threads?: number,
+/**
+ * Replace the output if it exists.
+ */
+overwrite?: boolean, };
+
+export type StreamCompressOutput = { input: string, output: string, codec: CodecName, bytes_in: number, bytes_out: number,
+/**
+ * `bytes_out / bytes_in`.
+ */
+ratio: number, };
+
+/**
+ * Decompress a compressed file, one codec layer per call: `a.tar.zst` → `a.tar`, `a.tgz` →
+ * `a.tar`, `notes.txt.gz` → `notes.txt`. The output keeps the input's modification time; the
+ * input is left in place.
+ */
+export type StreamDecompressInput = {
+/**
+ * The compressed file.
+ */
+input: string,
+/**
+ * Where to write [default: the input's name without the codec's extension, or
+ * `<name>.out`].
+ */
+output?: string,
+/**
+ * Replace the output if it exists.
+ */
+overwrite?: boolean, };
+
+export type StreamDecompressOutput = { input: string, output: string,
+/**
+ * The codec layer that was removed.
+ */
+codec: CodecName, bytes_in: number, bytes_out: number, };
+
 /**
  * The front ends that expose a command.
  */
 export type Surfaces = { cli: boolean, gui: boolean, mcp: boolean, };
 
+/**
+ * How `entry.read` returns data.
+ */
+export type TextEncoding = "text" | "hex" | "base64";
+
+/**
+ * A zip compression method BeeZip writes.
+ */
+export type ZipMethodName = "store" | "deflate" | "bzip2" | "zstd" | "xz" | "ppmd";
+
 /** Every command's input and output types, by command name. */
 export type CommandMap = {
   /** Show the BeeZip version and build information. */
   "app.version": { input: AppVersionInput; output: AppVersionOutput };
+  /**
+   * Create an archive from files and folders. Each input is stored under its own name (`src/`
+   * becomes `src/…`). The format comes from `format` or the output's extension (`.zip`, `.tar`,
+   * `.tar.zst`, `.tgz`…). The archive is written to a temporary file and renamed into place, so a
+   * failed or cancelled create leaves nothing behind.
+   */
+  "archive.create": { input: ArchiveCreateInput; output: ArchiveCreateOutput };
+  /**
+   * Extract an archive, or the selected entries. Unsafe entries (paths climbing out with `..`,
+   * links leading out) are skipped and the rest extracted; the command then fails with `Unsafe`
+   * and the report in `details`. Without `dest`, files go into the current directory.
+   */
+  "archive.extract": { input: ArchiveExtractInput; output: ArchiveExtractOutput };
+  /**
+   * Summarise an archive: its format chain, entry counts, sizes and compression ratio, methods,
+   * encryption, whether it is solid or self-extracting, and its comment.
+   */
+  "archive.info": { input: ArchiveInfoInput; output: ArchiveInfoOutput };
+  /**
+   * List an archive's entries. Without `flat`, one folder level at a time (the root, or `dir`),
+   * with folders that only exist as parts of paths shown too; with `flat` or a `glob`, every
+   * entry under `dir`. Results come in pages with `offset` and `limit`.
+   */
+  "archive.list": { input: ArchiveListInput; output: ArchiveListOutput };
+  /**
+   * Test an archive's integrity: read every entry to the end, checking CRCs and codec checksums.
+   * Fails with `Corrupt`, listing the damaged entries in `details`.
+   */
+  "archive.test": { input: ArchiveTestInput; output: ArchiveTestOutput };
+  /**
+   * Read part of one entry without extracting it, as text, hex or base64. An offset is reached
+   * by decoding up to it, since a compressed entry can't seek.
+   */
+  "entry.read": { input: EntryReadInput; output: EntryReadOutput };
+  /**
+   * Detect what a file is: its chain of codecs and archive format (`zstd → tar`), whether it is
+   * a self-extracting archive, and what it is when it isn't an archive at all.
+   */
+  "file.detect": { input: FileDetectInput; output: FileDetectOutput };
+  /**
+   * List the archive formats and codecs BeeZip reads and writes, with their capabilities,
+   * methods, levels and threading.
+   */
+  "formats.list": { input: FormatsListInput; output: FormatsListOutput };
+  /**
+   * Compress one file with a single-stream codec (`a.txt` → `a.txt.zst`). The output keeps the
+   * input's modification time; the input is left in place.
+   */
+  "stream.compress": { input: StreamCompressInput; output: StreamCompressOutput };
+  /**
+   * Decompress a compressed file, one codec layer per call: `a.tar.zst` → `a.tar`, `a.tgz` →
+   * `a.tar`, `notes.txt.gz` → `notes.txt`. The output keeps the input's modification time; the
+   * input is left in place.
+   */
+  "stream.decompress": { input: StreamDecompressInput; output: StreamDecompressOutput };
 };
 
 export type CommandName = keyof CommandMap;

@@ -101,24 +101,31 @@ impl CmdError {
     }
 }
 
-/// Core errors convert 1:1: each `ErrorKind` is one of these codes (docs/M1.md §3.1).
+/// Core error kinds are a subset of the codes (docs/M1.md §3.1).
+impl From<beezip_core::ErrorKind> for ErrorCode {
+    fn from(kind: beezip_core::ErrorKind) -> Self {
+        use beezip_core::ErrorKind as K;
+        match kind {
+            K::NotFound => Self::NotFound,
+            K::UnsupportedFormat => Self::UnsupportedFormat,
+            K::UnsupportedOperation => Self::UnsupportedOperation,
+            K::PasswordRequired => Self::PasswordRequired,
+            K::WrongPassword => Self::WrongPassword,
+            K::Corrupt => Self::Corrupt,
+            K::Unsafe => Self::Unsafe,
+            K::Conflict => Self::Conflict,
+            K::LimitExceeded => Self::LimitExceeded,
+            K::Cancelled => Self::Cancelled,
+            K::Io => Self::Io,
+            K::InvalidArgs => Self::InvalidArgs,
+        }
+    }
+}
+
+/// Core errors convert 1:1.
 impl From<beezip_core::Error> for CmdError {
     fn from(e: beezip_core::Error) -> Self {
-        use beezip_core::ErrorKind as K;
-        let code = match e.kind {
-            K::NotFound => ErrorCode::NotFound,
-            K::UnsupportedFormat => ErrorCode::UnsupportedFormat,
-            K::UnsupportedOperation => ErrorCode::UnsupportedOperation,
-            K::PasswordRequired => ErrorCode::PasswordRequired,
-            K::WrongPassword => ErrorCode::WrongPassword,
-            K::Corrupt => ErrorCode::Corrupt,
-            K::Unsafe => ErrorCode::Unsafe,
-            K::Conflict => ErrorCode::Conflict,
-            K::LimitExceeded => ErrorCode::LimitExceeded,
-            K::Cancelled => ErrorCode::Cancelled,
-            K::Io => ErrorCode::Io,
-            K::InvalidArgs => ErrorCode::InvalidArgs,
-        };
+        let code = ErrorCode::from(e.kind);
         let details = (code == ErrorCode::PasswordRequired)
             .then(|| serde_json::json!({ "param": "password" }));
         Self {
