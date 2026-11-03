@@ -128,7 +128,7 @@ pub trait Command: Send + Sync + 'static {
 - **`Interactor`:** each front end answers prompts its own way:
   - **CLI:** TTY prompt, or fail with a flag hint when not interactive.
   - **GUI:** event out, then a `cmd_respond` call back in.
-  - **MCP:** elicitation if the client supports it; otherwise a structured `PasswordRequired` error telling the model which parameter to pass.
+  - **MCP:** overwrite questions use elicitation when the client supports it. Spec 2026-07-28 sends it inside an `InputRequiredResult`, and the job waits, parked, for the retry; older sessions get a plain `elicitation/create`. Passwords are never elicited, since form mode must not carry secrets. A structured `PasswordRequired` error tells the model which parameter to pass ([`docs/M2.md`](M2.md) §3.3).
 - **`Policy`:** sandbox roots, read_only, limits, default overwrite policy. The engine enforces it before any command runs, using the paths the command's `access()` declares (path resolution checks the canonicalised parent, so junction and symlink escapes are caught).
 - **`CmdError`:** stable codes, plus an optional `details` value for structured extras (the extract report, per-entry test errors, which limit was hit). The codes are:
   - `NotFound`, `UnsupportedFormat`, `UnsupportedOperation`, `PasswordRequired`, `WrongPassword`, `Corrupt`, `OutsideSandbox`, `Conflict`, `LimitExceeded`, `Cancelled`, `BackendUnavailable`, `Io`;
@@ -170,9 +170,9 @@ Every archive command names the archive file `archive`. The M1 inputs and output
   - Implements `ServerHandler` **by hand**, not with `#[tool]` macros. `list_tools` and `call_tool` iterate the registry, so no new command ever needs MCP-specific code.
   - **Tools:** names like `archive_extract`, with input/output schemas and annotations (`readOnlyHint`, `destructiveHint`).
   - **Results:** returned as structuredContent.
-  - **Progress and cancellation:** `notify_progress` for progress; `RequestContext.ct` is wired to the job's `CancelToken`.
-  - **Sandbox:** writes require `--root <dir>` (repeatable); the client's MCP roots are intersected with them. `--read-only` and `--unrestricted` flags. Limits are stricter by default: a list page holds at most 500 entries and `entry.read` returns at most 256 KiB.
-  - **Transport:** stdio first; streamable HTTP on 127.0.0.1 (axum) later.
+  - **Progress and cancellation:** `notify_progress` for requests that carry a `progressToken`; `RequestContext.ct` is wired to the job's `CancelToken`. No logging notifications (deprecated by SEP-2577).
+  - **Sandbox:** writes require `--root <dir>` (repeatable). In sessions that still have client roots (2025-11-25 and older; 2026-07-28 deprecates them), a non-empty list is intersected with `--root`. `--read-only` (which also hides the write tools) and `--unrestricted` flags. Limits are stricter by default: a list page holds at most 500 entries and `entry.read` returns at most 256 KiB, through two `Policy` caps the CLI and GUI leave unset.
+  - **Transport:** stdio. Streamable HTTP on 127.0.0.1 (axum) isn't scheduled.
 - **Desktop (Tauri 2.12.x, staying off the 3.0 alpha):**
   - **IPC:** exactly four Tauri commands: `cmd_run(name, args, Channel<JobEvent>) -> JobId`, `cmd_cancel`, `cmd_respond` and `cmd_list`.
   - **TS types:** `xtask codegen` uses ts-rs, which is stable; tauri-specta is still an RC. It writes `src/gen/commands.ts`, a typed `CommandMap` so that `run("archive.extract", {...})` is fully typed. CI fails if the generated file is stale. Codegen details:
@@ -290,7 +290,7 @@ After approval I implement **M0 + M1** and then stop for your review before goin
   - **beezip-commands:** registry, engine, policy, config, and the commands `formats.list`, `file.detect`, `archive.{info,list,test,extract,create}`, `entry.read` and `stream.{compress,decompress}`.
   - **beezip-cli:** generated subcommands, `run`/`commands`/`schema`, the output modes and progress bars.
   - **Fuzzing:** a separate Linux workflow on nightly (`cargo +nightly fuzz`), because cargo-fuzz needs nightly and the pinned toolchain is stable. It fuzzes each target for 10 minutes nightly and for 1 minute on PRs that touch core or `fuzz/`.
-- **M2 — MCP.**
+- **M2 — MCP.** Detailed plan: [`docs/M2.md`](M2.md).
   - `beezip-mcp` builds its tool list dynamically from the registry, with sandbox roots, read-only mode, progress, cancellation, elicitation and paging.
   - Docs for `claude mcp add beezip -- beezip mcp --root <dir>` and Claude Desktop config.
 - **M3 — Desktop MVP + 7z/RAR/volumes.**
