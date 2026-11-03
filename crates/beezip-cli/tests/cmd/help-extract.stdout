@@ -1,0 +1,74 @@
+Extract an archive, or the selected entries. Unsafe entries (paths climbing out with `..`,
+links leading out) are skipped and the rest extracted; the command then fails with `Unsafe`
+and the report in `details`. Without `dest`, files go into the current directory.
+
+Usage: beezip extract [OPTIONS] <ARCHIVE> [ENTRIES]...
+
+Arguments:
+  <ARCHIVE>
+          The archive
+
+  [ENTRIES]...
+          Entries to extract (a folder takes everything under it). All when none are given
+
+Options:
+  -o, --dest <DEST>
+          Where to extract [default: the current directory]
+
+      --glob <PATTERN>
+          Extract only entries matching these patterns. Without `/` a pattern matches a name at any
+          depth (`*.txt`); with `/` the whole path (`docs/**/*.md`)
+
+      --exclude <PATTERN>
+          Leave out entries matching these patterns
+
+      --strip-components <N>
+          Drop this many leading path components, as with `tar --strip-components`
+
+      --smart[=<SMART>]
+          If the selection has more than one top-level item, extract into a folder named after the
+          archive (`a.tar.zst` → `a/`), as Explorer's "Extract here" does
+          
+          [possible values: true, false]
+
+      --overwrite <OVERWRITE>
+          What to do with files that exist [default: from config, `ask`]
+
+          Possible values:
+          - ask:    Ask (in a terminal or the app); fail with `Conflict` when nobody can be asked
+          - always
+          - never
+          - rename: Write `name (1).ext` instead
+          - newer:  Replace only if the entry is newer
+
+      --links[=<LINKS>]
+          Create symlinks that stay inside the destination [default: from config, off]. Hard links
+          are always extracted as copies
+          
+          [possible values: true, false]
+
+  -p, --password <PASSWORD>
+          The password for encrypted entries
+
+      --dry-run[=<DRY_RUN>]
+          Show what would be extracted, and where, without writing anything
+          
+          [possible values: true, false]
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+Global options:
+      --output <FORMAT>
+          How to print results; ndjson streams every job event
+
+          Possible values:
+          - human:  Text for people
+          - json:   One JSON document on stdout: the output, or `{"error": {...}}`
+          - ndjson: Every job event as a JSON line on stdout, ending with `Finished`, `Failed` or
+            `Cancelled`
+          
+          [default: human]
+
+  -q, --quiet
+          No progress bars or info messages; warnings still print

@@ -112,7 +112,7 @@ pub fn check_output(path: &Path, overwrite: bool) -> Result<(), CmdError> {
         return Err(CmdError::new(
             ErrorCode::Conflict,
             format!(
-                "`{}` already exists; pass `overwrite` to replace it",
+                "`{}` already exists; set `overwrite` (--overwrite) to replace it",
                 path.display()
             ),
         ));

@@ -28,7 +28,7 @@ pub struct StreamCompressInput {
     /// The file to compress.
     pub input: PathBuf,
     /// Where to write [default: the input's name plus the codec's extension].
-    #[arg(short, long)]
+    #[arg(short = 'o', long = "out", value_name = "PATH")]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub output: Option<PathBuf>,
     /// The codec [default: from config, zstd].
@@ -112,12 +112,12 @@ impl Command for StreamCompress {
                 input.input.display()
             )));
         }
-        let output = absolute(
-            &input
-                .output
-                .clone()
-                .unwrap_or_else(|| default_output(&input.input, codec)),
-        );
+        // Reported as the user wrote it; written to the absolute path.
+        let shown = input
+            .output
+            .clone()
+            .unwrap_or_else(|| default_output(&input.input, codec));
+        let output = absolute(&shown);
         if output == src {
             return Err(CmdError::invalid_args("the output is the input"));
         }
@@ -161,7 +161,7 @@ impl Command for StreamCompress {
         let bytes_out = std::fs::metadata(&output).map(|m| m.len()).unwrap_or(0);
         Ok(StreamCompressOutput {
             input: input.input,
-            output,
+            output: shown,
             codec: codec_name,
             bytes_in: counter.get(),
             bytes_out,

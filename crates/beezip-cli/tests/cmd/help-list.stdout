@@ -1,0 +1,49 @@
+List an archive's entries. Without `flat`, one folder level at a time (the root, or `dir`),
+with folders that only exist as parts of paths shown too; with `flat` or a `glob`, every
+entry under `dir`. Results come in pages with `offset` and `limit`.
+
+Usage: beezip list [OPTIONS] <ARCHIVE> [DIR]
+
+Arguments:
+  <ARCHIVE>
+          The archive
+
+  [DIR]
+          A folder inside the archive to list instead of the root
+
+Options:
+      --flat[=<FLAT>]
+          Every entry below `dir`, not just one level
+          
+          [possible values: true, false]
+
+      --glob <PATTERN>
+          Only entries matching these patterns (implies `flat`). Without `/` a pattern matches a
+          name at any depth (`*.txt`); with `/` the whole path (`docs/**/*.md`)
+
+      --offset <OFFSET>
+          Entries to skip, for paging
+
+      --limit <LIMIT>
+          At most this many entries
+
+  -p, --password <PASSWORD>
+          The password, if entry names need one
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+Global options:
+      --output <FORMAT>
+          How to print results; ndjson streams every job event
+
+          Possible values:
+          - human:  Text for people
+          - json:   One JSON document on stdout: the output, or `{"error": {...}}`
+          - ndjson: Every job event as a JSON line on stdout, ending with `Finished`, `Failed` or
+            `Cancelled`
+          
+          [default: human]
+
+  -q, --quiet
+          No progress bars or info messages; warnings still print

@@ -33,7 +33,7 @@ pub struct StreamDecompressInput {
     pub input: PathBuf,
     /// Where to write [default: the input's name without the codec's extension, or
     /// `<name>.out`].
-    #[arg(short, long)]
+    #[arg(short = 'o', long = "out", value_name = "PATH")]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub output: Option<PathBuf>,
     /// Replace the output if it exists.
@@ -108,12 +108,12 @@ impl Command for StreamDecompress {
                 ),
             ));
         };
-        let output = absolute(
-            &input
-                .output
-                .clone()
-                .unwrap_or_else(|| default_output(&input.input, codec)),
-        );
+        // Reported as the user wrote it; written to the absolute path.
+        let shown = input
+            .output
+            .clone()
+            .unwrap_or_else(|| default_output(&input.input, codec));
+        let output = absolute(&shown);
         if output == src {
             return Err(CmdError::invalid_args("the output is the input"));
         }
@@ -156,7 +156,7 @@ impl Command for StreamDecompress {
         }
         Ok(StreamDecompressOutput {
             input: input.input,
-            output,
+            output: shown,
             codec: CodecName::from_id(codec),
             bytes_in: counter.get(),
             bytes_out,

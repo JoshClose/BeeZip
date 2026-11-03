@@ -1,0 +1,4 @@
+bin.name = "beezip"
+args = ["compress", "a.txt"]
+status.code = 10
+fs.sandbox = true

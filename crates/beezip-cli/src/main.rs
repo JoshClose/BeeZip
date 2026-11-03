@@ -4,30 +4,56 @@
 //! the generic forms, `run`, `commands` and `schema`, plus `mcp`.
 
 mod generated;
+mod interact;
 mod output;
+mod progress;
 
-use std::{io::Read, process::ExitCode, sync::Arc};
+use std::{
+    io::{IsTerminal, Read},
+    process::ExitCode,
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicU32, Ordering},
+    },
+};
 
-use beezip_commands::{CmdError, Engine, ErrorCode, NonInteractive, registry};
-use clap::{Arg, ArgMatches, value_parser};
+use beezip_commands::{
+    CancelToken, CmdError, Engine, EngineOptions, ErrorCode, Interactor, Policy, config, registry,
+};
+use clap::{Arg, ArgAction, ArgMatches, value_parser};
 use serde_json::Value;
 
-use crate::output::{Mode, Output};
+use crate::{
+    interact::{CliNonInteractive, TtyInteractor},
+    output::{Mode, Output},
+};
 
 fn cli() -> clap::Command {
     let root = clap::Command::new("beezip")
+        // Fixed, so usage lines read `beezip`, not `beezip.exe`, on Windows.
+        .bin_name("beezip")
         .about("BeeZip: archives from the command line")
         .version(env!("CARGO_PKG_VERSION"))
         .subcommand_required(true)
         .arg_required_else_help(true)
         .arg(
-            Arg::new("output")
+            Arg::new("output-mode")
                 .long("output")
                 .global(true)
                 .value_name("FORMAT")
                 .value_parser(value_parser!(Mode))
                 .default_value("human")
+                .help_heading("Global options")
                 .help("How to print results; ndjson streams every job event"),
+        )
+        .arg(
+            Arg::new("quiet")
+                .short('q')
+                .long("quiet")
+                .global(true)
+                .action(ArgAction::SetTrue)
+                .help_heading("Global options")
+                .help("No progress bars or info messages; warnings still print"),
         )
         .subcommand(
             clap::Command::new("run")
@@ -52,12 +78,12 @@ fn cli() -> clap::Command {
 
 fn main() -> ExitCode {
     let matches = cli().get_matches();
-    let out = Output::new(
-        matches
-            .get_one::<Mode>("output")
-            .copied()
-            .unwrap_or_default(),
-    );
+    let mode = matches
+        .get_one::<Mode>("output-mode")
+        .copied()
+        .unwrap_or_default();
+    let quiet = matches.get_flag("quiet");
+    let out = Output::new(mode, quiet, std::io::stderr().is_terminal());
     match dispatch(&matches, &out) {
         Ok(()) => ExitCode::SUCCESS,
         Err(err) => {
@@ -101,10 +127,46 @@ fn dispatch(matches: &ArgMatches, out: &Output) -> Result<(), CmdError> {
     }
 }
 
+/// The running job's cancel token, for the Ctrl+C handler.
+static CURRENT: Mutex<Option<CancelToken>> = Mutex::new(None);
+static PRESSES: AtomicU32 = AtomicU32::new(0);
+
+/// The first Ctrl+C cancels the job (it removes its partial file and exits 130); the second
+/// exits at once.
+fn install_ctrl_c() {
+    let _ = ctrlc::set_handler(|| {
+        let token = CURRENT.lock().ok().and_then(|t| t.clone());
+        match (PRESSES.fetch_add(1, Ordering::SeqCst), token) {
+            (0, Some(token)) => {
+                eprintln!("\ncancelling… (Ctrl+C again to quit at once)");
+                token.cancel();
+            }
+            _ => std::process::exit(i32::from(ErrorCode::Cancelled.exit_code())),
+        }
+    });
+}
+
 fn run(name: &str, args: Value, out: &Output) -> Result<(), CmdError> {
-    let engine = Engine::new(registry());
-    // Prompts fail with a hint until the TTY interactor arrives in M1.
-    let job = engine.invoke(name, args, Arc::new(NonInteractive), out.event_sink())?;
+    // The config is read once, when the process starts (docs/M1.md §4.1).
+    let loaded = config::load();
+    for w in &loaded.warnings {
+        out.warn(w);
+    }
+    let engine = Engine::with_options(
+        registry(),
+        EngineOptions::from_config(loaded.config, Policy::unrestricted()),
+    );
+    let interactive = std::io::stdin().is_terminal() && std::io::stderr().is_terminal();
+    let interactor: Arc<dyn Interactor> = if interactive {
+        Arc::new(TtyInteractor::new(out.bars()))
+    } else {
+        Arc::new(CliNonInteractive)
+    };
+    install_ctrl_c();
+    let job = engine.invoke(name, args, interactor, out.event_sink())?;
+    if let Ok(mut current) = CURRENT.lock() {
+        *current = Some(job.cancel_token());
+    }
     let output = job.join()?;
     out.result(registry().get(name), &output);
     Ok(())

@@ -1,0 +1,22 @@
+Archive formats
+  ID       NAME             LIST  EXTRACT CREATE ENCRYPT  RANDOM  EXTENSIONS
+  zip      ZIP              yes   yes     yes    yes      yes     .zip .jar .war .apk .aab .ipa .xpi .vsix .nupkg .whl .docx .xlsx .pptx .odt .ods .odp .epub .appx .msix
+  tar      TAR              yes   yes     yes    -        yes     .tar
+  stream   compressed file  yes   yes     -      -        -       
+  zip methods: store, deflate (1-9, 6), bzip2 (1-9, 9), zstd (1-22, 3), xz (0-9, 6), ppmd (1-9, 7)
+
+Codecs
+  ID       NAME               LEVELS       THREADS  EXTENSIONS
+  gzip     gzip               0-9 (6)      -        .gz .tgz
+  zlib     zlib               0-9 (6)      -        .zz .zlib
+  deflate  raw deflate        0-9 (6)      -        (never detected)
+  bzip2    bzip2              1-9 (9)      -        .bz2 .tbz .tbz2
+  xz       xz                 0-9 (6)      yes      .xz .txz
+  lzma     LZMA (lzma-alone)  0-9 (6)      -        .lzma
+  lzip     lzip               0-9 (6)      yes      .lz .tlz
+  zstd     Zstandard          1-22 (3)     yes      .zst .tzst .zstd
+  lz4      LZ4 frame          -            -        .lz4
+  brotli   Brotli             0-11 (9)     -        .br
+  snappy   Snappy (framed)    -            -        .sz
+
+Create as: zip, tar, tar.gz, tar.bz2, tar.xz, tar.lzma, tar.lz, tar.zst, tar.lz4, tar.br, tar.sz
