@@ -76,7 +76,12 @@ fn strip_prefix(p: &str) -> (&str, bool) {
     let mut p = p;
     if let Some(rest) = p.strip_prefix("//?/").or_else(|| p.strip_prefix("//./")) {
         p = rest;
-        if p.len() >= 4 && p[..4].eq_ignore_ascii_case("UNC/") {
+        // Compare bytes: slicing the str at 4 panics inside a multi-byte character (found by
+        // the `paths` fuzzer). When the bytes match, they are ASCII, so 4 is a boundary.
+        if p.as_bytes()
+            .get(..4)
+            .is_some_and(|b| b.eq_ignore_ascii_case(b"UNC/"))
+        {
             p = skip_components(&p[4..], 2);
         }
     } else if let Some(rest) = p.strip_prefix("//") {
@@ -171,6 +176,10 @@ mod tests {
             ("\\\\?\\C:\\x\\y", "x/y", true),
             ("\\\\?\\UNC\\srv\\sh\\z", "z", true),
             ("\\\\.\\C:\\dev", "dev", true),
+            // Multi-byte characters right after the prefix (a fuzzer find: this panicked).
+            ("\\\\?\\ab\u{FFFD}x", "ab\u{FFFD}x", true),
+            ("//?/é", "é", true),
+            ("\\\\?\\UNC\\é\\ü\\z", "z", true),
             // Characters.
             ("a:b", "a_b", true),
             ("file.txt:stream", "file.txt_stream", true),

@@ -178,6 +178,8 @@ fn hostile_paths_sanitise_to_fixed_points() {
         "C:",
         "C:a",
         "ﬀ/ǅ/ı",
+        "\\\\?\\ab\u{FFFD}x",
+        "//./é/UNC",
     ];
     for s in samples {
         paths(s.as_bytes());
