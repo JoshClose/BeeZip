@@ -1,0 +1,29 @@
+[package]
+name = "beezip-cli"
+description = "The beezip command-line tool"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "beezip"
+path = "src/main.rs"
+
+[dependencies]
+beezip-commands.workspace = true
+beezip-mcp.workspace = true
+clap.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+anyhow.workspace = true
+assert_cmd.workspace = true
+predicates.workspace = true
+rmcp = { workspace = true, features = ["client", "transport-child-process"] }
+tokio.workspace = true
+
+[lints]
+workspace = true

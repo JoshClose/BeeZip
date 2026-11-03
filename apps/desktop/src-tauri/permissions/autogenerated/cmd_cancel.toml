@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-cmd-cancel"
+description = "Enables the cmd_cancel command without any pre-configured scope."
+commands.allow = ["cmd_cancel"]
+
+[[permission]]
+identifier = "deny-cmd-cancel"
+description = "Denies the cmd_cancel command without any pre-configured scope."
+commands.deny = ["cmd_cancel"]

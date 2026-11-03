@@ -1,0 +1,29 @@
+[package]
+name = "beezip-desktop"
+description = "BeeZip desktop app"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lib]
+# The `_lib` suffix keeps the lib name distinct from the bin name (rust-lang/cargo#8519).
+# rlib only: the template's staticlib/cdylib are for mobile targets.
+name = "beezip_desktop_lib"
+crate-type = ["rlib"]
+
+[build-dependencies]
+tauri-build.workspace = true
+
+[dependencies]
+beezip-commands.workspace = true
+serde_json.workspace = true
+tauri.workspace = true
+tauri-plugin-opener.workspace = true
+
+# No [profile.release] here: Cargo ignores profiles in workspace members, and the template's
+# `panic = "abort"` would break the engine's catch_unwind. See the workspace Cargo.toml.
+
+[lints]
+workspace = true

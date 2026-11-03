@@ -1,0 +1,42 @@
+# cargo-deny 0.20: `cargo deny check`. License policy from PLAN §2.
+
+[graph]
+targets = ["x86_64-pc-windows-msvc", "x86_64-unknown-linux-gnu"]
+
+[advisories]
+# Unmaintained crates deep in Tauri's tree are not actionable here; vulnerabilities still fail.
+unmaintained = "workspace"
+
+[licenses]
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",  # target-lexicon (Tauri's Linux build deps); only adds permissions
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Zlib",
+    "Unicode-3.0",
+    "bzip2-1.0.6",
+]
+unused-allowed-license = "allow"     # bzip2-1.0.6 etc. arrive in M1
+exceptions = [                       # MPL-2.0, unmodified, pulled in by Tauri 2.12; listed in THIRD_PARTY_NOTICES
+    { allow = ["MPL-2.0"], crate = "option-ext" },
+    { allow = ["MPL-2.0"], crate = "cssparser" },
+    { allow = ["MPL-2.0"], crate = "cssparser-macros" },
+    { allow = ["MPL-2.0"], crate = "dtoa-short" },
+    { allow = ["MPL-2.0"], crate = "selectors" },
+    # M3: { allow = ["LicenseRef-UnRAR"], crate = "unrar_sys" },
+]
+
+[licenses.private]
+ignore = true
+
+[bans]
+multiple-versions = "warn"           # Tauri alone brings schemars 0.8/0.9/1.x and thiserror 1/2
+wildcards = "deny"
+allow-wildcard-paths = true          # our path deps
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"

@@ -1,0 +1,70 @@
+:root {
+  --bg: #f7f7f5;
+  --fg: #1d1d1b;
+  --muted: #6b6b66;
+  --rule: #deded8;
+  --error: #b42318;
+  font-family: "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
+  font-size: 15px;
+  line-height: 1.5;
+  color: var(--fg);
+  background: var(--bg);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #1c1c1a;
+    --fg: #ecece8;
+    --muted: #a3a39c;
+    --rule: #3a3a36;
+    --error: #f97066;
+  }
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+}
+
+.container {
+  max-width: 860px;
+  margin: 0 auto;
+  padding: 32px 24px;
+}
+
+h1 {
+  margin: 0;
+  font-size: 1.6rem;
+}
+
+h2 {
+  margin: 32px 0 8px;
+  font-size: 1rem;
+}
+
+.version {
+  margin: 4px 0 0;
+  color: var(--muted);
+}
+
+.error {
+  color: var(--error);
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+th,
+td {
+  padding: 6px 12px 6px 0;
+  border-bottom: 1px solid var(--rule);
+  text-align: left;
+  vertical-align: top;
+}
+
+th {
+  font-weight: 600;
+  color: var(--muted);
+}
