@@ -4,7 +4,9 @@ on:
   pull_request:
   workflow_dispatch:
 permissions: { contents: read }
-concurrency: { group: ci-${{ github.ref }}, cancel-in-progress: true }
+concurrency:   # block style: `${{ }}` braces break a YAML flow map
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 env:
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: "0"
