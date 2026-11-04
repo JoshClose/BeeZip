@@ -16,6 +16,8 @@ export type Listing = {
   error?: CmdError;
   /** Rows by index, for the selection; only the loaded ones. */
   loaded: () => Map<number, EntryInfo>;
+  /** The rows are the previous listing's, while this one loads. */
+  stale: boolean;
 };
 
 type State = { key: string; total?: number; pages: Map<number, EntryInfo[]>; error?: CmdError };
@@ -29,6 +31,13 @@ export function useListing(tab: Tab): Listing {
   const [state, setState] = useState<State>({ key, pages: new Map() });
   const inflight = useRef(new Set<string>());
   const current = state.key === key ? state : { key, pages: new Map<number, EntryInfo[]>() };
+  // Until a new listing's first page arrives (another folder, another sort), the last one stays
+  // on screen rather than the table blinking out.
+  const lastShown = useRef<State | undefined>(undefined);
+  if (current.total !== undefined) lastShown.current = current;
+  const stale =
+    current.total === undefined && !current.error && lastShown.current?.key.startsWith(`${tab.path}\n`);
+  const shown = stale && lastShown.current ? lastShown.current : current;
 
   const fetchPage = useCallback(
     (page: number) => {
@@ -87,8 +96,8 @@ export function useListing(tab: Tab): Listing {
   );
 
   const row = useCallback(
-    (index: number) => current.pages.get(Math.floor(index / PAGE))?.[index % PAGE],
-    [current.pages],
+    (index: number) => shown.pages.get(Math.floor(index / PAGE))?.[index % PAGE],
+    [shown.pages],
   );
 
   const loaded = useCallback(() => {
@@ -97,5 +106,5 @@ export function useListing(tab: Tab): Listing {
     return out;
   }, [current.pages]);
 
-  return { total: current.total, row, ensure, error: current.error, loaded };
+  return { total: shown.total, row, ensure, error: current.error, loaded, stale: Boolean(stale) };
 }
