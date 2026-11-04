@@ -42,7 +42,6 @@ export function About({ onClose }: { onClose: () => void }) {
                 <th className="font-normal">Read</th>
                 <th className="font-normal">Create</th>
                 <th className="font-normal">Encrypt</th>
-                <th className="font-normal">Volumes</th>
               </tr>
             </thead>
             <tbody>
@@ -52,13 +51,15 @@ export function About({ onClose }: { onClose: () => void }) {
                   <td>{yes(f.caps.list)}</td>
                   <td>{yes(f.caps.create)}</td>
                   <td>{yes(f.caps.encrypt)}</td>
-                  <td>{yes(f.caps.volumes)}</td>
                 </tr>
               ))}
             </tbody>
           </table>
           {formats && (
-            <p className="mt-1.5 text-muted">Codecs: {formats.codecs.map((c) => c.name).join(", ")}.</p>
+            <p className="mt-1.5 text-muted">
+              Codecs: {formats.codecs.map((c) => c.name).join(", ")}. Every format can be split into volumes
+              (&ldquo;a.zip.001&rdquo;&hellip;), and a split archive opens from any of its parts.
+            </p>
           )}
         </section>
         <section>

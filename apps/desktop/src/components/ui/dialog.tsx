@@ -29,6 +29,16 @@ export function Dialog({
       <Radix.Portal>
         <Radix.Overlay className="fixed inset-0 z-40 bg-black/30" />
         <Radix.Content
+          // The first field, rather than whatever button comes first.
+          onOpenAutoFocus={(e) => {
+            const field = (e.currentTarget as HTMLElement | null)?.querySelector<HTMLElement>(
+              "input:not([type=hidden]):not([type=radio]):not(:disabled), select, textarea",
+            );
+            if (field) {
+              e.preventDefault();
+              field.focus();
+            }
+          }}
           onPointerDownOutside={(e) => !dismissable && e.preventDefault()}
           onInteractOutside={(e) => !dismissable && e.preventDefault()}
           className={cn(

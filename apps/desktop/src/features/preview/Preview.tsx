@@ -29,14 +29,14 @@ type Shown =
   | { kind: "too-big" }
   | { kind: "error"; error: CmdError };
 
-/** Rows of 16 bytes: offset, hex, and the printable characters. */
-export function hexLines(bytes: Uint8Array, start = 0): string {
+/** Rows of `width` bytes: offset, hex, and the printable characters. Eight fit the pane. */
+export function hexLines(bytes: Uint8Array, start = 0, width = 8): string {
   const lines: string[] = [];
-  for (let i = 0; i < bytes.length; i += 16) {
-    const chunk = bytes.subarray(i, i + 16);
+  for (let i = 0; i < bytes.length; i += width) {
+    const chunk = bytes.subarray(i, i + width);
     const hex = Array.from(chunk, (b) => b.toString(16).padStart(2, "0")).join(" ");
     const ascii = Array.from(chunk, (b) => (b >= 0x20 && b < 0x7f ? String.fromCharCode(b) : ".")).join("");
-    lines.push(`${(start + i).toString(16).padStart(8, "0")}  ${hex.padEnd(47)}  ${ascii}`);
+    lines.push(`${(start + i).toString(16).padStart(8, "0")}  ${hex.padEnd(width * 3 - 1)}  ${ascii}`);
   }
   return lines.join("\n");
 }
@@ -134,7 +134,7 @@ function Body({ tab, entry }: { tab: Tab; entry: EntryInfo }) {
     case "hex":
       return (
         <div className="min-h-0 flex-1 overflow-auto">
-          <pre className="selectable p-3 font-mono text-[11.5px] leading-[1.5]">{hexLines(shown.bytes)}</pre>
+          <pre className="selectable p-3 font-mono text-[11px] leading-[1.5]">{hexLines(shown.bytes)}</pre>
           {shown.more && <p className="px-3 pb-3 text-muted">Showing the first 64 KiB.</p>}
         </div>
       );

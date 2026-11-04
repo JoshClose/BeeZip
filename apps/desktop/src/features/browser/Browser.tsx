@@ -190,7 +190,7 @@ export function Browser({ tab }: { tab: Tab }) {
       <div className="flex min-h-0 flex-1">
         <aside className="w-52 shrink-0 border-r border-rule">{ready && <FolderTree tab={tab} ready={ready} />}</aside>
         <main className="flex min-w-0 flex-1 flex-col bg-panel">{table}</main>
-        <aside className="w-72 shrink-0 border-l border-rule max-[1000px]:hidden">
+        <aside className="w-80 shrink-0 border-l border-rule max-[1000px]:hidden">
           <Preview tab={tab} />
         </aside>
       </div>

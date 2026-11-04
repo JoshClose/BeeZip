@@ -35,7 +35,10 @@ Options:
           - size
           - packed
           - modified
-          - kind:     Folders, files, then links; by name within each
+          - kind:      Folders, files, then links; by name within each
+          - method:    The compression method's name; entries without one first
+          - crc
+          - encrypted: Unencrypted entries first
 
       --reverse[=<REVERSE>]
           Reverse the sort (folders stay first)

@@ -21,7 +21,7 @@ const COLUMNS: { key: SortKey; label: string; align?: "right" | "center" }[] = [
   { key: "encrypted", label: "Encrypted", align: "center" },
 ];
 
-const GRID = "grid grid-cols-[minmax(13rem,1fr)_4.75rem_7.5rem_8rem_4.75rem_4.5rem_1.75rem] items-center gap-x-2.5 px-3";
+const GRID = "grid grid-cols-[minmax(9rem,1fr)_4.75rem_7.5rem_7.5rem_4.75rem_4.5rem_1.75rem] items-center gap-x-2.5 px-3";
 
 export type EntryTableProps = {
   total: number;
@@ -78,8 +78,9 @@ function Cells({ entry }: { entry: EntryInfo }) {
       <span className="tabular text-right">{entry.kind === "dir" ? "" : formatSize(entry.size)}</span>
       <Packed entry={entry} />
       <span className="tabular truncate text-muted">{formatTime(entry.modified)}</span>
-      <span className="truncate text-muted">{entry.method ?? ""}</span>
-      <span className="font-mono text-[12px] text-muted">{formatCrc(entry.crc32)}</span>
+      {/* A folder's method and CRC are placeholders in its zip record. */}
+      <span className="truncate text-muted">{entry.kind === "dir" ? "" : (entry.method ?? "")}</span>
+      <span className="font-mono text-[12px] text-muted">{entry.kind === "dir" ? "" : formatCrc(entry.crc32)}</span>
       <span className="flex justify-center">{entry.encrypted && <Lock className="size-3.5 text-amber" aria-label="encrypted" />}</span>
     </>
   );
@@ -122,7 +123,7 @@ export function EntryTable(props: EntryTableProps) {
       aria-label="Entries"
       data-testid="entry-scroller"
     >
-      <div className="min-w-[44rem]">
+      <div className="min-w-[45rem]">
         <div
           className={cn(GRID, "sticky top-0 z-10 border-b border-rule bg-panel text-[12px] text-muted")}
           style={{ height: HEADER_HEIGHT }}

@@ -52,8 +52,8 @@ impl ArchiveFormat for Zip {
     fn extensions(&self) -> &'static [&'static str] {
         // Formats that are zips underneath open as zips.
         &[
-            ".zip", ".jar", ".war", ".apk", ".aab", ".ipa", ".xpi", ".vsix", ".nupkg", ".whl",
-            ".docx", ".xlsx", ".pptx", ".odt", ".ods", ".odp", ".epub", ".appx", ".msix",
+            ".zip", ".cbz", ".jar", ".war", ".apk", ".aab", ".ipa", ".xpi", ".vsix", ".nupkg",
+            ".whl", ".docx", ".xlsx", ".pptx", ".odt", ".ods", ".odp", ".epub", ".appx", ".msix",
         ]
     }
 
