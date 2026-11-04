@@ -15,8 +15,8 @@ use crate::{
     CodecId, Ctx, Error, Limits, Result,
     detect::{Detection, detect_path},
     format::{
-        ArchiveReader, FormatId, sevenz::SevenZReader, stream::StreamReader, tar::TarReader,
-        zip::ZipReader,
+        ArchiveReader, FormatId, rar::RarReader, sevenz::SevenZReader, stream::StreamReader,
+        tar::TarReader, zip::ZipReader,
     },
     io::{BUF_SIZE, Counter, CountingReader},
     limits::{Budget, Guarded, RatioGuard},
@@ -280,6 +280,7 @@ pub fn open(path: &Path, opts: &OpenOptions, cx: &mut dyn Ctx) -> Result<Opened>
             FormatId::Tar => Box::new(TarReader::new(source)),
             FormatId::Stream => Box::new(StreamReader::open(source)?),
             FormatId::SevenZ => Box::new(SevenZReader::open(source, detection.sfx, cx)?),
+            FormatId::Rar => RarReader::open(source, detection.sfx, cx)?,
         })
     })();
     let reader = opened.map_err(|e| if joined { truncated_hint(e, parts) } else { e })?;

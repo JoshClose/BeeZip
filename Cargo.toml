@@ -1,12 +1,12 @@
 [workspace]
 resolver = "3"
 members = [
-    "crates/beezip-core", "crates/beezip-commands", "crates/beezip-mcp",
+    "crates/beezip-core", "crates/beezip-unrar", "crates/beezip-commands", "crates/beezip-mcp",
     "crates/beezip-cli", "crates/beezip-shell", "apps/desktop/src-tauri", "xtask",
 ]
 # A plain `cargo build`/`cargo test` skips the Tauri app (~450 extra crates). CI and the checklist pass --workspace.
 default-members = [
-    "crates/beezip-core", "crates/beezip-commands", "crates/beezip-mcp",
+    "crates/beezip-core", "crates/beezip-unrar", "crates/beezip-commands", "crates/beezip-mcp",
     "crates/beezip-cli", "crates/beezip-shell", "xtask",
 ]
 # cargo-fuzz needs nightly, so fuzz/ is its own workspace (docs/M1.md §7).
@@ -23,6 +23,7 @@ publish = false
 beezip-core     = { path = "crates/beezip-core" }
 beezip-commands = { path = "crates/beezip-commands" }
 beezip-mcp      = { path = "crates/beezip-mcp" }
+beezip-unrar    = { path = "crates/beezip-unrar" }
 
 # Stable APIs: caret at today's version; Cargo.lock pins the build.
 serde      = { version = "1.0.229", features = ["derive"] }
@@ -70,6 +71,7 @@ base64     = "0.23.1"
 indicatif  = "0.18.6"
 
 # M3 formats (docs/M3.md §1). Churny, so pinned exactly.
+unrar_sys = "=0.5.8"   # UnRAR 7.1.0, compiled with cc; only beezip-unrar uses it (§3.4)
 sevenz-rust2 = { version = "=0.24.2", default-features = false, features = [
     "aes256", "bzip2", "compress", "ppmd", "deflate", "lz4", "brotli",
 ] }

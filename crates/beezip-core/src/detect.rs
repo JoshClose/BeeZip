@@ -20,7 +20,10 @@ use file_format::FileFormat;
 use crate::{
     CodecId, Error, Limits, Result,
     codec::{codecs, strip_extension},
-    format::{FormatId, formats, sevenz::start_header as sevenz_start_header, zip::is_sfx},
+    format::{
+        FormatId, formats, rar::signature as rar_signature,
+        sevenz::start_header as sevenz_start_header, zip::is_sfx,
+    },
     io::read_prefix,
     volume::{SetKind, VolumeReader, find_set},
 };
@@ -184,7 +187,19 @@ pub fn detect_path(path: &Path, limits: &Limits) -> Result<Detection> {
             det.joined = true;
             Ok(det)
         }
-        _ => {
+        // RAR names its own volumes, and UnRAR opens them: detect the first part, and keep
+        // the set only if it is a RAR.
+        Some(set) => {
+            let mut det = detect_file(&set.parts[0], limits)?;
+            if det.format() == Some(FormatId::Rar) {
+                det.volumes = set.parts;
+                return Ok(det);
+            }
+            let mut det = detect_file(path, limits)?;
+            det.volumes = vec![path.to_path_buf()];
+            Ok(det)
+        }
+        None => {
             let mut det = detect_file(path, limits)?;
             det.volumes = vec![path.to_path_buf()];
             Ok(det)
@@ -267,7 +282,9 @@ fn overlay_archive<R: Read + Seek>(r: &mut R, len: u64) -> Option<(u64, Layer)> 
     r.seek(SeekFrom::Start(at)).ok()?;
     let start = read_prefix(r, 64);
     let _ = r.seek(SeekFrom::Start(0));
-    let (kind, confidence) = sevenz_start_header(&start).map(|c| (FormatId::SevenZ, c))?;
+    let (kind, confidence) = sevenz_start_header(&start)
+        .map(|c| (FormatId::SevenZ, c))
+        .or_else(|| rar_signature(&start).map(|c| (FormatId::Rar, c)))?;
     Some((
         at,
         Layer {

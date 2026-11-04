@@ -65,6 +65,8 @@ pub trait Ctx {
 #[derive(Debug, Default)]
 pub struct SimpleCtx {
     pub password: Option<String>,
+    /// Answers in order, one per attempt, for archives with a password per entry.
+    pub passwords: Vec<String>,
     /// The answer to overwrite prompts; `None` fails them with `Conflict`.
     pub overwrite: Option<OverwriteChoice>,
     pub cancel: Option<Arc<AtomicBool>>,
@@ -81,6 +83,14 @@ impl SimpleCtx {
     #[must_use]
     pub fn with_password(mut self, password: impl Into<String>) -> Self {
         self.password = Some(password.into());
+        self
+    }
+
+    /// One answer per attempt: the first is tried first, the next after it fails, and so on.
+    #[must_use]
+    pub fn with_passwords(mut self, passwords: &[&str]) -> Self {
+        self.passwords = passwords.iter().map(|p| (*p).to_owned()).collect();
+        self.password = self.passwords.first().cloned();
         self
     }
 
@@ -114,6 +124,12 @@ impl Ctx for SimpleCtx {
     }
 
     fn password(&mut self, _entry: Option<&str>, attempt: u32) -> Result<String> {
+        if let Some(pw) = usize::try_from(attempt)
+            .ok()
+            .and_then(|a| self.passwords.get(a))
+        {
+            return Ok(pw.clone());
+        }
         match (&self.password, attempt) {
             (Some(pw), 0) => Ok(pw.clone()),
             (Some(_), _) => Err(Error::new(ErrorKind::WrongPassword, "wrong password")),

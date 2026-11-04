@@ -1,6 +1,7 @@
 //! Archive formats: ZIP, TAR and the one-entry stream view of a bare compressed file
 //! (docs/M1.md §3.4).
 
+pub mod rar;
 pub mod sevenz;
 pub mod sevenz_header;
 pub mod stream;
@@ -21,12 +22,13 @@ pub enum FormatId {
     Zip,
     Tar,
     SevenZ,
+    Rar,
     /// A bare compressed file, seen as an archive with one entry.
     Stream,
 }
 
 impl FormatId {
-    pub const ALL: [FormatId; 4] = [Self::Zip, Self::Tar, Self::SevenZ, Self::Stream];
+    pub const ALL: [FormatId; 5] = [Self::Zip, Self::Tar, Self::SevenZ, Self::Rar, Self::Stream];
 
     pub const fn name(self) -> &'static str {
         match self {
@@ -34,6 +36,7 @@ impl FormatId {
             Self::Tar => "tar",
             Self::Stream => "stream",
             Self::SevenZ => "7z",
+            Self::Rar => "rar",
         }
     }
 
@@ -43,6 +46,7 @@ impl FormatId {
             Self::Tar => "TAR",
             Self::Stream => "compressed file",
             Self::SevenZ => "7z",
+            Self::Rar => "RAR",
         }
     }
 
@@ -56,6 +60,7 @@ impl FormatId {
             Self::Tar => &tar::Tar,
             Self::Stream => &stream::Stream,
             Self::SevenZ => &sevenz::SevenZ,
+            Self::Rar => &rar::Rar,
         }
     }
 }

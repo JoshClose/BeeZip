@@ -7,7 +7,14 @@ rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
 
+[features]
+# RAR through UnRAR (docs/M3.md §3.4). Without it, RAR archives are detected and then fail
+# with `BackendUnavailable`.
+default = ["rar"]
+rar = ["dep:beezip-unrar"]
+
 [dependencies]
+beezip-unrar = { workspace = true, optional = true }
 brotli.workspace = true
 bzip2.workspace = true
 crc32fast.workspace = true
