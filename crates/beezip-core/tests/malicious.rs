@@ -199,3 +199,65 @@ fn an_empty_zip_is_fine() {
     assert_eq!(r.unwrap(), ExtractReport::default());
     assert!(inside.is_empty());
 }
+
+/// 7z and RAR (docs/M3.md §6): `../`, an absolute path, a device name and a symlink to `..`,
+/// which UnRAR and sevenz-rust2 hand over unchanged (UnRAR on Windows turns `:` into `_`).
+#[test]
+fn sevenz_and_rar_paths_are_made_safe() {
+    for name in ["traversal.7z", "traversal.rar"] {
+        let (r, inside) = extract(name, FsOptions::default());
+        let r = r.unwrap();
+        assert!(r.is_unsafe(), "{name}");
+        let mut why = reasons(&r);
+        why.sort_by_key(|s| s.name());
+        assert_eq!(
+            why,
+            [SkipReason::LinksDisabled, SkipReason::Traversal],
+            "{name}"
+        );
+        assert!(
+            inside.contains(&"safe.txt".to_owned()),
+            "{name}: {inside:?}"
+        );
+        assert!(inside.contains(&"_CON".to_owned()), "{name}: {inside:?}");
+        let abs = ["etc/beezip-abs.txt", "abs.txt", "C_/abs.txt"];
+        assert!(
+            inside.iter().any(|p| abs.contains(&p.as_str())),
+            "{name}: {inside:?}"
+        );
+        assert!(
+            !inside.iter().any(|p| p.contains("evil")),
+            "{name}: {inside:?}"
+        );
+
+        // With links on, the link to `..` is refused for leading out.
+        let (r, _) = extract(
+            name,
+            FsOptions {
+                links: true,
+                ..FsOptions::default()
+            },
+        );
+        assert!(
+            reasons(&r.unwrap()).contains(&SkipReason::LinkOutside),
+            "{name}"
+        );
+    }
+}
+
+#[test]
+fn sevenz_memory_bombs_are_refused_before_decoding() {
+    let err = open(
+        &corpus("bomb-header.7z"),
+        &OpenOptions::default(),
+        &mut SimpleCtx::new(),
+    )
+    .err()
+    .unwrap();
+    assert_eq!(err.kind, ErrorKind::LimitExceeded, "{err}");
+    let (r, inside) = extract("huge-dict.7z", FsOptions::default());
+    let err = r.unwrap_err();
+    assert_eq!(err.kind, ErrorKind::LimitExceeded, "{err}");
+    assert!(err.message.contains("decoder_memory"), "{err}");
+    assert!(inside.is_empty());
+}

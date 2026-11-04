@@ -120,6 +120,38 @@ fn corpus() -> anyhow::Result<Vec<(&'static str, Vec<u8>)>> {
         ("overlap.zip", overlap_zip()),
         ("ratio.zip", ratio_zip()?),
         ("nested5.gz", nested_gz(5)?),
+        // M3: 7z and RAR (docs/M3.md §6). Paths, links and devices, then the two 7z memory
+        // bombs, which BeeZip must refuse before decoding anything.
+        (
+            "traversal.7z",
+            sevenz(&[
+                SzFile::new("../evil.txt", b"escaped"),
+                SzFile::new("/etc/beezip-abs.txt", b"abs"),
+                SzFile::new("CON", b"device"),
+                // 7-Zip's Unix link: the extension bit, S_IFLNK in the high half, the target
+                // as data.
+                SzFile {
+                    attrs: Some(0x8000 | (0o120_777 << 16) | 0x20),
+                    ..SzFile::new("up", b"..")
+                },
+                SzFile::new("safe.txt", b"safe"),
+            ]),
+        ),
+        ("bomb-header.7z", sevenz_bomb_header()),
+        ("huge-dict.7z", sevenz_huge_dict()),
+        (
+            "traversal.rar",
+            rar5(&[
+                RarFile::new("../evil.txt", b"escaped"),
+                RarFile::new("C:/abs.txt", b"abs"),
+                RarFile::new("CON", b"device"),
+                RarFile {
+                    symlink: Some(".."),
+                    ..RarFile::new("up", b"")
+                },
+                RarFile::new("safe.txt", b"safe"),
+            ]),
+        ),
         // Edge cases.
         ("empty.zip", zip(&[])),
         // Not malicious, just damaged: a stored entry whose CRC doesn't match its data.
@@ -342,6 +374,257 @@ fn tar(entries: &[TarEntry]) -> Vec<u8> {
         out.resize(out.len().div_ceil(512) * 512, 0);
     }
     out.resize(out.len() + 1024, 0);
+    out
+}
+
+// ---------------------------------------------------------------------------------------------
+// 7z, by hand: an uncompressed header (kHeader) over stored blocks, so every field is ours.
+
+struct SzFile {
+    name: &'static str,
+    data: Vec<u8>,
+    attrs: Option<u32>,
+}
+
+impl SzFile {
+    fn new(name: &'static str, data: &[u8]) -> Self {
+        Self {
+            name,
+            data: data.to_vec(),
+            attrs: None,
+        }
+    }
+}
+
+/// 7z's variable-length number.
+fn sz_number(out: &mut Vec<u8>, v: u64) {
+    if v < 0x80 {
+        out.push(v as u8);
+        return;
+    }
+    // The 0xFF form: eight bytes follow. Every 7z reader accepts it.
+    out.push(0xFF);
+    out.extend_from_slice(&v.to_le_bytes());
+}
+
+/// The 32-byte start header pointing at `next`, which follows `packed` bytes of data.
+fn sz_start(packed: u64, next: &[u8]) -> Vec<u8> {
+    let mut sh = Vec::new();
+    sh.extend_from_slice(&packed.to_le_bytes());
+    sh.extend_from_slice(&(next.len() as u64).to_le_bytes());
+    sh.extend_from_slice(&crc32fast::hash(next).to_le_bytes());
+    let mut out = vec![b'7', b'z', 0xBC, 0xAF, 0x27, 0x1C, 0, 4];
+    out.extend_from_slice(&crc32fast::hash(&sh).to_le_bytes());
+    out.extend_from_slice(&sh);
+    out
+}
+
+/// A folder (block) with one simple coder.
+fn sz_folder(out: &mut Vec<u8>, id: &[u8], props: &[u8]) {
+    out.push(0x01); // one coder
+    let mut main = id.len() as u8;
+    if !props.is_empty() {
+        main |= 0x20;
+    }
+    out.push(main);
+    out.extend_from_slice(id);
+    if !props.is_empty() {
+        sz_number(out, props.len() as u64);
+        out.extend_from_slice(props);
+    }
+}
+
+/// Every file stored (Copy) in a block of its own, with names and, where given, attributes.
+fn sevenz(files: &[SzFile]) -> Vec<u8> {
+    let packed: Vec<u8> = files.iter().flat_map(|f| f.data.clone()).collect();
+    let mut h = vec![0x01, 0x04]; // kHeader, kMainStreamsInfo
+    h.extend_from_slice(&[0x06, 0x00]); // kPackInfo, pack position 0
+    sz_number(&mut h, files.len() as u64);
+    h.push(0x09); // kSize
+    for f in files {
+        sz_number(&mut h, f.data.len() as u64);
+    }
+    h.push(0x00);
+    h.extend_from_slice(&[0x07, 0x0B]); // kUnpackInfo, kFolder
+    sz_number(&mut h, files.len() as u64);
+    h.push(0x00); // not external
+    for _ in files {
+        sz_folder(&mut h, &[0x00], &[]);
+    }
+    h.push(0x0C); // kCodersUnpackSize
+    for f in files {
+        sz_number(&mut h, f.data.len() as u64);
+    }
+    h.push(0x00);
+    h.extend_from_slice(&[0x08, 0x0A, 0x01]); // kSubStreamsInfo, kCRC, all defined
+    for f in files {
+        h.extend_from_slice(&crc32fast::hash(&f.data).to_le_bytes());
+    }
+    h.extend_from_slice(&[0x00, 0x00]); // end of substreams, end of streams info
+    h.push(0x05); // kFilesInfo
+    sz_number(&mut h, files.len() as u64);
+    let mut names = vec![0x00]; // not external
+    for f in files {
+        for u in f.name.encode_utf16().chain([0]) {
+            names.extend_from_slice(&u.to_le_bytes());
+        }
+    }
+    h.push(0x11); // kName
+    sz_number(&mut h, names.len() as u64);
+    h.extend_from_slice(&names);
+    let mut attrs = vec![0x01, 0x00]; // all defined, not external
+    for f in files {
+        attrs.extend_from_slice(&f.attrs.unwrap_or(0x20).to_le_bytes());
+    }
+    h.push(0x15); // kWinAttributes
+    sz_number(&mut h, attrs.len() as u64);
+    h.extend_from_slice(&attrs);
+    h.extend_from_slice(&[0x00, 0x00]); // end of files info, end of header
+    let mut out = sz_start(packed.len() as u64, &h);
+    out.extend_from_slice(&packed);
+    out.extend_from_slice(&h);
+    out
+}
+
+/// An encoded header that says it unpacks to 8 GiB from a few bytes of LZMA: sevenz-rust2
+/// would grow its buffer as it decoded, so BeeZip must refuse it from the declared size.
+fn sevenz_bomb_header() -> Vec<u8> {
+    let packed = [0x00u8, 0x41, 0xFE, 0xFB, 0xFF, 0xFF, 0xA4, 0x00, 0x00, 0x00];
+    let mut h = vec![0x17, 0x06, 0x00, 0x01, 0x09]; // kEncodedHeader, kPackInfo, pos 0, 1 stream
+    sz_number(&mut h, packed.len() as u64);
+    h.push(0x00);
+    h.extend_from_slice(&[0x07, 0x0B, 0x01, 0x00]); // kUnpackInfo, kFolder, 1 folder
+    let mut props = vec![0x5D];
+    props.extend_from_slice(&(1u32 << 16).to_le_bytes());
+    sz_folder(&mut h, &[0x03, 0x01, 0x01], &props);
+    h.push(0x0C);
+    sz_number(&mut h, 8 << 30);
+    h.extend_from_slice(&[0x00, 0x00]);
+    let mut out = sz_start(packed.len() as u64, &h);
+    out.extend_from_slice(&packed);
+    out.extend_from_slice(&h);
+    out
+}
+
+/// One file in an LZMA2 block whose dictionary property asks for 4 GiB (the largest value,
+/// 40): BeeZip checks a block's coders against `decoder_memory` before decoding it.
+fn sevenz_huge_dict() -> Vec<u8> {
+    let data = b"a small file in a block that asks for a 4 GiB dictionary";
+    // An LZMA2 stream of one uncompressed chunk (with a dictionary reset), then the end.
+    let mut packed = vec![0x01];
+    packed.extend_from_slice(&((data.len() - 1) as u16).to_be_bytes());
+    packed.extend_from_slice(data);
+    packed.push(0x00);
+    let mut h = vec![0x01, 0x04, 0x06, 0x00, 0x01, 0x09];
+    sz_number(&mut h, packed.len() as u64);
+    h.push(0x00);
+    h.extend_from_slice(&[0x07, 0x0B, 0x01, 0x00]);
+    sz_folder(&mut h, &[0x21], &[40]);
+    h.push(0x0C);
+    sz_number(&mut h, data.len() as u64);
+    h.push(0x00);
+    h.extend_from_slice(&[0x08, 0x0A, 0x01]);
+    h.extend_from_slice(&crc32fast::hash(data).to_le_bytes());
+    h.extend_from_slice(&[0x00, 0x00, 0x05, 0x01]);
+    let mut names = vec![0x00];
+    for u in "big.bin".encode_utf16().chain([0]) {
+        names.extend_from_slice(&u.to_le_bytes());
+    }
+    h.push(0x11);
+    sz_number(&mut h, names.len() as u64);
+    h.extend_from_slice(&names);
+    h.extend_from_slice(&[0x00, 0x00]);
+    let mut out = sz_start(packed.len() as u64, &h);
+    out.extend_from_slice(&packed);
+    out.extend_from_slice(&h);
+    out
+}
+
+// ---------------------------------------------------------------------------------------------
+// RAR5, by hand from UnRAR's RAR5Format.md: stored files, names exactly as given.
+
+struct RarFile {
+    name: &'static str,
+    data: Vec<u8>,
+    symlink: Option<&'static str>,
+}
+
+impl RarFile {
+    fn new(name: &'static str, data: &[u8]) -> Self {
+        Self {
+            name,
+            data: data.to_vec(),
+            symlink: None,
+        }
+    }
+}
+
+/// RAR5's variable-length integer: seven bits a byte, low first.
+fn vint(out: &mut Vec<u8>, mut v: u64) {
+    loop {
+        let b = (v & 0x7F) as u8;
+        v >>= 7;
+        if v == 0 {
+            out.push(b);
+            return;
+        }
+        out.push(b | 0x80);
+    }
+}
+
+/// A header block: its CRC32, then its size and `body`.
+fn rar_block(body: &[u8]) -> Vec<u8> {
+    let mut sized = Vec::new();
+    vint(&mut sized, body.len() as u64);
+    sized.extend_from_slice(body);
+    let mut out = crc32fast::hash(&sized).to_le_bytes().to_vec();
+    out.extend_from_slice(&sized);
+    out
+}
+
+fn rar5(files: &[RarFile]) -> Vec<u8> {
+    let mut out = b"Rar!\x1A\x07\x01\x00".to_vec();
+    // Main header: type 1, no flags, no archive flags.
+    out.extend_from_slice(&rar_block(&[0x01, 0x00, 0x00]));
+    for f in files {
+        let mut extra = Vec::new();
+        if let Some(target) = f.symlink {
+            // File system redirection: type 5; redirection 1 (Unix symlink); no flags.
+            let mut rec = vec![0x05, 0x01, 0x00];
+            vint(&mut rec, target.len() as u64);
+            rec.extend_from_slice(target.as_bytes());
+            vint(&mut extra, rec.len() as u64);
+            extra.extend_from_slice(&rec);
+        }
+        let mut b = vec![0x02]; // file header
+        let header_flags = 0x0002 | if extra.is_empty() { 0 } else { 0x0001 };
+        vint(&mut b, header_flags);
+        if !extra.is_empty() {
+            vint(&mut b, extra.len() as u64);
+        }
+        vint(&mut b, f.data.len() as u64); // data size
+        vint(&mut b, 0x0002 | 0x0004); // file flags: mtime, CRC32
+        vint(&mut b, f.data.len() as u64); // unpacked size
+        vint(
+            &mut b,
+            if f.symlink.is_some() {
+                0o120_777
+            } else {
+                0o100_644
+            },
+        ); // attributes
+        b.extend_from_slice(&MTIME.to_le_bytes());
+        b.extend_from_slice(&crc32fast::hash(&f.data).to_le_bytes());
+        vint(&mut b, 0); // compression: version 0, stored
+        vint(&mut b, 1); // host OS: Unix
+        vint(&mut b, f.name.len() as u64);
+        b.extend_from_slice(f.name.as_bytes());
+        b.extend_from_slice(&extra);
+        out.extend_from_slice(&rar_block(&b));
+        out.extend_from_slice(&f.data);
+    }
+    // End of archive: type 5, no flags, not the last volume of a set... nor any volume.
+    out.extend_from_slice(&rar_block(&[0x05, 0x00, 0x00]));
     out
 }
 

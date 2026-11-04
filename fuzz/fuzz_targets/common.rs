@@ -31,3 +31,21 @@ pub fn scratch(data: &[u8], name: &str) -> PathBuf {
     std::fs::write(&path, data).expect("writing the scratch file");
     path
 }
+
+/// What the archive targets do with a reader: list it, describe it, extract every entry into a
+/// `NullSink`, and read a few entries through `open_entry`.
+pub fn exercise(r: &mut dyn beezip_core::ArchiveReader, cx: &mut beezip_core::SimpleCtx) {
+    use std::io::Read;
+    let count = r.entries(cx).map(<[_]>::len).unwrap_or(0);
+    let _ = r.info(cx);
+    let _ = r.extract(
+        &beezip_core::Selection::all(),
+        &mut beezip_core::NullSink::default(),
+        cx,
+    );
+    for id in 0..count.min(8) {
+        if let Ok(mut e) = r.open_entry(id, cx) {
+            let _ = std::io::copy(&mut e.by_ref().take(1 << 20), &mut std::io::sink());
+        }
+    }
+}

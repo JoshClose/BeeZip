@@ -52,6 +52,20 @@ test = false
 doc = false
 bench = false
 
+[[bin]]
+name = "sevenz"
+path = "fuzz_targets/sevenz.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "rar"
+path = "fuzz_targets/rar.rs"
+test = false
+doc = false
+bench = false
+
 [profile.release]
 debug = 1
 # As in the main workspace: a decoder panic must stay a panic the fuzzer reports.

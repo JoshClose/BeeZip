@@ -20,7 +20,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target: [detect, zip, tar, codecs, paths]
+        target: [detect, zip, tar, sevenz, rar, codecs, paths]
     env:
       SECONDS_PER_TARGET: ${{ github.event_name == 'schedule' && '600' || '60' }}
     steps:
