@@ -694,7 +694,7 @@ refused: boolean, };
 /**
  * What `archive.list` sorts by.
  */
-export type SortKey = "name" | "size" | "packed" | "modified" | "kind";
+export type SortKey = "name" | "size" | "packed" | "modified" | "kind" | "method" | "crc" | "encrypted";
 
 /**
  * Compress one file with a single-stream codec (`a.txt` → `a.txt.zst`). The output keeps the

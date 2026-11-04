@@ -1,0 +1,99 @@
+@import "tailwindcss";
+
+/* BeeZip's palette. Neutral paper and ink, and one accent: propolis amber, used for the
+   selection, focus, progress and the packed-size fill in the entry table. Light and dark
+   follow Windows. */
+:root {
+  --paper: #f6f6f3;
+  --panel: #ffffff;
+  --sunken: #ecece8;
+  --ink: #1f2023;
+  --muted: #6b6c70;
+  --rule: #dadad4;
+  --amber: #9a6700;
+  --amber-fill: #e0a21a;
+  --amber-wash: #fbefcf;
+  --danger: #b42318;
+  --ok: #2f6f3e;
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --paper: #18191b;
+    --panel: #202124;
+    --sunken: #141517;
+    --ink: #e6e6e2;
+    --muted: #9b9ca0;
+    --rule: #303135;
+    --amber: #f2b53a;
+    --amber-fill: #c98a0b;
+    --amber-wash: #3a2f14;
+    --danger: #f97066;
+    --ok: #7bc48b;
+    color-scheme: dark;
+  }
+}
+
+@theme inline {
+  --color-paper: var(--paper);
+  --color-panel: var(--panel);
+  --color-sunken: var(--sunken);
+  --color-ink: var(--ink);
+  --color-muted: var(--muted);
+  --color-rule: var(--rule);
+  --color-amber: var(--amber);
+  --color-amber-fill: var(--amber-fill);
+  --color-amber-wash: var(--amber-wash);
+  --color-danger: var(--danger);
+  --color-ok: var(--ok);
+  --font-sans: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  --font-mono: "Cascadia Mono", Consolas, ui-monospace, monospace;
+}
+
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--font-sans);
+    font-size: 13px;
+    line-height: 1.45;
+    -webkit-font-smoothing: antialiased;
+    overflow: hidden;
+    user-select: none;
+  }
+
+  input,
+  textarea,
+  pre,
+  .selectable {
+    user-select: text;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--amber);
+    outline-offset: 1px;
+  }
+
+  ::selection {
+    background: var(--amber-wash);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    * {
+      transition: none !important;
+      animation: none !important;
+    }
+  }
+}
+
+.tabular {
+  font-variant-numeric: tabular-nums;
+}

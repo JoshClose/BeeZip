@@ -1,60 +1,249 @@
-import { useEffect, useState } from "react";
-import type { CommandMap } from "./gen/commands";
-import { type CmdError, type CommandInfo, listCommands, run } from "./lib/engine";
-import "./App.css";
+// The window: tabs, the active archive (or Welcome), the jobs panel, and the dialogs.
+import { listen } from "@tauri-apps/api/event";
+import { getCurrentWebview } from "@tauri-apps/api/webview";
+import { getCurrentWindow } from "@tauri-apps/api/window";
+import { ask, open as pickFiles } from "@tauri-apps/plugin-dialog";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Toasts } from "./components/ui/toasts";
+import { About } from "./features/about/About";
+import { Browser, testArchive } from "./features/browser/Browser";
+import { InfoDialog } from "./features/browser/InfoDialog";
+import { TabStrip } from "./features/browser/TabStrip";
+import { CreateDialog } from "./features/create/CreateDialog";
+import { ExtractDialog } from "./features/extract/ExtractDialog";
+import { JobsPanel } from "./features/jobs/JobsPanel";
+import { ReportDialog } from "./features/jobs/ReportDialog";
+import { loadCommands, Palette, type PaletteAction, takesOnlyArchive } from "./features/palette/Palette";
+import { FormDialog } from "./features/palette/SchemaForm";
+import { Prompts } from "./features/prompts/Prompts";
+import { Welcome } from "./features/welcome/Welcome";
+import { activeTab, useArchives } from "./lib/archives";
+import { cancel, type GuiCommand, run } from "./lib/engine";
+import { baseName } from "./lib/format";
+import { loadFormats, readableExtensions } from "./lib/formats";
+import { useJobs } from "./lib/jobs";
+import { startup } from "./lib/startup";
+import { toastError, toastInfo, useToasts } from "./lib/toasts";
+import { useUi } from "./lib/ui";
 
-type Version = CommandMap["app.version"]["output"];
-
-function describe(err: unknown): string {
-  const e = err as Partial<CmdError>;
-  return e?.code ? `${e.code}: ${e.message}` : String(err);
+/** Whether BeeZip reads `path` as an archive (a compressed single file counts). */
+async function isArchive(path: string): Promise<boolean> {
+  const d = await run("file.detect", { path });
+  return d.format !== null;
 }
 
-export default function App() {
-  const [version, setVersion] = useState<Version>();
-  const [commands, setCommands] = useState<CommandInfo[]>([]);
-  const [error, setError] = useState<string>();
+/** Paths from the command line, a second instance, or the Open dialog: each archive in a tab. */
+export async function openPaths(paths: string[]) {
+  for (const path of paths) {
+    try {
+      if (await isArchive(path)) useArchives.getState().open(path);
+      else useToasts.getState().push({ tone: "error", title: `${baseName(path)} isn't an archive`, body: "BeeZip can pack it into a new one: drop it on the window." });
+    } catch (e) {
+      toastError(e, baseName(path));
+    }
+  }
+}
 
+/** Dropped paths: one archive opens; anything else, or several, goes into a new archive. */
+async function dropPaths(paths: string[]) {
+  if (paths.length === 0) return;
+  const ui = useUi.getState();
+  if (ui.dialog?.kind === "create") {
+    ui.show({ kind: "create", inputs: paths });
+    return;
+  }
+  if (paths.length === 1) {
+    try {
+      if (await isArchive(paths[0])) {
+        useArchives.getState().open(paths[0]);
+        return;
+      }
+    } catch {
+      // Not readable as an archive: offer to pack it.
+    }
+  }
+  ui.show({ kind: "create", inputs: paths });
+}
+
+async function chooseArchives() {
+  let extensions = ["zip", "7z", "rar", "tar", "gz", "tgz", "zst", "xz", "bz2", "001"];
+  try {
+    extensions = readableExtensions(await loadFormats());
+  } catch {
+    // The short list above will do.
+  }
+  const picked = await pickFiles({
+    multiple: true,
+    title: "Open archive",
+    filters: [
+      { name: "Archives", extensions },
+      { name: "All files", extensions: ["*"] },
+    ],
+  });
+  const list = picked === null ? [] : Array.isArray(picked) ? picked : [picked];
+  await openPaths(list);
+}
+
+let started = false;
+
+export default function App() {
+  const tabs = useArchives((s) => s.tabs);
+  const activeId = useArchives((s) => s.active);
+  const tab = useMemo(() => activeTab({ tabs, active: activeId }), [tabs, activeId]);
+  const dialog = useUi((s) => s.dialog);
+  const palette = useUi((s) => s.palette);
+  const show = useUi((s) => s.show);
+  const closeDialog = useUi((s) => s.closeDialog);
+  const setPalette = useUi((s) => s.setPalette);
+  const [dragging, setDragging] = useState(false);
+  const [commands, setCommands] = useState<GuiCommand[]>([]);
+  const tabRef = useRef(tab);
+  tabRef.current = tab;
+
+  const newArchive = useCallback(() => show({ kind: "create", inputs: [] }), [show]);
+  const extract = useCallback(() => {
+    const t = tabRef.current;
+    if (t) show({ kind: "extract", tab: t.id, entries: [] });
+  }, [show]);
+
+  // Once per process (StrictMode mounts twice in development).
   useEffect(() => {
-    run("app.version", {}).then(setVersion, (e) => setError(describe(e)));
-    listCommands().then(setCommands, (e) => setError(describe(e)));
+    useJobs.setState({ onPassword: (id, password) => useArchives.getState().update(id, { password }) });
+    if (started) return;
+    started = true;
+    const s = startup();
+    for (const w of s.warnings) toastInfo("config.toml", w);
+    void openPaths(s.paths);
+    loadCommands().then(setCommands, () => {});
   }, []);
 
-  return (
-    <main className="container">
-      <h1>BeeZip</h1>
-      <p className="version" data-testid="version">
-        {version
-          ? [`BeeZip ${version.version}`, version.platform, version.profile, version.commit?.slice(0, 12)]
-              .filter(Boolean)
-              .join(" · ")
-          : error
-            ? null
-            : "Loading…"}
-      </p>
-      {error && <p className="error">{error}</p>}
+  useEffect(() => {
+    if (commands.length === 0) loadCommands().then(setCommands, () => {});
+  }, [commands.length]);
 
-      <h2>Commands</h2>
-      <table>
-        <thead>
-          <tr>
-            <th>Name</th>
-            <th>Effect</th>
-            <th>Description</th>
-          </tr>
-        </thead>
-        <tbody>
-          {commands.map((c) => (
-            <tr key={c.name}>
-              <td>
-                <code>{c.name}</code>
-              </td>
-              <td>{c.effect}</td>
-              <td>{c.description}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </main>
+  // Paths a second BeeZip.exe forwards.
+  useEffect(() => {
+    const unlisten = listen<string[]>("open-paths", (e) => void openPaths(e.payload));
+    return () => void unlisten.then((f) => f());
+  }, []);
+
+  useEffect(() => {
+    const unlisten = getCurrentWebview().onDragDropEvent((e) => {
+      const p = e.payload;
+      if (p.type === "enter" || p.type === "over") setDragging(true);
+      else if (p.type === "leave") setDragging(false);
+      else if (p.type === "drop") {
+        setDragging(false);
+        void dropPaths(p.paths);
+      }
+    });
+    return () => void unlisten.then((f) => f());
+  }, []);
+
+  // Closing with jobs running asks first, then waits for them to remove their partial files.
+  useEffect(() => {
+    const win = getCurrentWindow();
+    const unlisten = win.onCloseRequested(async (event) => {
+      const running = Object.values(useJobs.getState().jobs).filter((j) => j.status === "running" && !j.quiet);
+      if (running.length === 0) return;
+      event.preventDefault();
+      const n = running.length;
+      const ok = await ask(`${n} ${n === 1 ? "job is" : "jobs are"} running. Cancel ${n === 1 ? "it" : "them"} and quit?`, {
+        title: "BeeZip",
+        kind: "warning",
+        okLabel: "Cancel and quit",
+        cancelLabel: "Keep working",
+      });
+      if (!ok) return;
+      await Promise.all(running.map((j) => cancel(j.id).catch(() => false)));
+      const deadline = Date.now() + 10_000;
+      while (Date.now() < deadline && Object.values(useJobs.getState().jobs).some((j) => j.status === "running")) {
+        await new Promise((r) => setTimeout(r, 50));
+      }
+      await win.destroy();
+    });
+    return () => void unlisten.then((f) => f());
+  }, []);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
+      const key = e.key.toLowerCase();
+      const t = tabRef.current;
+      if (key === "k") setPalette(!useUi.getState().palette);
+      else if (key === "o") void chooseArchives();
+      else if (key === "n") newArchive();
+      else if (key === "e" && t) extract();
+      else if (key === "w" && t) useArchives.getState().close(t.id);
+      else return;
+      e.preventDefault();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [extract, newArchive, setPalette]);
+
+  const actions: PaletteAction[] = [
+    { id: "open", label: "Open archive…", hint: "Ctrl+O", run: () => void chooseArchives() },
+    { id: "new", label: "New archive…", hint: "Ctrl+N", run: newArchive },
+    ...(tab
+      ? [
+          { id: "extract", label: `Extract ${tab.name}…`, hint: "Ctrl+E", run: extract },
+          { id: "test", label: `Test ${tab.name}`, run: () => testArchive(tab) },
+          { id: "info", label: `Info on ${tab.name}`, run: () => show({ kind: "info", tab: tab.id }) },
+          { id: "close", label: `Close ${tab.name}`, hint: "Ctrl+W", run: () => useArchives.getState().close(tab.id) },
+        ]
+      : []),
+    { id: "about", label: "About BeeZip", run: () => show({ kind: "about" }) },
+  ];
+
+  const onCommand = (c: GuiCommand) => {
+    if (c.name === "archive.extract" && tab) return extract();
+    if (c.name === "archive.create") return newArchive();
+    if (c.name === "archive.test" && tab) return testArchive(tab);
+    if (c.name === "archive.info" && tab) return show({ kind: "info", tab: tab.id });
+    if (takesOnlyArchive(c) && tab) {
+      useJobs
+        .getState()
+        .track(c.name as "archive.test", { archive: tab.path, ...(tab.password ? { password: tab.password } : {}) }, { title: `${c.name} ${tab.name}`, tab: tab.id })
+        .catch((e) => toastError(e, c.name));
+      return;
+    }
+    show({ kind: "form", command: c.name });
+  };
+
+  const dialogTab = dialog && "tab" in dialog ? tabs.find((t) => t.id === dialog.tab) : undefined;
+  const formCommand = dialog?.kind === "form" ? commands.find((c) => c.name === dialog.command) : undefined;
+
+  return (
+    <div className="flex h-full flex-col">
+      <TabStrip onOpen={() => void chooseArchives()} onNew={newArchive} />
+      {tab ? <Browser key={tab.id} tab={tab} /> : <Welcome dragging={dragging} onOpen={() => void chooseArchives()} onNew={newArchive} />}
+      <JobsPanel />
+
+      {tab && dragging && (
+        <div className="pointer-events-none fixed inset-0 z-30 flex items-center justify-center bg-amber-wash/60">
+          <p className="rounded-[8px] border border-amber-fill bg-panel px-5 py-3 text-[15px] font-semibold">
+            Drop an archive to open it, or files to pack them
+          </p>
+        </div>
+      )}
+
+      {dialog?.kind === "extract" && dialogTab && <ExtractDialog tab={dialogTab} entries={dialog.entries} onClose={closeDialog} />}
+      {dialog?.kind === "create" && <CreateDialog inputs={dialog.inputs} onClose={closeDialog} />}
+      {dialog?.kind === "info" && dialogTab && <InfoDialog tab={dialogTab} onClose={closeDialog} />}
+      {dialog?.kind === "about" && <About onClose={closeDialog} />}
+      {dialog?.kind === "report" && <ReportDialog title={dialog.title} error={dialog.error} onClose={closeDialog} />}
+      {formCommand && (
+        <FormDialog
+          command={formCommand}
+          defaults={tab && "archive" in ((formCommand.input_schema.properties ?? {}) as object) ? { archive: tab.path } : {}}
+          onClose={closeDialog}
+        />
+      )}
+
+      <Palette open={palette} onOpenChange={setPalette} actions={actions} onCommand={onCommand} />
+      <Prompts />
+      <Toasts />
+    </div>
   );
 }

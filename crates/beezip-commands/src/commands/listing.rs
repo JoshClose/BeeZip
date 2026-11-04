@@ -197,6 +197,7 @@ fn sort(rows: &mut Vec<Row>, entries: &[Entry], implied: &[String], key: SortKey
         row: Row,
         not_dir: bool,
         by: i128,
+        text: &'static str,
         folded: String,
         name: String,
     }
@@ -226,11 +227,19 @@ fn sort(rows: &mut Vec<Row>, entries: &[Entry], implied: &[String], key: SortKey
                     }
                 }),
                 SortKey::Kind => rank(kind),
+                SortKey::Crc => e.and_then(|e| e.crc32).map_or(-1, i128::from),
+                SortKey::Encrypted => i128::from(e.is_some_and(|e| e.encrypted)),
+                SortKey::Method => 0,
+            };
+            let text = match key {
+                SortKey::Method => e.and_then(|e| e.method).unwrap_or(""),
+                _ => "",
             };
             Keyed {
                 row,
                 not_dir: kind != EntryKindName::Dir,
                 by,
+                text,
                 folded: name.to_lowercase(),
                 name,
             }
@@ -243,6 +252,7 @@ fn sort(rows: &mut Vec<Row>, entries: &[Entry], implied: &[String], key: SortKey
         }
         let order =
             a.by.cmp(&b.by)
+                .then_with(|| a.text.cmp(b.text))
                 .then_with(|| a.folded.cmp(&b.folded))
                 .then_with(|| a.name.cmp(&b.name));
         if reverse { order.reverse() } else { order }
@@ -258,6 +268,10 @@ mod tests {
 
     fn entry(id: usize, path: &str, kind: EntryKind, size: u64, day: u64) -> Entry {
         let mut e = Entry::new(id, path.into(), kind);
+        if matches!(e.kind, EntryKind::File) {
+            e.method = Some(if size > 15 { "Deflate" } else { "Store" });
+            e.crc32 = Some(size as u32);
+        }
         e.size = Some(size);
         e.packed_size = Some(size / 2);
         e.modified = Some(SystemTime::UNIX_EPOCH + Duration::from_secs(day * 86_400));
@@ -353,6 +367,18 @@ mod tests {
         assert_eq!(
             order(SortKey::Kind, false),
             ["a", "Z", "a.txt", "b.txt", "c.txt", "l"]
+        );
+        assert_eq!(
+            order(SortKey::Encrypted, false)[2..],
+            ["a.txt", "b.txt", "c.txt", "l"]
+        );
+        assert_eq!(
+            order(SortKey::Crc, true)[2..],
+            ["b.txt", "c.txt", "a.txt", "l"]
+        );
+        assert_eq!(
+            order(SortKey::Method, false)[2..],
+            ["l", "b.txt", "c.txt", "a.txt"]
         );
     }
 

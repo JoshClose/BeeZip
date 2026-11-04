@@ -80,6 +80,11 @@ pub enum SortKey {
     Modified,
     /// Folders, files, then links; by name within each.
     Kind,
+    /// The compression method's name; entries without one first.
+    Method,
+    Crc,
+    /// Unencrypted entries first.
+    Encrypted,
 }
 
 /// Which entries `archive.list` keeps.
