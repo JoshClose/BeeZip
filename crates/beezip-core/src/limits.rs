@@ -88,6 +88,11 @@ impl Budget {
         self.produced.get()
     }
 
+    /// Starts the count again, for a reader the archive cache lends to a new job.
+    pub fn reset(&self) {
+        self.produced.set(0);
+    }
+
     fn add(&self, n: u64) -> Result<()> {
         self.produced.add(n);
         match self.max_total {

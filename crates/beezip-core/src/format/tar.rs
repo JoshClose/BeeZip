@@ -363,7 +363,7 @@ pub struct TarReader {
     index: Option<Vec<Entry>>,
     spans: Vec<Span>,
     /// The archive behind the reader `open_entry` returns, when it had to rescan.
-    scan: Option<tar::Archive<Box<dyn Read>>>,
+    scan: Option<tar::Archive<Box<dyn Read + Send>>>,
     file: Option<BufReader<CountingReader<Input>>>,
 }
 

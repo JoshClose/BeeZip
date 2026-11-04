@@ -38,7 +38,11 @@ impl Codec for Lzma {
     }
 
     /// The header's dictionary size is checked against `decoder_memory` before decoding.
-    fn decoder<'a>(&self, r: Box<dyn Read + 'a>, limits: &Limits) -> Result<Box<dyn Read + 'a>> {
+    fn decoder<'a>(
+        &self,
+        r: Box<dyn Read + Send + 'a>,
+        limits: &Limits,
+    ) -> Result<Box<dyn Read + Send + 'a>> {
         let reader = LzmaReader::new_mem_limit(r, limits.decoder_memory_kib(), None)
             .map_err(|e| open_error(self.id(), &e))?;
         Ok(Box::new(reader))

@@ -175,7 +175,7 @@ pub fn detect_path(path: &Path, limits: &Limits) -> Result<Detection> {
             let tail = read_tail(&mut reader.reopen(), len)
                 .map_err(|e| Error::io(format!("reading {}", path.display()), &e))?;
             let name = set.name.to_lowercase();
-            let open = || -> io::Result<Box<dyn Read>> { Ok(Box::new(reader.reopen())) };
+            let open = || -> io::Result<Box<dyn Read + Send>> { Ok(Box::new(reader.reopen())) };
             let mut det = detect_with(&open, &tail, Some(len), Some(name), None, limits)?;
             if det.format().is_none() {
                 det.layers.push(Layer {
@@ -218,7 +218,7 @@ fn detect_file(path: &Path, limits: &Limits) -> Result<Detection> {
         .map_err(|e| Error::io(format!("reading {}", path.display()), &e))?;
     let sfx = overlay_archive(&mut file, len);
     let name = path.file_name().map(|n| n.to_string_lossy().to_lowercase());
-    let open = || -> io::Result<Box<dyn Read>> { Ok(Box::new(File::open(path)?)) };
+    let open = || -> io::Result<Box<dyn Read + Send>> { Ok(Box::new(File::open(path)?)) };
     detect_with(&open, &tail, Some(len), name, sfx, limits)
 }
 
@@ -226,7 +226,7 @@ fn detect_file(path: &Path, limits: &Limits) -> Result<Detection> {
 pub fn detect_bytes(data: &[u8], name: Option<&str>, limits: &Limits) -> Detection {
     let tail = &data[data.len().saturating_sub(TAIL_LEN)..];
     let sfx = overlay_archive(&mut Cursor::new(data), data.len() as u64);
-    let open = || -> io::Result<Box<dyn Read + '_>> { Ok(Box::new(Cursor::new(data))) };
+    let open = || -> io::Result<Box<dyn Read + Send + '_>> { Ok(Box::new(Cursor::new(data))) };
     // Reading from memory can't fail with an I/O error.
     detect_with(
         &open,
@@ -303,7 +303,7 @@ fn read_tail<R: Read + Seek>(file: &mut R, len: u64) -> io::Result<Vec<u8>> {
     Ok(tail)
 }
 
-type Opener<'s> = dyn Fn() -> io::Result<Box<dyn Read + 's>> + 's;
+type Opener<'s> = dyn Fn() -> io::Result<Box<dyn Read + Send + 's>> + 's;
 
 fn detect_with<'s>(
     open: &Opener<'s>,
@@ -396,7 +396,7 @@ fn open_chain<'s>(
     open: &Opener<'s>,
     codecs: &[CodecId],
     limits: &Limits,
-) -> Result<Option<Box<dyn Read + 's>>> {
+) -> Result<Option<Box<dyn Read + Send + 's>>> {
     let mut r = open().map_err(|e| Error::io("reading the file", &e))?;
     for c in codecs {
         r = match c.codec().decoder(r, limits) {

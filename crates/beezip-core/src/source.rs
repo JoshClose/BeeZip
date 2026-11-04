@@ -219,8 +219,9 @@ impl Source {
     }
 
     /// The decoded stream, from the start.
-    pub fn open_stream(&self) -> Result<Box<dyn Read>> {
-        let mut r: Box<dyn Read> = Box::new(BufReader::with_capacity(BUF_SIZE, self.open_file()?));
+    pub fn open_stream(&self) -> Result<Box<dyn Read + Send>> {
+        let mut r: Box<dyn Read + Send> =
+            Box::new(BufReader::with_capacity(BUF_SIZE, self.open_file()?));
         for c in &self.codecs {
             r = c.codec().decoder(r, &self.limits)?;
         }

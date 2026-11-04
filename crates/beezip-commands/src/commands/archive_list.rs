@@ -1,13 +1,13 @@
-use std::{collections::HashSet, path::PathBuf};
+use std::path::PathBuf;
 
-use beezip_core::{Selection, format::normalize};
+use beezip_core::format::normalize;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 use crate::{
     Access, CliSpec, CmdError, Command, Effect, JobCtx,
-    commands::util::open_archive,
+    commands::{listing::ListKey, util::with_archive},
     wire::{EntryInfo, EntryKindName, Secret, human_size, local_time},
 };
 
@@ -80,6 +80,11 @@ pub enum SortKey {
     Modified,
     /// Folders, files, then links; by name within each.
     Kind,
+    /// The compression method's name; entries without one first.
+    Method,
+    Crc,
+    /// Unencrypted entries first.
+    Encrypted,
 }
 
 /// Which entries `archive.list` keeps.
@@ -97,7 +102,7 @@ pub enum KindFilter {
 }
 
 impl KindFilter {
-    fn matches(self, kind: EntryKindName) -> bool {
+    pub(crate) fn matches(self, kind: EntryKindName) -> bool {
         match self {
             Self::File => matches!(
                 kind,
@@ -107,37 +112,6 @@ impl KindFilter {
             Self::Link => kind == EntryKindName::Symlink,
         }
     }
-}
-
-/// Folders first, then by `key`; ties go by name, then archive order (a stable sort).
-fn sort(entries: &mut [EntryInfo], key: SortKey, reverse: bool) {
-    use std::cmp::Ordering;
-    let rank = |k: EntryKindName| match k {
-        EntryKindName::Dir => 0,
-        EntryKindName::File | EntryKindName::Hardlink | EntryKindName::Other => 1,
-        EntryKindName::Symlink => 2,
-    };
-    let name = |e: &EntryInfo| {
-        let p = normalize(&e.path);
-        let base = p.rsplit('/').next().unwrap_or(&p).to_owned();
-        (base.to_lowercase(), base)
-    };
-    entries.sort_by(|a, b| {
-        let dirs = (a.kind != EntryKindName::Dir).cmp(&(b.kind != EntryKindName::Dir));
-        if dirs != Ordering::Equal {
-            return dirs;
-        }
-        let by = match key {
-            SortKey::Name => Ordering::Equal,
-            SortKey::Size => a.size.unwrap_or(0).cmp(&b.size.unwrap_or(0)),
-            SortKey::Packed => a.packed_size.unwrap_or(0).cmp(&b.packed_size.unwrap_or(0)),
-            // RFC 3339 in UTC sorts as text; entries without a time come first.
-            SortKey::Modified => a.modified.cmp(&b.modified),
-            SortKey::Kind => rank(a.kind).cmp(&rank(b.kind)),
-        };
-        let order = by.then_with(|| name(a).cmp(&name(b)));
-        if reverse { order.reverse() } else { order }
-    });
 }
 
 pub struct ArchiveList;
@@ -158,85 +132,40 @@ impl Command for ArchiveList {
     }
 
     fn run(input: ArchiveListInput, cx: &mut JobCtx) -> Result<ArchiveListOutput, CmdError> {
-        let mut opened = open_archive(&input.archive, input.password.as_ref(), cx)?;
-        let entries = opened.reader.entries(cx)?;
-        let dir = input.dir.as_deref().map(normalize).unwrap_or_default();
-        let prefix = if dir.is_empty() {
-            String::new()
-        } else {
-            format!("{dir}/")
+        let key = ListKey {
+            dir: input.dir.as_deref().map(normalize).unwrap_or_default(),
+            flat: input.flat.unwrap_or(false),
+            globs: input.glob.clone().unwrap_or_default(),
+            kind: input.kind,
+            sort: input.sort,
+            reverse: input.reverse.unwrap_or(false),
         };
-        let under = |path: &str| dir.is_empty() || path.starts_with(&prefix);
-        let globs = input.glob.clone().unwrap_or_default();
-        let flat = input.flat.unwrap_or(false) || !globs.is_empty();
+        with_archive(&input.archive, input.password.as_ref(), cx, |a, cx| {
+            let entries = a.opened.reader.entries(cx)?;
+            a.entries = Some(entries.len());
+            // Built once per archive and key, then kept with the archive in the cache.
+            let listing = a.memo.listing(entries, &key)?;
 
-        let listing: Vec<EntryInfo> = if flat {
-            let sel = Selection::new(&[], &globs, &[])?;
-            entries
+            let total = listing.len() as u64;
+            let offset = input.offset.unwrap_or(0).min(total);
+            // A front end's cap (MCP's 500) shortens the page; `has_more` says to ask for more.
+            let limit = input
+                .limit
+                .unwrap_or(u64::MAX)
+                .min(cx.policy().max_list_entries.unwrap_or(u64::MAX));
+            let page: Vec<EntryInfo> = listing
                 .iter()
-                .filter(|e| {
-                    let p = normalize(&e.path);
-                    under(&p) && p != dir && sel.matches(e)
-                })
-                .map(EntryInfo::from_entry)
-                .collect()
-        } else {
-            // One level: entries directly in `dir`, plus folders implied by deeper paths.
-            let mut seen = HashSet::new();
-            let mut out = Vec::new();
-            for e in entries {
-                let p = normalize(&e.path);
-                if !under(&p) || p == dir {
-                    continue;
-                }
-                let rest = &p[prefix.len()..];
-                match rest.split_once('/') {
-                    None => {
-                        if seen.insert(rest.to_owned()) {
-                            out.push(EntryInfo::from_entry(e));
-                        } else if let Some(i) = out
-                            .iter()
-                            .position(|o: &EntryInfo| o.id.is_none() && normalize(&o.path) == p)
-                        {
-                            // The folder's own entry, after a path inside it made it implied.
-                            out[i] = EntryInfo::from_entry(e);
-                        }
-                    }
-                    Some((first, _)) => {
-                        if seen.insert(first.to_owned()) {
-                            out.push(EntryInfo::implied_dir(format!("{prefix}{first}")));
-                        }
-                    }
-                }
-            }
-            out
-        };
-        let mut listing = listing;
-        if let Some(k) = input.kind {
-            listing.retain(|e| k.matches(e.kind));
-        }
-        if let Some(key) = input.sort {
-            sort(&mut listing, key, input.reverse.unwrap_or(false));
-        }
-
-        let total = listing.len() as u64;
-        let offset = input.offset.unwrap_or(0).min(total);
-        // A front end's cap (MCP's 500) shortens the page; `has_more` says to ask for the next.
-        let limit = input
-            .limit
-            .unwrap_or(u64::MAX)
-            .min(cx.policy().max_list_entries.unwrap_or(u64::MAX));
-        let page: Vec<EntryInfo> = listing
-            .into_iter()
-            .skip(usize::try_from(offset).unwrap_or(usize::MAX))
-            .take(usize::try_from(limit).unwrap_or(usize::MAX))
-            .collect();
-        let has_more = offset + (page.len() as u64) < total;
-        Ok(ArchiveListOutput {
-            entries: page,
-            total,
-            offset,
-            has_more,
+                .skip(usize::try_from(offset).unwrap_or(usize::MAX))
+                .take(usize::try_from(limit).unwrap_or(usize::MAX))
+                .map(|row| a.memo.info(entries, *row))
+                .collect();
+            let has_more = offset + (page.len() as u64) < total;
+            Ok(ArchiveListOutput {
+                entries: page,
+                total,
+                offset,
+                has_more,
+            })
         })
     }
 
@@ -309,62 +238,12 @@ mod tests {
         crate::wire::tests::names_agree::<KindFilter>();
     }
 
-    fn info(path: &str, kind: EntryKindName, size: u64, modified: &str) -> EntryInfo {
-        EntryInfo {
-            id: Some(0),
-            path: path.into(),
-            kind,
-            size: Some(size),
-            packed_size: Some(size / 2),
-            modified: Some(modified.into()),
-            crc32: None,
-            method: None,
-            encrypted: false,
-            target: None,
-        }
-    }
-
     #[test]
-    fn sorting_puts_folders_first() {
+    fn kinds_filter() {
         use EntryKindName as K;
-        let all = vec![
-            info("b.txt", K::File, 30, "2026-01-02T00:00:00Z"),
-            info("Z", K::Dir, 0, "2026-01-05T00:00:00Z"),
-            info("a.txt", K::File, 10, "2026-01-03T00:00:00Z"),
-            info("l", K::Symlink, 0, "2026-01-01T00:00:00Z"),
-            info("c.txt", K::File, 20, "2026-01-01T00:00:00Z"),
-            info("a", K::Dir, 0, "2026-01-04T00:00:00Z"),
-        ];
-        let order = |key, reverse| {
-            let mut v = all.clone();
-            sort(&mut v, key, reverse);
-            v.into_iter().map(|e| e.path).collect::<Vec<_>>()
-        };
-        assert_eq!(
-            order(SortKey::Name, false),
-            ["a", "Z", "a.txt", "b.txt", "c.txt", "l"]
-        );
-        assert_eq!(
-            order(SortKey::Name, true),
-            ["Z", "a", "l", "c.txt", "b.txt", "a.txt"]
-        );
-        assert_eq!(
-            order(SortKey::Size, false),
-            ["a", "Z", "l", "a.txt", "c.txt", "b.txt"]
-        );
-        assert_eq!(order(SortKey::Size, true)[..2], ["Z", "a"]);
-        assert_eq!(
-            order(SortKey::Modified, false)[2..],
-            ["c.txt", "l", "b.txt", "a.txt"]
-        );
-        assert_eq!(
-            order(SortKey::Kind, false),
-            ["a", "Z", "a.txt", "b.txt", "c.txt", "l"]
-        );
-        let kept: Vec<_> = all
-            .iter()
-            .filter(|e| KindFilter::Link.matches(e.kind))
-            .collect();
-        assert_eq!(kept.len(), 1);
+        assert!(KindFilter::File.matches(K::Hardlink));
+        assert!(!KindFilter::File.matches(K::Dir));
+        assert!(KindFilter::Link.matches(K::Symlink));
+        assert!(KindFilter::Dir.matches(K::Dir));
     }
 }

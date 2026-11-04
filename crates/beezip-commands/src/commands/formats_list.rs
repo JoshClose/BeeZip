@@ -45,6 +45,8 @@ pub struct Caps {
     pub encrypt: bool,
     pub encrypt_headers: bool,
     pub solid: bool,
+    /// The format has volume sets of its own (7z's, RAR's). A numbered split (`a.zip.001`)
+    /// works for every format regardless.
     pub volumes: bool,
     /// An entry can be read without decoding the ones before it.
     pub random_access: bool,

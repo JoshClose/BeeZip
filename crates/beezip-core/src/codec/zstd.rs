@@ -67,7 +67,11 @@ impl Codec for Zstd {
     }
 
     /// Windows larger than `decoder_memory` allows (at most 2³⁰) are refused.
-    fn decoder<'a>(&self, r: Box<dyn Read + 'a>, limits: &Limits) -> Result<Box<dyn Read + 'a>> {
+    fn decoder<'a>(
+        &self,
+        r: Box<dyn Read + Send + 'a>,
+        limits: &Limits,
+    ) -> Result<Box<dyn Read + Send + 'a>> {
         let mut dec = Decoder::new(r).map_err(|e| Error::from_io(&e))?;
         dec.window_log_max(limits.zstd_window_log_max())
             .map_err(|e| Error::from_io(&e))?;

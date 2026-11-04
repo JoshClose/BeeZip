@@ -8,13 +8,20 @@ import type {
   CommandName,
   JobEvent,
   JobId,
+  PromptReply,
 } from "../gen/commands";
 
 export type { CmdError, CommandInfo, CommandName, JobEvent, JobId };
 
+/** A JSON schema, as schemars writes it. */
+export type JsonSchema = { [key: string]: unknown };
+
+/** A command the page may run, with the schema the palette builds its form from. */
+export type GuiCommand = CommandInfo & { input_schema: JsonSchema };
+
 /**
  * Runs a command and resolves with its output, or rejects with a `CmdError`.
- * `onEvent` sees every job event, including progress, as it happens.
+ * `onEvent` sees every job event as it happens; `Started`, with the job id, comes first.
  */
 export function run<K extends CommandName>(
   name: K,
@@ -42,12 +49,17 @@ export function run<K extends CommandName>(
   });
 }
 
-/** Requests cancellation of a running job. `false` if it already ended. */
+/** Requests cancellation of a running job, and answers its pending prompt with `Cancel`. */
 export function cancel(job: JobId): Promise<boolean> {
   return invoke<boolean>("cmd_cancel", { job });
 }
 
+/** Answers a job's `Prompt` event. */
+export function respond(job: JobId, prompt: number, reply: PromptReply): Promise<void> {
+  return invoke<void>("cmd_respond", { job, prompt, reply });
+}
+
 /** The commands the desktop app can run. */
-export function listCommands(): Promise<CommandInfo[]> {
-  return invoke<CommandInfo[]>("cmd_list");
+export function listCommands(): Promise<GuiCommand[]> {
+  return invoke<GuiCommand[]>("cmd_list");
 }

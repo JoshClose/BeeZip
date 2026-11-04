@@ -194,9 +194,32 @@ fn args_from_matches<C: Command>(matches: &clap::ArgMatches) -> Result<Value, cl
 }
 
 fn schema_object<T: JsonSchema>() -> JsonObject {
-    match schemars::schema_for!(T).to_value() {
+    let mut value = schemars::schema_for!(T).to_value();
+    drop_number_formats(&mut value);
+    match value {
         Value::Object(map) => map,
         _ => JsonObject::new(),
+    }
+}
+
+/// Removes schemars' `"format": "uint64"` and the like. They aren't JSON Schema formats, and
+/// validators such as Claude Code's warn about each one; `minimum: 0` already says unsigned.
+fn drop_number_formats(value: &mut Value) {
+    match value {
+        Value::Object(map) => {
+            let numeric = |t: &Value| matches!(t.as_str(), Some("integer" | "number"));
+            let is_number = match map.get("type") {
+                Some(Value::Array(types)) => types.iter().any(numeric),
+                Some(t) => numeric(t),
+                None => false,
+            };
+            if is_number {
+                map.remove("format");
+            }
+            map.values_mut().for_each(drop_number_formats);
+        }
+        Value::Array(items) => items.iter_mut().for_each(drop_number_formats),
+        _ => {}
     }
 }
 
@@ -258,5 +281,49 @@ pub fn collect_ts<T: TS + 'static + ?Sized>(cfg: &Config, out: &mut TsDecls) -> 
             "different types share the TypeScript name(s) {}",
             collector.clashes.join(", ")
         ))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn formats(value: &Value, out: &mut Vec<String>) {
+        match value {
+            Value::Object(map) => {
+                if let Some(Value::String(f)) = map.get("format") {
+                    out.push(f.clone());
+                }
+                map.values().for_each(|v| formats(v, out));
+            }
+            Value::Array(items) => items.iter().for_each(|v| formats(v, out)),
+            _ => {}
+        }
+    }
+
+    #[test]
+    fn schemas_have_no_number_formats() {
+        for e in crate::registry().entries() {
+            let mut found = Vec::new();
+            formats(&Value::Object((*e.input_schema).clone()), &mut found);
+            formats(&Value::Object((*e.output_schema).clone()), &mut found);
+            assert!(found.is_empty(), "{}: {found:?}", e.name);
+        }
+    }
+
+    #[test]
+    fn number_formats_go_but_minimums_stay() {
+        let mut v = serde_json::json!({
+            "properties": {
+                "n": { "type": ["integer", "null"], "format": "uint64", "minimum": 0 },
+                "t": { "type": "string", "format": "date-time" }
+            }
+        });
+        drop_number_formats(&mut v);
+        assert_eq!(
+            v["properties"]["n"],
+            serde_json::json!({ "type": ["integer", "null"], "minimum": 0 })
+        );
+        assert_eq!(v["properties"]["t"]["format"], "date-time");
     }
 }

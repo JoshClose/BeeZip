@@ -337,11 +337,44 @@ export type ByteSize = number | string;
 /**
  * What BeeZip offers for a format in this release.
  */
-export type Caps = { list: boolean, extract: boolean, create: boolean, append: boolean, delete: boolean, rename: boolean, encrypt: boolean, encrypt_headers: boolean, solid: boolean, volumes: boolean,
+export type Caps = { list: boolean, extract: boolean, create: boolean, append: boolean, delete: boolean, rename: boolean, encrypt: boolean, encrypt_headers: boolean, solid: boolean,
+/**
+ * The format has volume sets of its own (7z's, RAR's). A numbered split (`a.zip.001`)
+ * works for every format regardless.
+ */
+volumes: boolean,
 /**
  * An entry can be read without decoding the ones before it.
  */
 random_access: boolean, };
+
+/**
+ * The `beezip` command line that runs a command with these arguments. Passwords are left
+ * out (`omitted` names them): the copied command asks for them in the terminal.
+ */
+export type CliLineInput = {
+/**
+ * The command, by its dotted name (`archive.extract`).
+ */
+command: string,
+/**
+ * Its arguments, as the engine takes them.
+ */
+args: Record<string, unknown>,
+/**
+ * The shell to quote for [default: powershell].
+ */
+shell?: ShellName,
+/**
+ * The program to start the line with [default: beezip].
+ */
+program?: string, };
+
+export type CliLineOutput = { line: string,
+/**
+ * Arguments left out of the line: the passwords.
+ */
+omitted: Array<string>, };
 
 /**
  * An error returned by a command.
@@ -645,6 +678,11 @@ to: string, };
 export type Secret = string;
 
 /**
+ * How `cli.line` quotes.
+ */
+export type ShellName = "powershell" | "cmd" | "posix";
+
+/**
  * An entry that wasn't extracted.
  */
 export type SkippedInfo = { path: string,
@@ -661,7 +699,7 @@ refused: boolean, };
 /**
  * What `archive.list` sorts by.
  */
-export type SortKey = "name" | "size" | "packed" | "modified" | "kind";
+export type SortKey = "name" | "size" | "packed" | "modified" | "kind" | "method" | "crc" | "encrypted";
 
 /**
  * Compress one file with a single-stream codec (`a.txt` → `a.txt.zst`). The output keeps the
@@ -768,6 +806,11 @@ export type CommandMap = {
    * Fails with `Corrupt`, listing the damaged entries in `details`.
    */
   "archive.test": { input: ArchiveTestInput; output: ArchiveTestOutput };
+  /**
+   * The `beezip` command line that runs a command with these arguments. Passwords are left
+   * out (`omitted` names them): the copied command asks for them in the terminal.
+   */
+  "cli.line": { input: CliLineInput; output: CliLineOutput };
   /**
    * Read part of one entry without extracting it, as text, hex or base64. An offset is reached
    * by decoding up to it, since a compressed entry can't seek.

@@ -83,6 +83,8 @@ pub struct FormatCaps {
     pub encrypt: bool,
     pub encrypt_headers: bool,
     pub solid: bool,
+    /// The format has volume sets of its own (7z's, RAR's). A numbered split (`a.zip.001`)
+    /// works for every format regardless.
     pub volumes: bool,
     /// An entry can be read without decoding the ones before it.
     pub random_access: bool,
@@ -346,7 +348,7 @@ pub trait EntrySink {
 }
 
 /// An open archive.
-pub trait ArchiveReader {
+pub trait ArchiveReader: Send {
     fn format(&self) -> FormatId;
 
     /// The entry index. Zip reads it from the central directory when it opens; tar, behind a

@@ -214,7 +214,11 @@ pub trait Codec: Sync {
         false
     }
 
-    fn decoder<'a>(&self, r: Box<dyn Read + 'a>, limits: &Limits) -> Result<Box<dyn Read + 'a>>;
+    fn decoder<'a>(
+        &self,
+        r: Box<dyn Read + Send + 'a>,
+        limits: &Limits,
+    ) -> Result<Box<dyn Read + Send + 'a>>;
 
     fn encoder<'a>(
         &self,

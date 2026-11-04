@@ -1,6 +1,6 @@
 Archive formats
   ID       NAME             LIST  EXTRACT CREATE ENCRYPT  RANDOM  EXTENSIONS
-  zip      ZIP              yes   yes     yes    yes      yes     .zip .jar .war .apk .aab .ipa .xpi .vsix .nupkg .whl .docx .xlsx .pptx .odt .ods .odp .epub .appx .msix
+  zip      ZIP              yes   yes     yes    yes      yes     .zip .cbz .jar .war .apk .aab .ipa .xpi .vsix .nupkg .whl .docx .xlsx .pptx .odt .ods .odp .epub .appx .msix
   tar      TAR              yes   yes     yes    -        yes     .tar
   7z       7z               yes   yes     yes    yes      -       .7z .cb7
   rar      RAR              yes   yes     -      -        -       .rar .cbr .r00

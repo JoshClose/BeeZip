@@ -37,7 +37,11 @@ impl Codec for Gzip {
         })
     }
 
-    fn decoder<'a>(&self, r: Box<dyn Read + 'a>, _: &Limits) -> Result<Box<dyn Read + 'a>> {
+    fn decoder<'a>(
+        &self,
+        r: Box<dyn Read + Send + 'a>,
+        _: &Limits,
+    ) -> Result<Box<dyn Read + Send + 'a>> {
         // Multi-member: `cat a.gz b.gz` decodes to both.
         Ok(Box::new(MultiGzDecoder::new(r)))
     }

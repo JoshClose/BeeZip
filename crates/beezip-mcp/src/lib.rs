@@ -172,8 +172,10 @@ impl BeeZipServer {
             .map(|d| display_path(&d))
             .unwrap_or_else(|_| "unknown".to_owned());
         format!(
-            "BeeZip lists, tests, extracts and creates archives (zip, tar, and tar compressed \
-             with gzip, zstd, xz and others), and compresses single files.\n\
+            "BeeZip lists, tests, extracts and creates archives (zip, 7z, tar, and tar \
+             compressed with gzip, zstd, xz and others), reads RAR, and compresses single \
+             files. Any part of a split archive (`a.7z.002`, `a.part3.rar`) opens the whole \
+             set.\n\
              - Pass absolute paths. Relative ones resolve against the server's working \
              directory, {cwd}.\n\
              - {writes}\n\

@@ -20,7 +20,7 @@ const HEADER: &str = "\
 // CI fails if this file is out of date; regenerate it after changing a command's types.
 ";
 
-fn workspace_root() -> PathBuf {
+pub(crate) fn workspace_root() -> PathBuf {
     let xtask_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
     xtask_dir.parent().unwrap_or(xtask_dir).to_path_buf()
 }

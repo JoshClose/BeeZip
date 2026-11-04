@@ -8,7 +8,7 @@ use ts_rs::TS;
 
 use crate::{
     Access, CliSpec, CmdError, Command, Effect, ErrorCode, JobCtx,
-    commands::util::open_archive,
+    commands::util::with_archive,
     wire::{Secret, TextEncoding},
 };
 
@@ -92,40 +92,51 @@ impl Command for EntryRead {
         let max = max.min(cx.policy().max_read_bytes.unwrap_or(u64::MAX));
         let encoding = input.encoding.unwrap_or_default();
         let offset = input.offset.unwrap_or(0);
-        let mut opened = open_archive(&input.archive, input.password.as_ref(), cx)?;
-        let entries = opened.reader.entries(cx)?;
-        let entry = match (&input.entry, input.index) {
-            (_, Some(i)) => entries
-                .get(usize::try_from(i).unwrap_or(usize::MAX))
-                .ok_or_else(|| CmdError::not_found(format!("there is no entry {i}")))?,
-            (Some(path), None) => {
-                let want = normalize(path);
-                entries
-                    .iter()
-                    .rev()
-                    .find(|e| normalize(&e.path) == want)
-                    .ok_or_else(|| CmdError::not_found(format!("no entry named `{path}`")))?
-            }
-            (None, None) => return Err(CmdError::invalid_args("give an entry path or an index")),
-        };
-        if entry.kind == EntryKind::Dir {
-            return Err(CmdError::new(
-                ErrorCode::UnsupportedOperation,
-                format!("`{}` is a folder", entry.path),
-            ));
-        }
-        let (path, id, size) = (entry.path.clone(), entry.id, entry.size);
+        let given = input.archive.clone();
+        let (path, id, size, skipped, mut buf, eof) =
+            with_archive(&given, input.password.as_ref(), cx, |a, cx| {
+                let opened = &mut a.opened;
+                let entries = opened.reader.entries(cx)?;
+                a.entries = Some(entries.len());
+                let entry = match (&input.entry, input.index) {
+                    (_, Some(i)) => entries
+                        .get(usize::try_from(i).unwrap_or(usize::MAX))
+                        .ok_or_else(|| CmdError::not_found(format!("there is no entry {i}")))?,
+                    (Some(path), None) => {
+                        let want = normalize(path);
+                        entries
+                            .iter()
+                            .rev()
+                            .find(|e| normalize(&e.path) == want)
+                            .ok_or_else(|| {
+                                CmdError::not_found(format!("no entry named `{path}`"))
+                            })?
+                    }
+                    (None, None) => {
+                        return Err(CmdError::invalid_args("give an entry path or an index"));
+                    }
+                };
+                if entry.kind == EntryKind::Dir {
+                    return Err(CmdError::new(
+                        ErrorCode::UnsupportedOperation,
+                        format!("`{}` is a folder", entry.path),
+                    ));
+                }
+                let (path, id, size) = (entry.path.clone(), entry.id, entry.size);
 
-        let mut r = opened.reader.open_entry(id, cx)?;
-        let skipped = std::io::copy(&mut r.by_ref().take(offset), &mut std::io::sink())
-            .map_err(|e| CmdError::from(read_error(&e)))?;
-        // One byte more than asked, to tell whether the entry goes on.
-        let mut buf = Vec::new();
-        r.by_ref()
-            .take(max + 1)
-            .read_to_end(&mut buf)
-            .map_err(|e| CmdError::from(read_error(&e)))?;
-        let eof = buf.len() as u64 <= max;
+                let mut r = opened.reader.open_entry(id, cx)?;
+                let skipped = std::io::copy(&mut r.by_ref().take(offset), &mut std::io::sink())
+                    .map_err(|e| CmdError::from(read_error(&e)))?;
+                // One byte more than asked, to tell whether the entry goes on.
+                let mut buf = Vec::new();
+                r.by_ref()
+                    .take(max + 1)
+                    .read_to_end(&mut buf)
+                    .map_err(|e| CmdError::from(read_error(&e)))?;
+                let eof = buf.len() as u64 <= max;
+                drop(r);
+                Ok((path, id, size, skipped, buf, eof))
+            })?;
         buf.truncate(usize::try_from(max).unwrap_or(usize::MAX));
 
         let (data, lossy) = match encoding {

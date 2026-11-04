@@ -4,15 +4,19 @@
 use std::sync::Arc;
 
 use beezip_commands::{
-    CmdError, CommandInfo, Engine, EventSink, JobEvent, JobId, NonInteractive, PromptReply,
+    CmdError, CommandInfo, Engine, EventSink, JobEvent, JobId, JsonObject, PromptReply,
 };
+use serde::Serialize;
 use serde_json::Value;
 use tauri::{State, ipc::Channel};
+
+use crate::prompts::GuiInteractor;
 
 /// Starts command `name` and streams its events to `on_event`. Returns the job id at once.
 #[tauri::command]
 pub fn cmd_run(
     engine: State<'_, Engine>,
+    gui: State<'_, Arc<GuiInteractor>>,
     name: String,
     args: Value,
     on_event: Channel<JobEvent>,
@@ -21,34 +25,76 @@ pub fn cmd_run(
     let sink: EventSink = Arc::new(move |event| {
         let _ = on_event.send(event);
     });
-    // Prompts get answered through cmd_respond from M3; until then they fail with a hint.
-    let job = engine.invoke(&name, args, Arc::new(NonInteractive), sink)?;
+    let interactor: Arc<GuiInteractor> = Arc::clone(&gui);
+    let job = engine.invoke(&name, args, interactor, sink)?;
     Ok(job.id())
 }
 
-/// Requests cancellation of a running job. `false` if it already ended.
+/// Requests cancellation of a running job, and answers its pending prompt with `Cancel`.
+/// `false` if it already ended.
 #[tauri::command]
-pub fn cmd_cancel(engine: State<'_, Engine>, job: JobId) -> bool {
-    engine.cancel(job)
+pub fn cmd_cancel(
+    engine: State<'_, Engine>,
+    gui: State<'_, Arc<GuiInteractor>>,
+    job: JobId,
+) -> bool {
+    let running = engine.cancel(job);
+    gui.cancel_job(job);
+    running
 }
 
-/// Answers a job's `Prompt` event. No command prompts yet, so there is never a pending prompt.
+/// Answers a job's `Prompt` event. An unknown or already answered prompt is `NotFound`.
 #[tauri::command]
-pub fn cmd_respond(job: JobId, prompt: u64, reply: PromptReply) -> Result<(), CmdError> {
-    let _ = reply;
-    Err(CmdError::not_found(format!(
-        "job {job} has no pending prompt {prompt}"
-    )))
+pub fn cmd_respond(
+    gui: State<'_, Arc<GuiInteractor>>,
+    job: JobId,
+    prompt: u64,
+    reply: PromptReply,
+) -> Result<(), CmdError> {
+    gui.respond(job, prompt, reply)
+}
+
+/// A command the page may run, with the input schema the palette builds its form from.
+#[derive(Debug, Serialize)]
+pub struct GuiCommand {
+    #[serde(flatten)]
+    pub info: CommandInfo,
+    pub input_schema: JsonObject,
 }
 
 /// The commands the desktop app can run.
 #[tauri::command]
-pub fn cmd_list(engine: State<'_, Engine>) -> Vec<CommandInfo> {
+pub fn cmd_list(engine: State<'_, Engine>) -> Vec<GuiCommand> {
+    gui_commands(&engine)
+}
+
+pub fn gui_commands(engine: &Engine) -> Vec<GuiCommand> {
     engine
         .registry()
         .entries()
         .iter()
         .filter(|e| e.surfaces.gui)
-        .map(|e| e.info())
+        .map(|e| GuiCommand {
+            info: e.info(),
+            input_schema: (*e.input_schema).clone(),
+        })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::unwrap_used)]
+
+    use beezip_commands::registry;
+
+    use super::*;
+
+    #[test]
+    fn commands_come_with_their_schemas() {
+        let list = gui_commands(&Engine::new(registry()));
+        let line = list.iter().find(|c| c.info.name == "cli.line").unwrap();
+        assert!(line.input_schema["properties"]["command"].is_object());
+        let json = serde_json::to_value(&list[0]).unwrap();
+        assert!(json["name"].is_string() && json["input_schema"].is_object());
+    }
 }

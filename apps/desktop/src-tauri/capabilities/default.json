@@ -6,6 +6,8 @@
   "permissions": [
     "core:default",
     "opener:default",
+    "dialog:default",
+    "core:window:allow-destroy",
     "allow-cmd-run",
     "allow-cmd-cancel",
     "allow-cmd-respond",

@@ -48,7 +48,11 @@ impl Codec for Xz {
     }
 
     /// Single-threaded: lzma-rust2 0.23's `XzReaderMt` takes no memory limit (docs/M1.md §11).
-    fn decoder<'a>(&self, r: Box<dyn Read + 'a>, limits: &Limits) -> Result<Box<dyn Read + 'a>> {
+    fn decoder<'a>(
+        &self,
+        r: Box<dyn Read + Send + 'a>,
+        limits: &Limits,
+    ) -> Result<Box<dyn Read + Send + 'a>> {
         Ok(Box::new(XzReader::new_mem_limit(
             r,
             true,

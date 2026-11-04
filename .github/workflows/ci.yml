@@ -45,9 +45,18 @@ jobs:
       - name: pnpm install
         working-directory: apps/desktop
         run: pnpm install --frozen-lockfile
-      - name: Tauri build smoke test (runs tsc + vite build via beforeBuildCommand)
+      - name: Frontend tests (vitest)
         working-directory: apps/desktop
-        run: pnpm tauri build --debug --no-bundle
+        run: pnpm test
+      - name: Installer (debug), which also runs tsc and vite build
+        run: cargo xtask dist --debug
+      - name: Keep the installer
+        uses: actions/upload-artifact@v7
+        with:
+          name: beezip-setup-debug
+          path: target/dist/debug/bundle/nsis/*-setup.exe
+          if-no-files-found: error
+          retention-days: 14
 
   linux:
     runs-on: ubuntu-latest

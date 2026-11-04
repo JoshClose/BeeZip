@@ -2,7 +2,7 @@
 
 A Windows archive manager with a desktop app, a command-line tool (`beezip`) and an MCP server, all driven by one Rust command engine.
 
-> **Status:** milestone M3: the engine, the command line and the MCP server read and write zip, 7z and tar and read RAR; the desktop app is next. See [`docs/PLAN.md`](docs/PLAN.md) for the architecture and roadmap, and [`docs/M3.md`](docs/M3.md) for the current milestone.
+> **Status:** milestone M3: the engine, the command line, the MCP server and the desktop app read and write zip, 7z and tar and read RAR. See [`docs/PLAN.md`](docs/PLAN.md) for the architecture and roadmap, and [`docs/M3.md`](docs/M3.md) for the current milestone.
 
 ## Building
 
@@ -15,10 +15,29 @@ cargo test --workspace
 
 cd apps\desktop
 pnpm install
-pnpm tauri dev
+pnpm test           # the frontend's tests (vitest)
+pnpm tauri dev      # the desktop app, reloading as you edit
 ```
 
-After changing a command's input or output types, regenerate the TypeScript bindings with `cargo xtask codegen`.
+- **Bindings:** after changing a command's input or output types, regenerate the TypeScript bindings with `cargo xtask codegen`.
+- **Installer:** `cargo xtask dist` builds it (`target\dist\release\bundle\nsis\BeeZip_<version>_x64-setup.exe`); `--debug` is quicker.
+- **A big test archive:** `cargo xtask bigzip` writes a zip of a million entries, for trying the browser.
+
+## Desktop app
+
+`BeeZip.exe` opens archives in tabs: a folder tree, the entries (a million is fine; click a column to sort), and a preview of text, hex or images.
+
+- **Opening:** Open (Ctrl+O), drag an archive onto the window, or double-click one once BeeZip is installed. Launching BeeZip again opens the archive in the running window.
+- **Extract** (Ctrl+E) everything or the selected entries. **New archive** (Ctrl+N) packs files and folders, or files dropped on the window, as zip, 7z or tar, encrypted and split as you choose. **Test** checks every CRC.
+- **Progress:** the jobs panel shows each job's progress, with Cancel, its log and its result. Cancelling removes any partly written files.
+- **Passwords and overwrites** are asked as they come up. A password stays in memory for its tab, until you close it, and is never saved.
+- **Commands:** Ctrl+K lists every action and every BeeZip command; a command without a dialog of its own gets a form.
+- **Copy as CLI**, on every dialog, copies the `beezip` command that does the same, without the password.
+
+**The installer** works per user, with no admin rights:
+- **Files:** it puts `BeeZip.exe` in `%LOCALAPPDATA%\BeeZip`, and adds its `bin` folder (holding `beezip.exe`) to your PATH.
+- **File types:** it registers BeeZip for zip, 7z, rar, tar and the compressed and split formats, but not for zip-based documents such as `.docx` or `.jar`. Windows asks which app to use the first time you open each kind of file, with BeeZip offered. An app you've already chosen for a type (Windows sets Explorer's zip folder for `.zip` on many machines) stays until you pick BeeZip under *Open with → Choose another app*.
+- **Uninstalling** removes the PATH entry and the registrations, and leaves your file types as they were.
 
 ## Command line
 

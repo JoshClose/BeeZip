@@ -5,7 +5,9 @@
 
 use std::sync::Arc;
 
-use beezip_commands::{CmdError, ErrorCode, Interactor, OverwriteChoice, Prompt, PromptReply};
+use beezip_commands::{
+    CmdError, ErrorCode, Interactor, JobId, OverwriteChoice, Prompt, PromptReply,
+};
 use dialoguer::{Password, Select, theme::ColorfulTheme};
 
 use crate::progress::Bars;
@@ -29,7 +31,7 @@ const CHOICES: [(&str, OverwriteChoice); 5] = [
 ];
 
 impl Interactor for TtyInteractor {
-    fn prompt(&self, _id: u64, prompt: &Prompt) -> Result<PromptReply, CmdError> {
+    fn prompt(&self, _job: JobId, _id: u64, prompt: &Prompt) -> Result<PromptReply, CmdError> {
         let theme = ColorfulTheme::default();
         self.bars.suspend(|| match prompt {
             Prompt::Password { entry } => {
@@ -66,7 +68,7 @@ impl Interactor for TtyInteractor {
 pub struct CliNonInteractive;
 
 impl Interactor for CliNonInteractive {
-    fn prompt(&self, _id: u64, prompt: &Prompt) -> Result<PromptReply, CmdError> {
+    fn prompt(&self, _job: JobId, _id: u64, prompt: &Prompt) -> Result<PromptReply, CmdError> {
         Err(match prompt {
             Prompt::Password { entry } => {
                 let what = entry
