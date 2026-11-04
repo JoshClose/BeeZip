@@ -34,7 +34,10 @@ pnpm tauri dev      # the desktop app, reloading as you edit
 - **Commands:** Ctrl+K lists every action and every BeeZip command; a command without a dialog of its own gets a form.
 - **Copy as CLI**, on every dialog, copies the `beezip` command that does the same, without the password.
 
-**The installer** (per user, no admin rights) puts `BeeZip.exe` in `%LOCALAPPDATA%\BeeZip`, adds its `bin` folder (holding `beezip.exe`) to your PATH, and makes BeeZip the handler for archive extensions: zip, 7z, rar, tar and the compressed and split formats, but not zip-based documents such as `.docx` or `.jar`. That includes `.zip`, so double-clicking a zip opens BeeZip rather than Explorer's zip folder. Uninstalling restores the previous handlers and removes the PATH entry.
+**The installer** works per user, with no admin rights:
+- **Files:** it puts `BeeZip.exe` in `%LOCALAPPDATA%\BeeZip`, and adds its `bin` folder (holding `beezip.exe`) to your PATH.
+- **File types:** it registers BeeZip for zip, 7z, rar, tar and the compressed and split formats, but not for zip-based documents such as `.docx` or `.jar`. Windows asks which app to use the first time you open each kind of file, with BeeZip offered. An app you've already chosen for a type (Windows sets Explorer's zip folder for `.zip` on many machines) stays until you pick BeeZip under *Open with → Choose another app*.
+- **Uninstalling** removes the PATH entry and the registrations, and leaves your file types as they were.
 
 ## Command line
 
