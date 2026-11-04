@@ -34,6 +34,7 @@ use crate::{
     Ctx, Error, ErrorKind, Meter, MeteredCtx, Result,
     detect::{Confidence, Probe},
     io::{BUF_SIZE, Checked, CountingReader, copy, read_error, write_error},
+    safefs::Partial,
     source::Source,
     time::{DosTime, from_dos, from_ntfs, from_unix, to_dos, to_unix},
 };
@@ -229,7 +230,7 @@ pub struct ZipReader {
     /// The last password that worked.
     password: Option<String>,
     /// Keeps a spooled zip (one that came out of a codec) alive.
-    _spool: Option<tempfile::NamedTempFile>,
+    _spool: Option<Partial>,
 }
 
 impl ZipReader {
@@ -240,13 +241,11 @@ impl ZipReader {
             (source.open_file()?, cd_file, None)
         } else {
             // zip needs Seek: spool the decoded stream to a temp file, under the usual limits.
-            let mut tmp = tempfile::NamedTempFile::new()
-                .map_err(|e| Error::io("creating a temp file", &e))?;
+            let mut tmp = Partial::create_temp("beezip-spool.zip")?;
             let mut stream = source.guard(source.open_stream()?);
-            copy(&mut stream, tmp.as_file_mut(), cx)?;
-            let temp_err = |e: io::Error| Error::io("reading the temp file", &e);
-            let reopened = tmp.reopen().map_err(temp_err)?;
-            let cd_file = tmp.reopen().map_err(temp_err)?;
+            copy(&mut stream, tmp.file_mut(), cx)?;
+            let reopened = tmp.reopen()?;
+            let cd_file = tmp.reopen()?;
             let file = CountingReader::new(reopened, source.counter.clone());
             (file, cd_file, Some(tmp))
         };

@@ -17,6 +17,7 @@ use crate::{
         zip::{ZipWriteOptions, ZipWriter},
     },
     io::{BUF_SIZE, Counter, CountingReader},
+    safefs::Partial,
     source::{OpenOptions, open},
 };
 
@@ -292,17 +293,8 @@ pub fn create(
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_default();
-    let short: String = name.chars().take(64).collect();
-    let tmp = tempfile::Builder::new()
-        .prefix(&format!(".{short}."))
-        .suffix(".beezip-partial")
-        .rand_bytes(6)
-        .tempfile_in(&dir)
-        .map_err(|e| Error::io(format!("creating a file in {}", dir.display()), &e))?;
-    let out = tmp
-        .as_file()
-        .try_clone()
-        .map_err(|e| Error::io("opening the output", &e))?;
+    let tmp = Partial::create(&dir, &format!(".{name}"))?;
+    let out = tmp.try_clone()?;
 
     let spec = with_size_hint(spec, total);
     let mut writer = create_writer(&spec, out)?;
@@ -337,10 +329,7 @@ pub fn create(
     meter.entries_done = planned.len() as u64;
     MeteredCtx::new(cx, &meter).report();
 
-    let partial = tmp.into_temp_path();
-    fs::rename(&partial, output)
-        .map_err(|e| Error::io(format!("writing {}", output.display()), &e))?;
-    let _ = partial.keep();
+    tmp.persist(output)?;
     report.bytes_in = counter.get();
     report.bytes_out = fs::metadata(output).map(|m| m.len()).unwrap_or(0);
     Ok(report)

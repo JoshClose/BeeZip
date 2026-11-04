@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 use beezip_core::{
     CodecId, OpenOptions, Opened,
     codec::{TAR_SHORTHANDS, strip_extension},
+    safefs::Partial,
     source::open,
 };
 
@@ -50,22 +51,13 @@ pub fn write_atomically(
         Some(p) if !p.as_os_str().is_empty() => p.to_path_buf(),
         _ => PathBuf::from("."),
     };
-    let name: String = target
+    let name = target
         .file_name()
-        .map(|n| n.to_string_lossy().chars().take(64).collect())
+        .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_default();
-    let io = |what: &str, e: std::io::Error| CmdError::from(beezip_core::Error::io(what, &e));
-    let mut tmp = tempfile::Builder::new()
-        .prefix(&format!(".{name}."))
-        .suffix(".beezip-partial")
-        .rand_bytes(6)
-        .tempfile_in(&dir)
-        .map_err(|e| io(&format!("creating a file in {}", dir.display()), e))?;
-    write(tmp.as_file_mut())?;
-    let partial = tmp.into_temp_path();
-    std::fs::rename(&partial, target)
-        .map_err(|e| io(&format!("writing {}", target.display()), e))?;
-    let _ = partial.keep();
+    let mut tmp = Partial::create(&dir, &format!(".{name}"))?;
+    write(tmp.file_mut())?;
+    tmp.persist(target)?;
     Ok(())
 }
 
