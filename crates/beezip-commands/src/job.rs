@@ -87,6 +87,10 @@ pub fn discard_events() -> EventSink {
 pub trait Interactor: Send + Sync {
     /// `job` says which job asks: a GUI answers through `cmd_respond(job, id, reply)`.
     fn prompt(&self, job: JobId, id: u64, prompt: &Prompt) -> Result<PromptReply, CmdError>;
+
+    /// Called just before the `Prompt` event goes out, so a reply can't arrive before the
+    /// interactor is ready for it. A GUI makes its reply slot here.
+    fn expect(&self, _job: JobId, _id: u64) {}
 }
 
 /// An [`Interactor`] with nobody to ask: every prompt fails with a hint about which argument to
@@ -255,6 +259,7 @@ impl JobCtx {
     pub fn prompt(&mut self, prompt: Prompt) -> Result<PromptReply, CmdError> {
         self.next_prompt += 1;
         let id = self.next_prompt;
+        self.interactor.expect(self.id, id);
         (self.sink)(JobEvent::Prompt {
             id,
             prompt: prompt.clone(),

@@ -337,7 +337,10 @@ mod tests {
             let defs = schema.get("$defs").cloned().unwrap_or(Value::Null);
             for flip in [false, true] {
                 let mut args = JsonObject::new();
-                let props = schema["properties"].as_object().cloned().unwrap_or_default();
+                let props = schema["properties"]
+                    .as_object()
+                    .cloned()
+                    .unwrap_or_default();
                 for (k, s) in &props {
                     if let Some(v) = sample(s, &defs, flip) {
                         args.insert(k.clone(), v);

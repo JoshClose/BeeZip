@@ -190,6 +190,14 @@ impl Engine {
         }
     }
 
+    /// Whether job `id` was cancelled, or has ended.
+    pub fn is_cancelled(&self, id: JobId) -> bool {
+        self.inner
+            .jobs()
+            .get(&id)
+            .is_none_or(|job| job.cancel.is_cancelled())
+    }
+
     /// The running jobs, oldest first.
     pub fn jobs(&self) -> Vec<JobInfo> {
         let mut jobs: Vec<JobInfo> = self

@@ -18,9 +18,15 @@ tauri-build.workspace = true
 
 [dependencies]
 beezip-commands.workspace = true
+serde.workspace = true
 serde_json.workspace = true
 tauri.workspace = true
+tauri-plugin-dialog.workspace = true
 tauri-plugin-opener.workspace = true
+tauri-plugin-single-instance.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
 
 # No [profile.release] here: Cargo ignores profiles in workspace members, and the template's
 # `panic = "abort"` would break the engine's catch_unwind. See the workspace Cargo.toml.

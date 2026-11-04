@@ -12,6 +12,7 @@
     "windows": [
       {
         "label": "main",
+        "create": false,
         "title": "BeeZip",
         "width": 1100,
         "height": 720,
