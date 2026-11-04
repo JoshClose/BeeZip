@@ -5,7 +5,10 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
-use crate::{Access, CliSpec, CmdError, Command, Effect, JobCtx, commands::util::absolute};
+use crate::{
+    Access, CliSpec, CmdError, Command, Effect, JobCtx,
+    commands::util::{absolute, as_given},
+};
 
 /// Detect what a file is: its chain of codecs and archive format (`zstd → tar`), whether it is
 /// a self-extracting archive, and what it is when it isn't an archive at all.
@@ -36,15 +39,19 @@ pub struct FileDetectOutput {
     /// `zstd → tar`, or `gzip` for a compressed file that isn't an archive. Empty when nothing
     /// was recognised.
     pub chain: String,
-    /// The archive format at the bottom (`zip`, `tar`, or `stream` for a bare compressed file).
+    /// The archive format at the bottom (`zip`, `7z`, `rar`, `tar`, or `stream` for a bare
+    /// compressed file or a split file of anything else).
     pub format: Option<String>,
-    /// A zip inside an executable.
+    /// An archive inside an executable: a zip, 7z or RAR SFX.
     pub sfx: bool,
     /// What the file (or a stream's content) is when it isn't an archive, e.g. "Portable
     /// Network Graphics".
     pub label: Option<String>,
     /// Whether the extension fits what the file is.
     pub extension_agrees: bool,
+    /// The parts of a volume set (`a.7z.001`…, `a.part1.rar`…), first part first; just the
+    /// file otherwise. Any part detects as the whole set.
+    pub volumes: Vec<PathBuf>,
 }
 
 pub struct FileDetect;
@@ -85,6 +92,7 @@ impl Command for FileDetect {
             sfx: det.sfx,
             label: det.label.clone(),
             extension_agrees: det.extension_agrees,
+            volumes: as_given(&input.path, &det.volumes),
             path: input.path,
         })
     }
@@ -95,6 +103,10 @@ impl Command for FileDetect {
             None => match &out.label {
                 Some(label) => format!("not an archive ({label})"),
                 None => "not an archive".into(),
+            },
+            Some("stream") if out.chain.is_empty() => match &out.label {
+                Some(label) => format!("a file split into volumes ({label})"),
+                None => "a file split into volumes".into(),
             },
             Some("stream") => {
                 let content = out
@@ -112,7 +124,12 @@ impl Command for FileDetect {
         } else {
             " (the extension says otherwise)"
         };
-        Some(format!("{path}: {what}{note}"))
+        let parts = if out.volumes.len() > 1 {
+            format!(", {} volumes", out.volumes.len())
+        } else {
+            String::new()
+        };
+        Some(format!("{path}: {what}{parts}{note}"))
     }
 }
 

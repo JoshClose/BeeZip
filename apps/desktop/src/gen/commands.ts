@@ -207,7 +207,7 @@ password?: Secret, };
 
 export type ArchiveInfoOutput = { archive: string,
 /**
- * `zip`, `tar` or `stream`.
+ * `zip`, `7z`, `rar`, `tar` or `stream`.
  */
 format: string,
 /**
@@ -227,9 +227,31 @@ packed_size: number,
  */
 ratio: number, methods: Array<string>, encryption: EncryptionState,
 /**
- * Entries can't be decoded on their own (a compressed tar, a bare compressed file).
+ * Entries can't be decoded on their own (a solid 7z or RAR, a compressed tar, a bare
+ * compressed file).
  */
-solid: boolean, sfx: boolean, comment: string | null, };
+solid: boolean, sfx: boolean, comment: string | null,
+/**
+ * The files the archive is split across, first part first; just the archive when it
+ * isn't split.
+ */
+volumes: Array<string>,
+/**
+ * 7z: blocks holding more than one file (reading a file decodes its block from the start).
+ */
+solid_blocks: number | null,
+/**
+ * The entry names are encrypted too, so listing needs the password.
+ */
+encrypted_headers: boolean,
+/**
+ * RAR: locked against changes.
+ */
+locked: boolean,
+/**
+ * RAR: has a recovery record, for repairing damage.
+ */
+recovery_record: boolean, };
 
 /**
  * List an archive's entries. Without `flat`, one folder level at a time (the root, or `dir`),
@@ -262,6 +284,18 @@ offset?: number,
  * At most this many entries (over MCP, at most 500).
  */
 limit?: number,
+/**
+ * Sort by this, folders first [default: archive order].
+ */
+sort?: SortKey,
+/**
+ * Reverse the sort (folders stay first).
+ */
+reverse?: boolean,
+/**
+ * Only entries of this kind: `file` (files and hard links), `dir`, or `link` (symlinks).
+ */
+kind?: KindFilter,
 /**
  * The password, if entry names need one.
  */
@@ -455,11 +489,12 @@ export type FileDetectOutput = { path: string, layers: Array<LayerInfo>,
  */
 chain: string,
 /**
- * The archive format at the bottom (`zip`, `tar`, or `stream` for a bare compressed file).
+ * The archive format at the bottom (`zip`, `7z`, `rar`, `tar`, or `stream` for a bare
+ * compressed file or a split file of anything else).
  */
 format: string | null,
 /**
- * A zip inside an executable.
+ * An archive inside an executable: a zip, 7z or RAR SFX.
  */
 sfx: boolean,
 /**
@@ -470,7 +505,12 @@ label: string | null,
 /**
  * Whether the extension fits what the file is.
  */
-extension_agrees: boolean, };
+extension_agrees: boolean,
+/**
+ * The parts of a volume set (`a.7z.001`…, `a.part1.rar`…), first part first; just the
+ * file otherwise. Any part detects as the whole set.
+ */
+volumes: Array<string>, };
 
 export type FormatInfo = { id: string, name: string, extensions: Array<string>, caps: Caps,
 /**
@@ -506,6 +546,11 @@ export type JobEvent = { "type": "Started", job: number, } | { "type": "Progress
 export type JobInfo = { id: number, command: string, };
 
 export type JsonValue = number | string | boolean | Array<JsonValue> | { [key in string]: JsonValue } | null;
+
+/**
+ * Which entries `archive.list` keeps.
+ */
+export type KindFilter = "file" | "dir" | "link";
 
 /**
  * One layer of a file, outermost first.
@@ -612,6 +657,11 @@ reason: string,
  * Refused for safety; these make the command fail with `Unsafe`.
  */
 refused: boolean, };
+
+/**
+ * What `archive.list` sorts by.
+ */
+export type SortKey = "name" | "size" | "packed" | "modified" | "kind";
 
 /**
  * Compress one file with a single-stream codec (`a.txt` → `a.txt.zst`). The output keeps the

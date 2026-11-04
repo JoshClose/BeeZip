@@ -7,7 +7,7 @@ use ts_rs::TS;
 
 use crate::{
     Access, CliSpec, CmdError, Command, Effect, JobCtx,
-    commands::util::open_archive,
+    commands::util::{as_given, open_archive},
     wire::{Secret, human_size, ratio},
 };
 
@@ -37,7 +37,7 @@ pub enum EncryptionState {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
 pub struct ArchiveInfoOutput {
     pub archive: PathBuf,
-    /// `zip`, `tar` or `stream`.
+    /// `zip`, `7z`, `rar`, `tar` or `stream`.
     pub format: String,
     /// `zstd → tar`.
     pub chain: String,
@@ -54,10 +54,22 @@ pub struct ArchiveInfoOutput {
     pub ratio: f64,
     pub methods: Vec<String>,
     pub encryption: EncryptionState,
-    /// Entries can't be decoded on their own (a compressed tar, a bare compressed file).
+    /// Entries can't be decoded on their own (a solid 7z or RAR, a compressed tar, a bare
+    /// compressed file).
     pub solid: bool,
     pub sfx: bool,
     pub comment: Option<String>,
+    /// The files the archive is split across, first part first; just the archive when it
+    /// isn't split.
+    pub volumes: Vec<PathBuf>,
+    /// 7z: blocks holding more than one file (reading a file decodes its block from the start).
+    pub solid_blocks: Option<u64>,
+    /// The entry names are encrypted too, so listing needs the password.
+    pub encrypted_headers: bool,
+    /// RAR: locked against changes.
+    pub locked: bool,
+    /// RAR: has a recovery record, for repairing damage.
+    pub recovery_record: bool,
 }
 
 pub struct ArchiveInfo;
@@ -111,6 +123,11 @@ impl Command for ArchiveInfo {
             },
             solid: info.solid,
             sfx: info.sfx,
+            volumes: as_given(&input.archive, &opened.detection.volumes),
+            solid_blocks: info.solid_blocks,
+            encrypted_headers: info.encrypted_headers,
+            locked: info.locked,
+            recovery_record: info.recovery_record,
             comment: info.comment,
             archive: input.archive,
         })
@@ -141,8 +158,27 @@ impl Command for ArchiveInfo {
             };
             s.push_str(&format!("\n  encrypted: {which} entries"));
         }
+        if out.encrypted_headers {
+            s.push_str("\n  names encrypted");
+        }
         if out.solid {
-            s.push_str("\n  solid");
+            match out.solid_blocks {
+                Some(1) => s.push_str("\n  solid (1 solid block)"),
+                Some(n) => s.push_str(&format!("\n  solid ({n} solid blocks)")),
+                None => s.push_str("\n  solid"),
+            }
+        }
+        if out.locked {
+            s.push_str("\n  locked");
+        }
+        if out.recovery_record {
+            s.push_str("\n  recovery record");
+        }
+        if out.volumes.len() > 1 {
+            s.push_str(&format!("\n  {} volumes:", out.volumes.len()));
+            for v in &out.volumes {
+                s.push_str(&format!("\n    {}", v.display()));
+            }
         }
         if let Some(c) = &out.comment {
             s.push_str(&format!("\n  comment: {c}"));

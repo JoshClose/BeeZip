@@ -16,6 +16,19 @@ pub fn absolute(path: &Path) -> PathBuf {
     std::path::absolute(path).unwrap_or_else(|_| path.to_path_buf())
 }
 
+/// A volume set's parts named the way `given` (one of them) was: they all sit in its folder,
+/// so a relative path gives relative parts (outputs show paths as people wrote them).
+pub fn as_given(given: &Path, parts: &[PathBuf]) -> Vec<PathBuf> {
+    let dir = given.parent().unwrap_or(Path::new(""));
+    parts
+        .iter()
+        .map(|p| match p.file_name() {
+            Some(name) => dir.join(name),
+            None => p.clone(),
+        })
+        .collect()
+}
+
 /// Opens an archive under the job's limits, with the input's password set.
 pub fn open_archive(
     path: &Path,

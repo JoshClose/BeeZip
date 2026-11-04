@@ -27,6 +27,29 @@ Options:
       --limit <LIMIT>
           At most this many entries (over MCP, at most 500)
 
+      --sort <SORT>
+          Sort by this, folders first [default: archive order]
+
+          Possible values:
+          - name
+          - size
+          - packed
+          - modified
+          - kind:     Folders, files, then links; by name within each
+
+      --reverse[=<REVERSE>]
+          Reverse the sort (folders stay first)
+          
+          [possible values: true, false]
+
+      --kind <KIND>
+          Only entries of this kind: `file` (files and hard links), `dir`, or `link` (symlinks)
+
+          Possible values:
+          - file: Files and hard links (which extract as files)
+          - dir
+          - link: Symlinks
+
   -p, --password <PASSWORD>
           The password, if entry names need one
 

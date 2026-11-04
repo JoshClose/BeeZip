@@ -266,7 +266,8 @@ mod imp {
             code::LARGE_DICT => {
                 Error::limit("the RAR's dictionary is over the limit (`decoder_memory`)")
             }
-            code::EREAD => Error::new(ErrorKind::Io, "RAR: could not read the archive"),
+            // UnRAR reports reading past the end of damaged or cut-off data this way.
+            code::EREAD => Error::corrupt("RAR: the archive ends early or is damaged"),
             code::SMALL_BUF => Error::corrupt("RAR: a name or comment is too long"),
             code::EREFERENCE => Error::corrupt("RAR: a file reference can't be resolved"),
             c => Error::corrupt(format!("RAR: UnRAR error {c}")),
