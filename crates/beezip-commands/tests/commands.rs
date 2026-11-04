@@ -101,9 +101,15 @@ fn walkdir(dir: &Path) -> Vec<PathBuf> {
 #[test]
 fn formats_list_has_everything() {
     let out = run("formats.list", json!({})).unwrap();
-    assert_eq!(out["formats"].as_array().unwrap().len(), 3);
+    assert_eq!(out["formats"].as_array().unwrap().len(), 4);
     assert_eq!(out["codecs"].as_array().unwrap().len(), 11);
-    assert_eq!(out["create"].as_array().unwrap().len(), 11);
+    assert_eq!(out["create"].as_array().unwrap().len(), 12);
+    let sz = &out["formats"][2];
+    assert_eq!(sz["id"], "7z");
+    assert_eq!(sz["methods"][0]["id"], "lzma2");
+    assert_eq!(sz["methods"][0]["levels"]["default"], 5);
+    assert_eq!(sz["caps"]["encrypt_headers"], true);
+    assert_eq!(sz["caps"]["random_access"], false);
     let zip = &out["formats"][0];
     assert_eq!(zip["id"], "zip");
     assert_eq!(zip["methods"][1]["id"], "deflate");
@@ -460,6 +466,57 @@ fn create_formats_levels_and_conflicts() {
     .unwrap();
     assert_eq!(plan["plan"].as_array().unwrap().len(), 4);
     assert!(!root.path().join("d.zip").exists());
+}
+
+#[test]
+fn create_7z_and_volumes() {
+    let root = tempfile::tempdir().unwrap();
+    let src = root.path().join("src");
+    std::fs::create_dir_all(src.join("sub")).unwrap();
+    let mut noise = vec![0u8; 50_000];
+    for (i, b) in noise.iter_mut().enumerate() {
+        *b = (i.wrapping_mul(2_654_435_761) >> 13) as u8;
+    }
+    std::fs::write(src.join("noise.bin"), &noise).unwrap();
+    std::fs::write(src.join("sub/b.txt"), "b").unwrap();
+    let bad = |args: Value| run("archive.create", args).unwrap_err().code;
+    let out7 = root.path().join("x.7z");
+    for args in [
+        json!({ "output": out7, "inputs": [src], "method": "store" }),
+        json!({ "output": out7, "inputs": [src], "method": "zstd" }),
+        json!({ "output": out7, "inputs": [src], "encryption": "zipcrypto", "password": "p" }),
+        json!({ "output": out7, "inputs": [src], "encrypt_headers": true }),
+        json!({ "output": out7, "inputs": [src], "method": "copy", "level": 3 }),
+        json!({ "output": out7, "inputs": [src], "level": 10 }),
+        json!({ "output": root.path().join("x.zip"), "inputs": [src], "method": "lzma2" }),
+        json!({ "output": root.path().join("x.zip"), "inputs": [src], "solid": true }),
+        json!({ "output": root.path().join("x.tar"), "inputs": [src], "encrypt_headers": false }),
+        json!({ "output": out7, "inputs": [src], "volume_size": 100 }),
+        json!({ "output": out7, "inputs": [src], "volume_size": "lots" }),
+    ] {
+        assert_eq!(bad(args.clone()), ErrorCode::InvalidArgs, "{args}");
+    }
+    assert!(!out7.exists());
+
+    let out = run(
+        "archive.create",
+        json!({ "output": out7, "inputs": [src], "password": "pw", "method": "copy", "volume_size": "20k" }),
+    )
+    .unwrap();
+    assert_eq!(out["format"], "7z");
+    let volumes = out["volumes"].as_array().unwrap();
+    assert_eq!(volumes.len(), 3, "{out}");
+    assert!(volumes[0].as_str().unwrap().ends_with("x.7z.001"));
+    // Encrypted names: listing needs the password.
+    let err = run("archive.list", json!({ "archive": volumes[1] })).unwrap_err();
+    assert_eq!(err.code, ErrorCode::PasswordRequired);
+    let info = run(
+        "archive.info",
+        json!({ "archive": volumes[2], "password": "pw" }),
+    )
+    .unwrap();
+    assert_eq!(info["encryption"], "all");
+    assert_eq!(info["methods"], json!(["AES-256", "Copy"]));
 }
 
 #[test]

@@ -7,7 +7,10 @@ use std::fmt;
 
 use beezip_core::{
     CodecId, Entry, EntryKind,
-    format::zip::{ZipEncryption, ZipMethod},
+    format::{
+        sevenz::SevenZMethod,
+        zip::{ZipEncryption, ZipMethod},
+    },
     ops::ArchiveKind,
     safefs, time,
 };
@@ -63,6 +66,9 @@ pub enum ArchiveFormatName {
     #[serde(rename = "zip")]
     #[value(name = "zip")]
     Zip,
+    #[serde(rename = "7z")]
+    #[value(name = "7z")]
+    SevenZ,
     #[serde(rename = "tar")]
     #[value(name = "tar")]
     Tar,
@@ -100,6 +106,7 @@ impl ArchiveFormatName {
         let tar = |c| ArchiveKind::Tar(Some(c));
         match self {
             Self::Zip => ArchiveKind::Zip,
+            Self::SevenZ => ArchiveKind::SevenZ,
             Self::Tar => ArchiveKind::Tar(None),
             Self::TarGz => tar(CodecId::Gzip),
             Self::TarBz2 => tar(CodecId::Bzip2),
@@ -196,6 +203,95 @@ impl ZipMethodName {
             Self::Zstd => ZipMethod::Zstd,
             Self::Xz => ZipMethod::Xz,
             Self::Ppmd => ZipMethod::Ppmd,
+        }
+    }
+}
+
+/// A 7z compression method BeeZip writes.
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS, clap::ValueEnum,
+)]
+#[serde(rename_all = "kebab-case")]
+#[value(rename_all = "kebab-case")]
+pub enum SevenZMethodName {
+    Lzma2,
+    Lzma,
+    Ppmd,
+    Bzip2,
+    Deflate,
+    Copy,
+}
+
+impl SevenZMethodName {
+    pub fn method(self) -> SevenZMethod {
+        match self {
+            Self::Lzma2 => SevenZMethod::Lzma2,
+            Self::Lzma => SevenZMethod::Lzma,
+            Self::Ppmd => SevenZMethod::Ppmd,
+            Self::Bzip2 => SevenZMethod::Bzip2,
+            Self::Deflate => SevenZMethod::Deflate,
+            Self::Copy => SevenZMethod::Copy,
+        }
+    }
+}
+
+/// A compression method for `archive.create`: zip's (`store`, `deflate`, `bzip2`, `zstd`,
+/// `xz`, `ppmd`) or 7z's (`lzma2`, `lzma`, `ppmd`, `bzip2`, `deflate`, `copy`). One flag takes
+/// both; [`MethodName::zip`] and [`MethodName::sevenz`] say which a format accepts, so `store`
+/// can't reach a 7z.
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS, clap::ValueEnum,
+)]
+#[serde(rename_all = "kebab-case")]
+#[value(rename_all = "kebab-case")]
+pub enum MethodName {
+    Store,
+    Deflate,
+    Bzip2,
+    Zstd,
+    Xz,
+    Ppmd,
+    Lzma2,
+    Lzma,
+    Copy,
+}
+
+impl MethodName {
+    pub fn zip(self) -> Option<ZipMethodName> {
+        Some(match self {
+            Self::Store => ZipMethodName::Store,
+            Self::Deflate => ZipMethodName::Deflate,
+            Self::Bzip2 => ZipMethodName::Bzip2,
+            Self::Zstd => ZipMethodName::Zstd,
+            Self::Xz => ZipMethodName::Xz,
+            Self::Ppmd => ZipMethodName::Ppmd,
+            Self::Lzma2 | Self::Lzma | Self::Copy => return None,
+        })
+    }
+
+    pub fn sevenz(self) -> Option<SevenZMethodName> {
+        Some(match self {
+            Self::Lzma2 => SevenZMethodName::Lzma2,
+            Self::Lzma => SevenZMethodName::Lzma,
+            Self::Ppmd => SevenZMethodName::Ppmd,
+            Self::Bzip2 => SevenZMethodName::Bzip2,
+            Self::Deflate => SevenZMethodName::Deflate,
+            Self::Copy => SevenZMethodName::Copy,
+            Self::Store | Self::Zstd | Self::Xz => return None,
+        })
+    }
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Store => "store",
+            Self::Deflate => "deflate",
+            Self::Bzip2 => "bzip2",
+            Self::Zstd => "zstd",
+            Self::Xz => "xz",
+            Self::Ppmd => "ppmd",
+            Self::Lzma2 => "lzma2",
+            Self::Lzma => "lzma",
+            Self::Copy => "copy",
         }
     }
 }
@@ -506,6 +602,17 @@ pub(crate) mod tests {
         names_agree::<ArchiveFormatName>();
         names_agree::<CodecName>();
         names_agree::<ZipMethodName>();
+        names_agree::<SevenZMethodName>();
+        names_agree::<MethodName>();
+        for m in <MethodName as clap::ValueEnum>::value_variants() {
+            assert_eq!(serde_json::to_value(m).unwrap(), m.name());
+            let zip = m.zip().map(|z| serde_json::to_value(z).unwrap());
+            let sz = m.sevenz().map(|s| serde_json::to_value(s).unwrap());
+            assert!(zip.is_some() || sz.is_some());
+            for v in zip.into_iter().chain(sz) {
+                assert_eq!(v, m.name());
+            }
+        }
         names_agree::<EncryptionName>();
         names_agree::<TextEncoding>();
     }

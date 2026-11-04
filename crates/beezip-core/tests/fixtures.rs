@@ -48,7 +48,7 @@ const MTIME: u64 = 1_767_225_600;
 #[test]
 fn every_fixture_reads_correctly() {
     let all = manifest();
-    assert_eq!(all.len(), 20, "the manifest lists every fixture");
+    assert_eq!(all.len(), 37, "the manifest lists every fixture");
     let mut failures = Vec::new();
     for fx in &all {
         let file = fx["file"].as_str().unwrap();
@@ -103,6 +103,22 @@ fn check(fx: &Value) -> Result<(), String> {
         };
         match (want["kind"].as_str().unwrap(), &e.kind) {
             ("symlink", EntryKind::Symlink { target }) => {
+                // 7z keeps a link's target in its data, which listing doesn't decode;
+                // open_entry reads it.
+                let target = if target.is_empty() {
+                    let mut t = String::new();
+                    opened
+                        .reader
+                        .open_entry(e.id, &mut cx)
+                        .and_then(|mut r| {
+                            r.read_to_string(&mut t)
+                                .map_err(|e| beezip_core::io::read_error(&e))
+                        })
+                        .map_err(|e| format!("open_entry `{p}`: {e}"))?;
+                    t
+                } else {
+                    target.clone()
+                };
                 if target != want["target"].as_str().unwrap() {
                     return Err(format!("`{p}` points at `{target}`"));
                 }

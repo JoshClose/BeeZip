@@ -3,7 +3,7 @@
 
 use std::{
     fs::{self, File},
-    io::{self, BufWriter, Write},
+    io::{self, BufWriter, Read, Write},
     path::{Path, PathBuf},
 };
 
@@ -13,6 +13,7 @@ use crate::{
     codec::{FinishWrite, finisher},
     format::{
         ArchiveWriter, Entry, EntryKind, FormatId, NewEntry, NewKind,
+        sevenz::{SevenZWriteOptions, SevenZWriter},
         tar::TarWriter,
         zip::{ZipWriteOptions, ZipWriter},
     },
@@ -22,10 +23,11 @@ use crate::{
     volume::VolumeWriter,
 };
 
-/// The archive kinds BeeZip writes: zip, tar, and tar under one codec.
+/// The archive kinds BeeZip writes: zip, 7z, tar, and tar under one codec.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ArchiveKind {
     Zip,
+    SevenZ,
     Tar(Option<CodecId>),
 }
 
@@ -44,16 +46,17 @@ pub const TAR_CODECS: [CodecId; 9] = [
 
 impl ArchiveKind {
     pub fn all() -> impl Iterator<Item = ArchiveKind> {
-        [Self::Zip, Self::Tar(None)]
+        [Self::Zip, Self::SevenZ, Self::Tar(None)]
             .into_iter()
             .chain(TAR_CODECS.map(|c| Self::Tar(Some(c))))
     }
 
-    /// `zip`, `tar`, `tar.gz`, `tar.bz2`, `tar.xz`, `tar.lzma`, `tar.lz`, `tar.zst`, `tar.lz4`,
-    /// `tar.br`, `tar.sz`.
+    /// `zip`, `7z`, `tar`, `tar.gz`, `tar.bz2`, `tar.xz`, `tar.lzma`, `tar.lz`, `tar.zst`,
+    /// `tar.lz4`, `tar.br`, `tar.sz`.
     pub fn name(self) -> String {
         match self {
             Self::Zip => "zip".into(),
+            Self::SevenZ => "7z".into(),
             Self::Tar(None) => "tar".into(),
             Self::Tar(Some(c)) => {
                 let ext = c.codec().extensions().first().copied().unwrap_or("");
@@ -72,6 +75,9 @@ impl ArchiveKind {
         if lower.ends_with(".zip") {
             return Some(Self::Zip);
         }
+        if lower.ends_with(".7z") {
+            return Some(Self::SevenZ);
+        }
         if lower.ends_with(".tar") {
             return Some(Self::Tar(None));
         }
@@ -88,6 +94,7 @@ impl ArchiveKind {
     pub fn format(self) -> FormatId {
         match self {
             Self::Zip => FormatId::Zip,
+            Self::SevenZ => FormatId::SevenZ,
             Self::Tar(_) => FormatId::Tar,
         }
     }
@@ -97,6 +104,7 @@ impl ArchiveKind {
 #[derive(Debug, Clone)]
 pub enum WriteSpec {
     Zip(ZipWriteOptions),
+    SevenZ(SevenZWriteOptions),
     /// A tar, under `codec` if there is one, encoded with `opts`.
     Tar {
         codec: Option<CodecId>,
@@ -113,6 +121,7 @@ fn plain(out: Box<dyn WriteSeek>) -> Box<dyn FinishWrite> {
 pub fn create_writer(spec: &WriteSpec, out: Box<dyn WriteSeek>) -> Result<Box<dyn ArchiveWriter>> {
     Ok(match spec {
         WriteSpec::Zip(opts) => Box::new(ZipWriter::new(out, opts.clone())?),
+        WriteSpec::SevenZ(opts) => Box::new(SevenZWriter::new(out, opts)?),
         WriteSpec::Tar { codec: None, .. } => Box::new(TarWriter::new(plain(out))),
         WriteSpec::Tar {
             codec: Some(c),
@@ -313,16 +322,54 @@ pub fn create(
     let mut meter = Meter::new(counter.clone(), Some(total));
     meter.entries_total = Some(planned.len() as u64);
     let mut report = CreateReport::default();
+    let open = |p: &Planned| -> Result<Box<dyn Read>> {
+        let file = File::open(&p.source)
+            .map_err(|e| Error::io(format!("reading {}", p.source.display()), &e))?;
+        Ok(Box::new(CountingReader::new(file, counter.clone())))
+    };
+    // A solid writer gets non-empty files in groups of up to its block limit (7z, §3.3);
+    // everything else goes one entry at a time, in plan order.
+    let limit = writer.solid_block_limit();
+    let mut group: Vec<usize> = Vec::new();
+    let mut group_bytes = 0u64;
+    let flush = |group: &mut Vec<usize>,
+                 writer: &mut Box<dyn ArchiveWriter>,
+                 meter: &mut Meter,
+                 cx: &mut dyn Ctx|
+     -> Result<()> {
+        let Some(&first) = group.first() else {
+            return Ok(());
+        };
+        meter.entries_done = first as u64;
+        meter.current = Some(planned[first].entry.path.clone());
+        let entries: Vec<NewEntry> = group.iter().map(|&i| planned[i].entry.clone()).collect();
+        let mut opener = |k: usize| open(&planned[group[k]]);
+        let mut mcx = MeteredCtx::new(cx, meter);
+        writer.add_solid(&entries, &mut opener, &mut mcx)?;
+        group.clear();
+        Ok(())
+    };
     for (i, p) in planned.iter().enumerate() {
         cx.check()?;
+        if let Some(limit) = limit
+            && p.entry.kind == NewKind::File
+            && p.entry.size > 0
+        {
+            if !group.is_empty() && group_bytes.saturating_add(p.entry.size) > limit {
+                flush(&mut group, &mut writer, &mut meter, cx)?;
+                group_bytes = 0;
+            }
+            group.push(i);
+            group_bytes += p.entry.size;
+            report.files += 1;
+            continue;
+        }
         meter.entries_done = i as u64;
         meter.current = Some(p.entry.path.clone());
         let mut mcx = MeteredCtx::new(cx, &meter);
         match p.entry.kind {
             NewKind::File => {
-                let file = File::open(&p.source)
-                    .map_err(|e| Error::io(format!("reading {}", p.source.display()), &e))?;
-                let mut r = CountingReader::new(file, counter.clone());
+                let mut r = open(p)?;
                 writer.add(&p.entry, &mut r, &mut mcx)?;
                 report.files += 1;
             }
@@ -336,6 +383,7 @@ pub fn create(
             }
         }
     }
+    flush(&mut group, &mut writer, &mut meter, cx)?;
     writer.finish()?;
     meter.entries_done = planned.len() as u64;
     MeteredCtx::new(cx, &meter).report();
@@ -438,7 +486,7 @@ mod tests {
             Some(ArchiveKind::Tar(Some(CodecId::Lzip)))
         );
         assert_eq!(ArchiveKind::from_name("tar.zz"), None);
-        assert_eq!(ArchiveKind::all().count(), 11);
+        assert_eq!(ArchiveKind::all().count(), 12);
         for k in ArchiveKind::all() {
             assert_eq!(ArchiveKind::from_name(&k.name()), Some(k));
         }
@@ -454,6 +502,6 @@ mod tests {
         assert_eq!(f("a.tbz2"), Some(ArchiveKind::Tar(Some(CodecId::Bzip2))));
         assert_eq!(f("a.tar.br"), Some(ArchiveKind::Tar(Some(CodecId::Brotli))));
         assert_eq!(f("a.gz"), None);
-        assert_eq!(f("a.7z"), None);
+        assert_eq!(f("a.7z"), Some(ArchiveKind::SevenZ));
     }
 }

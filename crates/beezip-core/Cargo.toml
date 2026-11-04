@@ -17,6 +17,7 @@ flate2.workspace = true
 globset.workspace = true
 lz4_flex.workspace = true
 lzma-rust2.workspace = true
+sevenz-rust2.workspace = true
 memchr.workspace = true
 snap.workspace = true
 tar.workspace = true

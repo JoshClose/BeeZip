@@ -20,7 +20,7 @@ use file_format::FileFormat;
 use crate::{
     CodecId, Error, Limits, Result,
     codec::{codecs, strip_extension},
-    format::{FormatId, formats, zip::is_sfx},
+    format::{FormatId, formats, sevenz::start_header as sevenz_start_header, zip::is_sfx},
     io::read_prefix,
     volume::{SetKind, VolumeReader, find_set},
 };
@@ -110,6 +110,9 @@ pub struct Detection {
     pub volumes: Vec<PathBuf>,
     /// `volumes` is a numbered set (`a.7z.001`…), detected and read as one joined file.
     pub joined: bool,
+    /// Where the archive starts inside an SFX, when its reader must be shown it from there
+    /// (7z); 0 otherwise. zip and UnRAR find the archive themselves.
+    pub offset: u64,
 }
 
 impl Detection {
@@ -170,7 +173,7 @@ pub fn detect_path(path: &Path, limits: &Limits) -> Result<Detection> {
                 .map_err(|e| Error::io(format!("reading {}", path.display()), &e))?;
             let name = set.name.to_lowercase();
             let open = || -> io::Result<Box<dyn Read>> { Ok(Box::new(reader.reopen())) };
-            let mut det = detect_with(&open, &tail, Some(len), Some(name), limits)?;
+            let mut det = detect_with(&open, &tail, Some(len), Some(name), None, limits)?;
             if det.format().is_none() {
                 det.layers.push(Layer {
                     kind: LayerKind::Format(FormatId::Stream),
@@ -198,14 +201,16 @@ fn detect_file(path: &Path, limits: &Limits) -> Result<Detection> {
         .len();
     let tail = read_tail(&mut file, len)
         .map_err(|e| Error::io(format!("reading {}", path.display()), &e))?;
+    let sfx = overlay_archive(&mut file, len);
     let name = path.file_name().map(|n| n.to_string_lossy().to_lowercase());
     let open = || -> io::Result<Box<dyn Read>> { Ok(Box::new(File::open(path)?)) };
-    detect_with(&open, &tail, Some(len), name, limits)
+    detect_with(&open, &tail, Some(len), name, sfx, limits)
 }
 
 /// Detects data in memory, as the fuzzers do.
 pub fn detect_bytes(data: &[u8], name: Option<&str>, limits: &Limits) -> Detection {
     let tail = &data[data.len().saturating_sub(TAIL_LEN)..];
+    let sfx = overlay_archive(&mut Cursor::new(data), data.len() as u64);
     let open = || -> io::Result<Box<dyn Read + '_>> { Ok(Box::new(Cursor::new(data))) };
     // Reading from memory can't fail with an I/O error.
     detect_with(
@@ -213,9 +218,63 @@ pub fn detect_bytes(data: &[u8], name: Option<&str>, limits: &Limits) -> Detecti
         tail,
         Some(data.len() as u64),
         name.map(str::to_lowercase),
+        sfx,
         limits,
     )
     .unwrap_or_default()
+}
+
+/// Where a PE image ends, from the section table in its head: the start of its overlay, which
+/// is where 7-Zip's `7z.sfx` and WinRAR's SFX modules put the archive (docs/M3.md §3.5).
+pub fn pe_overlay(head: &[u8]) -> Option<u64> {
+    let u16_at = |i: usize| Some(u16::from_le_bytes([*head.get(i)?, *head.get(i + 1)?]));
+    let u32_at = |i: usize| {
+        Some(u32::from_le_bytes([
+            *head.get(i)?,
+            *head.get(i + 1)?,
+            *head.get(i + 2)?,
+            *head.get(i + 3)?,
+        ]))
+    };
+    if !head.starts_with(b"MZ") {
+        return None;
+    }
+    let pe = usize::try_from(u32_at(0x3C)?).ok()?;
+    if head.get(pe..pe.checked_add(4)?)? != b"PE\0\0" {
+        return None;
+    }
+    let sections = usize::from(u16_at(pe + 6)?);
+    let optional = usize::from(u16_at(pe + 20)?);
+    let table = pe + 24 + optional;
+    let mut end = 0u64;
+    for s in 0..sections.min(96) {
+        let at = table + s * 40;
+        let size = u64::from(u32_at(at + 16)?);
+        let ptr = u64::from(u32_at(at + 20)?);
+        end = end.max(ptr + size);
+    }
+    (end > 0).then_some(end)
+}
+
+/// An archive at the overlay of a PE file: its offset and its format layer.
+fn overlay_archive<R: Read + Seek>(r: &mut R, len: u64) -> Option<(u64, Layer)> {
+    r.seek(SeekFrom::Start(0)).ok()?;
+    let head = read_prefix(r, HEAD_LEN);
+    let at = pe_overlay(&head)?;
+    if at.checked_add(32)? > len {
+        return None;
+    }
+    r.seek(SeekFrom::Start(at)).ok()?;
+    let start = read_prefix(r, 64);
+    let _ = r.seek(SeekFrom::Start(0));
+    let (kind, confidence) = sevenz_start_header(&start).map(|c| (FormatId::SevenZ, c))?;
+    Some((
+        at,
+        Layer {
+            kind: LayerKind::Format(kind),
+            confidence,
+        },
+    ))
 }
 
 fn read_tail<R: Read + Seek>(file: &mut R, len: u64) -> io::Result<Vec<u8>> {
@@ -234,6 +293,7 @@ fn detect_with<'s>(
     tail: &[u8],
     len: Option<u64>,
     name: Option<String>,
+    sfx: Option<(u64, Layer)>,
     limits: &Limits,
 ) -> Result<Detection> {
     let mut det = Detection::default();
@@ -287,6 +347,15 @@ fn detect_with<'s>(
                 det.layers.push(layer);
                 codec_layers.push(c);
                 name = name.and_then(|n| strip_extension(&n, c));
+            }
+            // An executable with an archive at its overlay: a 7z or RAR SFX.
+            _ if outer && sfx.is_some() => {
+                if let Some((offset, layer)) = sfx {
+                    det.layers.push(layer);
+                    det.sfx = true;
+                    det.offset = offset;
+                }
+                break;
             }
             // Nothing recognised, or too deep: what's left is data.
             _ => {

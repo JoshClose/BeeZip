@@ -535,6 +535,11 @@ impl ArchiveReader for ZipReader {
             },
             solid: false,
             sfx: self.sfx,
+            volumes: self.source.volumes.len(),
+            solid_blocks: None,
+            encrypted_headers: false,
+            locked: false,
+            recovery_record: false,
         })
     }
 

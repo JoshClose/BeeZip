@@ -2,7 +2,10 @@ use std::path::PathBuf;
 
 use beezip_core::{
     CreateOptions, EncodeOpts, WriteSpec,
-    format::zip::{ZipMethod, ZipWriteOptions},
+    format::{
+        sevenz::{SevenZMethod, SevenZWriteOptions},
+        zip::{ZipMethod, ZipWriteOptions},
+    },
     ops::{self, ArchiveKind},
 };
 use schemars::JsonSchema;
@@ -12,7 +15,10 @@ use ts_rs::TS;
 use crate::{
     Access, CliSpec, CmdError, Command, Effect, JobCtx,
     commands::util::{absolute, level},
-    wire::{ArchiveFormatName, ByteSize, EncryptionName, Secret, ZipMethodName, human_size, ratio},
+    wire::{
+        ArchiveFormatName, ByteSize, EncryptionName, MethodName, Secret, SevenZMethodName,
+        ZipMethodName, human_size, ratio,
+    },
 };
 
 /// Create an archive from files and folders. Each input is stored under its own name (`src/`
@@ -32,10 +38,12 @@ pub struct ArchiveCreateInput {
     #[arg(short, long, value_enum)]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub format: Option<ArchiveFormatName>,
-    /// The zip compression method [default: deflate]. Zip only.
+    /// The compression method: for zip `store`, `deflate` (the default), `bzip2`, `zstd`, `xz`
+    /// or `ppmd`; for 7z `lzma2` (the default), `lzma`, `ppmd`, `bzip2`, `deflate` or `copy`.
+    /// A tar's codec comes from `format`.
     #[arg(short, long, value_enum)]
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub method: Option<ZipMethodName>,
+    pub method: Option<MethodName>,
     /// The compression level; `formats.list` shows each codec's and method's range.
     #[arg(short, long, allow_negative_numbers = true)]
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -44,14 +52,26 @@ pub struct ArchiveCreateInput {
     #[arg(long)]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub threads: Option<u32>,
-    /// Encrypt the entries with this password. Zip only.
+    /// Encrypt the entries with this password (AES-256). Zip and 7z.
     #[arg(short, long)]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub password: Option<Secret>,
-    /// How to encrypt [default: aes256]. `zipcrypto` is weak, for tools that can't read AES.
+    /// How to encrypt a zip [default: aes256]. `zipcrypto` is weak, for tools that can't read
+    /// AES. Zip only.
     #[arg(long, value_enum)]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub encryption: Option<EncryptionName>,
+    /// Encrypt the file names too, so the archive can't even be listed without the password
+    /// [default: true with a password]. 7z only.
+    #[arg(long, num_args = 0..=1, require_equals = true, default_missing_value = "true")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub encrypt_headers: Option<bool>,
+    /// Compress files together in solid blocks of up to 64 MiB (or four dictionaries, at most
+    /// 1 GiB): smaller archives, but reading one file decodes its block from the start
+    /// [default: true]. 7z only.
+    #[arg(long, num_args = 0..=1, require_equals = true, default_missing_value = "true")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub solid: Option<bool>,
     /// Leave out files and folders matching these patterns.
     #[arg(long, value_name = "PATTERN")]
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -103,12 +123,57 @@ impl ArchiveCreate {
     ) -> Result<WriteSpec, CmdError> {
         let config = cx.config()?;
         let threads = input.threads.unwrap_or(config.create.threads);
+        let only_7z = |what: &str, set: bool| -> Result<(), CmdError> {
+            if set && kind != ArchiveKind::SevenZ {
+                return Err(CmdError::invalid_args(format!("`{what}` is for 7z")));
+            }
+            Ok(())
+        };
+        only_7z("solid", input.solid.is_some())?;
+        only_7z("encrypt_headers", input.encrypt_headers.is_some())?;
         match kind {
+            ArchiveKind::SevenZ => {
+                let method = match input.method {
+                    None => SevenZMethod::Lzma2,
+                    Some(m) => m.sevenz().map(SevenZMethodName::method).ok_or_else(|| {
+                        CmdError::invalid_args(format!(
+                            "`{}` isn't a 7z method; use lzma2, lzma, ppmd, bzip2, deflate or copy",
+                            m.name()
+                        ))
+                    })?,
+                };
+                if input.encryption.is_some() {
+                    return Err(CmdError::invalid_args(
+                        "`encryption` is for zip; a 7z with a password is always AES-256",
+                    ));
+                }
+                if input.encrypt_headers == Some(true) && input.password.is_none() {
+                    return Err(CmdError::invalid_args(
+                        "`encrypt_headers` needs a `password`",
+                    ));
+                }
+                let opts = SevenZWriteOptions {
+                    method,
+                    level: level(input.level, method.name(), cx)?,
+                    threads,
+                    password: input.password.as_ref().map(|p| p.expose().to_owned()),
+                    encrypt_headers: input.encrypt_headers.unwrap_or(true),
+                    solid: input.solid.unwrap_or(true),
+                };
+                // Check the level now, before any file is touched.
+                opts.resolve_level()?;
+                Ok(WriteSpec::SevenZ(opts))
+            }
             ArchiveKind::Zip => {
-                let method = input
-                    .method
-                    .map(ZipMethodName::method)
-                    .unwrap_or(ZipMethod::Deflate);
+                let method = match input.method {
+                    None => ZipMethod::Deflate,
+                    Some(m) => m.zip().map(ZipMethodName::method).ok_or_else(|| {
+                        CmdError::invalid_args(format!(
+                            "`{}` isn't a zip method; use store, deflate, bzip2, zstd, xz or ppmd",
+                            m.name()
+                        ))
+                    })?,
+                };
                 if input.encryption.is_some() && input.password.is_none() {
                     return Err(CmdError::invalid_args("`encryption` needs a `password`"));
                 }
@@ -125,11 +190,13 @@ impl ArchiveCreate {
             ArchiveKind::Tar(codec) => {
                 if input.method.is_some() {
                     return Err(CmdError::invalid_args(
-                        "`method` is for zip; a tar's codec comes from `format`",
+                        "`method` is for zip and 7z; a tar's codec comes from `format`",
                     ));
                 }
                 if input.password.is_some() || input.encryption.is_some() {
-                    return Err(CmdError::invalid_args("tar can't be encrypted; use zip"));
+                    return Err(CmdError::invalid_args(
+                        "tar can't be encrypted; use zip or 7z",
+                    ));
                 }
                 let level = match codec {
                     Some(c) => {
@@ -190,7 +257,7 @@ impl Command for ArchiveCreate {
                     .unwrap_or_default();
                 ArchiveKind::from_file_name(&name).ok_or_else(|| {
                     CmdError::invalid_args(format!(
-                        "can't tell the format from `{name}`; pass `format` (zip, tar, tar.zst…)"
+                        "can't tell the format from `{name}`; pass `format` (zip, 7z, tar, tar.zst…)"
                     ))
                 })?
             }
@@ -304,6 +371,26 @@ mod tests {
             serde_json::json!({
                 "output": "out.tar.zst", "inputs": ["a", "b"], "level": 19,
                 "follow_links": true, "exclude": ["*.o"]
+            }),
+        );
+        crate::commands::util::tests::cli_matches_json::<ArchiveCreateInput>(
+            &[
+                "out.7z",
+                "a",
+                "-f",
+                "7z",
+                "-m",
+                "ppmd",
+                "--solid=false",
+                "-p",
+                "pw",
+                "--encrypt-headers=false",
+                "-v",
+                "100m",
+            ],
+            serde_json::json!({
+                "output": "out.7z", "inputs": ["a"], "format": "7z", "method": "ppmd",
+                "solid": false, "password": "pw", "encrypt_headers": false, "volume_size": "100m"
             }),
         );
     }

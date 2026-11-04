@@ -14,7 +14,10 @@ use std::{
 use crate::{
     CodecId, Ctx, Error, Limits, Result,
     detect::{Detection, detect_path},
-    format::{ArchiveReader, FormatId, stream::StreamReader, tar::TarReader, zip::ZipReader},
+    format::{
+        ArchiveReader, FormatId, sevenz::SevenZReader, stream::StreamReader, tar::TarReader,
+        zip::ZipReader,
+    },
     io::{BUF_SIZE, Counter, CountingReader},
     limits::{Budget, Guarded, RatioGuard},
     volume::{VolumeReader, numbered_name, truncated_hint},
@@ -262,7 +265,11 @@ pub struct Opened {
 pub fn open(path: &Path, opts: &OpenOptions, cx: &mut dyn Ctx) -> Result<Opened> {
     let detection = detect_path(path, &opts.limits)?;
     let (format, codecs) = detection.require_archive()?;
-    let source = Source::with_volumes(&detection.volumes, detection.joined, codecs, opts)?;
+    let mut source = Source::with_volumes(&detection.volumes, detection.joined, codecs, opts)?;
+    if format == FormatId::SevenZ {
+        // The 7z inside an SFX, seen from its start.
+        source.offset = detection.offset;
+    }
     let input = source.counter.clone();
     let size = source.size;
     let parts = source.volumes.len();
@@ -272,6 +279,7 @@ pub fn open(path: &Path, opts: &OpenOptions, cx: &mut dyn Ctx) -> Result<Opened>
             FormatId::Zip => Box::new(ZipReader::open(source, detection.sfx, cx)?),
             FormatId::Tar => Box::new(TarReader::new(source)),
             FormatId::Stream => Box::new(StreamReader::open(source)?),
+            FormatId::SevenZ => Box::new(SevenZReader::open(source, detection.sfx, cx)?),
         })
     })();
     let reader = opened.map_err(|e| if joined { truncated_hint(e, parts) } else { e })?;

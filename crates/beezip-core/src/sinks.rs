@@ -45,10 +45,16 @@ impl TestReport {
 }
 
 /// Errors that stop a whole job rather than failing one entry.
+/// Passwords stop it too: 7z and RAR data has no password check, so a wrong password shows as
+/// a failing entry, and the reader has to see it to ask again.
 fn fatal(e: &Error) -> bool {
     matches!(
         e.kind,
-        ErrorKind::Cancelled | ErrorKind::LimitExceeded | ErrorKind::Io
+        ErrorKind::Cancelled
+            | ErrorKind::LimitExceeded
+            | ErrorKind::Io
+            | ErrorKind::PasswordRequired
+            | ErrorKind::WrongPassword
     )
 }
 

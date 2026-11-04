@@ -240,6 +240,151 @@ impl<R: Read> Read for Checked<'_, R> {
     }
 }
 
+enum PipeMsg {
+    Data(Vec<u8>),
+    Fail(Error),
+    End,
+}
+
+/// A bounded push-to-pull adapter (docs/M3.md §3.3): a decoder that only calls back (7z's block
+/// decoder, UnRAR) writes on its own thread, and the job reads. At most `chunks` chunks of
+/// `chunk` bytes are in flight. Dropping the reader makes the writer's next write fail, and
+/// sets [`PipeWriter::stopped`].
+pub fn pipe(chunks: usize, chunk: usize) -> (PipeWriter, PipeReader) {
+    let (tx, rx) = std::sync::mpsc::sync_channel(chunks.max(1));
+    let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    (
+        PipeWriter {
+            tx,
+            buf: Vec::with_capacity(chunk),
+            chunk: chunk.max(1),
+            stop: stop.clone(),
+        },
+        PipeReader {
+            rx,
+            cur: Vec::new(),
+            pos: 0,
+            done: false,
+            failed: None,
+            stop,
+        },
+    )
+}
+
+pub struct PipeWriter {
+    tx: std::sync::mpsc::SyncSender<PipeMsg>,
+    buf: Vec<u8>,
+    chunk: usize,
+    stop: Arc<std::sync::atomic::AtomicBool>,
+}
+
+impl PipeWriter {
+    /// The reader is gone: stop producing.
+    pub fn stopped(&self) -> bool {
+        self.stop.load(Ordering::Relaxed)
+    }
+
+    fn send_buf(&mut self) -> io::Result<()> {
+        if self.buf.is_empty() {
+            return Ok(());
+        }
+        let data = std::mem::replace(&mut self.buf, Vec::with_capacity(self.chunk));
+        self.tx
+            .send(PipeMsg::Data(data))
+            .map_err(|_| io::Error::new(io::ErrorKind::BrokenPipe, "the reader is gone"))
+    }
+
+    /// Ends the stream: what is buffered, then the end or the error.
+    pub fn finish(mut self, result: Result<()>) {
+        let flushed = self.send_buf();
+        let msg = match (result, flushed) {
+            (Err(e), _) => PipeMsg::Fail(e),
+            (Ok(()), Err(_)) => return,
+            (Ok(()), Ok(())) => PipeMsg::End,
+        };
+        let _ = self.tx.send(msg);
+    }
+}
+
+impl Write for PipeWriter {
+    fn write(&mut self, data: &[u8]) -> io::Result<usize> {
+        if self.stopped() {
+            return Err(io::Error::new(
+                io::ErrorKind::BrokenPipe,
+                "the reader is gone",
+            ));
+        }
+        let n = data.len().min(self.chunk - self.buf.len());
+        self.buf.extend_from_slice(&data[..n]);
+        if self.buf.len() >= self.chunk {
+            self.send_buf()?;
+        }
+        Ok(n)
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        self.send_buf()
+    }
+}
+
+pub struct PipeReader {
+    rx: std::sync::mpsc::Receiver<PipeMsg>,
+    cur: Vec<u8>,
+    pos: usize,
+    done: bool,
+    failed: Option<Error>,
+    stop: Arc<std::sync::atomic::AtomicBool>,
+}
+
+impl PipeReader {
+    /// Waits for the first data, the end, or a failure, and returns the failure if that came
+    /// first: a wrong password usually shows before any data does.
+    pub fn first_error(&mut self) -> Option<Error> {
+        if self.cur.is_empty() && !self.done && self.failed.is_none() {
+            self.next();
+        }
+        self.failed.clone()
+    }
+
+    fn next(&mut self) {
+        match self.rx.recv() {
+            Ok(PipeMsg::Data(d)) => {
+                self.cur = d;
+                self.pos = 0;
+            }
+            Ok(PipeMsg::End) => self.done = true,
+            Ok(PipeMsg::Fail(e)) => self.failed = Some(e),
+            Err(_) => self.failed = Some(Error::corrupt("the decoder stopped unexpectedly")),
+        }
+    }
+}
+
+impl Read for PipeReader {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        loop {
+            if self.pos < self.cur.len() {
+                let n = buf.len().min(self.cur.len() - self.pos);
+                buf[..n].copy_from_slice(&self.cur[self.pos..self.pos + n]);
+                self.pos += n;
+                return Ok(n);
+            }
+            if let Some(e) = &self.failed {
+                return Err(e.clone().into_io());
+            }
+            if self.done || buf.is_empty() {
+                return Ok(0);
+            }
+            self.next();
+        }
+    }
+}
+
+impl Drop for PipeReader {
+    fn drop(&mut self) {
+        self.stop.store(true, Ordering::Relaxed);
+    }
+}
+
 /// Remembers the first write error, for encoders (brotli) whose `finish` swallows them.
 pub struct LatchWriter<W> {
     inner: W,

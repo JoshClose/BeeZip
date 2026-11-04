@@ -499,6 +499,11 @@ impl ArchiveReader for TarReader {
             // A compressed tar is one stream: entries can't be decoded on their own.
             solid: !self.plain(),
             sfx: false,
+            volumes: self.source.volumes.len(),
+            solid_blocks: None,
+            encrypted_headers: false,
+            locked: false,
+            recovery_record: false,
         })
     }
 

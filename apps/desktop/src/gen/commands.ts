@@ -49,9 +49,11 @@ inputs: Array<string>,
  */
 format?: ArchiveFormatName,
 /**
- * The zip compression method [default: deflate]. Zip only.
+ * The compression method: for zip `store`, `deflate` (the default), `bzip2`, `zstd`, `xz`
+ * or `ppmd`; for 7z `lzma2` (the default), `lzma`, `ppmd`, `bzip2`, `deflate` or `copy`.
+ * A tar's codec comes from `format`.
  */
-method?: ZipMethodName,
+method?: MethodName,
 /**
  * The compression level; `formats.list` shows each codec's and method's range.
  */
@@ -61,13 +63,25 @@ level?: number,
  */
 threads?: number,
 /**
- * Encrypt the entries with this password. Zip only.
+ * Encrypt the entries with this password (AES-256). Zip and 7z.
  */
 password?: Secret,
 /**
- * How to encrypt [default: aes256]. `zipcrypto` is weak, for tools that can't read AES.
+ * How to encrypt a zip [default: aes256]. `zipcrypto` is weak, for tools that can't read
+ * AES. Zip only.
  */
 encryption?: EncryptionName,
+/**
+ * Encrypt the file names too, so the archive can't even be listed without the password
+ * [default: true with a password]. 7z only.
+ */
+encrypt_headers?: boolean,
+/**
+ * Compress files together in solid blocks of up to 64 MiB (or four dictionaries, at most
+ * 1 GiB): smaller archives, but reading one file decodes its block from the start
+ * [default: true]. 7z only.
+ */
+solid?: boolean,
 /**
  * Leave out files and folders matching these patterns.
  */
@@ -175,7 +189,7 @@ plan: Array<PlannedEntry> | null, };
 /**
  * The archive kinds `archive.create` writes.
  */
-export type ArchiveFormatName = "zip" | "tar" | "tar.gz" | "tar.bz2" | "tar.xz" | "tar.lzma" | "tar.lz" | "tar.zst" | "tar.lz4" | "tar.br" | "tar.sz";
+export type ArchiveFormatName = "zip" | "7z" | "tar" | "tar.gz" | "tar.bz2" | "tar.xz" | "tar.lzma" | "tar.lz" | "tar.zst" | "tar.lz4" | "tar.br" | "tar.sz";
 
 /**
  * Summarise an archive: its format chain, entry counts, sizes and compression ratio, methods,
@@ -460,7 +474,7 @@ extension_agrees: boolean, };
 
 export type FormatInfo = { id: string, name: string, extensions: Array<string>, caps: Caps,
 /**
- * Methods for new archives (zip only).
+ * Methods for new archives (zip and 7z).
  */
 methods: Array<MethodInfo>,
 /**
@@ -519,9 +533,17 @@ export type LevelRange = { min: number, max: number, default: number, };
 export type LogLevel = "Info" | "Warn";
 
 /**
- * A zip compression method BeeZip writes.
+ * A compression method BeeZip writes, with its level range.
  */
 export type MethodInfo = { id: string, levels: LevelRange | null, };
+
+/**
+ * A compression method for `archive.create`: zip's (`store`, `deflate`, `bzip2`, `zstd`,
+ * `xz`, `ppmd`) or 7z's (`lzma2`, `lzma`, `ppmd`, `bzip2`, `deflate`, `copy`). One flag takes
+ * both; [`MethodName::zip`] and [`MethodName::sevenz`] say which a format accepts, so `store`
+ * can't reach a 7z.
+ */
+export type MethodName = "store" | "deflate" | "bzip2" | "zstd" | "xz" | "ppmd" | "lzma2" | "lzma" | "copy";
 
 export type OverwriteChoice = "Replace" | "ReplaceAll" | "Skip" | "SkipAll" | "Rename";
 
@@ -662,11 +684,6 @@ export type Surfaces = { cli: boolean, gui: boolean, mcp: boolean, };
  * How `entry.read` returns data.
  */
 export type TextEncoding = "text" | "hex" | "base64";
-
-/**
- * A zip compression method BeeZip writes.
- */
-export type ZipMethodName = "store" | "deflate" | "bzip2" | "zstd" | "xz" | "ppmd";
 
 /** Every command's input and output types, by command name. */
 export type CommandMap = {

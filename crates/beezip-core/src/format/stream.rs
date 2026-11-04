@@ -132,6 +132,11 @@ impl ArchiveReader for StreamReader {
             encryption: Encryption::None,
             solid: true,
             sfx: false,
+            volumes: self.source.volumes.len(),
+            solid_blocks: None,
+            encrypted_headers: false,
+            locked: false,
+            recovery_record: false,
         })
     }
 

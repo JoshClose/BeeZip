@@ -1,6 +1,6 @@
 use beezip_core::{
     CodecId, FormatCaps, FormatId,
-    format::{caps_for, zip::ZipMethod},
+    format::{caps_for, sevenz::SevenZMethod, zip::ZipMethod},
     ops::ArchiveKind,
 };
 use schemars::JsonSchema;
@@ -68,7 +68,7 @@ impl From<FormatCaps> for Caps {
     }
 }
 
-/// A zip compression method BeeZip writes.
+/// A compression method BeeZip writes, with its level range.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
 pub struct MethodInfo {
     pub id: String,
@@ -81,7 +81,7 @@ pub struct FormatInfo {
     pub name: String,
     pub extensions: Vec<String>,
     pub caps: Caps,
-    /// Methods for new archives (zip only).
+    /// Methods for new archives (zip and 7z).
     pub methods: Vec<MethodInfo>,
     /// Encryption for new archives.
     pub encryption: Vec<String>,
@@ -124,7 +124,10 @@ impl Command for FormatsList {
         let formats = FormatId::ALL
             .into_iter()
             .map(|f| {
-                let zip = f == FormatId::Zip;
+                let method = |id: &str, levels: Option<beezip_core::Levels>| MethodInfo {
+                    id: id.into(),
+                    levels: levels.map(Into::into),
+                };
                 FormatInfo {
                     id: f.name().into(),
                     name: f.display_name().into(),
@@ -135,21 +138,21 @@ impl Command for FormatsList {
                         .map(|e| (*e).into())
                         .collect(),
                     caps: caps_for(f, &[]).into(),
-                    methods: if zip {
-                        ZipMethod::ALL
+                    methods: match f {
+                        FormatId::Zip => ZipMethod::ALL
                             .into_iter()
-                            .map(|m| MethodInfo {
-                                id: m.name().into(),
-                                levels: m.levels().map(Into::into),
-                            })
-                            .collect()
-                    } else {
-                        Vec::new()
+                            .map(|m| method(m.name(), m.levels()))
+                            .collect(),
+                        FormatId::SevenZ => SevenZMethod::ALL
+                            .into_iter()
+                            .map(|m| method(m.name(), m.levels()))
+                            .collect(),
+                        _ => Vec::new(),
                     },
-                    encryption: if zip {
-                        vec!["aes256".into(), "zipcrypto".into()]
-                    } else {
-                        Vec::new()
+                    encryption: match f {
+                        FormatId::Zip => vec!["aes256".into(), "zipcrypto".into()],
+                        FormatId::SevenZ => vec!["aes256".into()],
+                        _ => Vec::new(),
                     },
                 }
             })
@@ -195,16 +198,17 @@ impl Command for FormatsList {
                 f.extensions.join(" ")
             ));
         }
-        let zip_methods: Vec<String> = out
-            .formats
-            .iter()
-            .flat_map(|f| &f.methods)
-            .map(|m| match m.levels {
-                Some(l) => format!("{} ({}-{}, {})", m.id, l.min, l.max, l.default),
-                None => m.id.clone(),
-            })
-            .collect();
-        s.push_str(&format!("  zip methods: {}\n", zip_methods.join(", ")));
+        for f in out.formats.iter().filter(|f| !f.methods.is_empty()) {
+            let methods: Vec<String> = f
+                .methods
+                .iter()
+                .map(|m| match m.levels {
+                    Some(l) => format!("{} ({}-{}, {})", m.id, l.min, l.max, l.default),
+                    None => m.id.clone(),
+                })
+                .collect();
+            s.push_str(&format!("  {} methods: {}\n", f.id, methods.join(", ")));
+        }
         s.push_str("\nCodecs\n");
         s.push_str(&format!(
             "  {:<8} {:<18} {:<12} {:<7}  {}\n",
