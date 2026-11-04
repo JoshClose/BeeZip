@@ -3,7 +3,7 @@
 
 use std::{
     fs::{self, File},
-    io::{self, BufWriter, Write},
+    io::{self, BufWriter, Read, Write},
     path::{Path, PathBuf},
 };
 
@@ -13,17 +13,21 @@ use crate::{
     codec::{FinishWrite, finisher},
     format::{
         ArchiveWriter, Entry, EntryKind, FormatId, NewEntry, NewKind,
+        sevenz::{SevenZWriteOptions, SevenZWriter},
         tar::TarWriter,
         zip::{ZipWriteOptions, ZipWriter},
     },
-    io::{BUF_SIZE, Counter, CountingReader},
+    io::{BUF_SIZE, Counter, CountingReader, WriteSeek},
+    safefs::Partial,
     source::{OpenOptions, open},
+    volume::VolumeWriter,
 };
 
-/// The archive kinds BeeZip writes: zip, tar, and tar under one codec.
+/// The archive kinds BeeZip writes: zip, 7z, tar, and tar under one codec.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ArchiveKind {
     Zip,
+    SevenZ,
     Tar(Option<CodecId>),
 }
 
@@ -42,16 +46,17 @@ pub const TAR_CODECS: [CodecId; 9] = [
 
 impl ArchiveKind {
     pub fn all() -> impl Iterator<Item = ArchiveKind> {
-        [Self::Zip, Self::Tar(None)]
+        [Self::Zip, Self::SevenZ, Self::Tar(None)]
             .into_iter()
             .chain(TAR_CODECS.map(|c| Self::Tar(Some(c))))
     }
 
-    /// `zip`, `tar`, `tar.gz`, `tar.bz2`, `tar.xz`, `tar.lzma`, `tar.lz`, `tar.zst`, `tar.lz4`,
-    /// `tar.br`, `tar.sz`.
+    /// `zip`, `7z`, `tar`, `tar.gz`, `tar.bz2`, `tar.xz`, `tar.lzma`, `tar.lz`, `tar.zst`,
+    /// `tar.lz4`, `tar.br`, `tar.sz`.
     pub fn name(self) -> String {
         match self {
             Self::Zip => "zip".into(),
+            Self::SevenZ => "7z".into(),
             Self::Tar(None) => "tar".into(),
             Self::Tar(Some(c)) => {
                 let ext = c.codec().extensions().first().copied().unwrap_or("");
@@ -70,6 +75,9 @@ impl ArchiveKind {
         if lower.ends_with(".zip") {
             return Some(Self::Zip);
         }
+        if lower.ends_with(".7z") {
+            return Some(Self::SevenZ);
+        }
         if lower.ends_with(".tar") {
             return Some(Self::Tar(None));
         }
@@ -86,6 +94,7 @@ impl ArchiveKind {
     pub fn format(self) -> FormatId {
         match self {
             Self::Zip => FormatId::Zip,
+            Self::SevenZ => FormatId::SevenZ,
             Self::Tar(_) => FormatId::Tar,
         }
     }
@@ -95,6 +104,7 @@ impl ArchiveKind {
 #[derive(Debug, Clone)]
 pub enum WriteSpec {
     Zip(ZipWriteOptions),
+    SevenZ(SevenZWriteOptions),
     /// A tar, under `codec` if there is one, encoded with `opts`.
     Tar {
         codec: Option<CodecId>,
@@ -103,14 +113,15 @@ pub enum WriteSpec {
 }
 
 /// A plain output file as a [`FinishWrite`].
-fn plain(out: File) -> Box<dyn FinishWrite> {
+fn plain(out: Box<dyn WriteSeek>) -> Box<dyn FinishWrite> {
     finisher(BufWriter::with_capacity(BUF_SIZE, out), |mut w| w.flush())
 }
 
 /// A writer for `spec` on `out`.
-pub fn create_writer(spec: &WriteSpec, out: File) -> Result<Box<dyn ArchiveWriter>> {
+pub fn create_writer(spec: &WriteSpec, out: Box<dyn WriteSeek>) -> Result<Box<dyn ArchiveWriter>> {
     Ok(match spec {
         WriteSpec::Zip(opts) => Box::new(ZipWriter::new(out, opts.clone())?),
+        WriteSpec::SevenZ(opts) => Box::new(SevenZWriter::new(out, opts)?),
         WriteSpec::Tar { codec: None, .. } => Box::new(TarWriter::new(plain(out))),
         WriteSpec::Tar {
             codec: Some(c),
@@ -130,6 +141,8 @@ pub struct CreateOptions {
     pub exclude: Vec<String>,
     /// Replace an existing output file.
     pub overwrite: bool,
+    /// Split the archive into `<output>.001`, `.002`… of this many bytes (docs/M3.md §3.1).
+    pub volume_size: Option<u64>,
 }
 
 /// One input file or directory, as it will be stored.
@@ -146,6 +159,8 @@ pub struct CreateReport {
     pub links: u64,
     pub bytes_in: u64,
     pub bytes_out: u64,
+    /// The volumes written, first part first; empty when the archive is one file.
+    pub volumes: Vec<PathBuf>,
 }
 
 /// What `inputs` become: each input under its own name (`src/` → `src/…`), directories walked
@@ -276,7 +291,7 @@ pub fn create(
     opts: &CreateOptions,
     cx: &mut dyn Ctx,
 ) -> Result<CreateReport> {
-    if !opts.overwrite && fs::symlink_metadata(output).is_ok() {
+    if opts.volume_size.is_none() && !opts.overwrite && fs::symlink_metadata(output).is_ok() {
         return Err(Error::new(
             ErrorKind::Conflict,
             format!("`{}` already exists", output.display()),
@@ -292,17 +307,14 @@ pub fn create(
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_default();
-    let short: String = name.chars().take(64).collect();
-    let tmp = tempfile::Builder::new()
-        .prefix(&format!(".{short}."))
-        .suffix(".beezip-partial")
-        .rand_bytes(6)
-        .tempfile_in(&dir)
-        .map_err(|e| Error::io(format!("creating a file in {}", dir.display()), &e))?;
-    let out = tmp
-        .as_file()
-        .try_clone()
-        .map_err(|e| Error::io("opening the output", &e))?;
+    let target = match opts.volume_size {
+        Some(size) => Target::Volumes(VolumeWriter::create(output, size, opts.overwrite)?),
+        None => Target::Single(Partial::create(&dir, &format!(".{name}"))?),
+    };
+    let out: Box<dyn WriteSeek> = match &target {
+        Target::Single(tmp) => Box::new(tmp.try_clone()?),
+        Target::Volumes(v) => Box::new(v.clone()),
+    };
 
     let spec = with_size_hint(spec, total);
     let mut writer = create_writer(&spec, out)?;
@@ -310,16 +322,54 @@ pub fn create(
     let mut meter = Meter::new(counter.clone(), Some(total));
     meter.entries_total = Some(planned.len() as u64);
     let mut report = CreateReport::default();
+    let open = |p: &Planned| -> Result<Box<dyn Read>> {
+        let file = File::open(&p.source)
+            .map_err(|e| Error::io(format!("reading {}", p.source.display()), &e))?;
+        Ok(Box::new(CountingReader::new(file, counter.clone())))
+    };
+    // A solid writer gets non-empty files in groups of up to its block limit (7z, §3.3);
+    // everything else goes one entry at a time, in plan order.
+    let limit = writer.solid_block_limit();
+    let mut group: Vec<usize> = Vec::new();
+    let mut group_bytes = 0u64;
+    let flush = |group: &mut Vec<usize>,
+                 writer: &mut Box<dyn ArchiveWriter>,
+                 meter: &mut Meter,
+                 cx: &mut dyn Ctx|
+     -> Result<()> {
+        let Some(&first) = group.first() else {
+            return Ok(());
+        };
+        meter.entries_done = first as u64;
+        meter.current = Some(planned[first].entry.path.clone());
+        let entries: Vec<NewEntry> = group.iter().map(|&i| planned[i].entry.clone()).collect();
+        let mut opener = |k: usize| open(&planned[group[k]]);
+        let mut mcx = MeteredCtx::new(cx, meter);
+        writer.add_solid(&entries, &mut opener, &mut mcx)?;
+        group.clear();
+        Ok(())
+    };
     for (i, p) in planned.iter().enumerate() {
         cx.check()?;
+        if let Some(limit) = limit
+            && p.entry.kind == NewKind::File
+            && p.entry.size > 0
+        {
+            if !group.is_empty() && group_bytes.saturating_add(p.entry.size) > limit {
+                flush(&mut group, &mut writer, &mut meter, cx)?;
+                group_bytes = 0;
+            }
+            group.push(i);
+            group_bytes += p.entry.size;
+            report.files += 1;
+            continue;
+        }
         meter.entries_done = i as u64;
         meter.current = Some(p.entry.path.clone());
         let mut mcx = MeteredCtx::new(cx, &meter);
         match p.entry.kind {
             NewKind::File => {
-                let file = File::open(&p.source)
-                    .map_err(|e| Error::io(format!("reading {}", p.source.display()), &e))?;
-                let mut r = CountingReader::new(file, counter.clone());
+                let mut r = open(p)?;
                 writer.add(&p.entry, &mut r, &mut mcx)?;
                 report.files += 1;
             }
@@ -333,17 +383,34 @@ pub fn create(
             }
         }
     }
+    flush(&mut group, &mut writer, &mut meter, cx)?;
     writer.finish()?;
     meter.entries_done = planned.len() as u64;
     MeteredCtx::new(cx, &meter).report();
 
-    let partial = tmp.into_temp_path();
-    fs::rename(&partial, output)
-        .map_err(|e| Error::io(format!("writing {}", output.display()), &e))?;
-    let _ = partial.keep();
     report.bytes_in = counter.get();
-    report.bytes_out = fs::metadata(output).map(|m| m.len()).unwrap_or(0);
+    match target {
+        Target::Single(tmp) => {
+            tmp.persist(output)?;
+            report.bytes_out = fs::metadata(output).map(|m| m.len()).unwrap_or(0);
+        }
+        Target::Volumes(v) => {
+            report.volumes = v.finish()?;
+            report.bytes_out = report
+                .volumes
+                .iter()
+                .filter_map(|p| fs::metadata(p).ok())
+                .map(|m| m.len())
+                .sum();
+        }
+    }
     Ok(report)
+}
+
+/// Where `create` writes: one partial file, or a volume set of them.
+enum Target {
+    Single(Partial),
+    Volumes(VolumeWriter),
 }
 
 fn with_size_hint(spec: &WriteSpec, total: u64) -> WriteSpec {
@@ -419,7 +486,7 @@ mod tests {
             Some(ArchiveKind::Tar(Some(CodecId::Lzip)))
         );
         assert_eq!(ArchiveKind::from_name("tar.zz"), None);
-        assert_eq!(ArchiveKind::all().count(), 11);
+        assert_eq!(ArchiveKind::all().count(), 12);
         for k in ArchiveKind::all() {
             assert_eq!(ArchiveKind::from_name(&k.name()), Some(k));
         }
@@ -435,6 +502,6 @@ mod tests {
         assert_eq!(f("a.tbz2"), Some(ArchiveKind::Tar(Some(CodecId::Bzip2))));
         assert_eq!(f("a.tar.br"), Some(ArchiveKind::Tar(Some(CodecId::Brotli))));
         assert_eq!(f("a.gz"), None);
-        assert_eq!(f("a.7z"), None);
+        assert_eq!(f("a.7z"), Some(ArchiveKind::SevenZ));
     }
 }

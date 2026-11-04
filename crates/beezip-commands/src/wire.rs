@@ -7,7 +7,10 @@ use std::fmt;
 
 use beezip_core::{
     CodecId, Entry, EntryKind,
-    format::zip::{ZipEncryption, ZipMethod},
+    format::{
+        sevenz::SevenZMethod,
+        zip::{ZipEncryption, ZipMethod},
+    },
     ops::ArchiveKind,
     safefs, time,
 };
@@ -63,6 +66,9 @@ pub enum ArchiveFormatName {
     #[serde(rename = "zip")]
     #[value(name = "zip")]
     Zip,
+    #[serde(rename = "7z")]
+    #[value(name = "7z")]
+    SevenZ,
     #[serde(rename = "tar")]
     #[value(name = "tar")]
     Tar,
@@ -100,6 +106,7 @@ impl ArchiveFormatName {
         let tar = |c| ArchiveKind::Tar(Some(c));
         match self {
             Self::Zip => ArchiveKind::Zip,
+            Self::SevenZ => ArchiveKind::SevenZ,
             Self::Tar => ArchiveKind::Tar(None),
             Self::TarGz => tar(CodecId::Gzip),
             Self::TarBz2 => tar(CodecId::Bzip2),
@@ -200,6 +207,95 @@ impl ZipMethodName {
     }
 }
 
+/// A 7z compression method BeeZip writes.
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS, clap::ValueEnum,
+)]
+#[serde(rename_all = "kebab-case")]
+#[value(rename_all = "kebab-case")]
+pub enum SevenZMethodName {
+    Lzma2,
+    Lzma,
+    Ppmd,
+    Bzip2,
+    Deflate,
+    Copy,
+}
+
+impl SevenZMethodName {
+    pub fn method(self) -> SevenZMethod {
+        match self {
+            Self::Lzma2 => SevenZMethod::Lzma2,
+            Self::Lzma => SevenZMethod::Lzma,
+            Self::Ppmd => SevenZMethod::Ppmd,
+            Self::Bzip2 => SevenZMethod::Bzip2,
+            Self::Deflate => SevenZMethod::Deflate,
+            Self::Copy => SevenZMethod::Copy,
+        }
+    }
+}
+
+/// A compression method for `archive.create`: zip's (`store`, `deflate`, `bzip2`, `zstd`,
+/// `xz`, `ppmd`) or 7z's (`lzma2`, `lzma`, `ppmd`, `bzip2`, `deflate`, `copy`). One flag takes
+/// both; [`MethodName::zip`] and [`MethodName::sevenz`] say which a format accepts, so `store`
+/// can't reach a 7z.
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS, clap::ValueEnum,
+)]
+#[serde(rename_all = "kebab-case")]
+#[value(rename_all = "kebab-case")]
+pub enum MethodName {
+    Store,
+    Deflate,
+    Bzip2,
+    Zstd,
+    Xz,
+    Ppmd,
+    Lzma2,
+    Lzma,
+    Copy,
+}
+
+impl MethodName {
+    pub fn zip(self) -> Option<ZipMethodName> {
+        Some(match self {
+            Self::Store => ZipMethodName::Store,
+            Self::Deflate => ZipMethodName::Deflate,
+            Self::Bzip2 => ZipMethodName::Bzip2,
+            Self::Zstd => ZipMethodName::Zstd,
+            Self::Xz => ZipMethodName::Xz,
+            Self::Ppmd => ZipMethodName::Ppmd,
+            Self::Lzma2 | Self::Lzma | Self::Copy => return None,
+        })
+    }
+
+    pub fn sevenz(self) -> Option<SevenZMethodName> {
+        Some(match self {
+            Self::Lzma2 => SevenZMethodName::Lzma2,
+            Self::Lzma => SevenZMethodName::Lzma,
+            Self::Ppmd => SevenZMethodName::Ppmd,
+            Self::Bzip2 => SevenZMethodName::Bzip2,
+            Self::Deflate => SevenZMethodName::Deflate,
+            Self::Copy => SevenZMethodName::Copy,
+            Self::Store | Self::Zstd | Self::Xz => return None,
+        })
+    }
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Store => "store",
+            Self::Deflate => "deflate",
+            Self::Bzip2 => "bzip2",
+            Self::Zstd => "zstd",
+            Self::Xz => "xz",
+            Self::Ppmd => "ppmd",
+            Self::Lzma2 => "lzma2",
+            Self::Lzma => "lzma",
+            Self::Copy => "copy",
+        }
+    }
+}
+
 /// How a zip with a password is encrypted.
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS, clap::ValueEnum,
@@ -244,6 +340,97 @@ pub enum TextEncoding {
     Text,
     Hex,
     Base64,
+}
+
+/// A size in bytes: a number, or a string with a unit such as `100m`, `4g` or `700MB`. The
+/// units are powers of 1024, as with 7-Zip's `-v`: `k`, `m`, `g` and `t`, with or without `b`
+/// or `ib`. A string is kept as written, so it reads back the same.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, JsonSchema, TS)]
+#[serde(untagged)]
+pub enum ByteSize {
+    Bytes(u64),
+    Text(String),
+}
+
+impl ByteSize {
+    pub fn bytes(&self) -> u64 {
+        match self {
+            Self::Bytes(n) => *n,
+            // Checked when it was parsed.
+            Self::Text(s) => parse_size(s).unwrap_or(0),
+        }
+    }
+}
+
+/// `100m` → 104 857 600. `None` for anything that isn't a size.
+pub fn parse_size(s: &str) -> Option<u64> {
+    let s = s.trim();
+    let split = s
+        .find(|c: char| !(c.is_ascii_digit() || c == '.'))
+        .unwrap_or(s.len());
+    let (num, unit) = s.split_at(split);
+    let shift = match unit.trim().to_ascii_lowercase().as_str() {
+        "" | "b" => 0,
+        "k" | "kb" | "kib" => 10,
+        "m" | "mb" | "mib" => 20,
+        "g" | "gb" | "gib" => 30,
+        "t" | "tb" | "tib" => 40,
+        _ => return None,
+    };
+    if num.is_empty() || num.matches('.').count() > 1 {
+        return None;
+    }
+    if !num.contains('.') {
+        return num.parse::<u64>().ok()?.checked_mul(1u64 << shift);
+    }
+    let v: f64 = num.parse().ok()?;
+    let bytes = (v * (1u64 << shift) as f64).round();
+    (bytes.is_finite() && bytes >= 0.0 && bytes < u64::MAX as f64).then_some(bytes as u64)
+}
+
+impl std::str::FromStr for ByteSize {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        if let Ok(n) = s.parse::<u64>() {
+            return Ok(Self::Bytes(n));
+        }
+        match parse_size(s) {
+            Some(_) => Ok(Self::Text(s.to_owned())),
+            None => Err(format!(
+                "`{s}` isn't a size; use bytes or a unit such as 100m, 4g or 700MB"
+            )),
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for ByteSize {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        struct V;
+        impl serde::de::Visitor<'_> for V {
+            type Value = ByteSize;
+            fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                f.write_str("a number of bytes, or a size such as \"100m\"")
+            }
+            fn visit_u64<E: serde::de::Error>(self, n: u64) -> Result<ByteSize, E> {
+                Ok(ByteSize::Bytes(n))
+            }
+            fn visit_i64<E: serde::de::Error>(self, n: i64) -> Result<ByteSize, E> {
+                u64::try_from(n)
+                    .map(ByteSize::Bytes)
+                    .map_err(|_| E::custom("a size can't be negative"))
+            }
+            fn visit_str<E: serde::de::Error>(self, s: &str) -> Result<ByteSize, E> {
+                match parse_size(s) {
+                    Some(_) => Ok(ByteSize::Text(s.to_owned())),
+                    None => Err(E::custom(format!(
+                        "`{s}` isn't a size; use bytes or a unit such as 100m, 4g or 700MB"
+                    ))),
+                }
+            }
+        }
+        d.deserialize_any(V)
+    }
 }
 
 /// A password. A plain string on the wire; `Debug` prints `***`, so it never reaches a log.
@@ -415,6 +602,17 @@ pub(crate) mod tests {
         names_agree::<ArchiveFormatName>();
         names_agree::<CodecName>();
         names_agree::<ZipMethodName>();
+        names_agree::<SevenZMethodName>();
+        names_agree::<MethodName>();
+        for m in <MethodName as clap::ValueEnum>::value_variants() {
+            assert_eq!(serde_json::to_value(m).unwrap(), m.name());
+            let zip = m.zip().map(|z| serde_json::to_value(z).unwrap());
+            let sz = m.sevenz().map(|s| serde_json::to_value(s).unwrap());
+            assert!(zip.is_some() || sz.is_some());
+            for v in zip.into_iter().chain(sz) {
+                assert_eq!(v, m.name());
+            }
+        }
         names_agree::<EncryptionName>();
         names_agree::<TextEncoding>();
     }
@@ -439,6 +637,28 @@ pub(crate) mod tests {
         let s = Secret::new("hunter2");
         assert_eq!(format!("{s:?}"), "***");
         assert_eq!(serde_json::to_value(&s).unwrap(), "hunter2");
+    }
+
+    #[test]
+    fn byte_sizes() {
+        assert_eq!(parse_size("100m"), Some(100 << 20));
+        assert_eq!(parse_size("4g"), Some(4 << 30));
+        assert_eq!(parse_size("700MB"), Some(700 << 20));
+        assert_eq!(parse_size("1.5KiB"), Some(1536));
+        assert_eq!(parse_size("12345"), Some(12345));
+        assert_eq!(parse_size(" 2 k "), Some(2048));
+        for bad in ["", "m", "1.2.3m", "10x", "-1", "99999999999t"] {
+            assert_eq!(parse_size(bad), None, "{bad}");
+        }
+        let from_json: ByteSize = serde_json::from_value(serde_json::json!("100m")).unwrap();
+        assert_eq!(from_json.bytes(), 100 << 20);
+        assert_eq!(serde_json::to_value(&from_json).unwrap(), "100m");
+        let n: ByteSize = serde_json::from_value(serde_json::json!(4096)).unwrap();
+        assert_eq!(n, ByteSize::Bytes(4096));
+        assert!(serde_json::from_value::<ByteSize>(serde_json::json!("lots")).is_err());
+        assert!(serde_json::from_value::<ByteSize>(serde_json::json!(-5)).is_err());
+        assert_eq!("2048".parse::<ByteSize>(), Ok(ByteSize::Bytes(2048)));
+        assert!("2q".parse::<ByteSize>().is_err());
     }
 
     #[test]

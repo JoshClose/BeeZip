@@ -1,6 +1,9 @@
 //! Archive formats: ZIP, TAR and the one-entry stream view of a bare compressed file
 //! (docs/M1.md §3.4).
 
+pub mod rar;
+pub mod sevenz;
+pub mod sevenz_header;
 pub mod stream;
 pub mod tar;
 pub mod zip;
@@ -18,18 +21,22 @@ use crate::{
 pub enum FormatId {
     Zip,
     Tar,
+    SevenZ,
+    Rar,
     /// A bare compressed file, seen as an archive with one entry.
     Stream,
 }
 
 impl FormatId {
-    pub const ALL: [FormatId; 3] = [Self::Zip, Self::Tar, Self::Stream];
+    pub const ALL: [FormatId; 5] = [Self::Zip, Self::Tar, Self::SevenZ, Self::Rar, Self::Stream];
 
     pub const fn name(self) -> &'static str {
         match self {
             Self::Zip => "zip",
             Self::Tar => "tar",
             Self::Stream => "stream",
+            Self::SevenZ => "7z",
+            Self::Rar => "rar",
         }
     }
 
@@ -38,6 +45,8 @@ impl FormatId {
             Self::Zip => "ZIP",
             Self::Tar => "TAR",
             Self::Stream => "compressed file",
+            Self::SevenZ => "7z",
+            Self::Rar => "RAR",
         }
     }
 
@@ -50,6 +59,8 @@ impl FormatId {
             Self::Zip => &zip::Zip,
             Self::Tar => &tar::Tar,
             Self::Stream => &stream::Stream,
+            Self::SevenZ => &sevenz::SevenZ,
+            Self::Rar => &rar::Rar,
         }
     }
 }
@@ -176,8 +187,18 @@ pub struct ArchiveInfo {
     pub comment: Option<String>,
     pub encryption: Encryption,
     pub solid: bool,
-    /// A self-extracting archive (a zip inside an executable).
+    /// A self-extracting archive (an archive inside an executable).
     pub sfx: bool,
+    /// How many files the archive is split across (1 when it isn't).
+    pub volumes: usize,
+    /// 7z: blocks that hold more than one entry.
+    pub solid_blocks: Option<u64>,
+    /// Entry names are encrypted too (7z `-mhe`, RAR `-hp`).
+    pub encrypted_headers: bool,
+    /// RAR: locked against changes.
+    pub locked: bool,
+    /// RAR: has a recovery record.
+    pub recovery_record: bool,
 }
 
 /// Which entries an operation applies to (docs/M1.md §4.3). Paths use `/`, and a directory
@@ -371,6 +392,28 @@ pub enum NewKind {
 /// Writes a new archive. `finish` must be called; until it succeeds the output is incomplete.
 pub trait ArchiveWriter {
     fn add(&mut self, entry: &NewEntry, data: &mut dyn Read, cx: &mut dyn Ctx) -> Result<()>;
+
+    /// For a writer that packs files into solid blocks: the most bytes one block holds.
+    /// `ops::create` then hands it files in groups through [`ArchiveWriter::add_solid`].
+    fn solid_block_limit(&self) -> Option<u64> {
+        None
+    }
+
+    /// Adds `entries` (non-empty files) as one solid block. `open(i)` opens entry `i`'s data
+    /// when the writer reaches it. The default adds them one by one.
+    fn add_solid(
+        &mut self,
+        entries: &[NewEntry],
+        open: &mut dyn FnMut(usize) -> Result<Box<dyn Read>>,
+        cx: &mut dyn Ctx,
+    ) -> Result<()> {
+        for (i, e) in entries.iter().enumerate() {
+            let mut data = open(i)?;
+            self.add(e, &mut data, cx)?;
+        }
+        Ok(())
+    }
+
     fn finish(self: Box<Self>) -> Result<()>;
 }
 

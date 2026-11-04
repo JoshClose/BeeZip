@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 use beezip_core::{
     CodecId, OpenOptions, Opened,
     codec::{TAR_SHORTHANDS, strip_extension},
+    safefs::Partial,
     source::open,
 };
 
@@ -13,6 +14,19 @@ use crate::{CmdError, ErrorCode, JobCtx, wire::Secret};
 /// `path` made absolute against the current directory, as the CLI's relative paths mean.
 pub fn absolute(path: &Path) -> PathBuf {
     std::path::absolute(path).unwrap_or_else(|_| path.to_path_buf())
+}
+
+/// A volume set's parts named the way `given` (one of them) was: they all sit in its folder,
+/// so a relative path gives relative parts (outputs show paths as people wrote them).
+pub fn as_given(given: &Path, parts: &[PathBuf]) -> Vec<PathBuf> {
+    let dir = given.parent().unwrap_or(Path::new(""));
+    parts
+        .iter()
+        .map(|p| match p.file_name() {
+            Some(name) => dir.join(name),
+            None => p.clone(),
+        })
+        .collect()
 }
 
 /// Opens an archive under the job's limits, with the input's password set.
@@ -50,22 +64,13 @@ pub fn write_atomically(
         Some(p) if !p.as_os_str().is_empty() => p.to_path_buf(),
         _ => PathBuf::from("."),
     };
-    let name: String = target
+    let name = target
         .file_name()
-        .map(|n| n.to_string_lossy().chars().take(64).collect())
+        .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_default();
-    let io = |what: &str, e: std::io::Error| CmdError::from(beezip_core::Error::io(what, &e));
-    let mut tmp = tempfile::Builder::new()
-        .prefix(&format!(".{name}."))
-        .suffix(".beezip-partial")
-        .rand_bytes(6)
-        .tempfile_in(&dir)
-        .map_err(|e| io(&format!("creating a file in {}", dir.display()), e))?;
-    write(tmp.as_file_mut())?;
-    let partial = tmp.into_temp_path();
-    std::fs::rename(&partial, target)
-        .map_err(|e| io(&format!("writing {}", target.display()), e))?;
-    let _ = partial.keep();
+    let mut tmp = Partial::create(&dir, &format!(".{name}"))?;
+    write(tmp.file_mut())?;
+    tmp.persist(target)?;
     Ok(())
 }
 
@@ -75,6 +80,10 @@ pub fn archive_stem(path: &Path) -> String {
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_default();
+    // A volume set is named after the joined archive: `a.7z.001` → `a.7z` → `a`.
+    if let Some((base, _, _)) = beezip_core::volume::numbered_name(&name) {
+        name = base.to_owned();
+    }
     loop {
         let lower = name.to_lowercase();
         if let Some(c) = CodecId::ALL
@@ -159,5 +168,7 @@ pub(crate) mod tests {
         assert_eq!(s("notes.txt.gz"), "notes.txt");
         assert_eq!(s("d.e.zip"), "d.e");
         assert_eq!(s(".zip"), ".zip");
+        assert_eq!(s("e.tar.zst.002"), "e");
+        assert_eq!(s("big.iso.001"), "big.iso");
     }
 }

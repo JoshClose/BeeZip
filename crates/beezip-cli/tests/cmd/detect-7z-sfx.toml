@@ -1,0 +1,3 @@
+bin.name = "beezip"
+args = ["detect", "thirdparty/7z-7zsfx.exe"]
+fs.cwd = "../../../../tests/fixtures"

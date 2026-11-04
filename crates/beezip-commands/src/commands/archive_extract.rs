@@ -232,7 +232,8 @@ impl Command for ArchiveExtract {
             links,
             strip_components: strip,
             zone: match config.extract.mark_of_the_web {
-                MarkOfTheWeb::All => motw::read_zone(&archive_path),
+                MarkOfTheWeb::All => motw::read_zone_of(&opened.detection.volumes)
+                    .or_else(|| motw::read_zone(&archive_path)),
                 MarkOfTheWeb::None => None,
             },
             limits: cx.policy().limits.clone(),

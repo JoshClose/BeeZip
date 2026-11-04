@@ -20,7 +20,7 @@ use std::{
 
 use beezip_commands::{
     CancelToken, CmdError, Engine, EngineOptions, ErrorCode, Interactor, McpConfig, Policy, config,
-    registry,
+    partial, registry,
 };
 use beezip_mcp::{BeeZipServer, McpOptions};
 use clap::{Arg, ArgAction, ArgMatches, value_parser};
@@ -163,8 +163,9 @@ fn dispatch(matches: &ArgMatches, out: &Output) -> Result<(), CmdError> {
 static CURRENT: Mutex<Option<CancelToken>> = Mutex::new(None);
 static PRESSES: AtomicU32 = AtomicU32::new(0);
 
-/// The first Ctrl+C cancels the job (it removes its partial file and exits 130); the second
-/// exits at once.
+/// The first Ctrl+C cancels the job (it removes its partial file and exits 130). The second
+/// exits at once: `process::exit` runs no destructors, so it deletes every partial file first
+/// (docs/M3.md §3.7).
 fn install_ctrl_c() {
     let _ = ctrlc::set_handler(|| {
         let token = CURRENT.lock().ok().and_then(|t| t.clone());
@@ -173,7 +174,10 @@ fn install_ctrl_c() {
                 eprintln!("\ncancelling… (Ctrl+C again to quit at once)");
                 token.cancel();
             }
-            _ => std::process::exit(i32::from(ErrorCode::Cancelled.exit_code())),
+            _ => {
+                partial::abandon_all();
+                std::process::exit(i32::from(ErrorCode::Cancelled.exit_code()))
+            }
         }
     });
 }

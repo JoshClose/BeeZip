@@ -1,9 +1,11 @@
 //! SafeFs: the only code that writes extracted files (docs/M1.md §3.5).
 
 pub mod motw;
+pub mod partial;
 pub mod sanitize;
 mod sink;
 
+pub use partial::Partial;
 pub use sink::FsSink;
 
 use crate::{Limits, io::Counter, limits::Budget};

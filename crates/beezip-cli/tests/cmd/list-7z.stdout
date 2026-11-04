@@ -1,0 +1,17 @@
+MODIFIED                SIZE      PACKED  METHOD    NAME
+[..]                                    links/
+[..]                                    links/data/
+[..]                                    links/deep/
+[..]                                    links/deep/directory-with-a-long-name-0123456789/
+[..]                                    links/deep/directory-with-a-long-name-0123456789/another-long-directory-name-abcdefghij/
+[..]                                    links/docs/
+[..]                                    links/ünïcödé/
+[..]         0 B                        links/empty.txt
+[..]     4.0 KiB              LZMA2     links/data/random.bin
+[..]        12 B              LZMA2     links/deep/directory-with-a-long-name-0123456789/another-long-directory-name-abcdefghij/file-with-a-long-name-past-100-characters.txt
+[..]     1.3 KiB              LZMA2     links/docs/readme.md
+[..]        15 B              LZMA2     links/hard-hello
+[..]        15 B              LZMA2     links/hello.txt
+[..]        56 B              LZMA2     links/link-to-hello (link)
+[..]        16 B              LZMA2     links/ünïcödé/名前.txt
+15 of 15 entries

@@ -9,7 +9,6 @@
 //!   Unix and 0o644/0o755 on Windows, which has no exec bit.
 
 use std::{
-    fs::File,
     io::{self, BufReader, Read, Seek, SeekFrom},
     time::SystemTime,
 };
@@ -23,7 +22,7 @@ use crate::{
     codec::FinishWrite,
     detect::{Confidence, Probe},
     io::{BUF_SIZE, Checked, CountingReader, ExactReader, read_error, write_error},
-    source::Source,
+    source::{Input, Source},
     time::{from_unix, to_unix},
 };
 
@@ -365,7 +364,7 @@ pub struct TarReader {
     spans: Vec<Span>,
     /// The archive behind the reader `open_entry` returns, when it had to rescan.
     scan: Option<tar::Archive<Box<dyn Read>>>,
-    file: Option<BufReader<CountingReader<File>>>,
+    file: Option<BufReader<CountingReader<Input>>>,
 }
 
 impl TarReader {
@@ -500,6 +499,11 @@ impl ArchiveReader for TarReader {
             // A compressed tar is one stream: entries can't be decoded on their own.
             solid: !self.plain(),
             sfx: false,
+            volumes: self.source.volumes.len(),
+            solid_blocks: None,
+            encrypted_headers: false,
+            locked: false,
+            recovery_record: false,
         })
     }
 

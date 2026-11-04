@@ -1,0 +1,3 @@
+bin.name = "beezip"
+args = ["info", "thirdparty/libarchive/test_read_format_rar5_multiarchive_solid.part02.rar"]
+fs.cwd = "../../../../tests/fixtures"

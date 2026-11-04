@@ -49,9 +49,11 @@ inputs: Array<string>,
  */
 format?: ArchiveFormatName,
 /**
- * The zip compression method [default: deflate]. Zip only.
+ * The compression method: for zip `store`, `deflate` (the default), `bzip2`, `zstd`, `xz`
+ * or `ppmd`; for 7z `lzma2` (the default), `lzma`, `ppmd`, `bzip2`, `deflate` or `copy`.
+ * A tar's codec comes from `format`.
  */
-method?: ZipMethodName,
+method?: MethodName,
 /**
  * The compression level; `formats.list` shows each codec's and method's range.
  */
@@ -61,13 +63,25 @@ level?: number,
  */
 threads?: number,
 /**
- * Encrypt the entries with this password. Zip only.
+ * Encrypt the entries with this password (AES-256). Zip and 7z.
  */
 password?: Secret,
 /**
- * How to encrypt [default: aes256]. `zipcrypto` is weak, for tools that can't read AES.
+ * How to encrypt a zip [default: aes256]. `zipcrypto` is weak, for tools that can't read
+ * AES. Zip only.
  */
 encryption?: EncryptionName,
+/**
+ * Encrypt the file names too, so the archive can't even be listed without the password
+ * [default: true with a password]. 7z only.
+ */
+encrypt_headers?: boolean,
+/**
+ * Compress files together in solid blocks of up to 64 MiB (or four dictionaries, at most
+ * 1 GiB): smaller archives, but reading one file decodes its block from the start
+ * [default: true]. 7z only.
+ */
+solid?: boolean,
 /**
  * Leave out files and folders matching these patterns.
  */
@@ -76,6 +90,11 @@ exclude?: Array<string>,
  * Store what symlinks point to instead of the links.
  */
 follow_links?: boolean,
+/**
+ * Split the archive into volumes of this size: `<output>.001`, `.002`… Bytes, or a size
+ * such as `100m`, `4g` or `700MB` (powers of 1024). At least 1 KiB.
+ */
+volume_size?: ByteSize,
 /**
  * Replace the output if it exists.
  */
@@ -93,7 +112,11 @@ ratio: number, dry_run: boolean,
 /**
  * The archive paths a dry run would add.
  */
-plan: Array<string> | null, };
+plan: Array<string> | null,
+/**
+ * The volumes written, first part first, when the archive was split.
+ */
+volumes: Array<string> | null, };
 
 /**
  * Extract an archive, or the selected entries. Unsafe entries (paths climbing out with `..`,
@@ -166,7 +189,7 @@ plan: Array<PlannedEntry> | null, };
 /**
  * The archive kinds `archive.create` writes.
  */
-export type ArchiveFormatName = "zip" | "tar" | "tar.gz" | "tar.bz2" | "tar.xz" | "tar.lzma" | "tar.lz" | "tar.zst" | "tar.lz4" | "tar.br" | "tar.sz";
+export type ArchiveFormatName = "zip" | "7z" | "tar" | "tar.gz" | "tar.bz2" | "tar.xz" | "tar.lzma" | "tar.lz" | "tar.zst" | "tar.lz4" | "tar.br" | "tar.sz";
 
 /**
  * Summarise an archive: its format chain, entry counts, sizes and compression ratio, methods,
@@ -184,7 +207,7 @@ password?: Secret, };
 
 export type ArchiveInfoOutput = { archive: string,
 /**
- * `zip`, `tar` or `stream`.
+ * `zip`, `7z`, `rar`, `tar` or `stream`.
  */
 format: string,
 /**
@@ -204,9 +227,31 @@ packed_size: number,
  */
 ratio: number, methods: Array<string>, encryption: EncryptionState,
 /**
- * Entries can't be decoded on their own (a compressed tar, a bare compressed file).
+ * Entries can't be decoded on their own (a solid 7z or RAR, a compressed tar, a bare
+ * compressed file).
  */
-solid: boolean, sfx: boolean, comment: string | null, };
+solid: boolean, sfx: boolean, comment: string | null,
+/**
+ * The files the archive is split across, first part first; just the archive when it
+ * isn't split.
+ */
+volumes: Array<string>,
+/**
+ * 7z: blocks holding more than one file (reading a file decodes its block from the start).
+ */
+solid_blocks: number | null,
+/**
+ * The entry names are encrypted too, so listing needs the password.
+ */
+encrypted_headers: boolean,
+/**
+ * RAR: locked against changes.
+ */
+locked: boolean,
+/**
+ * RAR: has a recovery record, for repairing damage.
+ */
+recovery_record: boolean, };
 
 /**
  * List an archive's entries. Without `flat`, one folder level at a time (the root, or `dir`),
@@ -240,6 +285,18 @@ offset?: number,
  */
 limit?: number,
 /**
+ * Sort by this, folders first [default: archive order].
+ */
+sort?: SortKey,
+/**
+ * Reverse the sort (folders stay first).
+ */
+reverse?: boolean,
+/**
+ * Only entries of this kind: `file` (files and hard links), `dir`, or `link` (symlinks).
+ */
+kind?: KindFilter,
+/**
  * The password, if entry names need one.
  */
 password?: Secret, };
@@ -269,6 +326,13 @@ export type ArchiveTestOutput = { archive: string, entries: number,
  * Uncompressed bytes read.
  */
 bytes: number, };
+
+/**
+ * A size in bytes: a number, or a string with a unit such as `100m`, `4g` or `700MB`. The
+ * units are powers of 1024, as with 7-Zip's `-v`: `k`, `m`, `g` and `t`, with or without `b`
+ * or `ib`. A string is kept as written, so it reads back the same.
+ */
+export type ByteSize = number | string;
 
 /**
  * What BeeZip offers for a format in this release.
@@ -425,11 +489,12 @@ export type FileDetectOutput = { path: string, layers: Array<LayerInfo>,
  */
 chain: string,
 /**
- * The archive format at the bottom (`zip`, `tar`, or `stream` for a bare compressed file).
+ * The archive format at the bottom (`zip`, `7z`, `rar`, `tar`, or `stream` for a bare
+ * compressed file or a split file of anything else).
  */
 format: string | null,
 /**
- * A zip inside an executable.
+ * An archive inside an executable: a zip, 7z or RAR SFX.
  */
 sfx: boolean,
 /**
@@ -440,11 +505,16 @@ label: string | null,
 /**
  * Whether the extension fits what the file is.
  */
-extension_agrees: boolean, };
+extension_agrees: boolean,
+/**
+ * The parts of a volume set (`a.7z.001`…, `a.part1.rar`…), first part first; just the
+ * file otherwise. Any part detects as the whole set.
+ */
+volumes: Array<string>, };
 
 export type FormatInfo = { id: string, name: string, extensions: Array<string>, caps: Caps,
 /**
- * Methods for new archives (zip only).
+ * Methods for new archives (zip and 7z).
  */
 methods: Array<MethodInfo>,
 /**
@@ -478,6 +548,11 @@ export type JobInfo = { id: number, command: string, };
 export type JsonValue = number | string | boolean | Array<JsonValue> | { [key in string]: JsonValue } | null;
 
 /**
+ * Which entries `archive.list` keeps.
+ */
+export type KindFilter = "file" | "dir" | "link";
+
+/**
  * One layer of a file, outermost first.
  */
 export type LayerInfo = {
@@ -503,9 +578,17 @@ export type LevelRange = { min: number, max: number, default: number, };
 export type LogLevel = "Info" | "Warn";
 
 /**
- * A zip compression method BeeZip writes.
+ * A compression method BeeZip writes, with its level range.
  */
 export type MethodInfo = { id: string, levels: LevelRange | null, };
+
+/**
+ * A compression method for `archive.create`: zip's (`store`, `deflate`, `bzip2`, `zstd`,
+ * `xz`, `ppmd`) or 7z's (`lzma2`, `lzma`, `ppmd`, `bzip2`, `deflate`, `copy`). One flag takes
+ * both; [`MethodName::zip`] and [`MethodName::sevenz`] say which a format accepts, so `store`
+ * can't reach a 7z.
+ */
+export type MethodName = "store" | "deflate" | "bzip2" | "zstd" | "xz" | "ppmd" | "lzma2" | "lzma" | "copy";
 
 export type OverwriteChoice = "Replace" | "ReplaceAll" | "Skip" | "SkipAll" | "Rename";
 
@@ -574,6 +657,11 @@ reason: string,
  * Refused for safety; these make the command fail with `Unsafe`.
  */
 refused: boolean, };
+
+/**
+ * What `archive.list` sorts by.
+ */
+export type SortKey = "name" | "size" | "packed" | "modified" | "kind";
 
 /**
  * Compress one file with a single-stream codec (`a.txt` → `a.txt.zst`). The output keeps the
@@ -646,11 +734,6 @@ export type Surfaces = { cli: boolean, gui: boolean, mcp: boolean, };
  * How `entry.read` returns data.
  */
 export type TextEncoding = "text" | "hex" | "base64";
-
-/**
- * A zip compression method BeeZip writes.
- */
-export type ZipMethodName = "store" | "deflate" | "bzip2" | "zstd" | "xz" | "ppmd";
 
 /** Every command's input and output types, by command name. */
 export type CommandMap = {

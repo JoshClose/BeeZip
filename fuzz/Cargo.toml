@@ -52,7 +52,28 @@ test = false
 doc = false
 bench = false
 
+[[bin]]
+name = "sevenz"
+path = "fuzz_targets/sevenz.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "rar"
+path = "fuzz_targets/rar.rs"
+test = false
+doc = false
+bench = false
+
 [profile.release]
 debug = 1
 # As in the main workspace: a decoder panic must stay a panic the fuzzer reports.
 panic = "unwind"
+# cargo-fuzz builds with -Cdebug-assertions (overflow checks too). Declaring them here lets one
+# crate opt out: libbz2-rs-sys 0.2.6 lets a counter wrap on bad data and then rejects the data,
+# and with overflow checks that wrap is a panic (docs/M3.md §11). Everything else keeps them.
+debug-assertions = true
+
+[profile.release.package.libbz2-rs-sys]
+overflow-checks = false

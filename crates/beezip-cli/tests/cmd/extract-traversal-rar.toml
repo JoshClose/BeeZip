@@ -1,0 +1,5 @@
+bin.name = "beezip"
+args = ["x", "traversal.rar", "-o", "out"]
+status.code = 14
+fs.base = "../../../../tests/fixtures/malicious"
+fs.sandbox = true

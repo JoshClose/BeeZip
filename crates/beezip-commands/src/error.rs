@@ -118,6 +118,7 @@ impl From<beezip_core::ErrorKind> for ErrorCode {
             K::Cancelled => Self::Cancelled,
             K::Io => Self::Io,
             K::InvalidArgs => Self::InvalidArgs,
+            K::BackendUnavailable => Self::BackendUnavailable,
         }
     }
 }
@@ -144,9 +145,8 @@ impl From<CmdError> for beezip_core::Error {
         let kind = match e.code {
             ErrorCode::NotFound => K::NotFound,
             ErrorCode::UnsupportedFormat => K::UnsupportedFormat,
-            ErrorCode::UnsupportedOperation | ErrorCode::BackendUnavailable => {
-                K::UnsupportedOperation
-            }
+            ErrorCode::UnsupportedOperation => K::UnsupportedOperation,
+            ErrorCode::BackendUnavailable => K::BackendUnavailable,
             ErrorCode::PasswordRequired => K::PasswordRequired,
             ErrorCode::WrongPassword => K::WrongPassword,
             ErrorCode::Corrupt => K::Corrupt,

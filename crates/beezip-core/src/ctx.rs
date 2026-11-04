@@ -21,6 +21,11 @@ pub struct Progress {
     pub current: Option<String>,
 }
 
+/// How many wrong passwords a reader takes for one thing (an archive's names, a 7z block, a RAR
+/// entry) before it gives up, whatever the context offers. A context normally gives up first:
+/// `JobCtx` after three prompts. This is the backstop for one that never does.
+pub const MAX_PASSWORD_TRIES: u32 = 8;
+
 /// The answer to an overwrite prompt. `ReplaceAll` and `SkipAll` hold for the rest of the job.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OverwriteChoice {
@@ -65,6 +70,8 @@ pub trait Ctx {
 #[derive(Debug, Default)]
 pub struct SimpleCtx {
     pub password: Option<String>,
+    /// Answers in order, one per attempt, for archives with a password per entry.
+    pub passwords: Vec<String>,
     /// The answer to overwrite prompts; `None` fails them with `Conflict`.
     pub overwrite: Option<OverwriteChoice>,
     pub cancel: Option<Arc<AtomicBool>>,
@@ -81,6 +88,14 @@ impl SimpleCtx {
     #[must_use]
     pub fn with_password(mut self, password: impl Into<String>) -> Self {
         self.password = Some(password.into());
+        self
+    }
+
+    /// One answer per attempt: the first is tried first, the next after it fails, and so on.
+    #[must_use]
+    pub fn with_passwords(mut self, passwords: &[&str]) -> Self {
+        self.passwords = passwords.iter().map(|p| (*p).to_owned()).collect();
+        self.password = self.passwords.first().cloned();
         self
     }
 
@@ -114,6 +129,12 @@ impl Ctx for SimpleCtx {
     }
 
     fn password(&mut self, _entry: Option<&str>, attempt: u32) -> Result<String> {
+        if let Some(pw) = usize::try_from(attempt)
+            .ok()
+            .and_then(|a| self.passwords.get(a))
+        {
+            return Ok(pw.clone());
+        }
         match (&self.password, attempt) {
             (Some(pw), 0) => Ok(pw.clone()),
             (Some(_), _) => Err(Error::new(ErrorKind::WrongPassword, "wrong password")),

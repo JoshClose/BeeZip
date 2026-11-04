@@ -19,6 +19,8 @@ pub enum ErrorKind {
     Cancelled,
     Io,
     InvalidArgs,
+    /// The format needs a backend this build left out (RAR without the `rar` feature).
+    BackendUnavailable,
 }
 
 /// A core error: a kind and a message for people.

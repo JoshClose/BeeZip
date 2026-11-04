@@ -15,7 +15,16 @@ Tools (as on the development machine, 2026-11-02):
   .NET                Compress-Archive in PowerShell 7
 
 The GNU tar archives hold a symlink, so this needs Developer Mode (or an elevated shell).
+
+M3 added the 7z set (docs/M3.md §6). The RAR fixtures in thirdparty/libarchive and
+thirdparty/rars come from fetch-rar.ps1 and are left alone here.
+
+.PARAMETER Keep
+Leave archives that are already in thirdparty/ as they are, and copy only new ones. Their
+contents are fixed, so the manifest still describes them; their bytes (atime and ctime fields,
+AES salts) would otherwise change on every run.
 #>
+param([switch]$Keep)
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
@@ -58,19 +67,26 @@ New-Item -ItemType HardLink -Path links/hard-hello -Target (Resolve-Path links/h
 # bsdtar 3.8.9 on Windows crashes (0xC0000005) on any non-ASCII name, so it gets a copy without.
 Copy-Item -Recurse tree ascii
 Remove-Item -Recurse 'ascii/ünïcödé'
+# An empty file and an empty folder, for 7z (which stores both without data).
+Write-File (Join-Path $work 'empties/empty.txt') ([byte[]]::new(0))
+New-Item -ItemType Directory 'empties/nothing' | Out-Null
 
-foreach ($item in Get-ChildItem -Recurse -Force tree, links, ascii) {
+foreach ($item in Get-ChildItem -Recurse -Force tree, links, ascii, empties) {
     if (-not $item.LinkType -or $item.LinkType -eq 'HardLink') { $item.LastWriteTimeUtc = $mtime }
 }
-foreach ($root in 'tree', 'links', 'ascii') { (Get-Item $root).LastWriteTimeUtc = $mtime }
+foreach ($root in 'tree', 'links', 'ascii', 'empties') { (Get-Item $root).LastWriteTimeUtc = $mtime }
 
 function Sha256([byte[]]$bytes) {
     [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($bytes)).ToLowerInvariant()
 }
 
-# What an archive of `$root` (tree, links or ascii) must contain.
+# What an archive of `$root` (tree, links, ascii or empties) must contain.
 function Expected([string]$root) {
     $entries = @()
+    if ($root -eq 'empties') {
+        $none = [byte[]]::new(0)
+        return , @([ordered]@{ path = 'empties/empty.txt'; kind = 'file'; size = 0; sha256 = Sha256 $none })
+    }
     foreach ($f in $files.GetEnumerator()) {
         if ($root -eq 'ascii' -and $f.Key -match '[^\x00-\x7F]') { continue }
         $entries += [ordered]@{
@@ -98,15 +114,24 @@ function Expected-Stream([string]$key) {
 $fixtures = [Collections.Generic.List[object]]::new()
 # `utc_mtimes`: the format stores UTC times, so extracted files must carry $mtime exactly. Zip's
 # DOS times are local, which makes them depend on the machine's time zone.
-# `hardlinks`, `symlinks`: how many link entries the listing shows.
-function Add-Fixture($file, $producer, $command, $chain, $entries, $pw = $null, $mtimes = $false) {
+# `hardlinks`, `symlinks`: how many link entries the listing shows (GNU tar's archives have one
+# of each unless `$links` says otherwise). `parts`: the other volumes of a split set, after
+# `file`, the first.
+function Add-Fixture($file, $producer, $command, $chain, $entries, $pw = $null, $mtimes = $false,
+    $links = $null, [string[]]$parts = @()) {
     if (-not (Test-Path $file)) { throw "$file was not created by: $command" }
-    $links = [int]($chain -eq 'tar' -and $file -like 'gnutar-*')
-    $fixtures.Add([ordered]@{
+    foreach ($p in $parts) { if (-not (Test-Path $p)) { throw "$p was not created by: $command" } }
+    if ($null -eq $links) {
+        $n = [int]($chain -eq 'tar' -and $file -like 'gnutar-*')
+        $links = @($n, $n)
+    }
+    $fx = [ordered]@{
         file = $file; producer = $producer; command = $command; chain = $chain
-        password = $pw; utc_mtimes = $mtimes; hardlinks = $links; symlinks = $links
-        entries = $entries
-    })
+        password = $pw; utc_mtimes = $mtimes; hardlinks = $links[0]; symlinks = $links[1]
+    }
+    if ($parts.Count -gt 0) { $fx.parts = $parts }
+    $fx.entries = $entries
+    $fixtures.Add($fx)
 }
 
 function Run([string]$exe, [string[]]$arguments) {
@@ -136,6 +161,42 @@ $stub[0x40] = 0x50; $stub[0x41] = 0x45                  # PE\0\0
 [BitConverter]::GetBytes([uint16]0x8664).CopyTo($stub, 0x44) # x64
 [IO.File]::WriteAllBytes("$work/7z-sfx.exe", $stub + [IO.File]::ReadAllBytes("$work/7z-deflate.zip"))
 Add-Fixture '7z-sfx.exe' $z 'minimal PE stub + 7z-deflate.zip' 'zip' (Expected 'tree')
+
+# 7-Zip: 7z (docs/M3.md §6). Methods, filters, encryption with and without encrypted names,
+# solid and not, empty entries, a -snl symlink (on Windows a reparse buffer), a console SFX
+# and a split set. 7z stores UTC FILETIMEs, so mtimes are exact. The filters run on the tree
+# itself rather than on an executable, so no third-party binary is committed.
+foreach ($m in 'LZMA', 'PPMd', 'BZip2', 'Deflate', 'Copy') {
+    $file = "7z-$($m.ToLower()).7z"
+    $cmd = Run $sevenZip @('a', '-t7z', "-m0=$m", $file, 'tree')
+    Add-Fixture $file $z $cmd '7z' (Expected 'tree') $null $true
+}
+$sevens = [ordered]@{
+    '7z-lzma2-mt.7z'  = @('-m0=LZMA2', '-mmt=4')
+    '7z-bcj.7z'       = @('-m0=BCJ', '-m1=LZMA2')
+    '7z-bcj2.7z'      = @('-m0=BCJ2', '-m1=LZMA', '-m2=LZMA', '-m3=LZMA', '-mb0s0:1', '-mb0s1:2', '-mb0s2:3')
+    '7z-arm64.7z'     = @('-m0=ARM64', '-m1=LZMA2')
+    '7z-delta.7z'     = @('-m0=Delta:4', '-m1=LZMA2')
+    '7z-nonsolid.7z'  = @('-ms=off')
+}
+foreach ($s in $sevens.GetEnumerator()) {
+    $cmd = Run $sevenZip (@('a', '-t7z') + $s.Value + @($s.Key, 'tree'))
+    Add-Fixture $s.Key $z $cmd '7z' (Expected 'tree') $null $true
+}
+$cmd = Run $sevenZip @('a', '-t7z', "-p$password", '7z-aes.7z', 'tree')
+Add-Fixture '7z-aes.7z' $z $cmd '7z' (Expected 'tree') $password $true
+$cmd = Run $sevenZip @('a', '-t7z', "-p$password", '-mhe=on', '7z-aes-mhe.7z', 'tree')
+Add-Fixture '7z-aes-mhe.7z' $z $cmd '7z' (Expected 'tree') $password $true
+$cmd = Run $sevenZip @('a', '-t7z', '7z-empties.7z', 'empties')
+Add-Fixture '7z-empties.7z' $z $cmd '7z' (Expected 'empties') $null $true
+$cmd = Run $sevenZip @('a', '-t7z', '-snl', '7z-links.7z', 'links')
+Add-Fixture '7z-links.7z' $z $cmd '7z' (Expected 'links') $null $true @(0, 1)
+# The console module (7zCon.sfx, 189 KiB); the GUI one is 210 KiB.
+$cmd = Run $sevenZip @('a', '-t7z', '-sfx7zCon.sfx', '7z-7zsfx.exe', 'tree')
+Add-Fixture '7z-7zsfx.exe' $z $cmd '7z' (Expected 'tree') $null $true
+$cmd = Run $sevenZip @('a', '-t7z', '-v2k', '7z-split.7z', 'tree')
+Add-Fixture '7z-split.7z.001' $z $cmd '7z' (Expected 'tree') $null $true $null @('7z-split.7z.002', '7z-split.7z.003')
+if (Test-Path '7z-split.7z.004') { throw '7z-split.7z has more than three parts' }
 
 foreach ($t in @(@('gzip', 'gz'), @('bzip2', 'bz2'), @('xz', 'xz'))) {
     $file = "7z-readme.md.$($t[1])"
@@ -169,13 +230,26 @@ Add-Fixture 'dotnet.zip' ".NET $([Environment]::Version) (PowerShell $($PSVersio
 
 Pop-Location
 New-Item -ItemType Directory -Force $out | Out-Null
-Get-ChildItem $out | Remove-Item -Force
-foreach ($f in $fixtures) { Copy-Item (Join-Path $work $f.file) $out }
+# Only this script's files: the RAR fixtures live in subfolders, from fetch-rar.ps1.
+if (-not $Keep) { Get-ChildItem $out -File | Remove-Item -Force }
+foreach ($f in $fixtures) {
+    $names = @($f.file) + @(if ($f.Contains('parts')) { $f.parts })
+    foreach ($n in $names) {
+        if ($Keep -and (Test-Path (Join-Path $out $n))) { continue }
+        Copy-Item (Join-Path $work $n) $out
+    }
+}
+# fetch-rar.ps1's entries (files in subfolders) are kept as they are.
+$manifestPath = Join-Path $PSScriptRoot 'manifest.json'
+if (Test-Path $manifestPath) {
+    $old = Get-Content -Raw $manifestPath | ConvertFrom-Json -AsHashtable
+    foreach ($f in $old.fixtures) { if ($f.file -like '*/*') { $fixtures.Add($f) } }
+}
 $manifest = [ordered]@{
-    note = 'Generated by make-thirdparty.ps1. Paths in entries are as extracted, /-separated; "*" is the one entry of a compressed file.'
+    note = 'Generated by make-thirdparty.ps1 and fetch-rar.ps1. Paths in entries are as extracted, /-separated; "*" is the one entry of a compressed file.'
     fixtures = $fixtures
 }
-($manifest | ConvertTo-Json -Depth 6) -replace "`r`n", "`n" | Set-Content -NoNewline (Join-Path $PSScriptRoot 'manifest.json')
+($manifest | ConvertTo-Json -Depth 6) -replace "`r`n", "`n" | Set-Content -NoNewline $manifestPath
 Remove-Item -Recurse -Force $work
-$size = (Get-ChildItem $out | Measure-Object Length -Sum).Sum
+$size = (Get-ChildItem $out -File | Measure-Object Length -Sum).Sum
 "wrote $($fixtures.Count) fixtures ($([math]::Round($size / 1KB)) KiB) to $out"

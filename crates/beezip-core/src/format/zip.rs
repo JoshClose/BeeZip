@@ -14,7 +14,6 @@
 
 use std::{
     collections::BTreeSet,
-    fs::File,
     io::{self, BufReader, Read, Seek, SeekFrom, Write},
 };
 
@@ -33,8 +32,9 @@ use super::{
 use crate::{
     Ctx, Error, ErrorKind, Meter, MeteredCtx, Result,
     detect::{Confidence, Probe},
-    io::{BUF_SIZE, Checked, CountingReader, copy, read_error, write_error},
-    source::Source,
+    io::{BUF_SIZE, Checked, CountingReader, WriteSeek, copy, read_error, write_error},
+    safefs::Partial,
+    source::{Input, Source},
     time::{DosTime, from_dos, from_ntfs, from_unix, to_dos, to_unix},
 };
 
@@ -217,7 +217,36 @@ fn zip_error(e: ZipError) -> Error {
     }
 }
 
-type ZipFileReader = BufReader<CountingReader<File>>;
+type ZipFileReader = BufReader<CountingReader<Input>>;
+
+/// Why a zip is part of a spanned set (`.z01`, `.z02`… plus `.zip`), which BeeZip can't read
+/// in v1 (docs/M3.md §3.5): its end record names another disk, or a `.z01` sits beside it.
+/// 7-Zip's byte splits (`a.zip.001`) are ordinary zips once joined, and aren't spanned.
+fn spanned(source: &Source) -> Option<String> {
+    const MSG: &str = "spanned zip archives (.z01, .z02… with .zip) aren't supported";
+    if !source.joined
+        && source.codecs.is_empty()
+        && source
+            .path
+            .extension()
+            .is_some_and(|e| e.eq_ignore_ascii_case("zip"))
+        && source.path.with_extension("z01").is_file()
+    {
+        return Some(format!("{MSG}; {} is one part", source.path.display()));
+    }
+    let mut input = source.input().ok()?;
+    let len = input.len();
+    let want = len.min(64 * 1024 + 22);
+    input.seek(SeekFrom::Start(len - want)).ok()?;
+    let mut tail = Vec::new();
+    input.take(want).read_to_end(&mut tail).ok()?;
+    let at = eocd_in(&tail)?;
+    let disk = u16::from_le_bytes([tail[at + 4], tail[at + 5]]);
+    let cd_disk = u16::from_le_bytes([tail[at + 6], tail[at + 7]]);
+    // 0xFFFF means the Zip64 record has the real numbers; zip itself checks those.
+    ((disk != 0 && disk != 0xFFFF) || (cd_disk != 0 && cd_disk != 0xFFFF))
+        .then(|| format!("{MSG}; this is disk {} of a set", u32::from(disk) + 1))
+}
 
 pub struct ZipReader {
     source: Source,
@@ -229,24 +258,23 @@ pub struct ZipReader {
     /// The last password that worked.
     password: Option<String>,
     /// Keeps a spooled zip (one that came out of a codec) alive.
-    _spool: Option<tempfile::NamedTempFile>,
+    _spool: Option<Partial>,
 }
 
 impl ZipReader {
     pub fn open(source: Source, sfx: bool, cx: &mut dyn Ctx) -> Result<Self> {
-        let reopen = |e: io::Error| Error::io(format!("reading {}", source.path.display()), &e);
+        if let Some(why) = spanned(&source) {
+            return Err(Error::unsupported_format(why));
+        }
         let (file, mut cd_file, spool) = if source.codecs.is_empty() {
-            let cd_file = File::open(&source.path).map_err(reopen)?;
-            (source.open_file()?, cd_file, None)
+            (source.open_file()?, source.input()?, None)
         } else {
             // zip needs Seek: spool the decoded stream to a temp file, under the usual limits.
-            let mut tmp = tempfile::NamedTempFile::new()
-                .map_err(|e| Error::io("creating a temp file", &e))?;
+            let mut tmp = Partial::create_temp("beezip-spool.zip")?;
             let mut stream = source.guard(source.open_stream()?);
-            copy(&mut stream, tmp.as_file_mut(), cx)?;
-            let temp_err = |e: io::Error| Error::io("reading the temp file", &e);
-            let reopened = tmp.reopen().map_err(temp_err)?;
-            let cd_file = tmp.reopen().map_err(temp_err)?;
+            copy(&mut stream, tmp.file_mut(), cx)?;
+            let reopened = Input::file(tmp.reopen()?)?;
+            let cd_file = Input::file(tmp.reopen()?)?;
             let file = CountingReader::new(reopened, source.counter.clone());
             (file, cd_file, Some(tmp))
         };
@@ -397,7 +425,7 @@ impl<R: Read> Read for CrcHint<R> {
 /// Directories over 512 MiB are skipped, and DOS times are used instead.
 fn central_times(
     archive: &ZipArchive<ZipFileReader>,
-    file: &mut File,
+    file: &mut Input,
 ) -> Vec<Option<std::time::SystemTime>> {
     let Ok(starts) = (0..archive.len())
         .map(|i| archive.by_index_data(i).map(|f| f.central_header_start()))
@@ -507,6 +535,11 @@ impl ArchiveReader for ZipReader {
             },
             solid: false,
             sfx: self.sfx,
+            volumes: self.source.volumes.len(),
+            solid_blocks: None,
+            encrypted_headers: false,
+            locked: false,
+            recovery_record: false,
         })
     }
 
@@ -556,15 +589,15 @@ impl ArchiveReader for ZipReader {
     }
 }
 
-/// Writes a zip to a seekable file.
+/// Writes a zip to a seekable output: a file, or a volume set.
 pub struct ZipWriter {
-    zip: zip::ZipWriter<File>,
+    zip: zip::ZipWriter<Box<dyn WriteSeek>>,
     opts: ZipWriteOptions,
     level: Option<i64>,
 }
 
 impl ZipWriter {
-    pub fn new(out: File, opts: ZipWriteOptions) -> Result<Self> {
+    pub fn new(out: Box<dyn WriteSeek>, opts: ZipWriteOptions) -> Result<Self> {
         let level = match (opts.method.levels(), opts.level) {
             (None, None) => None,
             (None, Some(_)) => {

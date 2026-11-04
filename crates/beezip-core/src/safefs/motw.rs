@@ -16,6 +16,12 @@ pub fn read_zone(archive: &Path) -> Option<Vec<u8>> {
     }
 }
 
+/// The first `Zone.Identifier` among a volume set's parts, first part first (docs/M3.md §3.2):
+/// parts downloaded separately may not all carry one.
+pub fn read_zone_of(parts: &[std::path::PathBuf]) -> Option<Vec<u8>> {
+    parts.iter().find_map(|p| read_zone(p))
+}
+
 /// Writes `zone` as `path`'s `Zone.Identifier` stream. Does nothing off Windows.
 pub fn write_zone(path: &Path, zone: &[u8]) -> io::Result<()> {
     if cfg!(windows) {

@@ -56,6 +56,7 @@ rust-toolchain.toml           # 1.99.1 (exact; "1.99" makes rustup fetch a secon
 deny.toml                     # cargo-deny license allowlist
 crates/beezip-core/           # format engine (sync Read/Write/Seek; no tokio)
   src/{detect,codec/*,format/*,backend/*,safefs,volume,progress,error}.rs
+crates/beezip-unrar/          # UnRAR through unrar_sys: the only unsafe code before beezip-shell; core's `rar` feature
 crates/beezip-commands/       # Command trait, registry, engine, jobs, policy, config
   src/commands/*.rs           # one file per command
 crates/beezip-mcp/            # rmcp ServerHandler built dynamically from the registry
@@ -89,8 +90,9 @@ tests/fixtures/               # reference archives + manifest.json (entries + ha
 - **Detection:**
   1. BeeZip's own sniffers, one per format and codec: magic bytes plus a structural check where there is one, such as the tar header checksum;
   2. compound probing: decode the first 64 KiB of a stream codec and re-probe it, so `tar.zst` is recognised;
-  3. a scan for SFX signatures in PE overlays;
-  4. extension as a tie-breaker.
+  3. a scan for SFX signatures in PE overlays: the PE section table gives where the image ends, and the 7z and RAR sniffers look there (zip SFX keeps its end-record check);
+  4. volume sets: any part of `a.7z.001`… is probed as the joined set, and RAR's `.partN.rar` and `.rar`/`.r00` names find the first part;
+  5. extension as a tie-breaker.
 
   The `file-format` crate only labels files that aren't archives (for example "Portable Network Graphics"). It has no brotli or LZMA-alone signature, and it reports DOCX, JAR and EPUB as their own formats, while BeeZip opens them as ZIP.
 - **`SafeFs` / `FsSink`** is the only code that writes extracted files to disk, whatever the backend. The full rules are in [`docs/M1.md`](M1.md) §3.5. It handles:
@@ -138,7 +140,7 @@ pub trait Command: Send + Sync + 'static {
 
   Each code maps to a CLI exit code, to MCP `isError` + structuredContent, and to a UI toast.
 - **Config:** `%APPDATA%\BeeZip\config.toml`, shared by the GUI, the CLI and MCP. It holds default levels, the overwrite policy, the 7-Zip path, MCP roots and limits. The settings commands read and write it.
-- **Index cache (M3):** an LRU of parsed archive indexes keyed by (path, size, mtime). Commands stay stateless, which suits MCP and the CLI, and the GUI can still page through a 1M-entry archive quickly. It arrives with the GUI browser in M3; until then each command re-reads the index.
+- **Index cache (M3):** it caches open readers along with their indexes, keyed by the canonical path and each volume's size and mtime: up to four archives and 4 million entries. A job borrows its archive and puts it back, so a reader is never shared. Encrypted archives aren't cached, so no cached reader carries a password between jobs. Commands stay stateless, which suits MCP and the CLI, and the GUI can still page through a 1M-entry archive quickly ([`docs/M3.md`](M3.md) §4.2).
 
 ### Command catalog (v1)
 | Command | Effect | Notes |
@@ -166,6 +168,7 @@ Every archive command names the archive file `archive`. The M1 inputs and output
   - Generated subcommands: `beezip extract a.zip -o out`, `beezip list`, `beezip create`, `beezip convert`, `beezip test`, `beezip formats`. Short aliases `x`, `l`, `c`, `t`.
   - Generic forms: `beezip run <name> --json '{…}'` (or `@file`), `beezip commands` and `beezip schema <name>`.
   - Global `--output human|json|ndjson`. `ndjson` streams the `JobEvent`s, which suits scripts and CI. indicatif progress bars draw on a TTY.
+  - Ctrl+C cancels the job, which removes its partial files. A second Ctrl+C exits at once, and deletes every partial file the process still has open first (`partial::abandon_all`), since `process::exit` runs no destructors.
 - **MCP (`beezip mcp`, rmcp 3.8, spec 2026-07-28):**
   - Implements `ServerHandler` **by hand**, not with `#[tool]` macros. `list_tools` and `call_tool` iterate the registry, so no new command ever needs MCP-specific code.
   - **Tools:** names like `archive_extract`, with input/output schemas and annotations (`readOnlyHint`, `destructiveHint`).
@@ -174,12 +177,12 @@ Every archive command names the archive file `archive`. The M1 inputs and output
   - **Sandbox:** writes require `--root <dir>` (repeatable). In sessions that still have client roots (2025-11-25 and older; 2026-07-28 deprecates them), a non-empty list is intersected with `--root`. `--read-only` (which also hides the write tools) and `--unrestricted` flags. Limits are stricter by default: a list page holds at most 500 entries and `entry.read` returns at most 256 KiB, through two `Policy` caps the CLI and GUI leave unset.
   - **Transport:** stdio. Streamable HTTP on 127.0.0.1 (axum) isn't scheduled.
 - **Desktop (Tauri 2.12.x, staying off the 3.0 alpha):**
-  - **IPC:** exactly four Tauri commands: `cmd_run(name, args, Channel<JobEvent>) -> JobId`, `cmd_cancel`, `cmd_respond` and `cmd_list`.
+  - **IPC:** exactly four Tauri commands: `cmd_run(name, args, Channel<JobEvent>) -> JobId`, `cmd_cancel`, `cmd_respond` and `cmd_list`. Rust sends the page one event, `open-paths`, with the files a second instance forwards; the paths `BeeZip.exe` starts with reach the page through an initialization script. Prompts carry the job id, so `cmd_respond(job, prompt, reply)` knows which job asked. "Copy as CLI" lines come from the `cli.line` command, built from the same clap definition that parses them.
   - **TS types:** `xtask codegen` uses ts-rs, which is stable; tauri-specta is still an RC. It writes `src/gen/commands.ts`, a typed `CommandMap` so that `run("archive.extract", {...})` is fully typed. CI fails if the generated file is stale. Codegen details:
       - It uses ts-rs 12 with `Config::with_large_int("number")`, because the wire format is JSON numbers.
       - Types don't use `#[ts(export)]`, so `cargo test` writes no files.
       - The full pipeline is described in [`docs/M0.md`](M0.md) §4.
-  - **Libraries:** React 19 + Vite + TS, TanStack Table + Virtual (large archives), Zustand, Tailwind + Radix/shadcn, lucide.
+  - **Libraries:** React 19 + Vite + TS, TanStack Virtual (large archives), Zustand, Tailwind + Radix/shadcn, lucide. Not TanStack Table: its v9 is a different API, and sorting a million entries happens in `archive.list`, in Rust.
   - **Screens and features:**
     - archive browser: folder tree, virtualised entry table, breadcrumb;
     - preview pane: text, hex or image, through `entry.read`;
@@ -191,7 +194,7 @@ Every archive command names the archive file `archive`. The M1 inputs and output
     - **Ctrl+K command palette** listing registry commands;
     - **"Copy as CLI"** on every dialog, which shows the equivalent `beezip …` line.
   - **Integration:**
-    - `bundle.fileAssociations` for every readable extension;
+    - `bundle.fileAssociations` for the archive extensions BeeZip reads, not the zip-based document formats (docx, jar, epub…). The NSIS installer makes BeeZip their default handler, and uninstall restores the previous one;
     - `tauri-plugin-single-instance` forwards files to the running window;
     - `tauri-plugin-dialog` and `tauri-plugin-opener`;
     - NSIS installer that installs `BeeZip.exe` and `bin\beezip.exe` (the CLI is staged separately; see Naming), and adds `bin\` to PATH;
@@ -248,8 +251,8 @@ Crate versions were checked on 2026-11-01. Churny crates are pinned exactly behi
 | zstd | ✓ | ✓ | `zstd` 0.14 (bundled C, zstdmt) | M1 |
 | lz4 / brotli / snappy | ✓ | ✓ | `lz4_flex` / `brotli` / `snap` | M1 |
 | tar.{gz,bz2,xz,zst,lz4,br,lz} | ✓ | ✓ | codec chain composition | M1 |
-| 7z: LZMA/2, PPMd, BCJ*, AES-256, solid | ✓ | ✓ | `sevenz-rust2` 0.24 + our `VolumeSet` for `.7z.001` | M3 |
-| RAR 1.5–7 incl. multipart and passwords | ✓ | ✗ | `unrar` (cargo feature `rar`, on by default; UnRAR license notice shipped). `rars` (pure Rust) still to be evaluated as a fallback. RAR creation is never offered | M3 |
+| 7z: LZMA/2, PPMd, BCJ*, AES-256, solid | ✓ | ✓ | `sevenz-rust2` `=0.24.2` + our `VolumeSet` for `.7z.001`. It reads everything listed plus Deflate, BZip2, LZ4, Brotli and ARM64, but not zstd. It writes LZMA2, LZMA, PPMd, BZip2, Deflate and Copy, with encrypted headers on by default when there is a password and solid blocks capped at 1 GiB. BeeZip checks decoder memory itself, because the crate has no limit | M3 |
+| RAR 1.5–7 incl. multipart and passwords | ✓ | ✗ | UnRAR through `unrar_sys` in a new `beezip-unrar` crate, not the `unrar` crate, which can only buffer whole entries. BeeZip declares UnRAR's packed structs itself, links advapi32, and takes one lock for every call into UnRAR (cargo feature `rar`, on by default; UnRAR license notice shipped). `rars` (pure Rust) stays the tracked alternative. RAR creation is never offered | M3 |
 | Split files (.001…) | ✓ | ✓ | in-house `VolumeSet` reader/writer | M3 |
 | CAB | ✓ | ✓ (MSZIP) | `cab` (LZX is read-only) | M5 |
 | ISO 9660 / Joliet / Rock Ridge | ✓ | ✓ | `hadris-iso` 2.5 | M5 |
@@ -273,7 +276,8 @@ Formats that are known not to be supported (or only partly): split/spanned ZIP (
   - `option-ext`, via dirs-sys ← dirs ← tauri;
   - `cssparser`, `cssparser-macros`, `dtoa-short` and `selectors`, via dom_query ← tauri-utils.
 - These crates get per-crate exceptions and are listed in `THIRD_PARTY_NOTICES`. MPL is file-level copyleft, so using them unmodified in an MIT/Apache app is fine. Any new MPL crate still fails the check until it gets its own exception.
-- The UnRAR license (`unrar_sys`) gets an exception in M3.
+- The UnRAR license (`unrar_sys`) gets a cargo-deny clarification as well as an exception (M3). `unrar_sys` declares MIT OR Apache-2.0, but it compiles UnRAR's own C++, so the clarification makes it `(MIT OR Apache-2.0) AND LicenseRef-UnRAR`.
+- **Third-party notices** ship in the installer and on the About page from M3. A complete generated list stays an M6 task.
 - On the Windows runner, cargo-deny runs as an installed binary, because `cargo-deny-action` is a Docker action and only runs on Linux.
 
 ---
@@ -315,7 +319,8 @@ After approval I implement **M0 + M1** and then stop for your review before goin
 - **Unit and round-trip tests** (`cargo test --workspace`): every writable format gets a proptest that creates an archive from a random tree, extracts it and checks the result is byte-identical, including metadata where the format supports it.
 - **Fixtures:** `tests/fixtures/` holds reference archives made by other tools. `manifest.json` records the expected entries and SHA-256 hashes, and `xtask gen-fixtures` regenerates the malicious corpus.
   - **M1:** the tools available on Windows: 7-Zip 26.00, GNU tar 1.35, bsdtar 3.8.9 (Windows `tar.exe`) and .NET (`Compress-Archive`).
-  - **Later:** WinRAR, Info-ZIP and macOS ditto.
+  - **M3:** 7-Zip 26.00 for 7z; the RAR fixtures come from libarchive 3.8.11's and rars 0.12.3's test suites, made by real WinRAR versions, with 7-Zip as the oracle for their contents. WinRAR isn't needed.
+  - **Later:** Info-ZIP and macOS ditto.
 - **Interop:** Windows CI runners already have 7-Zip, so CI runs `7z t` on every archive we produce, and we read every archive 7-Zip produces.
 - **Malicious corpus:** zip-slip, absolute/UNC paths, reserved names, ADS names, symlink escapes, overlapping-entry zip bomb, deep nesting. Each one must be rejected with the correct `CmdError`.
 - **Fuzzing:** cargo-fuzz targets for detection, each pure-Rust reader, the codecs and the path sanitiser. They run in a separate Linux workflow on nightly: 10 minutes per target each night, and 1 minute per target on PRs that touch core or `fuzz/`.

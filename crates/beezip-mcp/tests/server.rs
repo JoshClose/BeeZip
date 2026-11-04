@@ -516,6 +516,49 @@ async fn passwords_are_never_elicited() {
     output(&r);
 }
 
+/// The M3 formats work under the MCP runtime: RAR's UnRAR thread and 7z's decoder thread run
+/// beside tokio's (docs/M3.md §4.5).
+#[tokio::test]
+async fn rar_lists_and_7z_extracts_into_the_root() {
+    let (_dir, root) = sandbox();
+    let h = connect(rooted(&root), TestClient::new(), false).await;
+    let r = h
+        .client
+        .call_tool(call(
+            "archive_list",
+            json!({
+                "archive": fixture("thirdparty/libarchive/test_read_format_rar5_multiarchive_solid.part02.rar"),
+                "flat": true,
+            }),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(output(&r)["total"], 9);
+    let r = h
+        .client
+        .call_tool(call(
+            "entry_read",
+            json!({ "archive": fixture("thirdparty/libarchive/test_read_format_rar5_compressed.rar"), "index": 0 }),
+        ))
+        .await
+        .unwrap();
+    assert!(output(&r)["bytes_read"].as_u64().unwrap() > 0);
+    let r = h
+        .client
+        .call_tool(call(
+            "archive_extract",
+            json!({
+                "archive": fixture("thirdparty/7z-aes-mhe.7z"),
+                "dest": root.join("a"),
+                "password": "beezip",
+            }),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(output(&r)["files"], 6);
+    assert!(root.join("a/tree/hello.txt").is_file());
+}
+
 // ---------------------------------------------------------------------------------------------
 // Progress and cancellation
 

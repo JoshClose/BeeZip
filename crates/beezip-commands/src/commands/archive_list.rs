@@ -40,6 +40,18 @@ pub struct ArchiveListInput {
     #[arg(long)]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub limit: Option<u64>,
+    /// Sort by this, folders first [default: archive order].
+    #[arg(long, value_enum)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sort: Option<SortKey>,
+    /// Reverse the sort (folders stay first).
+    #[arg(long, num_args = 0..=1, require_equals = true, default_missing_value = "true")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reverse: Option<bool>,
+    /// Only entries of this kind: `file` (files and hard links), `dir`, or `link` (symlinks).
+    #[arg(long, value_enum)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kind: Option<KindFilter>,
     /// The password, if entry names need one.
     #[arg(short, long)]
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -53,6 +65,79 @@ pub struct ArchiveListOutput {
     pub total: u64,
     pub offset: u64,
     pub has_more: bool,
+}
+
+/// What `archive.list` sorts by.
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS, clap::ValueEnum,
+)]
+#[serde(rename_all = "kebab-case")]
+#[value(rename_all = "kebab-case")]
+pub enum SortKey {
+    Name,
+    Size,
+    Packed,
+    Modified,
+    /// Folders, files, then links; by name within each.
+    Kind,
+}
+
+/// Which entries `archive.list` keeps.
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS, clap::ValueEnum,
+)]
+#[serde(rename_all = "kebab-case")]
+#[value(rename_all = "kebab-case")]
+pub enum KindFilter {
+    /// Files and hard links (which extract as files).
+    File,
+    Dir,
+    /// Symlinks.
+    Link,
+}
+
+impl KindFilter {
+    fn matches(self, kind: EntryKindName) -> bool {
+        match self {
+            Self::File => matches!(
+                kind,
+                EntryKindName::File | EntryKindName::Hardlink | EntryKindName::Other
+            ),
+            Self::Dir => kind == EntryKindName::Dir,
+            Self::Link => kind == EntryKindName::Symlink,
+        }
+    }
+}
+
+/// Folders first, then by `key`; ties go by name, then archive order (a stable sort).
+fn sort(entries: &mut [EntryInfo], key: SortKey, reverse: bool) {
+    use std::cmp::Ordering;
+    let rank = |k: EntryKindName| match k {
+        EntryKindName::Dir => 0,
+        EntryKindName::File | EntryKindName::Hardlink | EntryKindName::Other => 1,
+        EntryKindName::Symlink => 2,
+    };
+    let name = |e: &EntryInfo| {
+        let p = normalize(&e.path);
+        let base = p.rsplit('/').next().unwrap_or(&p).to_owned();
+        (base.to_lowercase(), base)
+    };
+    entries.sort_by(|a, b| {
+        let dirs = (a.kind != EntryKindName::Dir).cmp(&(b.kind != EntryKindName::Dir));
+        if dirs != Ordering::Equal {
+            return dirs;
+        }
+        let by = match key {
+            SortKey::Name => Ordering::Equal,
+            SortKey::Size => a.size.unwrap_or(0).cmp(&b.size.unwrap_or(0)),
+            SortKey::Packed => a.packed_size.unwrap_or(0).cmp(&b.packed_size.unwrap_or(0)),
+            // RFC 3339 in UTC sorts as text; entries without a time come first.
+            SortKey::Modified => a.modified.cmp(&b.modified),
+            SortKey::Kind => rank(a.kind).cmp(&rank(b.kind)),
+        };
+        let order = by.then_with(|| name(a).cmp(&name(b)));
+        if reverse { order.reverse() } else { order }
+    });
 }
 
 pub struct ArchiveList;
@@ -126,6 +211,13 @@ impl Command for ArchiveList {
             }
             out
         };
+        let mut listing = listing;
+        if let Some(k) = input.kind {
+            listing.retain(|e| k.matches(e.kind));
+        }
+        if let Some(key) = input.sort {
+            sort(&mut listing, key, input.reverse.unwrap_or(false));
+        }
 
         let total = listing.len() as u64;
         let offset = input.offset.unwrap_or(0).min(total);
@@ -166,7 +258,11 @@ impl Command for ArchiveList {
                     } else {
                         "=>"
                     };
-                    name = format!("{name} {arrow} {}", e.target.as_deref().unwrap_or(""));
+                    name = match e.target.as_deref() {
+                        Some(t) if !t.is_empty() => format!("{name} {arrow} {t}"),
+                        // 7z keeps a link's target in its data, read when it is extracted.
+                        _ => format!("{name} (link)"),
+                    };
                 }
                 _ => {}
             }
@@ -201,5 +297,74 @@ mod tests {
             &["a.zip", "docs", "--flat", "--glob", "*.md", "--limit", "5"],
             serde_json::json!({ "archive": "a.zip", "dir": "docs", "flat": true, "glob": ["*.md"], "limit": 5 }),
         );
+        crate::commands::util::tests::cli_matches_json::<ArchiveListInput>(
+            &["a.7z", "--sort", "size", "--reverse", "--kind", "dir"],
+            serde_json::json!({ "archive": "a.7z", "sort": "size", "reverse": true, "kind": "dir" }),
+        );
+    }
+
+    #[test]
+    fn enum_names_agree() {
+        crate::wire::tests::names_agree::<SortKey>();
+        crate::wire::tests::names_agree::<KindFilter>();
+    }
+
+    fn info(path: &str, kind: EntryKindName, size: u64, modified: &str) -> EntryInfo {
+        EntryInfo {
+            id: Some(0),
+            path: path.into(),
+            kind,
+            size: Some(size),
+            packed_size: Some(size / 2),
+            modified: Some(modified.into()),
+            crc32: None,
+            method: None,
+            encrypted: false,
+            target: None,
+        }
+    }
+
+    #[test]
+    fn sorting_puts_folders_first() {
+        use EntryKindName as K;
+        let all = vec![
+            info("b.txt", K::File, 30, "2026-01-02T00:00:00Z"),
+            info("Z", K::Dir, 0, "2026-01-05T00:00:00Z"),
+            info("a.txt", K::File, 10, "2026-01-03T00:00:00Z"),
+            info("l", K::Symlink, 0, "2026-01-01T00:00:00Z"),
+            info("c.txt", K::File, 20, "2026-01-01T00:00:00Z"),
+            info("a", K::Dir, 0, "2026-01-04T00:00:00Z"),
+        ];
+        let order = |key, reverse| {
+            let mut v = all.clone();
+            sort(&mut v, key, reverse);
+            v.into_iter().map(|e| e.path).collect::<Vec<_>>()
+        };
+        assert_eq!(
+            order(SortKey::Name, false),
+            ["a", "Z", "a.txt", "b.txt", "c.txt", "l"]
+        );
+        assert_eq!(
+            order(SortKey::Name, true),
+            ["Z", "a", "l", "c.txt", "b.txt", "a.txt"]
+        );
+        assert_eq!(
+            order(SortKey::Size, false),
+            ["a", "Z", "l", "a.txt", "c.txt", "b.txt"]
+        );
+        assert_eq!(order(SortKey::Size, true)[..2], ["Z", "a"]);
+        assert_eq!(
+            order(SortKey::Modified, false)[2..],
+            ["c.txt", "l", "b.txt", "a.txt"]
+        );
+        assert_eq!(
+            order(SortKey::Kind, false),
+            ["a", "Z", "a.txt", "b.txt", "c.txt", "l"]
+        );
+        let kept: Vec<_> = all
+            .iter()
+            .filter(|e| KindFilter::Link.matches(e.kind))
+            .collect();
+        assert_eq!(kept.len(), 1);
     }
 }

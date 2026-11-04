@@ -14,7 +14,10 @@ use std::{
 
 use beezip_core::{
     CodecId, CreateOptions, EncodeOpts, FsOptions, OpenOptions, Selection, SimpleCtx, WriteSpec,
-    format::zip::{ZipEncryption, ZipMethod, ZipWriteOptions},
+    format::{
+        sevenz::{SevenZMethod, SevenZWriteOptions},
+        zip::{ZipEncryption, ZipMethod, ZipWriteOptions},
+    },
     ops,
 };
 use filetime::FileTime;
@@ -169,6 +172,17 @@ fn round_trip(
     password: Option<&str>,
     tree: &[Node],
 ) -> Result<(), TestCaseError> {
+    round_trip_with(ext, spec, password, None, tree)
+}
+
+/// `volume`: split the archive into volumes of that size, and extract from the first part.
+fn round_trip_with(
+    ext: &str,
+    spec: &WriteSpec,
+    password: Option<&str>,
+    volume: Option<u64>,
+    tree: &[Node],
+) -> Result<(), TestCaseError> {
     let root = tempfile::tempdir().unwrap();
     let input = root.path().join("in put");
     fs::create_dir(&input).unwrap();
@@ -181,10 +195,17 @@ fn round_trip(
         &archive,
         std::slice::from_ref(&input),
         spec,
-        &CreateOptions::default(),
+        &CreateOptions {
+            volume_size: volume,
+            ..CreateOptions::default()
+        },
         &mut cx,
     )
     .map_err(|e| TestCaseError::fail(format!("create: {e}")))?;
+    let archive = match volume {
+        Some(_) => beezip_core::volume::part_path(&archive, 1),
+        None => archive,
+    };
 
     let dest = root.path().join("x");
     let mut cx = match password {
@@ -292,10 +313,183 @@ combos! {
     tar_sz: "tar.sz", tar(Some(CodecId::Snappy)), None;
 }
 
+/// 7z has 38 combinations, so 8 cases each unless `PROPTEST_CASES` says otherwise.
+fn cases_7z() -> u32 {
+    std::env::var("PROPTEST_CASES")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(8)
+}
+
+fn sevenz(method: SevenZMethod, solid: bool, password: Option<&str>, headers: bool) -> WriteSpec {
+    WriteSpec::SevenZ(SevenZWriteOptions {
+        method,
+        level: None,
+        threads: 1,
+        password: password.map(str::to_owned),
+        encrypt_headers: headers,
+        solid,
+    })
+}
+
+macro_rules! sevenz_combos {
+    ($($name:ident: $method:expr;)*) => {$(
+        mod $name {
+            use super::*;
+            proptest! {
+                #![proptest_config(ProptestConfig::with_cases(cases_7z()))]
+                #[test]
+                fn solid(tree in tree()) {
+                    round_trip("7z", &sevenz($method, true, None, false), None, &tree)?;
+                }
+                #[test]
+                fn not_solid(tree in tree()) {
+                    round_trip("7z", &sevenz($method, false, None, false), None, &tree)?;
+                }
+                #[test]
+                fn aes(tree in tree()) {
+                    round_trip("7z", &sevenz($method, true, Some(PW), false), Some(PW), &tree)?;
+                }
+                #[test]
+                fn aes_not_solid(tree in tree()) {
+                    round_trip("7z", &sevenz($method, false, Some(PW), false), Some(PW), &tree)?;
+                }
+                #[test]
+                fn aes_headers(tree in tree()) {
+                    round_trip("7z", &sevenz($method, true, Some(PW), true), Some(PW), &tree)?;
+                }
+                #[test]
+                fn aes_headers_not_solid(tree in tree()) {
+                    round_trip("7z", &sevenz($method, false, Some(PW), true), Some(PW), &tree)?;
+                }
+            }
+        }
+    )*};
+}
+
+sevenz_combos! {
+    sz_lzma2: SevenZMethod::Lzma2;
+    sz_lzma: SevenZMethod::Lzma;
+    sz_ppmd: SevenZMethod::Ppmd;
+    sz_bzip2: SevenZMethod::Bzip2;
+    sz_deflate: SevenZMethod::Deflate;
+    sz_copy: SevenZMethod::Copy;
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(cases_7z()))]
+    #[test]
+    fn sz_lzma2_multithreaded(tree in tree()) {
+        let spec = WriteSpec::SevenZ(SevenZWriteOptions {
+            threads: 4,
+            ..SevenZWriteOptions::default()
+        });
+        round_trip("7z", &spec, None, &tree)?;
+    }
+
+    #[test]
+    fn sz_lzma2_volumes(tree in tree()) {
+        let spec = sevenz(SevenZMethod::Lzma2, true, Some(PW), true);
+        round_trip_with("7z", &spec, Some(PW), Some(1024), &tree)?;
+    }
+}
+
 /// Every writable kind is covered above.
 #[test]
 fn every_kind_is_tested() {
-    assert_eq!(beezip_core::ArchiveKind::all().count(), 11);
+    assert_eq!(beezip_core::ArchiveKind::all().count(), 12);
+}
+
+#[test]
+fn sevenz_keeps_100ns_mtimes() {
+    let root = tempfile::tempdir().unwrap();
+    let input = root.path().join("t");
+    fs::create_dir(&input).unwrap();
+    let file = input.join("f.txt");
+    fs::write(&file, b"precise").unwrap();
+    let t = UNIX_EPOCH + Duration::new(1_700_000_000, 123_456_700);
+    filetime::set_file_mtime(&file, FileTime::from_system_time(t)).unwrap();
+    let archive = root.path().join("t.7z");
+    ops::create(
+        &archive,
+        std::slice::from_ref(&input),
+        &WriteSpec::SevenZ(SevenZWriteOptions::default()),
+        &CreateOptions::default(),
+        &mut SimpleCtx::new(),
+    )
+    .unwrap();
+    let dest = root.path().join("x");
+    ops::extract(
+        &archive,
+        &dest,
+        &Selection::all(),
+        &OpenOptions::default(),
+        FsOptions::default(),
+        &mut SimpleCtx::new(),
+    )
+    .unwrap();
+    let got = fs::metadata(dest.join("t/f.txt"))
+        .unwrap()
+        .modified()
+        .unwrap();
+    assert_eq!(got, t);
+}
+
+#[test]
+fn sevenz_passwords() {
+    use beezip_core::ErrorKind;
+    let root = tempfile::tempdir().unwrap();
+    let input = root.path().join("f.txt");
+    fs::write(&input, b"secret ".repeat(1000)).unwrap();
+    for headers in [false, true] {
+        let archive = root.path().join(format!("h{headers}.7z"));
+        ops::create(
+            &archive,
+            std::slice::from_ref(&input),
+            &sevenz(SevenZMethod::Lzma2, true, Some("right"), headers),
+            &CreateOptions::default(),
+            &mut SimpleCtx::new(),
+        )
+        .unwrap();
+        let run = |cx: &mut SimpleCtx| {
+            ops::extract(
+                &archive,
+                &root.path().join("x"),
+                &Selection::all(),
+                &OpenOptions::default(),
+                FsOptions {
+                    overwrite: beezip_core::OverwritePolicy::Always,
+                    ..FsOptions::default()
+                },
+                cx,
+            )
+        };
+        let err = run(&mut SimpleCtx::new()).unwrap_err();
+        assert_eq!(err.kind, ErrorKind::PasswordRequired, "headers {headers}");
+        let err = run(&mut SimpleCtx::new().with_password("wrong")).unwrap_err();
+        assert_eq!(
+            err.kind,
+            ErrorKind::WrongPassword,
+            "headers {headers}: {err}"
+        );
+        assert!(err.message.contains("wrong password"), "{err}");
+        run(&mut SimpleCtx::new().with_password("right")).unwrap();
+        assert_eq!(
+            fs::read(root.path().join("x/f.txt")).unwrap(),
+            b"secret ".repeat(1000)
+        );
+        // Without the password, an encrypted header hides the names; otherwise they list.
+        let listed = beezip_core::open(&archive, &OpenOptions::default(), &mut SimpleCtx::new());
+        assert_eq!(listed.is_err(), headers);
+        // The test sink stops on a wrong password instead of recording damage.
+        let tested = ops::test(
+            &archive,
+            &Selection::all(),
+            &OpenOptions::default(),
+            &mut SimpleCtx::new().with_password("wrong"),
+        );
+        assert_eq!(tested.unwrap_err().kind, ErrorKind::WrongPassword);
+    }
 }
 
 #[test]

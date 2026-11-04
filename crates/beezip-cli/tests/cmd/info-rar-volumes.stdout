@@ -1,0 +1,10 @@
+thirdparty/libarchive/test_read_format_rar5_multiarchive_solid.part02.rar: rar
+  9 entries: 9 files, 0 folders, 0 links
+  114.6 KiB in 13.0 KiB (11%)
+  methods: RAR 5.0
+  solid
+  4 volumes:
+    thirdparty/libarchive/test_read_format_rar5_multiarchive_solid.part01.rar
+    thirdparty/libarchive/test_read_format_rar5_multiarchive_solid.part02.rar
+    thirdparty/libarchive/test_read_format_rar5_multiarchive_solid.part03.rar
+    thirdparty/libarchive/test_read_format_rar5_multiarchive_solid.part04.rar

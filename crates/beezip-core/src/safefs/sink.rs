@@ -9,7 +9,7 @@ use std::{
 use filetime::FileTime;
 
 use super::{
-    ExtractReport, FsOptions, OverwritePolicy, SkipReason, motw,
+    ExtractReport, FsOptions, OverwritePolicy, Partial, SkipReason, motw,
     sanitize::{self, Refusal, SafePath},
 };
 use crate::{
@@ -275,7 +275,7 @@ impl FsSink {
     }
 
     /// Writes `<name>.<random>.beezip-partial` next to the target, then renames it over the
-    /// target. The temp file's drop guard deletes it on cancel, error or panic.
+    /// target. The partial file deletes itself on cancel, error or panic (`safefs::partial`).
     fn write_atomically(
         &self,
         dir: &Path,
@@ -287,14 +287,8 @@ impl FsSink {
             .file_name()
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_default();
-        let short: String = name.chars().take(64).collect();
-        let mut tmp = tempfile::Builder::new()
-            .prefix(&format!("{short}."))
-            .suffix(".beezip-partial")
-            .rand_bytes(6)
-            .tempfile_in(dir)
-            .map_err(|e| Error::io(format!("creating a file in {}", dir.display()), &e))?;
-        let bytes = copy(data, tmp.as_file_mut(), cx)?;
+        let mut tmp = Partial::create(dir, &name)?;
+        let bytes = copy(data, tmp.file_mut(), cx)?;
         // Windows won't rename over a read-only file.
         #[cfg(windows)]
         if let Ok(m) = fs::symlink_metadata(target)
@@ -305,12 +299,7 @@ impl FsSink {
             p.set_readonly(false);
             let _ = fs::set_permissions(target, p);
         }
-        // std's rename, not `persist`: tempfile calls MoveFileExW itself, without the long-path
-        // handling std applies. The temp path still deletes the file if the rename fails.
-        let partial = tmp.into_temp_path();
-        fs::rename(&partial, target)
-            .map_err(|e| Error::io(format!("writing {}", target.display()), &e))?;
-        let _ = partial.keep();
+        tmp.persist(target)?;
         Ok(bytes)
     }
 

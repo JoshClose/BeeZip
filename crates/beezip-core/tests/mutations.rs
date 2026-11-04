@@ -1,4 +1,4 @@
-//! A deterministic stand-in for the fuzzers that runs with `cargo test`: the bodies of the five
+//! A deterministic stand-in for the fuzzers that runs with `cargo test`: the bodies of the seven
 //! `fuzz/` targets, run over every fixture and over bit-flipped, truncated and spliced copies of
 //! each. The fuzzers (Linux, nightly) explore far more; this catches regressions on every
 //! platform before they get there. `BEEZIP_MUTATIONS` sets the copies per fixture (default 48).
@@ -12,7 +12,7 @@ use std::{
 
 use beezip_core::{
     ArchiveReader, CodecId, Limits, NullSink, OpenOptions, Selection, SimpleCtx, detect_bytes,
-    format::{tar::TarReader, zip::ZipReader},
+    format::{rar::RarReader, sevenz::SevenZReader, tar::TarReader, zip::ZipReader},
     safefs::sanitize::sanitize,
     source::Source,
 };
@@ -106,6 +106,19 @@ fn readers(data: &[u8], dir: &Path) {
         }
     }
 
+    if let Ok(source) = Source::new(&path, Vec::new(), &opts)
+        && let Ok(mut r) = SevenZReader::open(source, false, &mut cx)
+    {
+        exercise(&mut r, &mut cx);
+    }
+
+    // UnRAR runs in this process: a crash in it fails the test run instead of passing silently.
+    if let Ok(source) = Source::new(&path, Vec::new(), &opts)
+        && let Ok(mut r) = RarReader::open(source, false, &mut cx)
+    {
+        exercise(r.as_mut(), &mut cx);
+    }
+
     if let Ok(source) = Source::new(&path, Vec::new(), &opts) {
         let mut r = TarReader::new(source);
         let n = r.entries(&mut cx).map(<[_]>::len).unwrap_or(0);
@@ -115,6 +128,18 @@ fn readers(data: &[u8], dir: &Path) {
             if let Ok(mut e) = r.open_entry(id, &mut cx) {
                 read_some(&mut e);
             }
+        }
+    }
+}
+
+/// What every reader body does: list, describe, extract to nothing, and read a few entries.
+fn exercise(r: &mut dyn ArchiveReader, cx: &mut SimpleCtx) {
+    let n = r.entries(cx).map(<[_]>::len).unwrap_or(0);
+    let _ = r.info(cx);
+    let _ = r.extract(&Selection::all(), &mut NullSink::default(), cx);
+    for id in 0..n.min(8) {
+        if let Ok(mut e) = r.open_entry(id, cx) {
+            read_some(&mut e);
         }
     }
 }
@@ -148,13 +173,22 @@ fn fixtures_and_their_mutations_never_panic() {
         .ok()
         .and_then(|v| v.parse().ok())
         .unwrap_or(48usize);
+    // `BEEZIP_MUTATIONS_TRACE=<dir>` also saves each input to `<dir>/last-input` first.
+    let trace = std::env::var_os("BEEZIP_MUTATIONS_TRACE").map(PathBuf::from);
     let dir = tempfile::tempdir().unwrap();
     let mut next = rng(0x00BE_E21F);
     for (i, data) in corpus.iter().enumerate() {
         let other = &corpus[(i + 1) % corpus.len()];
         let mut inputs = vec![data.clone()];
         inputs.extend((0..per).map(|_| mutate(data, other, &mut next)));
-        for input in &inputs {
+        for (j, input) in inputs.iter().enumerate() {
+            // `BEEZIP_MUTATIONS_TRACE=1` names each input first, to find one that hangs.
+            if let Some(t) = &trace {
+                eprintln!("fixture {i} input {j} ({} bytes)", input.len());
+                if t.is_dir() {
+                    std::fs::write(t.join("last-input"), input).unwrap();
+                }
+            }
             readers(input, dir.path());
             codecs_and_detect(input);
             paths(&input[..input.len().min(512)]);

@@ -16,13 +16,15 @@ Options:
   -f, --format <FORMAT>
           The archive format [default: from the output's extension]
           
-          [possible values: zip, tar, tar.gz, tar.bz2, tar.xz, tar.lzma, tar.lz, tar.zst, tar.lz4,
-          tar.br, tar.sz]
+          [possible values: zip, 7z, tar, tar.gz, tar.bz2, tar.xz, tar.lzma, tar.lz, tar.zst,
+          tar.lz4, tar.br, tar.sz]
 
   -m, --method <METHOD>
-          The zip compression method [default: deflate]. Zip only
+          The compression method: for zip `store`, `deflate` (the default), `bzip2`, `zstd`, `xz` or
+          `ppmd`; for 7z `lzma2` (the default), `lzma`, `ppmd`, `bzip2`, `deflate` or `copy`. A
+          tar's codec comes from `format`
           
-          [possible values: store, deflate, bzip2, zstd, xz, ppmd]
+          [possible values: store, deflate, bzip2, zstd, xz, ppmd, lzma2, lzma, copy]
 
   -l, --level <LEVEL>
           The compression level; `formats.list` shows each codec's and method's range
@@ -31,15 +33,29 @@ Options:
           Compression threads for codecs that have them; 0 is one per core [default: from config]
 
   -p, --password <PASSWORD>
-          Encrypt the entries with this password. Zip only
+          Encrypt the entries with this password (AES-256). Zip and 7z
 
       --encryption <ENCRYPTION>
-          How to encrypt [default: aes256]. `zipcrypto` is weak, for tools that can't read AES
+          How to encrypt a zip [default: aes256]. `zipcrypto` is weak, for tools that can't read
+          AES. Zip only
 
           Possible values:
           - aes256:    AES-256, the default
           - zipcrypto: The legacy scheme, for tools such as Windows Explorer that can't read AES.
             Weak
+
+      --encrypt-headers[=<ENCRYPT_HEADERS>]
+          Encrypt the file names too, so the archive can't even be listed without the password
+          [default: true with a password]. 7z only
+          
+          [possible values: true, false]
+
+      --solid[=<SOLID>]
+          Compress files together in solid blocks of up to 64 MiB (or four dictionaries, at most 1
+          GiB): smaller archives, but reading one file decodes its block from the start [default:
+          true]. 7z only
+          
+          [possible values: true, false]
 
       --exclude <PATTERN>
           Leave out files and folders matching these patterns
@@ -48,6 +64,10 @@ Options:
           Store what symlinks point to instead of the links
           
           [possible values: true, false]
+
+  -v, --volume-size <SIZE>
+          Split the archive into volumes of this size: `<output>.001`, `.002`… Bytes, or a size such
+          as `100m`, `4g` or `700MB` (powers of 1024). At least 1 KiB
 
       --overwrite[=<OVERWRITE>]
           Replace the output if it exists
