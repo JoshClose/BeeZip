@@ -97,13 +97,37 @@ impl Partial {
         &self.path
     }
 
+    /// The open handle. Panics after [`Partial::close`] until [`Partial::open`]; only the
+    /// volume writer closes handles, and it always goes through `open`.
     pub fn file(&self) -> &File {
-        // Only `persist` and `drop` take the file, and both consume or end `self`.
-        self.file.as_ref().unwrap_or_else(|| unreachable!())
+        self.file
+            .as_ref()
+            .unwrap_or_else(|| unreachable!("a closed partial file"))
     }
 
     pub fn file_mut(&mut self) -> &mut File {
-        self.file.as_mut().unwrap_or_else(|| unreachable!())
+        self.file
+            .as_mut()
+            .unwrap_or_else(|| unreachable!("a closed partial file"))
+    }
+
+    /// Closes the handle; the file stays, and stays recorded. A long volume set keeps only one
+    /// part open at a time.
+    pub fn close(&mut self) {
+        drop(self.file.take());
+    }
+
+    /// The handle, reopened for reading and writing if [`Partial::close`] closed it.
+    pub fn open(&mut self) -> Result<&mut File> {
+        if self.file.is_none() {
+            let f = OpenOptions::new()
+                .read(true)
+                .write(true)
+                .open(&self.path)
+                .map_err(|e| Error::io(format!("opening {}", self.path.display()), &e))?;
+            self.file = Some(f);
+        }
+        Ok(self.file_mut())
     }
 
     /// Another handle to the same file.

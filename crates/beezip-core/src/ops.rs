@@ -16,9 +16,10 @@ use crate::{
         tar::TarWriter,
         zip::{ZipWriteOptions, ZipWriter},
     },
-    io::{BUF_SIZE, Counter, CountingReader},
+    io::{BUF_SIZE, Counter, CountingReader, WriteSeek},
     safefs::Partial,
     source::{OpenOptions, open},
+    volume::VolumeWriter,
 };
 
 /// The archive kinds BeeZip writes: zip, tar, and tar under one codec.
@@ -104,12 +105,12 @@ pub enum WriteSpec {
 }
 
 /// A plain output file as a [`FinishWrite`].
-fn plain(out: File) -> Box<dyn FinishWrite> {
+fn plain(out: Box<dyn WriteSeek>) -> Box<dyn FinishWrite> {
     finisher(BufWriter::with_capacity(BUF_SIZE, out), |mut w| w.flush())
 }
 
 /// A writer for `spec` on `out`.
-pub fn create_writer(spec: &WriteSpec, out: File) -> Result<Box<dyn ArchiveWriter>> {
+pub fn create_writer(spec: &WriteSpec, out: Box<dyn WriteSeek>) -> Result<Box<dyn ArchiveWriter>> {
     Ok(match spec {
         WriteSpec::Zip(opts) => Box::new(ZipWriter::new(out, opts.clone())?),
         WriteSpec::Tar { codec: None, .. } => Box::new(TarWriter::new(plain(out))),
@@ -131,6 +132,8 @@ pub struct CreateOptions {
     pub exclude: Vec<String>,
     /// Replace an existing output file.
     pub overwrite: bool,
+    /// Split the archive into `<output>.001`, `.002`… of this many bytes (docs/M3.md §3.1).
+    pub volume_size: Option<u64>,
 }
 
 /// One input file or directory, as it will be stored.
@@ -147,6 +150,8 @@ pub struct CreateReport {
     pub links: u64,
     pub bytes_in: u64,
     pub bytes_out: u64,
+    /// The volumes written, first part first; empty when the archive is one file.
+    pub volumes: Vec<PathBuf>,
 }
 
 /// What `inputs` become: each input under its own name (`src/` → `src/…`), directories walked
@@ -277,7 +282,7 @@ pub fn create(
     opts: &CreateOptions,
     cx: &mut dyn Ctx,
 ) -> Result<CreateReport> {
-    if !opts.overwrite && fs::symlink_metadata(output).is_ok() {
+    if opts.volume_size.is_none() && !opts.overwrite && fs::symlink_metadata(output).is_ok() {
         return Err(Error::new(
             ErrorKind::Conflict,
             format!("`{}` already exists", output.display()),
@@ -293,8 +298,14 @@ pub fn create(
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_default();
-    let tmp = Partial::create(&dir, &format!(".{name}"))?;
-    let out = tmp.try_clone()?;
+    let target = match opts.volume_size {
+        Some(size) => Target::Volumes(VolumeWriter::create(output, size, opts.overwrite)?),
+        None => Target::Single(Partial::create(&dir, &format!(".{name}"))?),
+    };
+    let out: Box<dyn WriteSeek> = match &target {
+        Target::Single(tmp) => Box::new(tmp.try_clone()?),
+        Target::Volumes(v) => Box::new(v.clone()),
+    };
 
     let spec = with_size_hint(spec, total);
     let mut writer = create_writer(&spec, out)?;
@@ -329,10 +340,29 @@ pub fn create(
     meter.entries_done = planned.len() as u64;
     MeteredCtx::new(cx, &meter).report();
 
-    tmp.persist(output)?;
     report.bytes_in = counter.get();
-    report.bytes_out = fs::metadata(output).map(|m| m.len()).unwrap_or(0);
+    match target {
+        Target::Single(tmp) => {
+            tmp.persist(output)?;
+            report.bytes_out = fs::metadata(output).map(|m| m.len()).unwrap_or(0);
+        }
+        Target::Volumes(v) => {
+            report.volumes = v.finish()?;
+            report.bytes_out = report
+                .volumes
+                .iter()
+                .filter_map(|p| fs::metadata(p).ok())
+                .map(|m| m.len())
+                .sum();
+        }
+    }
     Ok(report)
+}
+
+/// Where `create` writes: one partial file, or a volume set of them.
+enum Target {
+    Single(Partial),
+    Volumes(VolumeWriter),
 }
 
 fn with_size_hint(spec: &WriteSpec, total: u64) -> WriteSpec {

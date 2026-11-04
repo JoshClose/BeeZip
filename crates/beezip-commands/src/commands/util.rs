@@ -67,6 +67,10 @@ pub fn archive_stem(path: &Path) -> String {
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_default();
+    // A volume set is named after the joined archive: `a.7z.001` → `a.7z` → `a`.
+    if let Some((base, _, _)) = beezip_core::volume::numbered_name(&name) {
+        name = base.to_owned();
+    }
     loop {
         let lower = name.to_lowercase();
         if let Some(c) = CodecId::ALL
@@ -151,5 +155,7 @@ pub(crate) mod tests {
         assert_eq!(s("notes.txt.gz"), "notes.txt");
         assert_eq!(s("d.e.zip"), "d.e");
         assert_eq!(s(".zip"), ".zip");
+        assert_eq!(s("e.tar.zst.002"), "e");
+        assert_eq!(s("big.iso.001"), "big.iso");
     }
 }

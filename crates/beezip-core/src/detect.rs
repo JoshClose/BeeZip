@@ -12,7 +12,7 @@ use std::{
     fmt,
     fs::File,
     io::{self, Cursor, Read, Seek, SeekFrom},
-    path::Path,
+    path::{Path, PathBuf},
 };
 
 use file_format::FileFormat;
@@ -22,6 +22,7 @@ use crate::{
     codec::{codecs, strip_extension},
     format::{FormatId, formats, zip::is_sfx},
     io::read_prefix,
+    volume::{SetKind, VolumeReader, find_set},
 };
 
 /// How sure a sniffer is. `Guess` is an extension match only.
@@ -104,6 +105,11 @@ pub struct Detection {
     pub label: Option<String>,
     /// Whether the file's extension fits the outermost layer.
     pub extension_agrees: bool,
+    /// The parts of a volume set, first part first; just the file itself otherwise. Empty for
+    /// data detected in memory.
+    pub volumes: Vec<PathBuf>,
+    /// `volumes` is a numbered set (`a.7z.001`…), detected and read as one joined file.
+    pub joined: bool,
 }
 
 impl Detection {
@@ -152,8 +158,38 @@ impl fmt::Display for Detection {
     }
 }
 
-/// Detects a file on disk.
+/// Detects a file on disk. Any part of a numbered volume set (`a.7z.002`) is detected as the
+/// joined set: the head of part 1, the tail of the last part, and the name without `.001`
+/// (docs/M3.md §3.5). A set of anything else is the one-entry stream view of the joined file.
 pub fn detect_path(path: &Path, limits: &Limits) -> Result<Detection> {
+    match find_set(path)? {
+        Some(set) if set.kind == SetKind::Numbered => {
+            let reader = VolumeReader::open(&set.parts)?;
+            let len = reader.len();
+            let tail = read_tail(&mut reader.reopen(), len)
+                .map_err(|e| Error::io(format!("reading {}", path.display()), &e))?;
+            let name = set.name.to_lowercase();
+            let open = || -> io::Result<Box<dyn Read>> { Ok(Box::new(reader.reopen())) };
+            let mut det = detect_with(&open, &tail, Some(len), Some(name), limits)?;
+            if det.format().is_none() {
+                det.layers.push(Layer {
+                    kind: LayerKind::Format(FormatId::Stream),
+                    confidence: Confidence::Certain,
+                });
+            }
+            det.volumes = set.parts;
+            det.joined = true;
+            Ok(det)
+        }
+        _ => {
+            let mut det = detect_file(path, limits)?;
+            det.volumes = vec![path.to_path_buf()];
+            Ok(det)
+        }
+    }
+}
+
+fn detect_file(path: &Path, limits: &Limits) -> Result<Detection> {
     let mut file =
         File::open(path).map_err(|e| Error::io(format!("opening {}", path.display()), &e))?;
     let len = file
@@ -182,7 +218,7 @@ pub fn detect_bytes(data: &[u8], name: Option<&str>, limits: &Limits) -> Detecti
     .unwrap_or_default()
 }
 
-fn read_tail(file: &mut File, len: u64) -> io::Result<Vec<u8>> {
+fn read_tail<R: Read + Seek>(file: &mut R, len: u64) -> io::Result<Vec<u8>> {
     let want = len.min(TAIL_LEN as u64);
     file.seek(SeekFrom::Start(len - want))?;
     let mut tail = Vec::new();

@@ -77,6 +77,11 @@ exclude?: Array<string>,
  */
 follow_links?: boolean,
 /**
+ * Split the archive into volumes of this size: `<output>.001`, `.002`… Bytes, or a size
+ * such as `100m`, `4g` or `700MB` (powers of 1024). At least 1 KiB.
+ */
+volume_size?: ByteSize,
+/**
  * Replace the output if it exists.
  */
 overwrite?: boolean,
@@ -93,7 +98,11 @@ ratio: number, dry_run: boolean,
 /**
  * The archive paths a dry run would add.
  */
-plan: Array<string> | null, };
+plan: Array<string> | null,
+/**
+ * The volumes written, first part first, when the archive was split.
+ */
+volumes: Array<string> | null, };
 
 /**
  * Extract an archive, or the selected entries. Unsafe entries (paths climbing out with `..`,
@@ -269,6 +278,13 @@ export type ArchiveTestOutput = { archive: string, entries: number,
  * Uncompressed bytes read.
  */
 bytes: number, };
+
+/**
+ * A size in bytes: a number, or a string with a unit such as `100m`, `4g` or `700MB`. The
+ * units are powers of 1024, as with 7-Zip's `-v`: `k`, `m`, `g` and `t`, with or without `b`
+ * or `ib`. A string is kept as written, so it reads back the same.
+ */
+export type ByteSize = number | string;
 
 /**
  * What BeeZip offers for a format in this release.

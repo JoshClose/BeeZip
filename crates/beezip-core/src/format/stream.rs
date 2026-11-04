@@ -5,10 +5,7 @@
 //! - Its size comes from the xz index, or from gzip's ISIZE trailer when that can't have
 //!   wrapped (ISIZE is mod 2³²). Otherwise it is unknown until the data is decoded.
 
-use std::{
-    fs::File,
-    io::{Read, Seek, SeekFrom},
-};
+use std::io::{Read, Seek, SeekFrom};
 
 use super::{
     ArchiveFormat, ArchiveInfo, ArchiveReader, Encryption, Entry, EntryKind, EntrySink, FormatCaps,
@@ -83,6 +80,10 @@ fn entry_name(source: &Source) -> Result<String> {
         }
     }
     let mut name = source.file_name();
+    // A split file of anything else (`big.iso.001`): the joined file, `big.iso`.
+    if source.joined && source.codecs.is_empty() && !name.is_empty() {
+        return Ok(name);
+    }
     for codec in source.codecs.iter().rev() {
         match strip_extension(&name, *codec) {
             Some(stripped) => name = stripped,
@@ -97,8 +98,9 @@ fn entry_name(source: &Source) -> Result<String> {
 
 /// Known sizes: the xz index, or gzip's ISIZE when the file is too small for it to wrap.
 fn size_hint(source: &Source) -> Option<u64> {
-    let mut file = File::open(&source.path).ok()?;
+    let mut file = source.input().ok()?;
     match source.codecs.as_slice() {
+        [] => Some(source.size),
         [CodecId::Xz] => lzma_rust2::xz_uncompressed_size(&mut file).ok(),
         // Deflate expands at most about 1032:1, so below ~4 MB of input ISIZE is exact
         // (for a single member).

@@ -12,7 +12,7 @@ use ts_rs::TS;
 use crate::{
     Access, CliSpec, CmdError, Command, Effect, JobCtx,
     commands::util::{absolute, level},
-    wire::{ArchiveFormatName, EncryptionName, Secret, ZipMethodName, human_size, ratio},
+    wire::{ArchiveFormatName, ByteSize, EncryptionName, Secret, ZipMethodName, human_size, ratio},
 };
 
 /// Create an archive from files and folders. Each input is stored under its own name (`src/`
@@ -60,6 +60,11 @@ pub struct ArchiveCreateInput {
     #[arg(short = 'L', long, num_args = 0..=1, require_equals = true, default_missing_value = "true")]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub follow_links: Option<bool>,
+    /// Split the archive into volumes of this size: `<output>.001`, `.002`… Bytes, or a size
+    /// such as `100m`, `4g` or `700MB` (powers of 1024). At least 1 KiB.
+    #[arg(short = 'v', long, value_name = "SIZE")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub volume_size: Option<ByteSize>,
     /// Replace the output if it exists.
     #[arg(long, num_args = 0..=1, require_equals = true, default_missing_value = "true")]
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -84,6 +89,8 @@ pub struct ArchiveCreateOutput {
     pub dry_run: bool,
     /// The archive paths a dry run would add.
     pub plan: Option<Vec<String>>,
+    /// The volumes written, first part first, when the archive was split.
+    pub volumes: Option<Vec<PathBuf>>,
 }
 
 pub struct ArchiveCreate;
@@ -194,6 +201,7 @@ impl Command for ArchiveCreate {
             follow_links: input.follow_links.unwrap_or(false),
             exclude: input.exclude.clone().unwrap_or_default(),
             overwrite: input.overwrite.unwrap_or(false),
+            volume_size: input.volume_size.as_ref().map(ByteSize::bytes),
         };
         let format = ArchiveFormatName::from_kind(kind);
 
@@ -214,6 +222,7 @@ impl Command for ArchiveCreate {
                 ratio: 1.0,
                 dry_run: true,
                 plan: Some(plan.into_iter().map(|p| p.entry.path).collect()),
+                volumes: None,
             });
         }
 
@@ -229,6 +238,7 @@ impl Command for ArchiveCreate {
             ratio: ratio(report.bytes_in, report.bytes_out),
             dry_run: false,
             plan: None,
+            volumes: (!report.volumes.is_empty()).then_some(report.volumes),
         })
     }
 
@@ -249,7 +259,7 @@ impl Command for ArchiveCreate {
             ));
             return Some(s);
         }
-        Some(format!(
+        let mut s = format!(
             "Created {} ({}): {} files, {} folders, {} -> {} ({:.0}%)",
             out.path.display(),
             out.format.name(),
@@ -258,7 +268,15 @@ impl Command for ArchiveCreate {
             human_size(out.bytes_in),
             human_size(out.bytes_out),
             out.ratio * 100.0
-        ))
+        );
+        if let Some(v) = &out.volumes {
+            let first = v
+                .first()
+                .map(|p| p.display().to_string())
+                .unwrap_or_default();
+            s.push_str(&format!("\n  in {} volumes, from {first}", v.len()));
+        }
+        Some(s)
     }
 }
 

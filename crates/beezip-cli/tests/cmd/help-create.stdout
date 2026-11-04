@@ -49,6 +49,10 @@ Options:
           
           [possible values: true, false]
 
+  -v, --volume-size <SIZE>
+          Split the archive into volumes of this size: `<output>.001`, `.002`… Bytes, or a size such
+          as `100m`, `4g` or `700MB` (powers of 1024). At least 1 KiB
+
       --overwrite[=<OVERWRITE>]
           Replace the output if it exists
           

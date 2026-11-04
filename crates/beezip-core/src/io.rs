@@ -75,6 +75,11 @@ impl<R: Seek> Seek for CountingReader<R> {
     }
 }
 
+/// Where archive writers write: a file, or a volume set (`volume::VolumeWriter`).
+pub trait WriteSeek: Write + Seek + Send {}
+
+impl<T: Write + Seek + Send> WriteSeek for T {}
+
 /// Counts the bytes written through it.
 #[derive(Debug)]
 pub struct CountingWriter<W> {

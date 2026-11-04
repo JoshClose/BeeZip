@@ -16,6 +16,7 @@ pub mod safefs;
 pub mod sinks;
 pub mod source;
 pub mod time;
+pub mod volume;
 
 pub use codec::{Codec, CodecId, EncodeOpts, FinishWrite, Levels};
 pub use ctx::{Ctx, Meter, MeteredCtx, OverwriteChoice, Progress, SimpleCtx};
