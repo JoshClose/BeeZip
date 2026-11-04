@@ -337,7 +337,12 @@ export type ByteSize = number | string;
 /**
  * What BeeZip offers for a format in this release.
  */
-export type Caps = { list: boolean, extract: boolean, create: boolean, append: boolean, delete: boolean, rename: boolean, encrypt: boolean, encrypt_headers: boolean, solid: boolean, volumes: boolean,
+export type Caps = { list: boolean, extract: boolean, create: boolean, append: boolean, delete: boolean, rename: boolean, encrypt: boolean, encrypt_headers: boolean, solid: boolean,
+/**
+ * The format has volume sets of its own (7z's, RAR's). A numbered split (`a.zip.001`)
+ * works for every format regardless.
+ */
+volumes: boolean,
 /**
  * An entry can be read without decoding the ones before it.
  */
