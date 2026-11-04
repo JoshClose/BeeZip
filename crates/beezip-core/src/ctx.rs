@@ -21,6 +21,11 @@ pub struct Progress {
     pub current: Option<String>,
 }
 
+/// How many wrong passwords a reader takes for one thing (an archive's names, a 7z block, a RAR
+/// entry) before it gives up, whatever the context offers. A context normally gives up first:
+/// `JobCtx` after three prompts. This is the backstop for one that never does.
+pub const MAX_PASSWORD_TRIES: u32 = 8;
+
 /// The answer to an overwrite prompt. `ReplaceAll` and `SkipAll` hold for the rest of the job.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OverwriteChoice {

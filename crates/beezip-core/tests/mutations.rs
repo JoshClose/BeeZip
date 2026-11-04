@@ -173,13 +173,22 @@ fn fixtures_and_their_mutations_never_panic() {
         .ok()
         .and_then(|v| v.parse().ok())
         .unwrap_or(48usize);
+    // `BEEZIP_MUTATIONS_TRACE=<dir>` also saves each input to `<dir>/last-input` first.
+    let trace = std::env::var_os("BEEZIP_MUTATIONS_TRACE").map(PathBuf::from);
     let dir = tempfile::tempdir().unwrap();
     let mut next = rng(0x00BE_E21F);
     for (i, data) in corpus.iter().enumerate() {
         let other = &corpus[(i + 1) % corpus.len()];
         let mut inputs = vec![data.clone()];
         inputs.extend((0..per).map(|_| mutate(data, other, &mut next)));
-        for input in &inputs {
+        for (j, input) in inputs.iter().enumerate() {
+            // `BEEZIP_MUTATIONS_TRACE=1` names each input first, to find one that hangs.
+            if let Some(t) = &trace {
+                eprintln!("fixture {i} input {j} ({} bytes)", input.len());
+                if t.is_dir() {
+                    std::fs::write(t.join("last-input"), input).unwrap();
+                }
+            }
             readers(input, dir.path());
             codecs_and_detect(input);
             paths(&input[..input.len().min(512)]);

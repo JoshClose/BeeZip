@@ -508,7 +508,7 @@ mod imp {
             let mut failed = 0u32;
             loop {
                 let (mut s, mut answers) = self.session_after(Mode::List, failed, cx)?;
-                match self.read_headers(&mut s, &mut answers, cx) {
+                match self.read_headers(&mut s, &mut answers, failed, cx) {
                     // RAR 1.5–4 headers have no password check: a wrong one opens, and the
                     // first header reads as damage. Ask again.
                     Err(Some(f))
@@ -523,6 +523,14 @@ mod imp {
                         self.password = None;
                         drop(s);
                         cx.check()?;
+                        // The job says when to stop asking; this is a backstop for one that
+                        // never does.
+                        if failed > crate::ctx::MAX_PASSWORD_TRIES {
+                            return Err(Error::new(
+                                ErrorKind::WrongPassword,
+                                "wrong password or damaged data",
+                            ));
+                        }
                     }
                     Err(Some(f)) => {
                         return Err(answers.error.take().unwrap_or_else(|| rar_error(&f, false)));
@@ -544,6 +552,7 @@ mod imp {
             &mut self,
             s: &mut Session,
             answers: &mut Answers,
+            failed: u32,
             cx: &mut dyn Ctx,
         ) -> std::result::Result<(), Option<Failure>> {
             let mut entries = Vec::new();
@@ -557,7 +566,9 @@ mod imp {
                 if let Err(e) = cx.check() {
                     return Err(stop(answers, e));
                 }
-                let h = match s.next(&mut || answers.answer(cx, None, 0)) {
+                // RAR 4 may ask for the header password here rather than at open: `failed`
+                // says how many answers were wrong, so the job doesn't give the same one again.
+                let h = match s.next(&mut || answers.answer(cx, None, failed)) {
                     Ok(Some(h)) => h,
                     Ok(None) => break,
                     Err(f) => return Err(Some(f)),
@@ -574,7 +585,8 @@ mod imp {
                         && h.unp_size > 0)
                         .then_some(h.unp_size),
                 );
-                s.skip(&mut || answers.answer(cx, None, 0)).map_err(Some)?;
+                s.skip(&mut || answers.answer(cx, None, failed))
+                    .map_err(Some)?;
             }
             self.entries = entries;
             self.dicts = dicts;
@@ -881,6 +893,12 @@ mod imp {
                         }
                         Outcome::WrongPassword => {
                             failed += 1;
+                            if failed > crate::ctx::MAX_PASSWORD_TRIES {
+                                return Err(Error::new(
+                                    ErrorKind::WrongPassword,
+                                    "wrong password or damaged data",
+                                ));
+                            }
                             self.password = None;
                             pending = Some(match cx.password(Some(&e.path), failed) {
                                 Ok(pw) => pw,
@@ -971,6 +989,12 @@ mod imp {
                         if e.encrypted && rar_error(&f, true).kind == ErrorKind::WrongPassword =>
                     {
                         failed += 1;
+                        if failed > crate::ctx::MAX_PASSWORD_TRIES {
+                            return Err(Error::new(
+                                ErrorKind::WrongPassword,
+                                "wrong password or damaged data",
+                            ));
+                        }
                         self.password = None;
                         pending = Some(match cx.password(Some(&e.path), failed) {
                             Ok(pw) => pw,

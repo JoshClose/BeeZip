@@ -330,6 +330,9 @@ impl SevenZReader {
         let mut need_password = header.encrypted;
         let mut failed = 0u32;
         let (archive, password) = loop {
+            if failed > crate::ctx::MAX_PASSWORD_TRIES {
+                return Err(wrong_password());
+            }
             let pw = if need_password {
                 Some(match cx.password(None, failed) {
                     Err(e) if e.kind == ErrorKind::WrongPassword && failed > 0 => {
@@ -456,6 +459,9 @@ impl SevenZReader {
     /// The password to try for a block after `failed` wrong ones: the last one that worked,
     /// then whatever the context offers (the input's first, then prompts), until it gives up.
     fn block_password(&self, entry: &str, failed: u32, cx: &mut dyn Ctx) -> Result<String> {
+        if failed > crate::ctx::MAX_PASSWORD_TRIES {
+            return Err(wrong_password());
+        }
         if failed == 0
             && let Some(pw) = &self.password
         {
