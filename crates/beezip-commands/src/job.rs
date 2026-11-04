@@ -83,7 +83,8 @@ pub fn discard_events() -> EventSink {
 /// Answers prompts. Each front end does it its own way: a TTY prompt, `cmd_respond` or MCP
 /// elicitation.
 pub trait Interactor: Send + Sync {
-    fn prompt(&self, id: u64, prompt: &Prompt) -> Result<PromptReply, CmdError>;
+    /// `job` says which job asks: a GUI answers through `cmd_respond(job, id, reply)`.
+    fn prompt(&self, job: JobId, id: u64, prompt: &Prompt) -> Result<PromptReply, CmdError>;
 }
 
 /// An [`Interactor`] with nobody to ask: every prompt fails with a hint about which argument to
@@ -92,7 +93,7 @@ pub trait Interactor: Send + Sync {
 pub struct NonInteractive;
 
 impl Interactor for NonInteractive {
-    fn prompt(&self, _id: u64, prompt: &Prompt) -> Result<PromptReply, CmdError> {
+    fn prompt(&self, _job: JobId, _id: u64, prompt: &Prompt) -> Result<PromptReply, CmdError> {
         Err(match prompt {
             Prompt::Password { .. } => CmdError::new(
                 ErrorCode::PasswordRequired,
@@ -240,7 +241,7 @@ impl JobCtx {
             id,
             prompt: prompt.clone(),
         });
-        self.interactor.prompt(id, &prompt)
+        self.interactor.prompt(self.id, id, &prompt)
     }
 }
 

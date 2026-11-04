@@ -8,8 +8,8 @@
 use std::sync::Arc;
 
 use beezip_commands::{
-    CancelToken, CmdError, Engine, EventSink, Interactor, JobEvent, Policy, Progress, Prompt,
-    PromptReply,
+    CancelToken, CmdError, Engine, EventSink, Interactor, JobEvent, JobId, Policy, Progress,
+    Prompt, PromptReply,
 };
 use rmcp::{
     RoleServer,
@@ -39,7 +39,7 @@ struct McpInteractor {
 }
 
 impl Interactor for McpInteractor {
-    fn prompt(&self, _id: u64, prompt: &Prompt) -> Result<PromptReply, CmdError> {
+    fn prompt(&self, _job: JobId, _id: u64, prompt: &Prompt) -> Result<PromptReply, CmdError> {
         if let Prompt::Password { .. } = prompt {
             return Err(prompt::password_required());
         }

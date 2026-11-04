@@ -8,7 +8,7 @@ use std::{
 };
 
 use beezip_commands::{
-    CmdError, Config, Engine, EngineOptions, ErrorCode, EventSink, Interactor, JobEvent,
+    CmdError, Config, Engine, EngineOptions, ErrorCode, EventSink, Interactor, JobEvent, JobId,
     NonInteractive, Policy, Prompt, PromptReply, registry,
 };
 use serde_json::{Value, json};
@@ -38,7 +38,7 @@ impl Scripted {
 }
 
 impl Interactor for Scripted {
-    fn prompt(&self, _id: u64, prompt: &Prompt) -> Result<PromptReply, CmdError> {
+    fn prompt(&self, _job: JobId, _id: u64, prompt: &Prompt) -> Result<PromptReply, CmdError> {
         self.asked.lock().unwrap().push(prompt.clone());
         self.replies
             .lock()
