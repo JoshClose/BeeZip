@@ -27,8 +27,16 @@ exceptions = [                       # MPL-2.0, unmodified, pulled in by Tauri 2
     { allow = ["MPL-2.0"], crate = "cssparser-macros" },
     { allow = ["MPL-2.0"], crate = "dtoa-short" },
     { allow = ["MPL-2.0"], crate = "selectors" },
-    # M3: { allow = ["LicenseRef-UnRAR"], crate = "unrar_sys" },
+    # UnRAR (docs/M3.md §1): extraction only, its license notice shipped in THIRD_PARTY_NOTICES.
+    { allow = ["LicenseRef-UnRAR"], crate = "unrar_sys" },
 ]
+
+# unrar_sys declares `MIT OR Apache-2.0`, which covers its bindings, but it compiles UnRAR's own
+# C++, which is under the UnRAR license. Without this, cargo-deny would pass it unnoticed.
+[[licenses.clarify]]
+crate = "unrar_sys"
+expression = "(MIT OR Apache-2.0) AND LicenseRef-UnRAR"
+license-files = [{ path = "vendor/unrar/license.txt", hash = 0x46456911 }]   # XxHash32, seed 0
 
 [licenses.private]
 ignore = true

@@ -3,6 +3,7 @@ Archive formats
   zip      ZIP              yes   yes     yes    yes      yes     .zip .jar .war .apk .aab .ipa .xpi .vsix .nupkg .whl .docx .xlsx .pptx .odt .ods .odp .epub .appx .msix
   tar      TAR              yes   yes     yes    -        yes     .tar
   7z       7z               yes   yes     yes    yes      -       .7z .cb7
+  rar      RAR              yes   yes     -      -        -       .rar .cbr .r00
   stream   compressed file  yes   yes     -      -        -       
   zip methods: store, deflate (1-9, 6), bzip2 (1-9, 9), zstd (1-22, 3), xz (0-9, 6), ppmd (1-9, 7)
   7z methods: lzma2 (0-9, 5), lzma (0-9, 5), ppmd (1-9, 6), bzip2 (1-9, 9), deflate (1-9, 6), copy

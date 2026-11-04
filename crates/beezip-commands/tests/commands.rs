@@ -101,7 +101,7 @@ fn walkdir(dir: &Path) -> Vec<PathBuf> {
 #[test]
 fn formats_list_has_everything() {
     let out = run("formats.list", json!({})).unwrap();
-    assert_eq!(out["formats"].as_array().unwrap().len(), 4);
+    assert_eq!(out["formats"].as_array().unwrap().len(), 5);
     assert_eq!(out["codecs"].as_array().unwrap().len(), 11);
     assert_eq!(out["create"].as_array().unwrap().len(), 12);
     let sz = &out["formats"][2];

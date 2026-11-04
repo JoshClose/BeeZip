@@ -13,6 +13,18 @@
 //! - **Stopping:** the callback returns -1 (UnRAR stops) when [`Session::stop`] was called or
 //!   the session was dropped. Its body runs inside `catch_unwind`, so a panic can't unwind into
 //!   C++.
+//!
+//! UnRAR 7.1.0 comes from the copy `unrar_sys` 0.5.8 vendors, with that crate's patches. Its
+//! license (THIRD_PARTY_NOTICES.md has it in full) asks for this paragraph in the source
+//! comments of a package that includes modified UnRAR source:
+//!
+//! > UnRAR source code may be used in any software to handle RAR archives without limitations
+//! > free of charge, but cannot be used to develop RAR (WinRAR) compatible archiver and to
+//! > re-create RAR compression algorithm, which is proprietary. Distribution of modified UnRAR
+//! > source code in separate form or as a part of other software is permitted, provided that
+//! > full text of this paragraph, starting from "UnRAR source code" words, is included in
+//! > license, or in documentation if license is not available, and in source code comments of
+//! > resulting package.
 
 #![allow(unsafe_code)]
 
