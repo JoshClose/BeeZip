@@ -52,19 +52,19 @@ The rest of the config (default levels, the overwrite policy, limits) applies to
 
 | Tool | Writes | What it does |
 |---|---|---|
-| `formats_list` | | The formats and codecs BeeZip reads and writes. |
-| `file_detect` | | What a file is: `zstd → tar`, a zip SFX, or not an archive. |
-| `archive_info` | | Counts, sizes, ratio, methods, encryption. |
-| `archive_list` | | Entries, one folder level at a time or `flat`, with `glob` filters. |
+| `formats_list` | | The formats and codecs BeeZip reads and writes: zip, 7z, RAR (read only), tar under any codec, and bare compressed files. |
+| `file_detect` | | What a file is: `zstd → tar`, a 7z, a RAR or zip SFX, a volume set (`a.7z.001`…, `a.part1.rar`…), or not an archive. |
+| `archive_info` | | Counts, sizes, ratio, methods, encryption, solid blocks, and the volumes of a split archive. |
+| `archive_list` | | Entries, one folder level at a time or `flat`, with `glob` filters, `kind`, and `sort` (folders first). |
 | `archive_test` | | Reads everything back and checks CRCs. |
 | `entry_read` | | Part of one entry, as text, hex or base64. |
 | `archive_extract` | ✓ | All entries, or selected ones, into `dest`. |
-| `archive_create` | ✓ | A zip or tar (optionally compressed) from files and folders. |
+| `archive_create` | ✓ | A zip, 7z or tar (optionally compressed) from files and folders, optionally split into volumes (`volume_size`). A 7z with a password encrypts the names too, unless `encrypt_headers` is false. |
 | `stream_compress` | ✓ | One file through one codec: `a.txt` → `a.txt.zst`. |
 | `stream_decompress` | ✓ | One codec layer off: `a.tar.zst` → `a.tar`. |
 | `app_version` | | BeeZip's version. |
 
-Each tool has an output schema, and its results come back as structured content plus the same JSON as text.
+Each tool has an output schema, and its results come back as structured content plus the same JSON as text. The archive tools read zip, 7z, RAR 1.5–7 and tar (RAR is read only), and any part of a split archive (`a.7z.002`, `a.part3.rar`) opens the whole set.
 
 ## Where it may write
 

@@ -115,6 +115,9 @@ opt-level = 3
 opt-level = 3
 [profile.dev.package.libbz2-rs-sys]
 opt-level = 3
+# libbz2-rs-sys 0.2.6 lets a counter wrap on bad data and then rejects the data, as the C does;
+# with overflow checks that wrap is a panic instead (found by the sevenz fuzzer, docs/M3.md §11).
+overflow-checks = false
 [profile.dev.package.lz4_flex]
 opt-level = 3
 [profile.dev.package.snap]
