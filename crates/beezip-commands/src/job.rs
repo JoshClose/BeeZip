@@ -11,7 +11,9 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
-use crate::{CmdError, ErrorCode, config::Config, policy::Policy, wire::Secret};
+use crate::{
+    CmdError, ErrorCode, cache::ArchiveCache, config::Config, policy::Policy, wire::Secret,
+};
 
 pub type JobId = u64;
 
@@ -145,6 +147,9 @@ pub struct JobCtx {
     /// The password given in the input, or the last one a prompt supplied.
     password: Option<String>,
     password_prompts: u32,
+    /// A password reached the reader, which may keep it; the archive cache won't take it back.
+    password_used: bool,
+    cache: Option<Arc<ArchiveCache>>,
 }
 
 impl JobCtx {
@@ -155,6 +160,7 @@ impl JobCtx {
         interactor: Arc<dyn Interactor>,
         policy: Arc<Policy>,
         config: Arc<Result<Config, CmdError>>,
+        cache: Option<Arc<ArchiveCache>>,
     ) -> Self {
         Self {
             id,
@@ -168,6 +174,8 @@ impl JobCtx {
             pending_progress: None,
             password: None,
             password_prompts: 0,
+            password_used: false,
+            cache,
         }
     }
 
@@ -177,6 +185,16 @@ impl JobCtx {
 
     pub fn policy(&self) -> &Policy {
         &self.policy
+    }
+
+    /// The engine's archive cache; `None` for a job run without an engine.
+    pub fn cache(&self) -> Option<&Arc<ArchiveCache>> {
+        self.cache.as_ref()
+    }
+
+    /// Whether a password reached the reader during this job.
+    pub fn password_used(&self) -> bool {
+        self.password_used
     }
 
     /// The config, or the error that made it unusable (a value of the wrong type).
@@ -276,6 +294,7 @@ impl beezip_core::Ctx for JobCtx {
         if attempt == 0
             && let Some(pw) = &self.password
         {
+            self.password_used = true;
             return Ok(pw.clone());
         }
         if self.password_prompts >= PASSWORD_PROMPTS {
@@ -287,6 +306,7 @@ impl beezip_core::Ctx for JobCtx {
         match reply {
             Ok(PromptReply::Password { password }) => {
                 self.password_prompts += 1;
+                self.password_used = true;
                 self.password = Some(password.clone());
                 Ok(password)
             }

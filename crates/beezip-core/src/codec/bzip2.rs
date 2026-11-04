@@ -43,7 +43,11 @@ impl Codec for Bzip2 {
         })
     }
 
-    fn decoder<'a>(&self, r: Box<dyn Read + 'a>, _: &Limits) -> Result<Box<dyn Read + 'a>> {
+    fn decoder<'a>(
+        &self,
+        r: Box<dyn Read + Send + 'a>,
+        _: &Limits,
+    ) -> Result<Box<dyn Read + Send + 'a>> {
         Ok(Box::new(MultiBzDecoder::new(r)))
     }
 

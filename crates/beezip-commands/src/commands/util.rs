@@ -2,6 +2,8 @@
 
 use std::path::{Path, PathBuf};
 
+use std::sync::Arc;
+
 use beezip_core::{
     CodecId, OpenOptions, Opened,
     codec::{TAR_SHORTHANDS, strip_extension},
@@ -9,7 +11,11 @@ use beezip_core::{
     source::open,
 };
 
-use crate::{CmdError, ErrorCode, JobCtx, wire::Secret};
+use crate::{
+    CmdError, ErrorCode, JobCtx,
+    cache::{ArchiveCache, Key, OpenArchive},
+    wire::Secret,
+};
 
 /// `path` made absolute against the current directory, as the CLI's relative paths mean.
 pub fn absolute(path: &Path) -> PathBuf {
@@ -52,6 +58,76 @@ pub fn open_archive_with(
 ) -> Result<Opened, CmdError> {
     cx.set_password(password);
     Ok(open(&absolute(path), opts, cx)?)
+}
+
+/// An archive lent from the engine's cache, or opened for this job.
+struct Lent {
+    archive: OpenArchive,
+    home: Option<(Arc<ArchiveCache>, Key)>,
+}
+
+impl Lent {
+    /// Back to the cache, unless a password reached the reader or the job was cancelled.
+    fn give_back(self, cx: &JobCtx) {
+        if let Some((cache, key)) = self.home
+            && !cx.password_used()
+            && !cx.is_cancelled()
+        {
+            cache.give_back(key, self.archive);
+        }
+    }
+}
+
+/// Runs `f` on the archive at `path`, lent from the engine's archive cache (docs/M3.md §4.2)
+/// or opened. It goes back afterwards, unless the job was cancelled, a password reached the
+/// reader, or `f` failed reading it; an error about the arguments keeps it.
+pub fn with_archive<T>(
+    path: &Path,
+    password: Option<&Secret>,
+    cx: &mut JobCtx,
+    f: impl FnOnce(&mut OpenArchive, &mut JobCtx) -> Result<T, CmdError>,
+) -> Result<T, CmdError> {
+    let mut lent = open_lent(path, password, cx)?;
+    let result = f(&mut lent.archive, cx);
+    let keep = match &result {
+        Ok(_) => true,
+        Err(e) => matches!(
+            e.code,
+            ErrorCode::InvalidArgs | ErrorCode::NotFound | ErrorCode::UnsupportedOperation
+        ),
+    };
+    if keep {
+        lent.give_back(cx);
+    }
+    result
+}
+
+fn open_lent(path: &Path, password: Option<&Secret>, cx: &mut JobCtx) -> Result<Lent, CmdError> {
+    cx.set_password(password);
+    let path = absolute(path);
+    let limits = cx.policy().limits.clone();
+    let cache = cx.cache().cloned();
+    let canonical = std::fs::canonicalize(&path).ok();
+    if let (Some(cache), Some(canonical)) = (&cache, &canonical)
+        && let Some((archive, key)) = cache.lend(canonical, &limits)
+    {
+        return Ok(Lent {
+            archive,
+            home: Some((Arc::clone(cache), key)),
+        });
+    }
+    let opts = OpenOptions::new(limits.clone());
+    let opened = open(&path, &opts, cx)?;
+    let home = match (cache, canonical) {
+        (Some(cache), Some(canonical)) => {
+            Key::new(canonical, limits, &opened.detection.volumes).map(|key| (cache, key))
+        }
+        _ => None,
+    };
+    Ok(Lent {
+        archive: OpenArchive::new(opened, opts.budget),
+        home,
+    })
 }
 
 /// Writes `target` through `<name>.<random>.beezip-partial` in its directory and renames it into

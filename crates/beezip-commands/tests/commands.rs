@@ -887,3 +887,75 @@ fn config_defaults_apply() {
     let (r, _) = run_with(&engine, "archive.extract", args, Arc::new(NonInteractive));
     assert!(r.unwrap()["renamed_total"].as_u64().unwrap() > 0);
 }
+
+/// docs/M3.md §4.2: the cache serves a second listing, notices a changed file, and never
+/// keeps a reader that was given a password.
+#[test]
+fn archive_cache_hits_misses_and_skips_passwords() {
+    let dir = tempfile::tempdir().unwrap();
+    let zip = dir.path().join("a.zip");
+    std::fs::copy(fixtures().join("thirdparty/7z-deflate.zip"), &zip).unwrap();
+    let engine = Engine::new(registry());
+    let list = |args: Value| run_with(&engine, "archive.list", args, Arc::new(NonInteractive)).0;
+    let a = json!({ "archive": zip, "flat": true, "sort": "size" });
+
+    let first = list(a.clone()).unwrap();
+    let stats = engine.cache().stats();
+    assert_eq!((stats.archives, stats.hits, stats.misses), (1, 0, 1));
+    assert!(stats.entries > 0);
+
+    // A hit, with the same answer; then the same archive through archive.info and entry.read.
+    assert_eq!(list(a.clone()).unwrap(), first);
+    let info = run_with(
+        &engine,
+        "archive.info",
+        json!({ "archive": zip }),
+        Arc::new(NonInteractive),
+    )
+    .0;
+    assert_eq!(info.unwrap()["entries"], first["total"]);
+    let file = first["entries"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|e| e["kind"] == "file")
+        .unwrap()["id"]
+        .clone();
+    let read = run_with(
+        &engine,
+        "entry.read",
+        json!({ "archive": zip, "index": file, "max_bytes": 4 }),
+        Arc::new(NonInteractive),
+    )
+    .0;
+    assert!(read.is_ok(), "{read:?}");
+    let stats = engine.cache().stats();
+    assert_eq!((stats.archives, stats.hits, stats.misses), (1, 3, 1));
+
+    // Touching the file makes it a miss; the fresh reader goes back in its place.
+    let f = std::fs::OpenOptions::new().write(true).open(&zip).unwrap();
+    f.set_modified(std::time::SystemTime::now() + std::time::Duration::from_secs(60))
+        .unwrap();
+    drop(f);
+    assert_eq!(list(a.clone()).unwrap(), first);
+    let stats = engine.cache().stats();
+    assert_eq!((stats.archives, stats.hits, stats.misses), (1, 3, 2));
+
+    // An archive opened with a password isn't kept, and a failed job doesn't keep its reader.
+    let sz = fx("thirdparty/7z-aes-mhe.7z");
+    let out = list(json!({ "archive": sz, "password": "beezip" })).unwrap();
+    assert!(out["total"].as_u64().unwrap() > 0);
+    assert!(list(json!({ "archive": zip, "dir": "x", "glob": ["["] })).is_err());
+    let stats = engine.cache().stats();
+    assert_eq!(stats.archives, 1);
+    let out = list(json!({ "archive": sz, "password": "beezip" })).unwrap();
+    assert!(out["total"].as_u64().unwrap() > 0);
+    assert_eq!(
+        engine.cache().stats().hits,
+        4,
+        "the zip hit once more; the 7z never"
+    );
+
+    engine.cache().clear();
+    assert_eq!(engine.cache().stats().archives, 0);
+}

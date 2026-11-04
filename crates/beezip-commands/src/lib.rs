@@ -4,6 +4,7 @@
 //! server and the desktop app all look commands up in the same [`Registry`] and run them through
 //! the same [`Engine`], so a new command needs no front-end code (PLAN §1).
 
+pub mod cache;
 mod command;
 pub mod commands;
 pub mod config;

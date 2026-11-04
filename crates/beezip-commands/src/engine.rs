@@ -15,7 +15,7 @@ use ts_rs::TS;
 
 use crate::{
     CancelToken, CmdError, ErrorCode, EventSink, Interactor, JobCtx, JobEvent, JobId, Registry,
-    config::Config, policy::Policy, registry::RunFn,
+    cache::ArchiveCache, config::Config, policy::Policy, registry::RunFn,
 };
 
 /// Runs commands as jobs. Cheap to clone; clones share the job table.
@@ -33,6 +33,7 @@ struct Inner {
     jobs: Mutex<HashMap<JobId, Running>>,
     policy: Arc<Policy>,
     config: Arc<Result<Config, CmdError>>,
+    cache: Arc<ArchiveCache>,
 }
 
 /// What the front ends set up once: the config (as loaded when the process started) and the
@@ -95,12 +96,18 @@ impl Engine {
                 jobs: Mutex::new(HashMap::new()),
                 policy: Arc::new(options.policy),
                 config: Arc::new(options.config),
+                cache: Arc::new(ArchiveCache::new()),
             }),
         }
     }
 
     pub fn registry(&self) -> &'static Registry {
         self.inner.registry
+    }
+
+    /// The archives `archive.list`, `archive.info` and `entry.read` keep open between jobs.
+    pub fn cache(&self) -> &ArchiveCache {
+        &self.inner.cache
     }
 
     /// The policy jobs run under unless [`Engine::invoke_with_policy`] names another.
@@ -226,6 +233,7 @@ fn execute(inner: &Inner, job: JobSetup, args: Value) -> Result<Value, CmdError>
         interactor,
         policy,
         Arc::clone(&inner.config),
+        Some(Arc::clone(&inner.cache)),
     );
     let result = if cancel.is_cancelled() {
         Err(CmdError::cancelled())

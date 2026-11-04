@@ -7,7 +7,7 @@ use ts_rs::TS;
 
 use crate::{
     Access, CliSpec, CmdError, Command, Effect, JobCtx,
-    commands::util::{as_given, open_archive},
+    commands::util::{as_given, with_archive},
     wire::{Secret, human_size, ratio},
 };
 
@@ -90,46 +90,52 @@ impl Command for ArchiveInfo {
     }
 
     fn run(input: ArchiveInfoInput, cx: &mut JobCtx) -> Result<ArchiveInfoOutput, CmdError> {
-        let mut opened = open_archive(&input.archive, input.password.as_ref(), cx)?;
-        let info = opened.reader.info(cx)?;
-        let entries = opened.reader.entries(cx)?;
-        let count =
-            |pred: fn(&EntryKind) -> bool| entries.iter().filter(|e| pred(&e.kind)).count() as u64;
-        let files = count(|k| matches!(k, EntryKind::File | EntryKind::Hardlink { .. }));
-        let dirs = count(|k| *k == EntryKind::Dir);
-        let links = count(|k| matches!(k, EntryKind::Symlink { .. }));
-        let size: u64 = entries
-            .iter()
-            .filter(|e| e.kind == EntryKind::File)
-            .filter_map(|e| e.size)
-            .sum();
-        let entries_total = entries.len() as u64;
-        Ok(ArchiveInfoOutput {
-            format: info.format.name().into(),
-            chain: opened.detection.chain(),
-            codecs: info.codecs.iter().map(|c| c.name().to_owned()).collect(),
-            entries: entries_total,
-            files,
-            dirs,
-            links,
-            size,
-            packed_size: opened.size,
-            ratio: ratio(size, opened.size),
-            methods: info.methods.iter().map(|m| (*m).to_owned()).collect(),
-            encryption: match info.encryption {
-                Encryption::None => EncryptionState::None,
-                Encryption::Some => EncryptionState::Some,
-                Encryption::All => EncryptionState::All,
-            },
-            solid: info.solid,
-            sfx: info.sfx,
-            volumes: as_given(&input.archive, &opened.detection.volumes),
-            solid_blocks: info.solid_blocks,
-            encrypted_headers: info.encrypted_headers,
-            locked: info.locked,
-            recovery_record: info.recovery_record,
-            comment: info.comment,
-            archive: input.archive,
+        let given = input.archive.clone();
+        with_archive(&given, input.password.as_ref(), cx, |a, cx| {
+            let opened = &mut a.opened;
+            let info = opened.reader.info(cx)?;
+            let entries = opened.reader.entries(cx)?;
+            a.entries = Some(entries.len());
+            let count = |pred: fn(&EntryKind) -> bool| {
+                entries.iter().filter(|e| pred(&e.kind)).count() as u64
+            };
+            let files = count(|k| matches!(k, EntryKind::File | EntryKind::Hardlink { .. }));
+            let dirs = count(|k| *k == EntryKind::Dir);
+            let links = count(|k| matches!(k, EntryKind::Symlink { .. }));
+            let size: u64 = entries
+                .iter()
+                .filter(|e| e.kind == EntryKind::File)
+                .filter_map(|e| e.size)
+                .sum();
+            let entries_total = entries.len() as u64;
+            let out = ArchiveInfoOutput {
+                format: info.format.name().into(),
+                chain: opened.detection.chain(),
+                codecs: info.codecs.iter().map(|c| c.name().to_owned()).collect(),
+                entries: entries_total,
+                files,
+                dirs,
+                links,
+                size,
+                packed_size: opened.size,
+                ratio: ratio(size, opened.size),
+                methods: info.methods.iter().map(|m| (*m).to_owned()).collect(),
+                encryption: match info.encryption {
+                    Encryption::None => EncryptionState::None,
+                    Encryption::Some => EncryptionState::Some,
+                    Encryption::All => EncryptionState::All,
+                },
+                solid: info.solid,
+                sfx: info.sfx,
+                volumes: as_given(&input.archive, &opened.detection.volumes),
+                solid_blocks: info.solid_blocks,
+                encrypted_headers: info.encrypted_headers,
+                locked: info.locked,
+                recovery_record: info.recovery_record,
+                comment: info.comment,
+                archive: input.archive,
+            };
+            Ok(out)
         })
     }
 

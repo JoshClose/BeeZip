@@ -46,9 +46,9 @@ impl Codec for Lzip {
     /// is checked here. Lzip caps dictionaries at 512 MiB.
     fn decoder<'a>(
         &self,
-        mut r: Box<dyn Read + 'a>,
+        mut r: Box<dyn Read + Send + 'a>,
         limits: &Limits,
-    ) -> Result<Box<dyn Read + 'a>> {
+    ) -> Result<Box<dyn Read + Send + 'a>> {
         let header = read_prefix(&mut r, 6);
         if let Some(&[b'L', b'Z', b'I', b'P', _, coded]) = header.get(..6)
             && let Some(dict) = dict_size(coded)

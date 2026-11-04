@@ -7,9 +7,11 @@ mod archive_extract;
 mod archive_info;
 mod archive_list;
 mod archive_test;
+mod cli_line;
 mod entry_read;
 mod file_detect;
 mod formats_list;
+pub(crate) mod listing;
 mod stream_compress;
 mod stream_decompress;
 pub(crate) mod util;
@@ -23,6 +25,7 @@ pub use archive_extract::{
 pub use archive_info::{ArchiveInfo, ArchiveInfoInput, ArchiveInfoOutput, EncryptionState};
 pub use archive_list::{ArchiveList, ArchiveListInput, ArchiveListOutput};
 pub use archive_test::{ArchiveTest, ArchiveTestInput, ArchiveTestOutput};
+pub use cli_line::{CliLine, CliLineInput, CliLineOutput, ShellName};
 pub use entry_read::{EntryRead, EntryReadInput, EntryReadOutput};
 pub use file_detect::{FileDetect, FileDetectInput, FileDetectOutput, LayerInfo};
 pub use formats_list::{
@@ -48,5 +51,6 @@ pub fn register_all(registry: &mut Registry) {
         .register::<ArchiveExtract>()
         .register::<ArchiveCreate>()
         .register::<StreamCompress>()
-        .register::<StreamDecompress>();
+        .register::<StreamDecompress>()
+        .register::<CliLine>();
 }

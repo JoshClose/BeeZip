@@ -344,6 +344,34 @@ export type Caps = { list: boolean, extract: boolean, create: boolean, append: b
 random_access: boolean, };
 
 /**
+ * The `beezip` command line that runs a command with these arguments. Passwords are left
+ * out (`omitted` names them): the copied command asks for them in the terminal.
+ */
+export type CliLineInput = {
+/**
+ * The command, by its dotted name (`archive.extract`).
+ */
+command: string,
+/**
+ * Its arguments, as the engine takes them.
+ */
+args: Record<string, unknown>,
+/**
+ * The shell to quote for [default: powershell].
+ */
+shell?: ShellName,
+/**
+ * The program to start the line with [default: beezip].
+ */
+program?: string, };
+
+export type CliLineOutput = { line: string,
+/**
+ * Arguments left out of the line: the passwords.
+ */
+omitted: Array<string>, };
+
+/**
  * An error returned by a command.
  */
 export type CmdError = { code: ErrorCode, message: string,
@@ -645,6 +673,11 @@ to: string, };
 export type Secret = string;
 
 /**
+ * How `cli.line` quotes.
+ */
+export type ShellName = "powershell" | "cmd" | "posix";
+
+/**
  * An entry that wasn't extracted.
  */
 export type SkippedInfo = { path: string,
@@ -768,6 +801,11 @@ export type CommandMap = {
    * Fails with `Corrupt`, listing the damaged entries in `details`.
    */
   "archive.test": { input: ArchiveTestInput; output: ArchiveTestOutput };
+  /**
+   * The `beezip` command line that runs a command with these arguments. Passwords are left
+   * out (`omitted` names them): the copied command asks for them in the terminal.
+   */
+  "cli.line": { input: CliLineInput; output: CliLineOutput };
   /**
    * Read part of one entry without extracting it, as text, hex or base64. An offset is reached
    * by decoding up to it, since a compressed entry can't seek.

@@ -346,7 +346,7 @@ pub trait EntrySink {
 }
 
 /// An open archive.
-pub trait ArchiveReader {
+pub trait ArchiveReader: Send {
     fn format(&self) -> FormatId;
 
     /// The entry index. Zip reads it from the central directory when it opens; tar, behind a

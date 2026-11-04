@@ -48,7 +48,7 @@ impl ArchiveFormat for Stream {
 pub struct StreamReader {
     source: Source,
     entries: Vec<Entry>,
-    open: Option<Box<dyn Read>>,
+    open: Option<Box<dyn Read + Send>>,
 }
 
 impl StreamReader {

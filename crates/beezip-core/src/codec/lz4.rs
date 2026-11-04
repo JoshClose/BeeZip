@@ -45,7 +45,11 @@ impl Codec for Lz4 {
         None
     }
 
-    fn decoder<'a>(&self, r: Box<dyn Read + 'a>, _: &Limits) -> Result<Box<dyn Read + 'a>> {
+    fn decoder<'a>(
+        &self,
+        r: Box<dyn Read + Send + 'a>,
+        _: &Limits,
+    ) -> Result<Box<dyn Read + Send + 'a>> {
         let counter = Counter::new();
         Ok(Box::new(Frames {
             dec: FrameDecoder::new(CountingReader::new(r, counter.clone())),
@@ -74,7 +78,7 @@ impl Codec for Lz4 {
 /// end of each frame and only starts the next on the following call; a call that returns
 /// nothing *and* consumes no input is the real end.
 struct Frames<'a> {
-    dec: FrameDecoder<CountingReader<Box<dyn Read + 'a>>>,
+    dec: FrameDecoder<CountingReader<Box<dyn Read + Send + 'a>>>,
     counter: Counter,
     done: bool,
 }
