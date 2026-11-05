@@ -407,9 +407,31 @@ export type CodecName = "gzip" | "zlib" | "deflate" | "bzip2" | "xz" | "lzma" | 
  */
 export type CommandInfo = { name: string, description: string, effect: Effect, surfaces: Surfaces,
 /**
- * The generated `beezip` subcommand, if there is one.
+ * The generated `beezip` subcommand, if there is one: `extract`, or `settings get`.
  */
 cli: string | null, };
+
+/**
+ * Every setting, as `config.toml` holds it. A missing key has its default.
+ */
+export type Config = { extract: ExtractConfig, create: CreateConfig,
+/**
+ * Default levels by codec name (`zstd`, `gzip`…) or zip and 7z method (`deflate`,
+ * `lzma2`…). A codec or method missing here uses its own default.
+ */
+levels: { [key in string]: number }, stream: StreamConfig, limits: LimitsConfig, mcp: McpConfig, shell: ShellConfig, jobs: JobsConfig, desktop: DesktopConfig, };
+
+export type CreateConfig = {
+/**
+ * Threads for compressing. `0` is one per core.
+ */
+threads: number, };
+
+export type DesktopConfig = {
+/**
+ * Light or dark, or as Windows is set.
+ */
+theme: Theme, };
 
 /**
  * What a command may do to the outside world. It drives the MCP hints, the sandbox and the
@@ -505,6 +527,20 @@ lossy: boolean, };
  */
 export type ErrorCode = "NotFound" | "UnsupportedFormat" | "UnsupportedOperation" | "PasswordRequired" | "WrongPassword" | "Corrupt" | "OutsideSandbox" | "Conflict" | "LimitExceeded" | "Cancelled" | "BackendUnavailable" | "Io" | "Unsafe" | "InvalidArgs" | "Internal";
 
+export type ExtractConfig = {
+/**
+ * What to do when a file being extracted already exists.
+ */
+overwrite: OverwritePolicy,
+/**
+ * Create the symbolic and hard links an archive holds. Off, they are skipped.
+ */
+links: boolean,
+/**
+ * Whether extracted files keep the archive's "downloaded from the internet" mark.
+ */
+mark_of_the_web: MarkOfTheWeb, };
+
 /**
  * Detect what a file is: its chain of codecs and archive format (`zstd → tar`), whether it is
  * a self-extracting archive, and what it is when it isn't an archive at all.
@@ -578,6 +614,15 @@ export type JobEvent = { "type": "Started", job: number, } | { "type": "Progress
  */
 export type JobInfo = { id: number, command: string, };
 
+/**
+ * The job windows Explorer's menu opens.
+ */
+export type JobsConfig = {
+/**
+ * A job window closes itself after a clean success.
+ */
+close_when_done: boolean, };
+
 export type JsonValue = number | string | boolean | Array<JsonValue> | { [key in string]: JsonValue } | null;
 
 /**
@@ -608,7 +653,40 @@ confidence: string, };
  */
 export type LevelRange = { min: number, max: number, default: number, };
 
+/**
+ * Limits that stop zip bombs and runaway archives.
+ */
+export type LimitsConfig = {
+/**
+ * The most an archive may expand, as unpacked size over packed size.
+ */
+max_ratio: number,
+/**
+ * The most entries an archive may hold.
+ */
+max_entries: number,
+/**
+ * The most memory one decoder may use, in MiB.
+ */
+decoder_memory_mib: number,
+/**
+ * The most bytes one job may unpack in all. None is unlimited.
+ */
+max_total_bytes: number | null, };
+
 export type LogLevel = "Info" | "Warn";
+
+export type MarkOfTheWeb = "all" | "none";
+
+export type McpConfig = {
+/**
+ * Directories `beezip mcp` may write under, when no `--root` is given.
+ */
+roots: Array<string>,
+/**
+ * Refuse every command that writes, as `--read-only` does.
+ */
+read_only: boolean, };
 
 /**
  * A compression method BeeZip writes, with its level range.
@@ -678,6 +756,143 @@ to: string, };
 export type Secret = string;
 
 /**
+ * Show every setting with its effective value: what config.toml sets, or the default.
+ *
+ * The file is read each time, so edits made elsewhere show. Keys BeeZip doesn't know come
+ * back in `warnings`; a file it can't use comes back as `error`, with the defaults.
+ */
+export type SettingsGetInput = Record<symbol, never>;
+
+/**
+ * The settings, and the file they live in.
+ */
+export type SettingsGetOutput = {
+/**
+ * The settings file, or none on a system with no config folder.
+ */
+path: string | null,
+/**
+ * Whether the file exists. Without it, every setting has its default.
+ */
+exists: boolean,
+/**
+ * Every setting, with its effective value.
+ */
+settings: Config,
+/**
+ * Keys BeeZip doesn't know, which it ignores.
+ */
+warnings: Array<string>,
+/**
+ * Why the file can't be used, if it can't. `settings` then shows the defaults, and the
+ * commands that need the config fail until it's fixed.
+ */
+error: string | null, };
+
+/**
+ * Change settings in config.toml, keeping its comments and layout. The file is created if
+ * it doesn't exist.
+ *
+ * Keys are dotted, such as `extract.overwrite`, `shell.items.test` or `levels.zstd` (any
+ * codec or method); `beezip settings get` lists them. Nothing is written unless the whole
+ * file still reads: an unknown key or a value of the wrong type fails with `InvalidArgs`.
+ * The app's later jobs use the new settings at once; other BeeZip processes read them when
+ * they start.
+ */
+export type SettingsSetInput = {
+/**
+ * The settings to change, by dotted key: `{"extract.overwrite": "rename",
+ * "levels.zstd": 19}`. On the command line, `KEY=VALUE`, with VALUE as TOML (`19`,
+ * `false`, `['C:\a']`); a bare word is a string. null resets the key.
+ */
+set?: Record<string, unknown>,
+/**
+ * Settings to put back to their defaults, by dotted key. Each is removed from the file.
+ */
+reset?: Array<string>, };
+
+/**
+ * The settings after the change.
+ */
+export type SettingsSetOutput = {
+/**
+ * The keys whose effective value changed.
+ */
+changed: Array<string>,
+/**
+ * The settings file, or none on a system with no config folder.
+ */
+path: string | null,
+/**
+ * Whether the file exists. Without it, every setting has its default.
+ */
+exists: boolean,
+/**
+ * Every setting, with its effective value.
+ */
+settings: Config,
+/**
+ * Keys BeeZip doesn't know, which it ignores.
+ */
+warnings: Array<string>,
+/**
+ * Why the file can't be used, if it can't. `settings` then shows the defaults, and the
+ * commands that need the config fail until it's fixed.
+ */
+error: string | null, };
+
+/**
+ * Explorer's right-click menu (docs/M4.md §7.2).
+ */
+export type ShellConfig = {
+/**
+ * Show the items in a "BeeZip" submenu. Off, each is at the top level. Windows 11's own
+ * menu always shows a submenu; this is for the classic menu.
+ */
+cascade: boolean, items: ShellItems, };
+
+/**
+ * Which menu items Explorer shows. Every one is shown unless set to false.
+ */
+export type ShellItems = {
+/**
+ * "Open with BeeZip".
+ */
+open: boolean,
+/**
+ * "Extract here".
+ */
+"extract-here": boolean,
+/**
+ * "Extract to "a\"".
+ */
+"extract-folder": boolean,
+/**
+ * "Extract to…".
+ */
+"extract-to": boolean,
+/**
+ * "Test archive".
+ */
+test: boolean,
+/**
+ * "Add to "a.zip"".
+ */
+"add-zip": boolean,
+/**
+ * "Add to "a.7z"".
+ */
+"add-7z": boolean,
+/**
+ * "Add to "a.tar.zst"".
+ */
+"add-tar-zst": boolean,
+/**
+ * "Compress to…".
+ */
+"compress-to": boolean, };
+
+/**
  * How `cli.line` quotes.
  */
 export type ShellName = "powershell" | "cmd" | "posix";
@@ -737,6 +952,12 @@ export type StreamCompressOutput = { input: string, output: string, codec: Codec
  */
 ratio: number, };
 
+export type StreamConfig = {
+/**
+ * The codec `beezip compress` uses when none is given.
+ */
+codec: CodecName, };
+
 /**
  * Decompress a compressed file, one codec layer per call: `a.tar.zst` → `a.tar`, `a.tgz` →
  * `a.tar`, `notes.txt.gz` → `notes.txt`. The output keeps the input's modification time; the
@@ -772,6 +993,8 @@ export type Surfaces = { cli: boolean, gui: boolean, mcp: boolean, };
  * How `entry.read` returns data.
  */
 export type TextEncoding = "text" | "hex" | "base64";
+
+export type Theme = "system" | "light" | "dark";
 
 /** Every command's input and output types, by command name. */
 export type CommandMap = {
@@ -826,6 +1049,24 @@ export type CommandMap = {
    * methods, levels and threading.
    */
   "formats.list": { input: FormatsListInput; output: FormatsListOutput };
+  /**
+   * Show every setting with its effective value: what config.toml sets, or the default.
+   *
+   * The file is read each time, so edits made elsewhere show. Keys BeeZip doesn't know come
+   * back in `warnings`; a file it can't use comes back as `error`, with the defaults.
+   */
+  "settings.get": { input: SettingsGetInput; output: SettingsGetOutput };
+  /**
+   * Change settings in config.toml, keeping its comments and layout. The file is created if
+   * it doesn't exist.
+   *
+   * Keys are dotted, such as `extract.overwrite`, `shell.items.test` or `levels.zstd` (any
+   * codec or method); `beezip settings get` lists them. Nothing is written unless the whole
+   * file still reads: an unknown key or a value of the wrong type fails with `InvalidArgs`.
+   * The app's later jobs use the new settings at once; other BeeZip processes read them when
+   * they start.
+   */
+  "settings.set": { input: SettingsSetInput; output: SettingsSetOutput };
   /**
    * Compress one file with a single-stream codec (`a.txt` → `a.txt.zst`). The output keeps the
    * input's modification time; the input is left in place.

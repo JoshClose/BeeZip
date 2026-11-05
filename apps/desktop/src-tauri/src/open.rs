@@ -4,6 +4,7 @@
 
 use std::path::{Path, PathBuf};
 
+use beezip_commands::Theme;
 use serde::Serialize;
 use tauri::{App, AppHandle, Emitter, Manager, WebviewWindowBuilder};
 
@@ -23,6 +24,8 @@ pub struct Startup {
     pub cli: String,
     /// Problems with `config.toml`, shown once.
     pub warnings: Vec<String>,
+    /// `[desktop] theme`, as the window opened with it.
+    pub theme: Theme,
 }
 
 /// The paths among a process's arguments (`argv[0]` first), resolved against `cwd`. Flags
@@ -69,7 +72,7 @@ fn same_dir(a: &Path, b: &Path) -> bool {
 }
 
 /// Builds the main window (`create: false` in tauri.conf.json) with the startup script.
-pub fn create_main_window(app: &App, warnings: Vec<String>) -> tauri::Result<()> {
+pub fn create_main_window(app: &App, warnings: Vec<String>, theme: Theme) -> tauri::Result<()> {
     let args: Vec<String> = std::env::args().collect();
     let cwd = std::env::current_dir().unwrap_or_default();
     let exe = std::env::current_exe().unwrap_or_default();
@@ -77,6 +80,7 @@ pub fn create_main_window(app: &App, warnings: Vec<String>) -> tauri::Result<()>
         paths: paths_from_args(&args, &cwd),
         cli: cli_program(&exe, std::env::var_os("PATH").as_deref()),
         warnings,
+        theme,
     };
     let json = serde_json::to_string(&startup).unwrap_or_else(|_| "{}".into());
     let config = app

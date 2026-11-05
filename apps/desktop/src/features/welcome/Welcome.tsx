@@ -1,5 +1,5 @@
 // Shown with no archive open: open one, start a new one, or drop files.
-import { FilePlus2, FolderOpen } from "lucide-react";
+import { FilePlus2, FolderOpen, Settings } from "lucide-react";
 import { Button } from "../../components/ui/button";
 import { cn } from "../../lib/cn";
 
@@ -20,7 +20,17 @@ function Cell({ active }: { active: boolean }) {
   );
 }
 
-export function Welcome({ dragging, onOpen, onNew }: { dragging: boolean; onOpen: () => void; onNew: () => void }) {
+export function Welcome({
+  dragging,
+  onOpen,
+  onNew,
+  onSettings,
+}: {
+  dragging: boolean;
+  onOpen: () => void;
+  onNew: () => void;
+  onSettings: () => void;
+}) {
   return (
     <div className="flex flex-1 items-center justify-center p-8">
       <div
@@ -43,6 +53,9 @@ export function Welcome({ dragging, onOpen, onNew }: { dragging: boolean; onOpen
           </Button>
           <Button onClick={onNew}>
             <FilePlus2 /> New archive…
+          </Button>
+          <Button variant="ghost" onClick={onSettings}>
+            <Settings /> Settings
           </Button>
         </div>
         <p className="text-[12px] text-muted">Ctrl+K lists every command.</p>

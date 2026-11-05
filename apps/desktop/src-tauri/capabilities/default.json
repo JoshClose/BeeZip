@@ -8,6 +8,11 @@
     "opener:default",
     "dialog:default",
     "core:window:allow-destroy",
+    "core:app:allow-set-app-theme",
+    {
+      "identifier": "opener:allow-open-path",
+      "allow": [{ "path": "$CONFIG/BeeZip/config.toml" }]
+    },
     "allow-cmd-run",
     "allow-cmd-cancel",
     "allow-cmd-respond",

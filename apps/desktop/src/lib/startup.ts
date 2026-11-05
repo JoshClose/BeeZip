@@ -1,3 +1,5 @@
+import type { Theme } from "../gen/commands";
+
 /** What Rust puts in `window.__BEEZIP__` before the page's scripts run (src-tauri/src/open.rs). */
 export type Startup = {
   /** Files `BeeZip.exe` was started with, absolute. */
@@ -6,6 +8,8 @@ export type Startup = {
   cli: string;
   /** Problems with config.toml. */
   warnings: string[];
+  /** `[desktop] theme`, which the window opened with. */
+  theme: Theme;
 };
 
 declare global {
@@ -15,5 +19,5 @@ declare global {
 }
 
 export function startup(): Startup {
-  return window.__BEEZIP__ ?? { paths: [], cli: "beezip", warnings: [] };
+  return { paths: [], cli: "beezip", warnings: [], theme: "system", ...window.__BEEZIP__ };
 }

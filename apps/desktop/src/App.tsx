@@ -16,12 +16,14 @@ import { ReportDialog } from "./features/jobs/ReportDialog";
 import { loadCommands, Palette, type PaletteAction, takesOnlyArchive } from "./features/palette/Palette";
 import { FormDialog } from "./features/palette/SchemaForm";
 import { Prompts } from "./features/prompts/Prompts";
+import { SettingsDialog } from "./features/settings/Settings";
 import { Welcome } from "./features/welcome/Welcome";
 import { activeTab, useArchives } from "./lib/archives";
 import { cancel, type GuiCommand, run } from "./lib/engine";
 import { baseName } from "./lib/format";
 import { loadFormats, readableExtensions } from "./lib/formats";
 import { useJobs } from "./lib/jobs";
+import { themeActions, useTheme } from "./lib/settings";
 import { startup } from "./lib/startup";
 import { toastError, toastInfo, useToasts } from "./lib/toasts";
 import { useUi } from "./lib/ui";
@@ -97,10 +99,12 @@ export default function App() {
   const setPalette = useUi((s) => s.setPalette);
   const [dragging, setDragging] = useState(false);
   const [commands, setCommands] = useState<GuiCommand[]>([]);
+  const theme = useTheme((s) => s.theme);
   const tabRef = useRef(tab);
   tabRef.current = tab;
 
   const newArchive = useCallback(() => show({ kind: "create", inputs: [] }), [show]);
+  const openSettings = useCallback(() => show({ kind: "settings" }), [show]);
   const extract = useCallback(() => {
     const t = tabRef.current;
     if (t) show({ kind: "extract", tab: t.id, entries: [] });
@@ -175,12 +179,13 @@ export default function App() {
       else if (key === "n") newArchive();
       else if (key === "e" && t) extract();
       else if (key === "w" && t) useArchives.getState().close(t.id);
+      else if (key === ",") openSettings();
       else return;
       e.preventDefault();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [extract, newArchive, setPalette]);
+  }, [extract, newArchive, openSettings, setPalette]);
 
   const actions: PaletteAction[] = [
     { id: "open", label: "Open archive…", hint: "Ctrl+O", run: () => void chooseArchives() },
@@ -193,6 +198,8 @@ export default function App() {
           { id: "close", label: `Close ${tab.name}`, hint: "Ctrl+W", run: () => useArchives.getState().close(tab.id) },
         ]
       : []),
+    { id: "settings", label: "Settings…", hint: "Ctrl+,", run: openSettings },
+    ...themeActions(theme, (e) => toastError(e, "Theme")),
     { id: "about", label: "About BeeZip", run: () => show({ kind: "about" }) },
   ];
 
@@ -217,7 +224,11 @@ export default function App() {
   return (
     <div className="flex h-full flex-col">
       <TabStrip onOpen={() => void chooseArchives()} onNew={newArchive} />
-      {tab ? <Browser key={tab.id} tab={tab} /> : <Welcome dragging={dragging} onOpen={() => void chooseArchives()} onNew={newArchive} />}
+      {tab ? (
+        <Browser key={tab.id} tab={tab} />
+      ) : (
+        <Welcome dragging={dragging} onOpen={() => void chooseArchives()} onNew={newArchive} onSettings={openSettings} />
+      )}
       <JobsPanel />
 
       {tab && dragging && (
@@ -233,6 +244,7 @@ export default function App() {
       {dialog?.kind === "info" && dialogTab && <InfoDialog tab={dialogTab} onClose={closeDialog} />}
       {dialog?.kind === "about" && <About onClose={closeDialog} />}
       {dialog?.kind === "report" && <ReportDialog title={dialog.title} error={dialog.error} onClose={closeDialog} />}
+      {dialog?.kind === "settings" && <SettingsDialog onClose={closeDialog} />}
       {formCommand && (
         <FormDialog
           command={formCommand}
