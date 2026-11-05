@@ -1,0 +1,28 @@
+Show and change BeeZip's settings (config.toml)
+
+Usage: beezip settings [OPTIONS] <COMMAND>
+
+Commands:
+  get   Show every setting with its effective value: what config.toml sets, or the default.
+  set   Change settings in config.toml, keeping its comments and layout. The file is created if
+        it doesn't exist.
+  help  Print this message or the help of the given subcommand(s)
+
+Options:
+  -h, --help
+          Print help (see a summary with '-h')
+
+Global options:
+      --output <FORMAT>
+          How to print results; ndjson streams every job event
+
+          Possible values:
+          - human:  Text for people
+          - json:   One JSON document on stdout: the output, or `{"error": {...}}`
+          - ndjson: Every job event as a JSON line on stdout, ending with `Finished`, `Failed` or
+            `Cancelled`
+          
+          [default: human]
+
+  -q, --quiet
+          No progress bars or info messages; warnings still print

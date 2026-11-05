@@ -23,7 +23,7 @@ BeeZip is a Windows-first desktop archive manager (Tauri 2 + React) that opens, 
 | MCP server | `beezip mcp` (server name `beezip`) |
 | Tauri identifier | `app.beezip.desktop` |
 | Config | `%APPDATA%\BeeZip\config.toml` |
-| Explorer menu | "BeeZip ▸", registry verb key `BeeZip`, `beezip_shell_<ver>.dll`, `beezip-sparse.msix` |
+| Explorer menu | "BeeZip ▸", registry verb key `BeeZip`, `beezip_shell_<ver>.dll`, `beezip-sparse.msix` (package identity `BeeZip`; publisher `CN=BeeZip Dev` until M6's certificate) |
 
 - **Why two folders:** Windows file names are case-insensitive, so `BeeZip.exe` and `beezip.exe` can't share a folder. The CLI therefore lives in `bin\`, which is the only folder added to PATH.
 - **The same clash exists in `target/`.** Tauri 2 names the GUI binary after the Cargo bin (`beezip-desktop.exe`), not after `productName`. The only override is `mainBinaryName`, which `tauri build` applies as an `fs::rename` inside `target/<profile>/`. That folder also holds the CLI's `beezip.exe`. On NTFS the rename replaces the CLI, and a later `cargo build -p beezip-cli` overwrites the GUI. So:
@@ -61,6 +61,7 @@ crates/beezip-commands/       # Command trait, registry, engine, jobs, policy, c
   src/commands/*.rs           # one file per command
 crates/beezip-mcp/            # rmcp ServerHandler built dynamically from the registry
 crates/beezip-cli/            # bin `beezip`; `beezip mcp` subcommand runs beezip-mcp
+crates/beezip-menu/           # the Explorer menu model and job request, shared by the DLL, the commands and the desktop
 crates/beezip-shell/          # Windows-only cdylib: IExplorerCommand COM handler (Win11 + classic menus)
 packaging/windows/            # sparse-package AppxManifest.xml, NSIS hooks, icons, dev-cert script
 apps/desktop/src-tauri/       # Tauri app (beezip-desktop); depends on beezip-commands only
@@ -139,7 +140,7 @@ pub trait Command: Send + Sync + 'static {
   - `Internal`: a caught panic or bug.
 
   Each code maps to a CLI exit code, to MCP `isError` + structuredContent, and to a UI toast.
-- **Config:** `%APPDATA%\BeeZip\config.toml`, shared by the GUI, the CLI and MCP. It holds default levels, the overwrite policy, the 7-Zip path, MCP roots and limits. The settings commands read and write it.
+- **Config:** `%APPDATA%\BeeZip\config.toml`, shared by the GUI, the CLI and MCP. It holds default levels, the overwrite policy, the 7-Zip path, MCP roots, limits, the Explorer menu's items and the desktop's theme. The settings commands read and write it, keeping its comments (`toml_edit`).
 - **Index cache (M3):** it caches open readers along with their indexes, keyed by the canonical path and each volume's size and mtime: up to four archives and 4 million entries. A job borrows its archive and puts it back, so a reader is never shared. Encrypted archives aren't cached, so no cached reader carries a password between jobs. Commands stay stateless, which suits MCP and the CLI, and the GUI can still page through a 1M-entry archive quickly ([`docs/M3.md`](M3.md) §4.2).
 
 ### Command catalog (v1)
@@ -158,8 +159,10 @@ pub trait Command: Send + Sync + 'static {
 | `stream.compress` / `stream.decompress` | W | single-file codecs (`a.txt → a.txt.zst`) |
 | `entry.open` | W | extract to temp cache + open with the default app (GUI/CLI only, hidden from MCP) |
 | `bench.run` | RO | codecs × levels on a sample, giving ratio/speed table (M6) |
-| `settings.get` / `settings.set` | W | config.toml |
-| `shell.status` / `shell.install` / `shell.uninstall` | System | Explorer menus (`--classic`, `--modern`, per-item toggles). Windows only; GUI/CLI only, hidden from MCP |
+| `settings.get` / `settings.set` | RO / W | config.toml, edited in place. Hidden from MCP: an assistant that could set `[mcp] roots` could widen its own sandbox. CLI: `beezip settings get`, `beezip settings set KEY=VALUE… [--reset KEY]` |
+| `shell.status` | RO | which Explorer registration is in place, and why (docs/M4.md §5.5) |
+| `shell.install` / `shell.uninstall` | System | Explorer menus (`--mode classic\|modern\|auto`). Windows only; GUI/CLI only, hidden from MCP. CLI: `beezip shell …` |
+| `shell.plan` | RO | turns an Explorer job request into the steps a job window runs (docs/M4.md §6.1) |
 
 Every archive command names the archive file `archive`. The M1 inputs and outputs are specified in [`docs/M1.md`](M1.md) §4.3.
 
@@ -167,6 +170,7 @@ Every archive command names the archive file `archive`. The M1 inputs and output
 - **CLI (`beezip`, clap 4.6):**
   - Generated subcommands: `beezip extract a.zip -o out`, `beezip list`, `beezip create`, `beezip convert`, `beezip test`, `beezip formats`. Short aliases `x`, `l`, `c`, `t`.
   - Generic forms: `beezip run <name> --json '{…}'` (or `@file`), `beezip commands` and `beezip schema <name>`.
+  - Groups: a command's `CliSpec` can name a group, so `settings.*` and `shell.*` are `beezip settings get` and `beezip shell install`.
   - Global `--output human|json|ndjson`. `ndjson` streams the `JobEvent`s, which suits scripts and CI. indicatif progress bars draw on a TTY.
   - Ctrl+C cancels the job, which removes its partial files. A second Ctrl+C exits at once, and deletes every partial file the process still has open first (`partial::abandon_all`), since `process::exit` runs no destructors.
 - **MCP (`beezip mcp`, rmcp 3.8, spec 2026-07-28):**
@@ -198,21 +202,23 @@ Every archive command names the archive file `archive`. The M1 inputs and output
     - `tauri-plugin-single-instance` forwards files to the running window;
     - `tauri-plugin-dialog` and `tauri-plugin-opener`;
     - NSIS installer that installs `BeeZip.exe` and `bin\beezip.exe` (the CLI is staged separately; see Naming), and adds `bin\` to PATH;
-    - a **job mode**, `BeeZip.exe --job <args.json>`, which opens a compact progress window. If the main app isn't running, the window exits when the job finishes; if it is, single-instance forwards the job to the running app. Explorer menu actions launch through this.
+    - a **job mode**, `BeeZip.exe --job <request.json>`: Explorer writes a job request, and `shell.plan` expands it into steps. Each request gets one compact job window; dialogs ("Extract to…", "Compress to…") open in the main window. A second `BeeZip.exe` hands its request to the running one, and the process exits when its last window closes (docs/M4.md §6).
 
 ### Explorer context-menu integration (Windows 11 modern menu + classic menu)
-**One COM handler, registered two ways.** `crates/beezip-shell` is a small Rust `cdylib`. It uses the `windows` crate's `#[implement(IExplorerCommand)]`, plus `IEnumExplorerCommand` for the submenu, a class factory, and `DllGetClassObject`/`DllCanUnloadNow`.
+**One COM handler, registered one of two ways.** `crates/beezip-shell` is a small Rust `cdylib`. It uses the `windows` crate's `#[implement(IExplorerCommand)]` (`windows =0.62.2`, the version Tauri builds; the umbrella crate wasn't published at 0.100), plus `IEnumExplorerCommand` for the submenu, a class factory, and `DllGetClassObject`/`DllCanUnloadNow`, exported `PRIVATE` through a `.def` file. The registry goes through windows-registry 0.6.1. The menu model and the job request it writes live in `crates/beezip-menu`, pure Rust, shared with the commands and the desktop.
 
 - **Windows 11 top-level menu.** The modern menu only accepts handlers from apps with package identity. We use a **sparse package** (packaged with external location), so we keep the NSIS install instead of moving to full MSIX:
-  - `packaging/windows/AppxManifest.xml` declares `desktop4:FileExplorerContextMenus` with `desktop5:ItemType` entries for `*` and `Directory`, and a `com:SurrogateServer` pointing at `beezip_shell_<ver>.dll`.
+  - `packaging/windows/AppxManifest.xml` declares `desktop4:FileExplorerContextMenus` with `desktop5:ItemType` entries for `*` and `Directory`, and a `com:SurrogateServer` pointing at `beezip_shell_<ver>.dll`. The handler runs in `DllHost.exe`, the COM surrogate, not in `explorer.exe`.
   - The manifest is packed into `beezip-sparse.msix`, signed, and registered by the installer with `Add-AppxPackage -ExternalLocation <installdir>` (or the PackageManager API).
-  - `BeeZip.exe` gets a matching `<msix …/>` identity element in its Windows manifest, set through `tauri_build::WindowsAttributes::app_manifest`.
-- **Classic menu** (Windows 10, and Windows 11's "Show more options"). Registry keys under HKCU, so no admin is needed:
+  - Processes the handler starts inherit the package's identity, so the manifest turns off file-system and registry write virtualization; otherwise their AppData writes land in the package's folder.
+  - `BeeZip.exe` gets no `<msix …/>` identity element, so there's no `tauri_build` manifest change.
+  - The Windows 11 menu shows one entry per package: items can be hidden there, but not moved to the top level.
+- **Classic menu** (Windows 10, and Windows 11 when the package can't be registered). Registry keys under HKCU, so no admin is needed:
   - `Software\Classes\{*,Directory}\shell\BeeZip` with `ExplorerCommandHandler={CLSID}`;
   - `CLSID\{…}\InprocServer32` pointing at the same DLL, with `ThreadingModel=Apartment`.
-  - Classic verbs never show up in the Win11 modern menu, so nothing appears twice.
-  - **Spike to run first:** check that the classic menu shows our `ECF_HASSUBCOMMANDS` cascade on Windows 10 22H2 and in Win11's "Show more options". If it doesn't, add an `IContextMenu` implementation to the same DLL, which is what 7-Zip does.
-- **Menu items** (cascaded under "BeeZip ▸" by default; each can be flattened or hidden in settings):
+  - Classic verbs never load for the Windows 11 menu, but packaged verbs do appear under "Show more options". So registering both would show BeeZip twice there: Windows 11 uses the package when it can be registered, and the classic keys otherwise; Windows 10 uses the classic keys.
+  - The `ECF_HASSUBCOMMANDS` cascade showed in Windows 11's "Show more options" (docs/M4.md §16). Windows 10 22H2 is checked on a VM before M4 builds on it; if it fails there, the DLL adds an `IContextMenu`, as 7-Zip does.
+- **Menu items** (cascaded under "BeeZip ▸" by default; each can be hidden in settings, and in the classic menu `cascade = false` puts them at the top level):
   - For archives: Open with BeeZip, Extract here (smart: if the archive doesn't have a single top-level folder, it extracts into a folder), Extract to "name\", Extract to…, Test archive.
   - For any files or folders: Add to "name.zip", Add to "name.7z", Compress to… (opens the create dialog), and compress-to-format submenus for tar.zst and others.
   - Multi-select works through `IShellItemArray`.
@@ -231,9 +237,10 @@ Every archive command names the archive file `archive`. The M1 inputs and output
   - Icons are taken from `BeeZip.exe,N`.
 - **Install, upgrade and uninstall** happen in the NSIS `installerHooks` (Tauri `bundle.windows.nsis`), which call `beezip shell install|uninstall`, so the CLI owns the logic.
   - The DLL file name includes the version (`beezip_shell_<ver>.dll`) so an upgrade doesn't fight Explorer's lock on the old file.
-  - Old DLLs are deleted on the next run or at reboot (`MoveFileEx` with `DELAY_UNTIL_REBOOT`).
+  - Old DLLs are deleted when they can be. A locked one is moved to `%TEMP%` and removed at the next sign-in through HKCU `RunOnce`; `MoveFileEx(DELAY_UNTIL_REBOOT)` needs admin, which a per-user install doesn't have.
 - **Signing.** Windows only installs the sparse package if it is signed by a certificate the machine trusts, and that certificate's subject must equal `Publisher` in the manifest.
-  - Development: `xtask dev-cert` creates a self-signed certificate and installs it into LocalMachine\TrustedPeople. This needs admin once.
+  - An unsigned `.msix` can't be installed without admin, and a certificate trusted only in `CurrentUser\TrustedPeople` isn't enough (docs/M4.md §16).
+  - Development: the unsigned manifest is registered under Developer Mode, with no admin and no certificate. `xtask dev-cert` (a self-signed certificate in `LocalMachine\TrustedPeople`, admin once) is only for trying the signed installer path. CI runs as administrator and covers it.
   - Release: a real code-signing certificate or Azure Trusted Signing, used to sign the exe, the DLL, `beezip-sparse.msix` and the installer.
 
 ---
@@ -301,10 +308,11 @@ After approval I implement **M0 + M1** and then stop for your review before goin
   - The four-command IPC, browser, preview, extract and create dialogs, jobs panel, prompts, palette and "Copy as CLI".
   - File associations and single-instance forwarding.
   - The 7z, RAR and VolumeSet formats.
-- **M4 — Explorer integration.**
-  - First the classic-cascade spike, then `beezip-shell`, which carries one menu model and both registrations.
-  - `shell.{status,install,uninstall}`, the sparse package + `xtask dev-cert`, and NSIS hooks.
-  - A settings page with per-item toggles, then end-to-end checks on Win11 and on a Win10 VM.
+- **M4 — Explorer integration.** Detailed plan: [`docs/M4.md`](M4.md).
+  - Settings (`settings.get`/`set`, the settings page, the theme), job mode, the classic menu, then the Windows 11 menu: four PRs.
+  - `beezip-menu` and `beezip-shell`, which carry one menu model and either registration.
+  - `shell.{status,install,uninstall,plan}`, the sparse package + `xtask dev-cert`, and NSIS hooks.
+  - End-to-end checks on Win11 and on a Win10 VM.
 - **M5 — Editing + breadth.**
   - `archive.add/remove/rename/convert`, `entry.open`, and the M5 formats in §2 (CAB, ISO, cpio/ar/deb, RPM, LHA, .Z, lzop, squashfs, DMG).
   - Filename codepage override.
@@ -336,9 +344,10 @@ After approval I implement **M0 + M1** and then stop for your review before goin
   - `pnpm tauri dev`: open a fixture by dialog, drag-drop and double-click (association + single-instance), browse a 1M-entry zip smoothly, preview, extract with cancel mid-way (no partial files left), create a password-protected 7z, check "Copy as CLI" output runs unchanged in a terminal;
   - vitest for components; a tauri-driver smoke E2E in M6.
 - **Explorer integration:**
-  - Unit tests for the pure `selection → menu items` function, kept separate from the COM glue.
-  - A Windows CI harness that loads `beezip_shell_<ver>.dll` with `CoCreateInstance`, builds an `IShellItemArray` from fixture paths (`SHCreateShellItemArrayFromShellItem`), and checks the title, state, subcommands and that `Invoke` writes the job file.
-  - `beezip shell install --classic` → `beezip shell status` → check the registry keys → `beezip shell uninstall` leaves nothing behind.
+  - Unit tests for the pure `selection → menu items` function (`beezip-menu`), kept separate from the COM glue.
+  - A Windows CI harness that loads the DLL directly (`LoadLibrary` + `DllGetClassObject`, nothing registered), builds an `IShellItemArray` from fixture paths, and checks the title, state, subcommands and that `Invoke` writes the job file.
+  - `menu_dump` builds the classic menu as the shell does, which also lists packaged verbs, so one tool checks both registrations.
+  - On the CI runner, as administrator: `beezip shell install --mode classic` → `menu_dump` → `beezip shell uninstall` leaves nothing behind; then the same with a test-signed package.
   - Manual on Win11, in both the modern menu and "Show more options": single file, multi-select, folder, a non-archive file (archive items hidden), and "Extract here" opens the job window and finishes.
   - Upgrade the installer while Explorer has the old DLL loaded. Repeat on a Win10 22H2 VM.
 
@@ -348,7 +357,7 @@ After approval I implement **M0 + M1** and then stop for your review before goin
 - **libarchive on Windows:** optional feature, off by default. Most of the long tail comes from the 7-Zip external backend, which carries no license coupling because it runs as a separate process.
 - **Solid archives and random access:** previews use the index cache plus a temp extraction cache, and `FormatCaps.random_access` tells the UI when a preview will be slow.
 - **Native drag-out to Explorer from the webview:** stretch goal (M6). The fallback is "Extract to…" plus dragging out a temp extraction.
-- **The Win11 menu needs package identity and a trusted signature.** Unsigned dev builds only get the classic menu until `xtask dev-cert` has been run. Releases need a real certificate.
+- **The Win11 menu needs package identity and a trusted signature.** Development registers the unsigned manifest under Developer Mode; an installer without a trusted certificate gives Windows 11 the classic menu. Releases need a real certificate (M6).
 - **A shell extension crashing takes Explorer down with it.** Mitigations: keep the DLL tiny and free of beezip-core, `catch_unwind` in every COM method (with `panic = "unwind"`), no file I/O in `GetState`, and fuzz the selection-to-items logic.
 - **The name:**
   - BeeZip is one letter away from **BreeZip**, an existing open-source Windows archiver. Use distinct bee-themed branding and run a trademark search before the first public release.

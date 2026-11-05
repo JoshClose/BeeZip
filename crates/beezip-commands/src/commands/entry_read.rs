@@ -72,6 +72,7 @@ impl Command for EntryRead {
     const CLI: Option<CliSpec> = Some(CliSpec {
         name: "read",
         aliases: &[],
+        group: None,
     });
 
     type Input = EntryReadInput;

@@ -33,9 +33,11 @@ fn cli_reaches_every_command() {
         );
 
         if let Some(spec) = entry.cli {
-            beezip().args([spec.name, "--help"]).assert().success();
-            for alias in spec.aliases {
-                beezip().args([alias, "--help"]).assert().success();
+            let group: Vec<&str> = spec.group.into_iter().collect();
+            for name in std::iter::once(&spec.name).chain(spec.aliases) {
+                let mut words = group.clone();
+                words.extend([*name, "--help"]);
+                beezip().args(&words).assert().success();
             }
         }
     }

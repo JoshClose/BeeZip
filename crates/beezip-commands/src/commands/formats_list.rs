@@ -117,6 +117,7 @@ impl Command for FormatsList {
     const CLI: Option<CliSpec> = Some(CliSpec {
         name: "formats",
         aliases: &[],
+        group: None,
     });
 
     type Input = FormatsListInput;

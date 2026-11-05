@@ -122,6 +122,7 @@ impl Command for ArchiveList {
     const CLI: Option<CliSpec> = Some(CliSpec {
         name: "list",
         aliases: &["l"],
+        group: None,
     });
 
     type Input = ArchiveListInput;

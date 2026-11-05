@@ -8,7 +8,8 @@ export type DialogState =
   | { kind: "about" }
   | { kind: "info"; tab: string }
   | { kind: "form"; command: string }
-  | { kind: "report"; title: string; error: CmdError };
+  | { kind: "report"; title: string; error: CmdError }
+  | { kind: "settings" };
 
 type UiState = {
   dialog?: DialogState;

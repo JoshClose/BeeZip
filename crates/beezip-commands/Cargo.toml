@@ -20,6 +20,7 @@ tempfile.workspace = true
 thiserror.workspace = true
 time.workspace = true
 toml.workspace = true
+toml_edit.workspace = true
 ts-rs.workspace = true
 
 [lints]

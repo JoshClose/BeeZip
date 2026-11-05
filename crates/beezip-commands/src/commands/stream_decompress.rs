@@ -71,6 +71,7 @@ impl Command for StreamDecompress {
     const CLI: Option<CliSpec> = Some(CliSpec {
         name: "decompress",
         aliases: &[],
+        group: None,
     });
 
     type Input = StreamDecompressInput;

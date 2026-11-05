@@ -20,8 +20,8 @@ use std::sync::OnceLock;
 /// Partial files, process-wide: a front end that must exit at once calls
 /// [`partial::abandon_all`] first (docs/M3.md §3.7).
 pub use beezip_core::safefs::partial;
-pub use command::{CliSpec, Command, Effect, Surfaces};
-pub use config::{Config, LoadedConfig, McpConfig};
+pub use command::{CLI_GROUPS, CliSpec, Command, Effect, Surfaces};
+pub use config::{Config, LoadedConfig, McpConfig, Theme};
 pub use engine::{Engine, EngineOptions, JobHandle, JobInfo};
 pub use error::{CmdError, ErrorCode};
 pub use job::{

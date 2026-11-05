@@ -1,8 +1,9 @@
 use std::{
     collections::HashMap,
     panic::{self, AssertUnwindSafe},
+    path::PathBuf,
     sync::{
-        Arc, Mutex, MutexGuard, PoisonError,
+        Arc, Mutex, MutexGuard, PoisonError, RwLock,
         atomic::{AtomicU64, Ordering},
     },
     thread::JoinHandle,
@@ -15,7 +16,10 @@ use ts_rs::TS;
 
 use crate::{
     CancelToken, CmdError, ErrorCode, EventSink, Interactor, JobCtx, JobEvent, JobId, Registry,
-    cache::ArchiveCache, config::Config, policy::Policy, registry::RunFn,
+    cache::ArchiveCache,
+    config::{Config, LoadedConfig},
+    policy::Policy,
+    registry::RunFn,
 };
 
 /// Runs commands as jobs. Cheap to clone; clones share the job table.
@@ -31,9 +35,39 @@ struct Inner {
     registry: &'static Registry,
     next_id: AtomicU64,
     jobs: Mutex<HashMap<JobId, Running>>,
-    policy: Arc<Policy>,
-    config: Arc<Result<Config, CmdError>>,
+    live: Arc<Live>,
     cache: Arc<ArchiveCache>,
+}
+
+/// The config and policy jobs start with. A job takes a snapshot of both when it starts;
+/// `settings.set` replaces them for the jobs after it (docs/M4.md §7.3).
+pub(crate) struct Live {
+    config: RwLock<Arc<Result<Config, CmdError>>>,
+    policy: RwLock<Arc<Policy>>,
+    /// The file the config came from, which `settings.*` read and write.
+    path: Option<PathBuf>,
+}
+
+impl Live {
+    pub(crate) fn config(&self) -> Arc<Result<Config, CmdError>> {
+        Arc::clone(&self.config.read().unwrap_or_else(PoisonError::into_inner))
+    }
+
+    pub(crate) fn policy(&self) -> Arc<Policy> {
+        Arc::clone(&self.policy.read().unwrap_or_else(PoisonError::into_inner))
+    }
+
+    pub(crate) fn path(&self) -> Option<&PathBuf> {
+        self.path.as_ref()
+    }
+
+    /// The new config, and the policy's limits from its `[limits]`.
+    pub(crate) fn replace(&self, config: Config) {
+        let mut policy = Policy::clone(&self.policy());
+        policy.limits = config.limits();
+        *self.policy.write().unwrap_or_else(PoisonError::into_inner) = Arc::new(policy);
+        *self.config.write().unwrap_or_else(PoisonError::into_inner) = Arc::new(Ok(config));
+    }
 }
 
 /// What the front ends set up once: the config (as loaded when the process started) and the
@@ -43,6 +77,9 @@ pub struct EngineOptions {
     /// The config, or why it can't be used; commands that need it fail with that error.
     pub config: Result<Config, CmdError>,
     pub policy: Policy,
+    /// The file the config came from. `settings.get` and `settings.set` use it; without one
+    /// they use [`crate::config::config_path`].
+    pub config_path: Option<PathBuf>,
 }
 
 impl Default for EngineOptions {
@@ -50,6 +87,7 @@ impl Default for EngineOptions {
         Self {
             config: Ok(Config::default()),
             policy: Policy::unrestricted(),
+            config_path: None,
         }
     }
 }
@@ -60,7 +98,19 @@ impl EngineOptions {
         if let Ok(c) = &config {
             policy.limits = c.limits();
         }
-        Self { config, policy }
+        Self {
+            config,
+            policy,
+            config_path: None,
+        }
+    }
+
+    /// [`EngineOptions::from_config`] with the file it came from.
+    pub fn from_loaded(loaded: LoadedConfig, policy: Policy) -> Self {
+        Self {
+            config_path: loaded.path,
+            ..Self::from_config(loaded.config, policy)
+        }
     }
 }
 
@@ -94,8 +144,11 @@ impl Engine {
                 registry,
                 next_id: AtomicU64::new(1),
                 jobs: Mutex::new(HashMap::new()),
-                policy: Arc::new(options.policy),
-                config: Arc::new(options.config),
+                live: Arc::new(Live {
+                    config: RwLock::new(Arc::new(options.config)),
+                    policy: RwLock::new(Arc::new(options.policy)),
+                    path: options.config_path,
+                }),
                 cache: Arc::new(ArchiveCache::new()),
             }),
         }
@@ -110,9 +163,15 @@ impl Engine {
         &self.inner.cache
     }
 
-    /// The policy jobs run under unless [`Engine::invoke_with_policy`] names another.
-    pub fn policy(&self) -> &Policy {
-        &self.inner.policy
+    /// The policy jobs run under unless [`Engine::invoke_with_policy`] names another. Its
+    /// limits follow `[limits]` when `settings.set` changes them.
+    pub fn policy(&self) -> Arc<Policy> {
+        self.inner.live.policy()
+    }
+
+    /// The config the next job starts with, or why it can't be used.
+    pub fn config(&self) -> Arc<Result<Config, CmdError>> {
+        self.inner.live.config()
     }
 
     /// Starts `name` with JSON `args` on a new job.
@@ -127,7 +186,7 @@ impl Engine {
         interactor: Arc<dyn Interactor>,
         sink: EventSink,
     ) -> Result<JobHandle, CmdError> {
-        let policy = Arc::clone(&self.inner.policy);
+        let policy = self.inner.live.policy();
         self.invoke_with_policy(name, args, interactor, sink, policy)
     }
 
@@ -240,7 +299,7 @@ fn execute(inner: &Inner, job: JobSetup, args: Value) -> Result<Value, CmdError>
         Arc::clone(&sink),
         interactor,
         policy,
-        Arc::clone(&inner.config),
+        Arc::clone(&inner.live),
         Some(Arc::clone(&inner.cache)),
     );
     let result = if cancel.is_cancelled() {
@@ -358,8 +417,21 @@ mod tests {
         assert!(registry().get("app.version").is_some());
         assert!(registry().get("app.nope").is_none());
         assert_eq!(
-            registry().by_cli_name("version").unwrap().name,
+            registry().by_cli_name(None, "version").unwrap().name,
             "app.version"
+        );
+        assert_eq!(
+            registry()
+                .by_cli_name(Some("settings"), "set")
+                .unwrap()
+                .name,
+            "settings.set"
+        );
+        assert!(registry().by_cli_name(None, "set").is_none());
+        assert!(
+            registry()
+                .by_cli_name(Some("settings"), "version")
+                .is_none()
         );
     }
 

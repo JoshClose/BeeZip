@@ -69,6 +69,7 @@ memchr     = "2.8.3"
 globset    = { version = "0.4.21", default-features = false }
 dirs       = "7.0.0"
 toml       = "1.1.8"
+toml_edit  = "0.25.17"   # settings.set keeps config.toml's comments (docs/M4.md §1)
 base64     = "0.23.1"
 indicatif  = "0.18.6"
 

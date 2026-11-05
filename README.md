@@ -33,6 +33,8 @@ pnpm tauri dev      # the desktop app, reloading as you edit
 - **Passwords and overwrites** are asked as they come up. A password stays in memory for its tab, until you close it, and is never saved.
 - **Commands:** Ctrl+K lists every action and every BeeZip command; a command without a dialog of its own gets a form.
 - **Copy as CLI**, on every dialog, copies the `beezip` command that does the same, without the password.
+- **Settings** (Ctrl+,, or from the welcome screen) change `config.toml` as you go, and the next job uses them. Each is saved as you change it, keeping the file's comments; a value BeeZip can't take shows its error beside the field and isn't saved.
+- **Theme:** System (Windows' light or dark mode), Light or Dark, in Settings or from Ctrl+K ("Theme: Dark"). Every window switches at once.
 
 **The installer** works per user, with no admin rights:
 - **Files:** it puts `BeeZip.exe` in `%LOCALAPPDATA%\BeeZip`, and adds its `bin` folder (holding `beezip.exe`) to your PATH.
@@ -77,7 +79,13 @@ beezip decompress backup.tar.zst      # backup.tar: one codec layer per call
 
 ### Configuration
 
-`%APPDATA%\BeeZip\config.toml` (or the file `BEEZIP_CONFIG` names) sets the defaults; the arguments above override them.
+`%APPDATA%\BeeZip\config.toml` (or the file `BEEZIP_CONFIG` names) sets the defaults; the arguments above override them. `beezip settings get` lists every setting with its value, and `beezip settings set` changes them in place, keeping the file's comments and refusing a key or value BeeZip doesn't take (nothing is written then):
+
+```powershell
+beezip settings get
+beezip settings set extract.overwrite=rename levels.zstd=19     # VALUE is TOML; a bare word is a string
+beezip settings set "mcp.roots=['C:\Users\you\Unpacked']" --reset limits.max_ratio
+```
 
 ```toml
 [extract]
@@ -104,7 +112,20 @@ decoder_memory_mib = 1024
 [mcp]                      # `beezip mcp`; --root and --read-only override these
 roots = ['C:\Users\you\Unpacked']
 read_only = false
+
+[desktop]
+theme = "system"           # system | light | dark
+
+[shell]                    # Explorer's right-click menu, which comes later in M4
+cascade = true             # classic menu: false puts each item at the top level
+[shell.items]              # every item shows unless set to false: open, extract-here,
+test = false               # extract-folder, extract-to, test, add-zip, add-7z, add-tar-zst, compress-to
+
+[jobs]
+close_when_done = true     # a job window from Explorer closes after a clean success
 ```
+
+The settings are hidden from MCP clients: one that could change `[mcp] roots` could widen its own sandbox.
 
 ## MCP server
 

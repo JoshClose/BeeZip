@@ -142,7 +142,7 @@ impl BeeZipServer {
     /// Fails if a root doesn't exist.
     pub fn new(engine: Engine, options: &McpOptions) -> Result<Self, CmdError> {
         let sandbox = Sandbox::new(&options.roots, options.read_only, options.unrestricted)?;
-        let mut base = engine.policy().clone();
+        let mut base = (*engine.policy()).clone();
         base.max_list_entries = Some(MAX_LIST_ENTRIES);
         base.max_read_bytes = Some(MAX_READ_BYTES);
         Ok(Self {

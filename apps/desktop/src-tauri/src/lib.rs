@@ -9,7 +9,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use beezip_commands::{Engine, EngineOptions, Policy, config, registry};
+use beezip_commands::{Engine, EngineOptions, Policy, Theme, config, registry};
 use tauri::{Manager, RunEvent};
 
 use crate::prompts::GuiInteractor;
@@ -20,10 +20,16 @@ const EXIT_WAIT: Duration = Duration::from_secs(10);
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    // The config is read once at startup (docs/M1.md §4.1); its warnings go to the page.
+    // The config is read at startup (docs/M1.md §4.1), and replaced by `settings.set`
+    // (docs/M4.md §7.3); its warnings go to the page.
     let loaded = config::load();
-    let warnings = loaded.warnings;
-    let options = EngineOptions::from_config(loaded.config, Policy::unrestricted());
+    let warnings = loaded.warnings.clone();
+    let theme = loaded
+        .config
+        .as_ref()
+        .map(|c| c.desktop.theme)
+        .unwrap_or_default();
+    let options = EngineOptions::from_loaded(loaded, Policy::unrestricted());
     let engine = Engine::with_options(registry(), options);
     let gui = Arc::new(GuiInteractor::new({
         let engine = engine.clone();
@@ -40,7 +46,11 @@ pub fn run() {
         .manage(engine)
         .manage(gui)
         .setup(move |app| {
-            open::create_main_window(app, warnings.clone())?;
+            // App-wide, before the window exists, so it opens in the right theme and later
+            // windows and changes follow it (docs/M4.md §7.5). On this, the main thread, the
+            // call takes effect at once.
+            app.handle().set_theme(tauri_theme(theme));
+            open::create_main_window(app, warnings.clone(), theme)?;
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -56,6 +66,15 @@ pub fn run() {
             cancel_and_wait(app);
         }
     });
+}
+
+/// `[desktop] theme` as Tauri takes it: `None` follows Windows.
+fn tauri_theme(theme: Theme) -> Option<tauri::Theme> {
+    match theme {
+        Theme::System => None,
+        Theme::Light => Some(tauri::Theme::Light),
+        Theme::Dark => Some(tauri::Theme::Dark),
+    }
 }
 
 /// Cancels whatever still runs and waits, up to [`EXIT_WAIT`], for it to clean up.

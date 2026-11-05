@@ -1,0 +1,12 @@
+# Kept by `settings set`: comments, order and spacing.
+[extract]
+overwrite = "rename"   # ask | always | never | rename | newer
+links = false
+
+[levels]
+
+[telemetry]
+on = true
+
+[shell.items]
+test = false

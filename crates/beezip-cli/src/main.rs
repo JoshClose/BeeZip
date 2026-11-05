@@ -147,9 +147,17 @@ fn dispatch(matches: &ArgMatches, out: &Output) -> Result<(), CmdError> {
         }
         Some(("mcp", sub)) => mcp(sub, out),
         Some((subcommand, sub)) => {
-            let entry = registry()
-                .by_cli_name(subcommand)
-                .ok_or_else(|| CmdError::not_found(format!("no subcommand `{subcommand}`")))?;
+            // `beezip settings get`: the group, then the command's own subcommand.
+            let (group, name, sub) = match sub.subcommand() {
+                Some((name, inner)) if generated::is_group(subcommand) => {
+                    (Some(subcommand), name, inner)
+                }
+                _ => (None, subcommand, sub),
+            };
+            let entry = registry().by_cli_name(group, name).ok_or_else(|| {
+                let words = group.into_iter().chain([name]).collect::<Vec<_>>();
+                CmdError::not_found(format!("no subcommand `{}`", words.join(" ")))
+            })?;
             let args = entry.args_from_matches(sub).unwrap_or_else(|e| e.exit());
             run(entry.name, args, out)
         }
@@ -211,7 +219,7 @@ fn mcp(sub: &ArgMatches, out: &Output) -> Result<(), CmdError> {
     };
     let engine = Engine::with_options(
         registry(),
-        EngineOptions::from_config(loaded.config, Policy::unrestricted()),
+        EngineOptions::from_loaded(loaded, Policy::unrestricted()),
     );
     let server = BeeZipServer::new(engine, &options)?;
     beezip_mcp::serve_stdio_blocking(server)
@@ -226,7 +234,7 @@ fn run(name: &str, args: Value, out: &Output) -> Result<(), CmdError> {
     }
     let engine = Engine::with_options(
         registry(),
-        EngineOptions::from_config(loaded.config, Policy::unrestricted()),
+        EngineOptions::from_loaded(loaded, Policy::unrestricted()),
     );
     let interactive = std::io::stdin().is_terminal() && std::io::stderr().is_terminal();
     let interactor: Arc<dyn Interactor> = if interactive {

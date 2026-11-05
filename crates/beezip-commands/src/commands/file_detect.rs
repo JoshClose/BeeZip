@@ -62,6 +62,7 @@ impl Command for FileDetect {
     const CLI: Option<CliSpec> = Some(CliSpec {
         name: "detect",
         aliases: &[],
+        group: None,
     });
 
     type Input = FileDetectInput;
