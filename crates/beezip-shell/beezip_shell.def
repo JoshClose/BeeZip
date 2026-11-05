@@ -1,0 +1,5 @@
+; The DLL's exports (docs/M4.md §4.4). PRIVATE keeps them out of the import library, which
+; link.exe otherwise warns about (LNK4104) for COM's entry points.
+EXPORTS
+    DllGetClassObject PRIVATE
+    DllCanUnloadNow PRIVATE
