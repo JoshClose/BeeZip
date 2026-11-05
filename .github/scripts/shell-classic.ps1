@@ -1,7 +1,7 @@
 # Explorer's classic menu end to end on the runner (docs/M4.md §10): `beezip shell install` with
 # the debug DLL and the stub app, the shell's own menu for a fixture zip (menu_dump, which builds
 # it as Explorer does), a click on "Test archive", and `beezip shell uninstall` leaving nothing.
-# Needs `cargo test --workspace` first, which builds beezip.exe, the DLL and the examples.
+# Needs `cargo build -p beezip-cli -p beezip-shell --examples` first (CI runs it).
 $ErrorActionPreference = 'Stop'
 [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)   # menu_dump writes UTF-8
 function Fail([string]$message) { Write-Host "::error::$message"; exit 1 }
@@ -10,6 +10,8 @@ $root = (Resolve-Path "$PSScriptRoot\..\..").Path
 $debug = Join-Path $root 'target\debug'
 $beezip = Join-Path $debug 'beezip.exe'
 $dll = Join-Path $debug 'beezip_shell.dll'
+# `cargo test` builds the DLL into deps\ without copying it up, and a later build may find it fresh.
+if (-not (Test-Path $dll)) { $dll = Join-Path $debug 'deps\beezip_shell.dll' }
 $stub = Join-Path $debug 'examples\stub_app.exe'
 $dump = Join-Path $debug 'examples\menu_dump.exe'
 $zip = Join-Path $root 'tests\fixtures\thirdparty\7z-deflate.zip'

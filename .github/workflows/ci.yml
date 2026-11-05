@@ -39,8 +39,9 @@ jobs:
       - name: test
         run: cargo test --workspace --locked
       - name: Explorer's classic menu, end to end (docs/M4.md §10)
-        shell: pwsh
-        run: ./.github/scripts/shell-classic.ps1
+        run: |
+          cargo build --locked -p beezip-cli -p beezip-shell --examples
+          pwsh -NoProfile -File .github/scripts/shell-classic.ps1
       - uses: taiki-e/install-action@v2    # cargo-deny-action is a Docker action, so Linux-only
         with: { tool: cargo-deny@0.20.2 }
       - name: cargo-deny

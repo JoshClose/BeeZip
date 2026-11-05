@@ -7,8 +7,10 @@ rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
 
+# The rlib is only so that `cargo test` builds the DLL for tests/com.rs: cargo builds a library
+# for integration tests only when they can link it, and the one rustc run emits both.
 [lib]
-crate-type = ["cdylib"]
+crate-type = ["cdylib", "rlib"]
 
 # Small and self-contained, since it loads into explorer.exe (docs/M4.md §4.2): the menu model
 # without its `wire` feature, and the Windows API.

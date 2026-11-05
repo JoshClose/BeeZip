@@ -63,7 +63,17 @@ fn dll() -> &'static Dll {
             std::env::set_var("BEEZIP_SHELL_KEY", &key);
             std::env::set_var("BEEZIP_STUB_OUT", &stub_out);
         }
-        let path = target_dir().join("beezip_shell.dll");
+        // `cargo test` leaves the DLL in deps/, beside this test; `cargo build` copies it up.
+        let deps = std::env::current_exe()
+            .unwrap()
+            .parent()
+            .unwrap()
+            .join("beezip_shell.dll");
+        let path = if deps.is_file() {
+            deps
+        } else {
+            target_dir().join("beezip_shell.dll")
+        };
         // SAFETY: loading our own DLL, which runs no code at load.
         let module = unsafe { LoadLibraryW(&HSTRING::from(path.as_os_str())) }
             .unwrap_or_else(|e| panic!("loading {}: {e}", path.display()));
