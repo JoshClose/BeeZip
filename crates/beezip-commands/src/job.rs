@@ -218,6 +218,16 @@ impl JobCtx {
             .or_else(crate::config::config_path)
     }
 
+    /// Where Explorer's menu is registered: the real registry, or a test's own key.
+    pub(crate) fn shell_hive(&self) -> &crate::shell::Hive {
+        self.live.shell()
+    }
+
+    /// The desktop app's own exe, when the desktop app runs this job.
+    pub(crate) fn shell_app(&self) -> Option<&Path> {
+        self.live.shell_app()
+    }
+
     /// Gives every later job `config`, and the engine's limits its `[limits]`. This job keeps
     /// the config it started with.
     pub(crate) fn replace_config(&self, config: Config) {

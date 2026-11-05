@@ -9,45 +9,32 @@ Commands:
   mcp         Serve BeeZip's tools over MCP on stdin/stdout
   version     Show the BeeZip version and build information.
   create      Create an archive from files and folders. Each input is stored under its own name
-              (`src/`
-              becomes `src/…`). The format comes from `format` or the output's extension (`.zip`,
-              `.tar`,
-              `.tar.zst`, `.tgz`…). The archive is written to a temporary file and renamed into
-              place, so a
-              failed or cancelled create leaves nothing behind. [alias: c]
+              (`src/` becomes `src/…`). The format comes from `format` or the output's extension
+              (`.zip`, `.tar`, `.tar.zst`, `.tgz`…). The archive is written to a temporary file and
+              renamed into place, so a failed or cancelled create leaves nothing behind. [alias: c]
   extract     Extract an archive, or the selected entries. Unsafe entries (paths climbing out with
-              `..`,
-              links leading out) are skipped and the rest extracted; the command then fails with
-              `Unsafe`
-              and the report in `details`. Without `dest`, files go into the current directory.
-              [alias: x]
+              `..`, links leading out) are skipped and the rest extracted; the command then fails
+              with `Unsafe` and the report in `details`. Without `dest`, files go into the current
+              directory. [alias: x]
   info        Summarise an archive: its format chain, entry counts, sizes and compression ratio,
-              methods,
-              encryption, whether it is solid or self-extracting, and its comment.
+              methods, encryption, whether it is solid or self-extracting, and its comment.
   list        List an archive's entries. Without `flat`, one folder level at a time (the root, or
-              `dir`),
-              with folders that only exist as parts of paths shown too; with `flat` or a `glob`,
-              every
-              entry under `dir`. Results come in pages with `offset` and `limit`. [alias: l]
+              `dir`), with folders that only exist as parts of paths shown too; with `flat` or a
+              `glob`, every entry under `dir`. Results come in pages with `offset` and `limit`.
+              [alias: l]
   test        Test an archive's integrity: read every entry to the end, checking CRCs and codec
-              checksums.
-              Fails with `Corrupt`, listing the damaged entries in `details`. [alias: t]
+              checksums. Fails with `Corrupt`, listing the damaged entries in `details`. [alias: t]
   read        Read part of one entry without extracting it, as text, hex or base64. An offset is
-              reached
-              by decoding up to it, since a compressed entry can't seek.
+              reached by decoding up to it, since a compressed entry can't seek.
   detect      Detect what a file is: its chain of codecs and archive format (`zstd → tar`), whether
-              it is
-              a self-extracting archive, and what it is when it isn't an archive at all.
+              it is a self-extracting archive, and what it is when it isn't an archive at all.
   formats     List the archive formats and codecs BeeZip reads and writes, with their capabilities,
               methods, levels and threading.
   compress    Compress one file with a single-stream codec (`a.txt` → `a.txt.zst`). The output keeps
-              the
-              input's modification time; the input is left in place.
+              the input's modification time; the input is left in place.
   decompress  Decompress a compressed file, one codec layer per call: `a.tar.zst` → `a.tar`, `a.tgz`
-              →
-              `a.tar`, `notes.txt.gz` → `notes.txt`. The output keeps the input's modification time;
-              the
-              input is left in place.
+              → `a.tar`, `notes.txt.gz` → `notes.txt`. The output keeps the input's modification
+              time; the input is left in place.
   settings    Show and change BeeZip's settings (config.toml)
   shell       BeeZip's Explorer menu: what a click on it does
   help        Print this message or the help of the given subcommand(s)

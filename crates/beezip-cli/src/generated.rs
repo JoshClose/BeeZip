@@ -8,12 +8,15 @@ pub fn add_subcommands(mut root: clap::Command, registry: &Registry) -> clap::Co
     let mut groups: Vec<clap::Command> = Vec::new();
     for entry in registry.entries().iter().filter(|e| e.surfaces.cli) {
         let Some(spec) = entry.cli else { continue };
+        // The first paragraph as one line, which clap wraps to the column it is given.
         let summary = entry
             .description
             .split("\n\n")
             .next()
             .unwrap_or_default()
-            .to_owned();
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ");
         let sub = entry
             .augment_args(clap::Command::new(spec.name))
             .visible_aliases(spec.aliases.iter().copied())

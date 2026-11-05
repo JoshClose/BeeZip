@@ -349,6 +349,27 @@ volumes: boolean,
 random_access: boolean, };
 
 /**
+ * The classic menu's keys.
+ */
+export type ClassicKeys = {
+/**
+ * The DLL the keys name.
+ */
+dll: string | null,
+/**
+ * Whether that DLL exists.
+ */
+dll_exists: boolean,
+/**
+ * A "BeeZip" submenu, rather than each item at the top level.
+ */
+cascade: boolean,
+/**
+ * The verbs, as `*\shell\BeeZip`.
+ */
+verbs: Array<string>, };
+
+/**
  * The `beezip` command line that runs a command with these arguments. Passwords are left
  * out (`omitted` names them): the copied command asks for them in the terminal.
  */
@@ -611,6 +632,11 @@ export type FormatsListOutput = { formats: Array<FormatInfo>, codecs: Array<Code
  * The `--format` names `archive.create` accepts: `zip`, `tar`, `tar.gz`…
  */
 create: Array<string>, };
+
+/**
+ * Which menu `shell.install` registers.
+ */
+export type InstallMode = "auto" | "classic" | "modern";
 
 /**
  * Everything a job reports, in order: `Started`, then any `Progress`, `Log` or `Prompt`, then
@@ -886,6 +912,41 @@ export type ShellConfig = {
 cascade: boolean, items: ShellItems, };
 
 /**
+ * Add BeeZip to Explorer's right-click menu, or repair it. It registers the menu for this
+ * user (no admin), writes the settings the menu reads, and deletes DLLs older versions left.
+ *
+ * Running it again repairs the menu, and moves it to another DLL or app.
+ */
+export type ShellInstallInput = {
+/**
+ * Which menu [default: auto]. `auto` registers the classic menu, which is Windows 10's
+ * menu and "Show more options" on Windows 11.
+ */
+mode?: InstallMode,
+/**
+ * The menu's DLL [default: the beezip_shell DLL in BeeZip's install folder].
+ */
+dll?: string,
+/**
+ * The BeeZip.exe a click starts [default: the one in BeeZip's install folder].
+ */
+app?: string, };
+
+export type ShellInstallOutput = {
+/**
+ * The menu now.
+ */
+status: ShellStatusOutput,
+/**
+ * What was done, in words.
+ */
+actions: Array<string>,
+/**
+ * Why `auto` gave this Windows the classic menu rather than its own, when it did.
+ */
+fallback: string | null, };
+
+/**
  * Which menu items Explorer shows. Every one is shown unless set to false.
  */
 export type ShellItems = {
@@ -927,6 +988,11 @@ test: boolean,
 "compress-to": boolean, };
 
 /**
+ * One way of registering the menu.
+ */
+export type ShellMode = "classic" | "modern";
+
+/**
  * How `cli.line` quotes.
  */
 export type ShellName = "powershell" | "cmd" | "posix";
@@ -936,6 +1002,58 @@ export type ShellPlanOutput = {
  * In order: the job window runs its steps one after another.
  */
 steps: Array<Step>, };
+
+/**
+ * Show how BeeZip's Explorer menu is registered: the Windows build, the menu in place and its
+ * keys, the app a click starts, the hidden items, and any problem, such as a DLL that has gone.
+ */
+export type ShellStatusInput = Record<symbol, never>;
+
+export type ShellStatusOutput = {
+/**
+ * Windows' build number (19045 is Windows 10 22H2; Windows 11 starts at 22000).
+ */
+windows_build: number | null,
+/**
+ * Whether Developer Mode is on, which lets an unsigned package register.
+ */
+developer_mode: boolean,
+/**
+ * The registration in place, if any.
+ */
+mode: ShellMode | null,
+/**
+ * The classic menu's keys, if there are any.
+ */
+classic: ClassicKeys | null,
+/**
+ * The `BeeZip.exe` a click starts.
+ */
+app: string | null,
+/**
+ * The items left out of the menu.
+ */
+hidden: Array<MenuItem>,
+/**
+ * The classic menu's submenu setting.
+ */
+cascade: boolean,
+/**
+ * What is wrong, in words: a DLL or app that has gone, keys without settings.
+ */
+problems: Array<string>, };
+
+/**
+ * Remove BeeZip from Explorer's right-click menu: both registrations, the settings the menu
+ * reads, and the menu's DLL files where Explorer lets go of them. config.toml is left alone.
+ */
+export type ShellUninstallInput = Record<symbol, never>;
+
+export type ShellUninstallOutput = {
+/**
+ * What was done, in words. Empty when there was no menu.
+ */
+actions: Array<string>, };
 
 /**
  * An entry that wasn't extracted.
@@ -1122,11 +1240,28 @@ export type CommandMap = {
    */
   "settings.set": { input: SettingsSetInput; output: SettingsSetOutput };
   /**
+   * Add BeeZip to Explorer's right-click menu, or repair it. It registers the menu for this
+   * user (no admin), writes the settings the menu reads, and deletes DLLs older versions left.
+   *
+   * Running it again repairs the menu, and moves it to another DLL or app.
+   */
+  "shell.install": { input: ShellInstallInput; output: ShellInstallOutput };
+  /**
    * Plan what a click on BeeZip's Explorer menu does: the steps for the item clicked and the
    * selected paths, as the desktop app runs them when the menu starts it with `--job`. Archives
    * in one volume set become one step; a path that has gone fails only its own step.
    */
   "shell.plan": { input: JobRequest; output: ShellPlanOutput };
+  /**
+   * Show how BeeZip's Explorer menu is registered: the Windows build, the menu in place and its
+   * keys, the app a click starts, the hidden items, and any problem, such as a DLL that has gone.
+   */
+  "shell.status": { input: ShellStatusInput; output: ShellStatusOutput };
+  /**
+   * Remove BeeZip from Explorer's right-click menu: both registrations, the settings the menu
+   * reads, and the menu's DLL files where Explorer lets go of them. config.toml is left alone.
+   */
+  "shell.uninstall": { input: ShellUninstallInput; output: ShellUninstallOutput };
   /**
    * Compress one file with a single-stream codec (`a.txt` → `a.txt.zst`). The output keeps the
    * input's modification time; the input is left in place.

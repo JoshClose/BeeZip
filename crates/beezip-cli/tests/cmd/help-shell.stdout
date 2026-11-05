@@ -3,10 +3,20 @@ BeeZip's Explorer menu: what a click on it does
 Usage: beezip shell [OPTIONS] <COMMAND>
 
 Commands:
-  plan  Plan what a click on BeeZip's Explorer menu does: the steps for the item clicked and the
-        selected paths, as the desktop app runs them when the menu starts it with `--job`. Archives
-        in one volume set become one step; a path that has gone fails only its own step.
-  help  Print this message or the help of the given subcommand(s)
+  install    Add BeeZip to Explorer's right-click menu, or repair it. It registers the menu for this
+             user (no admin), writes the settings the menu reads, and deletes DLLs older versions
+             left.
+  plan       Plan what a click on BeeZip's Explorer menu does: the steps for the item clicked and
+             the selected paths, as the desktop app runs them when the menu starts it with `--job`.
+             Archives in one volume set become one step; a path that has gone fails only its own
+             step.
+  status     Show how BeeZip's Explorer menu is registered: the Windows build, the menu in place and
+             its keys, the app a click starts, the hidden items, and any problem, such as a DLL that
+             has gone.
+  uninstall  Remove BeeZip from Explorer's right-click menu: both registrations, the settings the
+             menu reads, and the menu's DLL files where Explorer lets go of them. config.toml is
+             left alone.
+  help       Print this message or the help of the given subcommand(s)
 
 Options:
   -h, --help

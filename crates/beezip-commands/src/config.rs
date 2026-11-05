@@ -183,6 +183,32 @@ pub struct ShellItems {
     pub compress_to: bool,
 }
 
+impl ShellItems {
+    /// Whether `item` is shown.
+    pub fn shows(&self, item: beezip_menu::Item) -> bool {
+        use beezip_menu::Item;
+        match item {
+            Item::Open => self.open,
+            Item::ExtractHere => self.extract_here,
+            Item::ExtractFolder => self.extract_folder,
+            Item::ExtractTo => self.extract_to,
+            Item::Test => self.test,
+            Item::AddZip => self.add_zip,
+            Item::Add7z => self.add_7z,
+            Item::AddTarZst => self.add_tar_zst,
+            Item::CompressTo => self.compress_to,
+        }
+    }
+
+    /// The items left out, in menu order: what the DLL reads as `Hidden`.
+    pub fn hidden(&self) -> Vec<beezip_menu::Item> {
+        beezip_menu::Item::ALL
+            .into_iter()
+            .filter(|i| !self.shows(*i))
+            .collect()
+    }
+}
+
 impl Default for ShellItems {
     fn default() -> Self {
         Self {
