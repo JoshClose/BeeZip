@@ -331,6 +331,7 @@ version = "0.1.0"
 dependencies = [
  "base64 0.23.1",
  "beezip-core",
+ "beezip-menu",
  "clap",
  "dirs",
  "filetime",
@@ -378,6 +379,7 @@ name = "beezip-desktop"
 version = "0.1.0"
 dependencies = [
  "beezip-commands",
+ "beezip-menu",
  "serde",
  "serde_json",
  "tauri",
@@ -405,6 +407,18 @@ dependencies = [
  "ts-rs",
  "url",
  "uuid",
+]
+
+[[package]]
+name = "beezip-menu"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "proptest",
+ "schemars 1.2.3",
+ "serde",
+ "serde_json",
+ "ts-rs",
 ]
 
 [[package]]
@@ -5893,6 +5907,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "beezip-commands",
+ "beezip-core",
  "bzip2",
  "crc32fast",
  "flate2",

@@ -1,0 +1,4 @@
+# A job request's paths are absolute: Explorer always gives full paths (docs/M4.md §6.1).
+bin.name = "beezip"
+args = ["shell", "plan", "test", "a.zip"]
+status.code = 2

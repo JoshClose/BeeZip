@@ -9,7 +9,7 @@ use std::process::ExitCode;
 
 const USAGE: &str = "usage: cargo xtask <task>
 
-  codegen               regenerate apps/desktop/src/gen/commands.ts from the command registry
+  codegen               regenerate commands.ts and beezip-menu's gen_exts.rs from the registry
   codegen --check       fail if the committed file is out of date
   gen-fixtures          regenerate the malicious corpus in tests/fixtures/malicious
   gen-fixtures --check  fail if the committed corpus is out of date

@@ -55,10 +55,13 @@ impl CliSpec {
 }
 
 /// The subcommands that group others, with their one-line help.
-pub const CLI_GROUPS: &[(&str, &str)] = &[(
-    "settings",
-    "Show and change BeeZip's settings (config.toml)",
-)];
+pub const CLI_GROUPS: &[(&str, &str)] = &[
+    (
+        "settings",
+        "Show and change BeeZip's settings (config.toml)",
+    ),
+    ("shell", "BeeZip's Explorer menu: what a click on it does"),
+];
 
 /// A command: one input type and one output type, shared by every front end.
 ///

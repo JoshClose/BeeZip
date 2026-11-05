@@ -527,6 +527,15 @@ lossy: boolean, };
  */
 export type ErrorCode = "NotFound" | "UnsupportedFormat" | "UnsupportedOperation" | "PasswordRequired" | "WrongPassword" | "Corrupt" | "OutsideSandbox" | "Conflict" | "LimitExceeded" | "Cancelled" | "BackendUnavailable" | "Io" | "Unsafe" | "InvalidArgs" | "Internal";
 
+/**
+ * An output that exists.
+ */
+export type Existing = { path: string,
+/**
+ * A free name beside it, for keeping both: `a (1).zip`.
+ */
+keep_both: string, };
+
 export type ExtractConfig = {
 /**
  * What to do when a file being extracted already exists.
@@ -615,6 +624,25 @@ export type JobEvent = { "type": "Started", job: number, } | { "type": "Progress
 export type JobInfo = { id: number, command: string, };
 
 /**
+ * Plan what a click on BeeZip's Explorer menu does: the steps for the item clicked and the
+ * selected paths, as the desktop app runs them when the menu starts it with `--job`. Archives
+ * in one volume set become one step; a path that has gone fails only its own step.
+ */
+export type JobRequest = {
+/**
+ * The request format: 1.
+ */
+version: number,
+/**
+ * The item clicked.
+ */
+item: MenuItem,
+/**
+ * The selected files and folders, absolute.
+ */
+paths: Array<string>, };
+
+/**
  * The job windows Explorer's menu opens.
  */
 export type JobsConfig = {
@@ -687,6 +715,12 @@ roots: Array<string>,
  * Refuse every command that writes, as `--read-only` does.
  */
 read_only: boolean, };
+
+/**
+ * An item of BeeZip's Explorer menu. The ids are stable: they are config keys
+ * (`[shell.items]`), registry values and TypeScript types.
+ */
+export type MenuItem = "open" | "extract-here" | "extract-folder" | "extract-to" | "test" | "add-zip" | "add-7z" | "add-tar-zst" | "compress-to";
 
 /**
  * A compression method BeeZip writes, with its level range.
@@ -897,6 +931,12 @@ test: boolean,
  */
 export type ShellName = "powershell" | "cmd" | "posix";
 
+export type ShellPlanOutput = {
+/**
+ * In order: the job window runs its steps one after another.
+ */
+steps: Array<Step>, };
+
 /**
  * An entry that wasn't extracted.
  */
@@ -915,6 +955,20 @@ refused: boolean, };
  * What `archive.list` sorts by.
  */
 export type SortKey = "name" | "size" | "packed" | "modified" | "kind" | "method" | "crc" | "encrypted";
+
+/**
+ * One thing a click does.
+ */
+export type Step = { "kind": "run",
+/**
+ * What the window says while it runs: "Extracting a.zip".
+ */
+title: string, command: string, args: JsonValue,
+/**
+ * The archive an add item would write is there already. The window asks whether to
+ * replace it (`overwrite`) or keep both.
+ */
+existing?: Existing, } | { "kind": "open", paths: Array<string>, } | { "kind": "extract_dialog", archive: string, } | { "kind": "create_dialog", inputs: Array<string>, } | { "kind": "failed", title: string, error: CmdError, };
 
 /**
  * Compress one file with a single-stream codec (`a.txt` → `a.txt.zst`). The output keeps the
@@ -1067,6 +1121,12 @@ export type CommandMap = {
    * they start.
    */
   "settings.set": { input: SettingsSetInput; output: SettingsSetOutput };
+  /**
+   * Plan what a click on BeeZip's Explorer menu does: the steps for the item clicked and the
+   * selected paths, as the desktop app runs them when the menu starts it with `--job`. Archives
+   * in one volume set become one step; a path that has gone fails only its own step.
+   */
+  "shell.plan": { input: JobRequest; output: ShellPlanOutput };
   /**
    * Compress one file with a single-stream codec (`a.txt` → `a.txt.zst`). The output keeps the
    * input's modification time; the input is left in place.

@@ -1,0 +1,1 @@
+error[InvalidArgs]: `a.zip` isn't absolute; a job request's paths are
