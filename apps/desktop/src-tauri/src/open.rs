@@ -1,44 +1,107 @@
-//! Opening files (docs/M3.md §5.4): the paths `BeeZip.exe` starts with reach the page through
-//! an initialization script, so it has them before any listener could miss an event; the
-//! paths a second instance forwards arrive as the `open-paths` event.
+//! Launches (docs/M3.md §5.4, docs/M4.md §6.2): what `BeeZip.exe` was started with, and what a
+//! second `BeeZip.exe` forwards to this one. Windows are created only when something needs
+//! them: the main window for archives, dialogs and plain launches, a job window for each
+//! request from Explorer's menu.
+//!
+//! A new window's page gets its startup data through an initialization script, so it has them
+//! before any listener could miss an event. A main window that already exists gets them as the
+//! `open-paths` and `open-dialog` events.
 
-use std::path::{Path, PathBuf};
+use std::{
+    path::{Path, PathBuf},
+    sync::Mutex,
+};
 
-use beezip_commands::Theme;
+use beezip_commands::{Engine, Theme};
 use serde::Serialize;
-use tauri::{App, AppHandle, Emitter, Manager, WebviewWindowBuilder};
+use tauri::{AppHandle, Emitter, Manager, WebviewWindowBuilder};
 
-/// The window every page lives in.
+use crate::job::{self, JobStartup, Routed};
+
+/// The main window: tabs, dialogs and the jobs panel.
 pub const MAIN: &str = "main";
 
 /// The event a second instance's paths arrive as.
 pub const OPEN_PATHS: &str = "open-paths";
 
-/// What the page finds in `window.__BEEZIP__` before its scripts run.
+/// The event a dialog for the main window arrives as.
+pub const OPEN_DIALOG: &str = "open-dialog";
+
+/// A dialog the main window opens on its own: `{ "dialog": "extract", "paths": [...] }`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(tag = "dialog", rename_all = "snake_case")]
+pub enum OpenDialog {
+    /// The extract dialog, for the one archive in `paths`.
+    Extract { paths: Vec<PathBuf> },
+    /// The create dialog, with `paths` as its inputs.
+    Create { paths: Vec<PathBuf> },
+}
+
+/// What a window's page finds in `window.__BEEZIP__` before its scripts run.
 #[derive(Debug, Serialize)]
 pub struct Startup {
-    /// Files to open, absolute.
+    /// Archives to open, absolute.
     pub paths: Vec<PathBuf>,
     /// How "Copy as CLI" starts its line: `beezip`, or the full path of a `beezip.exe` that
     /// isn't on PATH.
     pub cli: String,
-    /// Problems with `config.toml`, shown once.
+    /// Problems with `config.toml`, shown once, by the first main window.
     pub warnings: Vec<String>,
     /// `[desktop] theme`, as the window opened with it.
     pub theme: Theme,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dialog: Option<OpenDialog>,
+    /// A job window's steps.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub job: Option<JobStartup>,
 }
 
-/// The paths among a process's arguments (`argv[0]` first), resolved against `cwd`. Flags
-/// are left out; Explorer passes full paths.
-pub fn paths_from_args(args: &[String], cwd: &Path) -> Vec<PathBuf> {
-    args.iter()
-        .skip(1)
-        .filter(|a| !a.is_empty() && !a.starts_with('-'))
-        .map(|a| {
-            let p = cwd.join(a);
-            std::path::absolute(&p).unwrap_or(p)
-        })
-        .collect()
+/// The config's warnings, until the first main window takes them.
+pub struct Warnings(pub Mutex<Vec<String>>);
+
+/// What a launch asks for.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct Launch {
+    /// Files to open, absolute.
+    pub paths: Vec<PathBuf>,
+    /// The request file of `--job <file>`.
+    pub job: Option<PathBuf>,
+}
+
+/// A process's arguments (`argv[0]` first), resolved against `cwd`: `--job FILE` (or
+/// `--job=FILE`), and paths. Other flags are ignored, and `--` ends them.
+pub fn parse_args(args: &[String], cwd: &Path) -> Launch {
+    let resolve = |a: &str| {
+        let p = cwd.join(a);
+        std::path::absolute(&p).unwrap_or(p)
+    };
+    let mut launch = Launch::default();
+    let mut options = true;
+    let mut args = args.iter().skip(1);
+    while let Some(arg) = args.next() {
+        if arg.is_empty() {
+            continue;
+        }
+        if options {
+            if arg == "--" {
+                options = false;
+                continue;
+            }
+            if arg == "--job" {
+                launch.job = args.next().map(|f| resolve(f));
+                continue;
+            }
+            if let Some(file) = arg.strip_prefix("--job=") {
+                launch.job = Some(resolve(file));
+                continue;
+            }
+            if arg.starts_with('-') {
+                continue;
+            }
+        }
+        launch.paths.push(resolve(arg));
+    }
+    launch
 }
 
 /// The `beezip` executable "Copy as CLI" names: `bin\beezip.exe` beside an installed
@@ -71,18 +134,45 @@ fn same_dir(a: &Path, b: &Path) -> bool {
     }
 }
 
-/// Builds the main window (`create: false` in tauri.conf.json) with the startup script.
-pub fn create_main_window(app: &App, warnings: Vec<String>, theme: Theme) -> tauri::Result<()> {
-    let args: Vec<String> = std::env::args().collect();
-    let cwd = std::env::current_dir().unwrap_or_default();
+/// `window.__BEEZIP__ = …;` for a new window. A main window (no `job`) takes the config's
+/// warnings, so only the first one shows them.
+pub fn startup_script(
+    app: &AppHandle,
+    paths: Vec<PathBuf>,
+    dialog: Option<OpenDialog>,
+    job: Option<JobStartup>,
+) -> String {
+    let warnings = match (&job, app.try_state::<Warnings>()) {
+        (None, Some(w)) => std::mem::take(&mut *w.0.lock().unwrap_or_else(|e| e.into_inner())),
+        _ => Vec::new(),
+    };
+    // The theme now: the settings page may have changed it since startup.
+    let theme = app
+        .state::<Engine>()
+        .config()
+        .as_ref()
+        .as_ref()
+        .map(|c| c.desktop.theme)
+        .unwrap_or_default();
     let exe = std::env::current_exe().unwrap_or_default();
     let startup = Startup {
-        paths: paths_from_args(&args, &cwd),
+        paths,
         cli: cli_program(&exe, std::env::var_os("PATH").as_deref()),
         warnings,
         theme,
+        dialog,
+        job,
     };
     let json = serde_json::to_string(&startup).unwrap_or_else(|_| "{}".into());
+    format!("window.__BEEZIP__ = {json};")
+}
+
+/// Builds the main window (`create: false` in tauri.conf.json) with its startup data.
+pub fn create_main_window(
+    app: &AppHandle,
+    paths: Vec<PathBuf>,
+    dialog: Option<OpenDialog>,
+) -> tauri::Result<()> {
     let config = app
         .config()
         .app
@@ -91,23 +181,61 @@ pub fn create_main_window(app: &App, warnings: Vec<String>, theme: Theme) -> tau
         .find(|w| w.label == MAIN)
         .cloned()
         .unwrap_or_default();
-    WebviewWindowBuilder::from_config(app.handle(), &config)?
-        .initialization_script(format!("window.__BEEZIP__ = {json};"))
+    WebviewWindowBuilder::from_config(app, &config)?
+        .initialization_script(startup_script(app, paths, dialog, None))
         .build()?;
     Ok(())
 }
 
-/// A second `BeeZip.exe` started: open its paths here, and bring the window forward.
-pub fn forward(app: &AppHandle, args: &[String], cwd: &str) {
-    let paths = paths_from_args(args, Path::new(cwd));
-    if !paths.is_empty() {
-        let _ = app.emit_to(MAIN, OPEN_PATHS, &paths);
+/// Carries out a launch: plans a job request, then opens or reuses the windows its steps need.
+/// A plain launch shows the main window.
+pub fn launch(app: &AppHandle, launch: Launch) -> tauri::Result<()> {
+    let mut routed = match &launch.job {
+        Some(file) => job::route(job::plan(&app.state::<Engine>(), file)),
+        None => Routed::default(),
+    };
+    routed.open.extend(launch.paths);
+    let job_steps = std::mem::take(&mut routed.job);
+    let job_window = !job_steps.is_empty();
+    if job_window {
+        job::create_job_window(app, job_steps)?;
     }
+    // The main window: for archives and dialogs, for a plain launch, and for a request that
+    // has nothing else to show.
+    if routed.open.is_empty() && routed.dialog.is_none() && job_window {
+        return Ok(());
+    }
+    if app.get_webview_window(MAIN).is_none() {
+        return create_main_window(app, routed.open, routed.dialog);
+    }
+    if !routed.open.is_empty() {
+        let _ = app.emit_to(MAIN, OPEN_PATHS, &routed.open);
+    }
+    if let Some(dialog) = &routed.dialog {
+        let _ = app.emit_to(MAIN, OPEN_DIALOG, dialog);
+    }
+    focus_main(app)
+}
+
+fn focus_main(app: &AppHandle) -> tauri::Result<()> {
     if let Some(window) = app.get_webview_window(MAIN) {
         let _ = window.unminimize();
         let _ = window.show();
         let _ = window.set_focus();
     }
+    Ok(())
+}
+
+/// A second `BeeZip.exe` started and handed over its arguments. Windows are built on another
+/// thread: building one inside this callback, on the main thread, would deadlock (WebView2).
+pub fn forward(app: &AppHandle, args: &[String], cwd: &str) {
+    let request = parse_args(args, Path::new(cwd));
+    let app = app.clone();
+    std::thread::spawn(move || {
+        if let Err(e) = launch(&app, request) {
+            eprintln!("BeeZip: a forwarded launch failed: {e}");
+        }
+    });
 }
 
 #[cfg(test)]
@@ -116,25 +244,76 @@ mod tests {
 
     use super::*;
 
+    fn args(list: &[&str]) -> Vec<String> {
+        list.iter().map(|s| (*s).to_owned()).collect()
+    }
+
     #[test]
     fn startup_arguments_resolve_against_the_working_directory() {
         let cwd = std::env::temp_dir();
-        let args: Vec<String> = ["BeeZip.exe", "a.7z", "--flag", "", "sub/../b.zip"]
-            .iter()
-            .map(|s| (*s).to_owned())
-            .collect();
-        let paths = paths_from_args(&args, &cwd);
-        assert_eq!(paths.len(), 2);
-        assert_eq!(paths[0], std::path::absolute(cwd.join("a.7z")).unwrap());
-        assert!(paths[1].is_absolute());
+        let launch = parse_args(
+            &args(&["BeeZip.exe", "a.7z", "--flag", "", "sub/../b.zip"]),
+            &cwd,
+        );
+        assert_eq!(launch.paths.len(), 2);
+        assert_eq!(
+            launch.paths[0],
+            std::path::absolute(cwd.join("a.7z")).unwrap()
+        );
+        assert!(launch.paths[1].is_absolute());
+        assert_eq!(launch.job, None);
         let abs = if cfg!(windows) {
             r"C:\x\y.rar"
         } else {
             "/x/y.rar"
         };
-        let paths = paths_from_args(&["BeeZip.exe".into(), abs.into()], &cwd);
-        assert_eq!(paths, [PathBuf::from(abs)]);
-        assert!(paths_from_args(&["BeeZip.exe".into()], &cwd).is_empty());
+        let launch = parse_args(&args(&["BeeZip.exe", abs]), &cwd);
+        assert_eq!(launch.paths, [PathBuf::from(abs)]);
+        assert_eq!(parse_args(&args(&["BeeZip.exe"]), &cwd), Launch::default());
+    }
+
+    #[test]
+    fn the_job_file_is_not_an_archive_to_open() {
+        let cwd = std::env::temp_dir();
+        let file = cwd.join("BeeZip").join("jobs").join("x.json");
+        let file_arg = file.display().to_string();
+        let launch = parse_args(&args(&["BeeZip.exe", "--job", &file_arg]), &cwd);
+        assert_eq!(launch.job.as_deref(), Some(file.as_path()));
+        assert!(launch.paths.is_empty(), "{launch:?}");
+
+        let joined = format!("--job={file_arg}");
+        let launch = parse_args(&args(&["BeeZip.exe", &joined, "a.zip"]), &cwd);
+        assert_eq!(launch.job.as_deref(), Some(file.as_path()));
+        assert_eq!(
+            launch.paths,
+            [std::path::absolute(cwd.join("a.zip")).unwrap()]
+        );
+
+        // After `--`, everything is a path, even `--job`.
+        let launch = parse_args(&args(&["BeeZip.exe", "--", "--job", "-x.zip"]), &cwd);
+        assert_eq!(launch.job, None);
+        assert_eq!(launch.paths.len(), 2);
+
+        // `--job` with nothing after it asks for nothing.
+        assert_eq!(
+            parse_args(&args(&["BeeZip.exe", "--job"]), &cwd),
+            Launch::default()
+        );
+    }
+
+    #[test]
+    fn dialogs_serialise_as_the_page_reads_them() {
+        let d = OpenDialog::Extract {
+            paths: vec![PathBuf::from("a.zip")],
+        };
+        assert_eq!(
+            serde_json::to_value(&d).unwrap(),
+            serde_json::json!({ "dialog": "extract", "paths": ["a.zip"] })
+        );
+        let d = OpenDialog::Create {
+            paths: vec![PathBuf::from("x")],
+        };
+        assert_eq!(serde_json::to_value(&d).unwrap()["dialog"], "create");
     }
 
     #[test]

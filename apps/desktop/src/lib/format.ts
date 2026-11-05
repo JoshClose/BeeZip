@@ -30,6 +30,16 @@ export function formatRate(bytesPerSecond: number | undefined): string {
   return `${formatSize(Math.round(bytesPerSecond))}/s`;
 }
 
+/** A rough time left: `8 s`, `3 min`, `1 h 5 min`. Empty when there's no sensible answer. */
+export function formatDuration(seconds: number | undefined): string {
+  if (seconds === undefined || !Number.isFinite(seconds) || seconds < 0) return "";
+  const s = Math.max(1, Math.ceil(seconds));
+  if (s < 60) return `${s} s`;
+  const m = Math.round(s / 60);
+  if (m < 60) return `${m} min`;
+  return `${Math.floor(m / 60)} h ${m % 60} min`;
+}
+
 export function formatCrc(crc: number | null | undefined): string {
   return crc === null || crc === undefined ? "" : crc.toString(16).padStart(8, "0");
 }
@@ -52,6 +62,12 @@ export function joinPath(dir: string, name: string): string {
   if (!dir) return name;
   const sep = dir.includes("\\") || !dir.includes("/") ? "\\" : "/";
   return dir.endsWith("\\") || dir.endsWith("/") ? dir + name : dir + sep + name;
+}
+
+/** Whether two Windows paths name the same file: case and separators aside. */
+export function samePath(a: string, b: string): boolean {
+  const n = (p: string) => p.replace(/\//g, "\\").replace(/\\+$/, "").toLowerCase();
+  return n(a) === n(b);
 }
 
 /** An archive path's parent inside the archive: `a/b/c` → `a/b`, `a` → ``. */

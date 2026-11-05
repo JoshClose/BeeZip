@@ -1,8 +1,7 @@
 // The window: tabs, the active archive (or Welcome), the jobs panel, and the dialogs.
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
-import { getCurrentWindow } from "@tauri-apps/api/window";
-import { ask, open as pickFiles } from "@tauri-apps/plugin-dialog";
+import { open as pickFiles } from "@tauri-apps/plugin-dialog";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Toasts } from "./components/ui/toasts";
 import { About } from "./features/about/About";
@@ -19,12 +18,13 @@ import { Prompts } from "./features/prompts/Prompts";
 import { SettingsDialog } from "./features/settings/Settings";
 import { Welcome } from "./features/welcome/Welcome";
 import { activeTab, useArchives } from "./lib/archives";
-import { cancel, type GuiCommand, run } from "./lib/engine";
+import { useCloseGuard } from "./lib/closeGuard";
+import { type GuiCommand, run } from "./lib/engine";
 import { baseName } from "./lib/format";
 import { loadFormats, readableExtensions } from "./lib/formats";
 import { useJobs } from "./lib/jobs";
 import { themeActions, useTheme } from "./lib/settings";
-import { startup } from "./lib/startup";
+import { type OpenDialog, startup } from "./lib/startup";
 import { toastError, toastInfo, useToasts } from "./lib/toasts";
 import { useUi } from "./lib/ui";
 
@@ -43,6 +43,27 @@ export async function openPaths(paths: string[]) {
     } catch (e) {
       toastError(e, baseName(path));
     }
+  }
+}
+
+/** "Extract to…" and "Compress to…" from Explorer's menu (docs/M4.md §6.2). */
+export async function openDialog(d: OpenDialog) {
+  const ui = useUi.getState();
+  if (d.dialog === "create") {
+    ui.show({ kind: "create", inputs: d.paths });
+    return;
+  }
+  const path = d.paths[0];
+  if (!path) return;
+  try {
+    if (!(await isArchive(path))) {
+      useToasts.getState().push({ tone: "error", title: `${baseName(path)} isn't an archive` });
+      return;
+    }
+    const tab = useArchives.getState().open(path);
+    ui.show({ kind: "extract", tab, entries: [] });
+  } catch (e) {
+    toastError(e, baseName(path));
   }
 }
 
@@ -117,7 +138,7 @@ export default function App() {
     started = true;
     const s = startup();
     for (const w of s.warnings) toastInfo("config.toml", w);
-    void openPaths(s.paths);
+    void openPaths(s.paths).then(() => s.dialog && openDialog(s.dialog));
     loadCommands().then(setCommands, () => {});
   }, []);
 
@@ -125,10 +146,14 @@ export default function App() {
     if (commands.length === 0) loadCommands().then(setCommands, () => {});
   }, [commands.length]);
 
-  // Paths a second BeeZip.exe forwards.
+  // Paths a second BeeZip.exe forwards, and dialogs Explorer's menu asks for.
   useEffect(() => {
-    const unlisten = listen<string[]>("open-paths", (e) => void openPaths(e.payload));
-    return () => void unlisten.then((f) => f());
+    const paths = listen<string[]>("open-paths", (e) => void openPaths(e.payload));
+    const dialogs = listen<OpenDialog>("open-dialog", (e) => void openDialog(e.payload));
+    return () => {
+      void paths.then((f) => f());
+      void dialogs.then((f) => f());
+    };
   }, []);
 
   useEffect(() => {
@@ -145,29 +170,7 @@ export default function App() {
   }, []);
 
   // Closing with jobs running asks first, then waits for them to remove their partial files.
-  useEffect(() => {
-    const win = getCurrentWindow();
-    const unlisten = win.onCloseRequested(async (event) => {
-      const running = Object.values(useJobs.getState().jobs).filter((j) => j.status === "running" && !j.quiet);
-      if (running.length === 0) return;
-      event.preventDefault();
-      const n = running.length;
-      const ok = await ask(`${n} ${n === 1 ? "job is" : "jobs are"} running. Cancel ${n === 1 ? "it" : "them"} and quit?`, {
-        title: "BeeZip",
-        kind: "warning",
-        okLabel: "Cancel and quit",
-        cancelLabel: "Keep working",
-      });
-      if (!ok) return;
-      await Promise.all(running.map((j) => cancel(j.id).catch(() => false)));
-      const deadline = Date.now() + 10_000;
-      while (Date.now() < deadline && Object.values(useJobs.getState().jobs).some((j) => j.status === "running")) {
-        await new Promise((r) => setTimeout(r, 50));
-      }
-      await win.destroy();
-    });
-    return () => void unlisten.then((f) => f());
-  }, []);
+  useCloseGuard("quit");
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {

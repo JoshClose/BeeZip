@@ -100,6 +100,17 @@ describe("the settings page", () => {
     expect(threads).toHaveValue("4");
   });
 
+  it("turns off the job windows' closing", async () => {
+    fake.handlers.set("settings.set", () => ({ ...got(), settings: { ...settings, jobs: { close_when_done: false } }, changed: ["jobs.close_when_done"] }));
+    const user = userEvent.setup();
+    render(<SettingsDialog onClose={() => {}} />);
+    const box = await screen.findByRole("checkbox", { name: /Close the window after a success/ });
+    expect(box).toBeChecked();
+    await user.click(box);
+    await waitFor(() => expect(fake.calls).toContainEqual({ name: "settings.set", args: { set: { "jobs.close_when_done": false } } }));
+    await waitFor(() => expect(box).not.toBeChecked());
+  });
+
   it("an empty limit goes back to its default", async () => {
     fake.handlers.set("settings.set", () => ({ ...got(), changed: [] }));
     const user = userEvent.setup();

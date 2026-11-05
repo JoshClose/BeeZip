@@ -13,10 +13,13 @@ export function PasswordPrompt({
   entry,
   title,
   onReply,
+  kept = true,
 }: {
   entry: string | null;
   title: string;
   onReply: (reply: PromptReply) => void;
+  /** The password is kept for the archive's tab. A job window has no tab, so it isn't. */
+  kept?: boolean;
 }) {
   const [password, setPassword] = useState("");
   const [visible, setVisible] = useState(false);
@@ -56,7 +59,9 @@ export function PasswordPrompt({
           {visible ? <EyeOff /> : <Eye />}
         </Button>
       </form>
-      <p className="pb-1 text-[12px] text-muted">BeeZip keeps it in memory for this archive until you close it, and never saves it.</p>
+      <p className="pb-1 text-[12px] text-muted">
+        {kept ? "BeeZip keeps it in memory for this archive until you close it, and never saves it." : "BeeZip uses it for this job only, and never saves it."}
+      </p>
     </Dialog>
   );
 }
@@ -111,7 +116,7 @@ export function Prompts() {
   const reply = (r: PromptReply) => void answer(job.id, pending.id, r);
   const key = `${job.id}-${pending.id}`;
   return pending.prompt.kind === "Password" ? (
-    <PasswordPrompt key={key} entry={pending.prompt.entry} title={job.title} onReply={reply} />
+    <PasswordPrompt key={key} entry={pending.prompt.entry} title={job.title} onReply={reply} kept={job.tab !== undefined} />
   ) : (
     <OverwritePrompt key={key} path={pending.prompt.path} title={job.title} onReply={reply} />
   );

@@ -15,8 +15,12 @@ function plural(n: number, one: string, many = `${one}s`): string {
 
 /** One line saying what a finished job did. */
 export function summary(job: JobRecord): string {
-  const out = job.output as unknown;
-  switch (job.command) {
+  return outputSummary(job.command, job.output);
+}
+
+/** One line saying what a command's output says it did. */
+export function outputSummary(command: string, out: unknown): string {
+  switch (command) {
     case "archive.extract": {
       const o = out as ArchiveExtractOutput;
       if (o.dry_run) return `Would extract ${o.plan?.length ?? 0} entries to ${o.dest}`;
@@ -45,7 +49,7 @@ export function summary(job: JobRecord): string {
   }
 }
 
-function Bar({ job }: { job: JobRecord }) {
+export function Bar({ job }: { job: JobRecord }) {
   const p = job.progress;
   const share = p?.bytes_total ? Math.min(1, p.bytes_done / p.bytes_total) : undefined;
   return (
