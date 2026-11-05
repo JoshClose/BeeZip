@@ -1,0 +1,36 @@
+Change settings in config.toml, keeping its comments and layout. The file is created if
+it doesn't exist.
+
+Keys are dotted, such as `extract.overwrite`, `shell.items.test` or `levels.zstd` (any
+codec or method); `beezip settings get` lists them. Nothing is written unless the whole
+file still reads: an unknown key or a value of the wrong type fails with `InvalidArgs`.
+The app's later jobs use the new settings at once; other BeeZip processes read them when
+they start.
+
+Usage: beezip settings set [OPTIONS] [KEY=VALUE]...
+
+Arguments:
+  [KEY=VALUE]...
+          Settings to change: VALUE is TOML (19, false, ['C:/a']), or a bare word for a string
+
+Options:
+      --reset <KEY>
+          Put a setting back to its default; repeatable
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+Global options:
+      --output <FORMAT>
+          How to print results; ndjson streams every job event
+
+          Possible values:
+          - human:  Text for people
+          - json:   One JSON document on stdout: the output, or `{"error": {...}}`
+          - ndjson: Every job event as a JSON line on stdout, ending with `Finished`, `Failed` or
+            `Cancelled`
+          
+          [default: human]
+
+  -q, --quiet
+          No progress bars or info messages; warnings still print

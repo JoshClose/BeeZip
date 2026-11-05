@@ -813,7 +813,7 @@ fn per_call_policy_and_its_caps() {
     let read = call(
         "entry.read",
         json!({ "archive": zip, "entry": "f0.txt" }),
-        Arc::new(engine.policy().clone()),
+        engine.policy(),
     )
     .unwrap();
     assert_eq!(read["eof"], true);

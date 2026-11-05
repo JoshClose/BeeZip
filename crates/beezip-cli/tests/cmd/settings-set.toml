@@ -1,0 +1,6 @@
+bin.name = "beezip"
+args = ["settings", "set", "extract.overwrite=rename", "shell.items.test=false", "--reset", "levels.zstd"]
+fs.sandbox = true
+
+[env.add]
+BEEZIP_CONFIG = "config.toml"

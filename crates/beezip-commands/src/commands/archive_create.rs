@@ -235,6 +235,7 @@ impl Command for ArchiveCreate {
     const CLI: Option<CliSpec> = Some(CliSpec {
         name: "create",
         aliases: &["c"],
+        group: None,
     });
 
     type Input = ArchiveCreateInput;

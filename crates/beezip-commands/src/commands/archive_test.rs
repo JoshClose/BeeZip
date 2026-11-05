@@ -42,6 +42,7 @@ impl Command for ArchiveTest {
     const CLI: Option<CliSpec> = Some(CliSpec {
         name: "test",
         aliases: &["t"],
+        group: None,
     });
 
     type Input = ArchiveTestInput;

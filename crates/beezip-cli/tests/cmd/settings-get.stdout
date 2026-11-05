@@ -1,0 +1,26 @@
+config.toml
+
+create.threads              0
+desktop.theme               system
+extract.links               false
+extract.mark_of_the_web     all
+extract.overwrite           ask
+jobs.close_when_done        true
+levels.zstd                 3
+limits.decoder_memory_mib   1024
+limits.max_entries          10000000
+limits.max_ratio            10000
+limits.max_total_bytes      none
+mcp.read_only               false
+mcp.roots                   []
+shell.cascade               true
+shell.items.add-7z          true
+shell.items.add-tar-zst     true
+shell.items.add-zip         true
+shell.items.compress-to     true
+shell.items.extract-folder  true
+shell.items.extract-here    true
+shell.items.extract-to      true
+shell.items.open            true
+shell.items.test            true
+stream.codec                zstd

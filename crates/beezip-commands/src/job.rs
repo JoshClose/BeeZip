@@ -1,5 +1,5 @@
 use std::{
-    path::Path,
+    path::{Path, PathBuf},
     sync::{
         Arc,
         atomic::{AtomicBool, Ordering},
@@ -12,7 +12,8 @@ use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 use crate::{
-    CmdError, ErrorCode, cache::ArchiveCache, config::Config, policy::Policy, wire::Secret,
+    CmdError, ErrorCode, cache::ArchiveCache, config::Config, engine::Live, policy::Policy,
+    wire::Secret,
 };
 
 pub type JobId = u64;
@@ -145,7 +146,9 @@ pub struct JobCtx {
     interactor: Arc<dyn Interactor>,
     next_prompt: u64,
     policy: Arc<Policy>,
+    /// The engine's config when the job started; `settings.set` changes only later jobs'.
     config: Arc<Result<Config, CmdError>>,
+    live: Arc<Live>,
     last_progress: Option<Instant>,
     pending_progress: Option<Progress>,
     /// The password given in the input, or the last one a prompt supplied.
@@ -163,7 +166,7 @@ impl JobCtx {
         sink: EventSink,
         interactor: Arc<dyn Interactor>,
         policy: Arc<Policy>,
-        config: Arc<Result<Config, CmdError>>,
+        live: Arc<Live>,
         cache: Option<Arc<ArchiveCache>>,
     ) -> Self {
         Self {
@@ -173,7 +176,8 @@ impl JobCtx {
             interactor,
             next_prompt: 0,
             policy,
-            config,
+            config: live.config(),
+            live,
             last_progress: None,
             pending_progress: None,
             password: None,
@@ -204,6 +208,20 @@ impl JobCtx {
     /// The config, or the error that made it unusable (a value of the wrong type).
     pub fn config(&self) -> Result<&Config, CmdError> {
         self.config.as_ref().as_ref().map_err(Clone::clone)
+    }
+
+    /// The `config.toml` the engine's config came from: the one `settings.*` read and write.
+    pub fn config_path(&self) -> Option<PathBuf> {
+        self.live
+            .path()
+            .cloned()
+            .or_else(crate::config::config_path)
+    }
+
+    /// Gives every later job `config`, and the engine's limits its `[limits]`. This job keeps
+    /// the config it started with.
+    pub(crate) fn replace_config(&self, config: Config) {
+        self.live.replace(config);
     }
 
     /// The password the input gave, tried before anyone is asked.

@@ -171,6 +171,7 @@ impl Command for ArchiveExtract {
     const CLI: Option<CliSpec> = Some(CliSpec {
         name: "extract",
         aliases: &["x"],
+        group: None,
     });
 
     type Input = ArchiveExtractInput;

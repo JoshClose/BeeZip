@@ -30,6 +30,7 @@ impl Command for AppVersion {
     const CLI: Option<CliSpec> = Some(CliSpec {
         name: "version",
         aliases: &[],
+        group: None,
     });
 
     type Input = AppVersionInput;

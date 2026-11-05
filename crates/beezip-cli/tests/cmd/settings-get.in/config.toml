@@ -1,0 +1,10 @@
+# Kept by `settings set`: comments, order and spacing.
+[extract]
+overwrite = "ask"   # ask | always | never | rename | newer
+links = false
+
+[levels]
+zstd = 3
+
+[telemetry]
+on = true

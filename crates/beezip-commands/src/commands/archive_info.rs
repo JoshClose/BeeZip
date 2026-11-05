@@ -80,6 +80,7 @@ impl Command for ArchiveInfo {
     const CLI: Option<CliSpec> = Some(CliSpec {
         name: "info",
         aliases: &[],
+        group: None,
     });
 
     type Input = ArchiveInfoInput;

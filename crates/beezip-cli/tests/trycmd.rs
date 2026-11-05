@@ -7,5 +7,15 @@ fn cli_cases() {
         .default_bin_name("beezip")
         // The developer's own config must not change what the CLI prints.
         .env("BEEZIP_CONFIG", "no-such-beezip-config.toml")
-        .case("tests/cmd/*.toml");
+        .case("tests/cmd/*.toml")
+        .skip("tests/cmd/settings-*.toml");
+}
+
+/// The `settings` cases each name their own `config.toml` in `env.add`: trycmd lets the
+/// suite's environment win over a case's, so they can't share the cases above.
+#[test]
+fn settings_cases() {
+    trycmd::TestCases::new()
+        .default_bin_name("beezip")
+        .case("tests/cmd/settings-*.toml");
 }

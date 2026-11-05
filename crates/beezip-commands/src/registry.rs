@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use ts_rs::{Config, TS, TypeVisitor};
 
-use crate::{CliSpec, CmdError, Command, Effect, JobCtx, Surfaces};
+use crate::{CLI_GROUPS, CliSpec, CmdError, Command, Effect, JobCtx, Surfaces};
 
 pub type JsonObject = Map<String, Value>;
 
@@ -94,7 +94,7 @@ impl Entry {
             description: self.description.clone(),
             effect: self.effect,
             surfaces: self.surfaces,
-            cli: self.cli.map(|c| c.name.to_owned()),
+            cli: self.cli.map(|c| c.words().join(" ")),
         }
     }
 }
@@ -106,7 +106,7 @@ pub struct CommandInfo {
     pub description: String,
     pub effect: Effect,
     pub surfaces: Surfaces,
-    /// The generated `beezip` subcommand, if there is one.
+    /// The generated `beezip` subcommand, if there is one: `extract`, or `settings get`.
     pub cli: Option<String>,
 }
 
@@ -124,7 +124,8 @@ impl Registry {
     /// Adds a command.
     ///
     /// # Panics
-    /// If the name or CLI name is already taken, or the name isn't lowercase `a.b` form.
+    /// If the name or CLI name is already taken, the CLI group isn't one of [`CLI_GROUPS`] or
+    /// a top-level name is a group's, or the name isn't lowercase `a.b` form.
     pub fn register<C: Command>(&mut self) -> &mut Self {
         assert!(
             C::NAME.contains('.')
@@ -135,11 +136,23 @@ impl Registry {
             C::NAME
         );
         if let Some(spec) = C::CLI {
-            assert!(
-                self.by_cli_name(spec.name).is_none(),
-                "CLI name `{}` is used twice",
-                spec.name
-            );
+            for name in std::iter::once(spec.name).chain(spec.aliases.iter().copied()) {
+                assert!(
+                    self.by_cli_name(spec.group, name).is_none(),
+                    "CLI name `{}` is used twice",
+                    spec.words().join(" ")
+                );
+                assert!(
+                    spec.group.is_some() || !CLI_GROUPS.iter().any(|(g, _)| *g == name),
+                    "CLI name `{name}` is a group's"
+                );
+            }
+            if let Some(group) = spec.group {
+                assert!(
+                    CLI_GROUPS.iter().any(|(g, _)| *g == group),
+                    "CLI group `{group}` isn't in CLI_GROUPS"
+                );
+            }
         }
         match self.entries.binary_search_by(|e| e.name.cmp(C::NAME)) {
             Ok(_) => panic!("command `{}` is registered twice", C::NAME),
@@ -155,11 +168,12 @@ impl Registry {
             .map(|i| &self.entries[i])
     }
 
-    /// Finds a command by its generated subcommand name or alias.
-    pub fn by_cli_name(&self, name: &str) -> Option<&Entry> {
+    /// Finds a command by its generated subcommand name or alias, in `group` (`None` for the
+    /// top level).
+    pub fn by_cli_name(&self, group: Option<&str>, name: &str) -> Option<&Entry> {
         self.entries.iter().find(|e| {
             e.cli
-                .is_some_and(|c| c.name == name || c.aliases.contains(&name))
+                .is_some_and(|c| c.group == group && (c.name == name || c.aliases.contains(&name)))
         })
     }
 

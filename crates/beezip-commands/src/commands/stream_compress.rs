@@ -81,6 +81,7 @@ impl Command for StreamCompress {
     const CLI: Option<CliSpec> = Some(CliSpec {
         name: "compress",
         aliases: &[],
+        group: None,
     });
 
     type Input = StreamCompressInput;

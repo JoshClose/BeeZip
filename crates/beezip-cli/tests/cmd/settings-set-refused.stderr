@@ -1,0 +1,2 @@
+warning: config.toml: unknown key `telemetry` ignored
+error[InvalidArgs]: `extract.colour` isn't a setting; `[extract]` has links, mark_of_the_web, overwrite

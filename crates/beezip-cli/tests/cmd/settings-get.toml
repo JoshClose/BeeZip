@@ -1,0 +1,6 @@
+bin.name = "beezip"
+args = ["settings", "get"]
+fs.sandbox = true
+
+[env.add]
+BEEZIP_CONFIG = "config.toml"

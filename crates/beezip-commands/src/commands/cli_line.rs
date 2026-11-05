@@ -146,19 +146,31 @@ pub fn words(entry: &Entry, args: &JsonObject) -> Result<(Vec<String>, Vec<Strin
         }
     }
     let value = |id: &str| args.iter().find(|(k, _)| k.as_str() == id).map(|(_, v)| *v);
-    let mut words = vec![spec.name.to_owned()];
+    let mut words: Vec<String> = spec.words().into_iter().map(str::to_owned).collect();
     // Positionals first, in order; then flags.
     for arg in cmd.get_arguments().filter(|a| a.is_positional()) {
-        let Some(v) = value(arg.get_id().as_str()) else {
+        let id = arg.get_id().as_str();
+        let Some(v) = value(id) else {
             continue;
         };
         match v {
             Value::Array(items) => {
                 for item in items {
-                    words.push(scalar(arg.get_id().as_str(), item)?);
+                    words.push(scalar(id, item)?);
                 }
             }
-            v => words.push(scalar(arg.get_id().as_str(), v)?),
+            // `settings set`'s `{"levels.zstd": 19}` is `levels.zstd=19`.
+            Value::Object(map) => {
+                for (k, item) in map {
+                    let text = super::settings_set::value_for_cli(item).ok_or_else(|| {
+                        CmdError::invalid_args(format!(
+                            "`{id}.{k}` can't be written on a command line: {item}"
+                        ))
+                    })?;
+                    words.push(format!("{k}={text}"));
+                }
+            }
+            v => words.push(scalar(id, v)?),
         }
     }
     for arg in cmd.get_arguments().filter(|a| !a.is_positional()) {
@@ -365,12 +377,13 @@ mod tests {
                 assert_eq!(words[0], "beezip");
                 let parsed = match entry.cli {
                     Some(spec) => {
-                        assert_eq!(words[1], spec.name, "{}", out.line);
+                        let n = spec.words().len();
+                        assert_eq!(words[1..=n], spec.words(), "{}", out.line);
                         let cmd = entry
                             .augment_args(clap::Command::new(spec.name))
                             .no_binary_name(true);
                         let m = cmd
-                            .try_get_matches_from(&words[2..])
+                            .try_get_matches_from(&words[n + 1..])
                             .unwrap_or_else(|e| panic!("{}: {e}", out.line));
                         entry.args_from_matches(&m).unwrap()
                     }
@@ -387,6 +400,30 @@ mod tests {
                 assert_eq!(parsed, Value::Object(args), "{}", out.line);
             }
         }
+    }
+
+    #[test]
+    fn settings_round_trip() {
+        let entry = crate::registry().get("settings.set").unwrap();
+        let args = serde_json::json!({
+            "set": { "extract.overwrite": "rename", "levels.zstd": 19, "mcp.roots": [r"C:\a b"], "x.y": "true" },
+            "reset": ["desktop.theme"],
+        });
+        let (words, _) = words(entry, args.as_object().unwrap()).unwrap();
+        let line = words
+            .iter()
+            .map(|w| quote(w, ShellName::Powershell))
+            .collect::<Vec<_>>()
+            .join(" ");
+        assert_eq!(
+            line,
+            r#"settings set extract.overwrite=rename levels.zstd=19 'mcp.roots=[''C:\a b'']' 'x.y="true"' --reset desktop.theme"#
+        );
+        let cmd = entry
+            .augment_args(clap::Command::new("set"))
+            .no_binary_name(true);
+        let m = cmd.try_get_matches_from(&words[2..]).unwrap();
+        assert_eq!(entry.args_from_matches(&m).unwrap(), args);
     }
 
     #[test]

@@ -25,7 +25,21 @@
 //! [mcp]                      # `beezip mcp` (docs/M2.md §4)
 //! roots = ['C:\work']        # where it may write; `--root` replaces this list
 //! read_only = false
+//!
+//! [shell]                    # Explorer's right-click menu (docs/M4.md §7.2)
+//! cascade = true             # classic menu only: false puts each item at the top level
+//! [shell.items]              # every item is shown unless set to false
+//! test = false
+//!
+//! [jobs]
+//! close_when_done = true     # a job window closes itself after a clean success
+//!
+//! [desktop]
+//! theme = "system"           # system | light | dark
 //! ```
+//!
+//! The types here are also the wire shape `settings.get` returns, so they derive serde,
+//! JsonSchema and ts-rs; their doc comments are the settings' descriptions.
 
 use std::{
     collections::BTreeMap,
@@ -33,26 +47,34 @@ use std::{
 };
 
 use beezip_core::{Limits, limits::MIB};
-use serde::Deserialize;
+use schemars::JsonSchema;
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
+use ts_rs::TS;
 
 use crate::{
     CmdError,
     wire::{CodecName, OverwritePolicy},
 };
 
-#[derive(Debug, Clone, PartialEq, Eq, Default, Deserialize)]
+/// Every setting, as `config.toml` holds it. A missing key has its default.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema, TS)]
 #[serde(default)]
 pub struct Config {
     pub extract: ExtractConfig,
     pub create: CreateConfig,
-    /// Default levels by codec name (`zstd`, `gzip`…) or zip method (`deflate`, `ppmd`…).
+    /// Default levels by codec name (`zstd`, `gzip`…) or zip and 7z method (`deflate`,
+    /// `lzma2`…). A codec or method missing here uses its own default.
     pub levels: BTreeMap<String, i32>,
     pub stream: StreamConfig,
     pub limits: LimitsConfig,
     pub mcp: McpConfig,
+    pub shell: ShellConfig,
+    pub jobs: JobsConfig,
+    pub desktop: DesktopConfig,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Default, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema, TS)]
 #[serde(default)]
 pub struct McpConfig {
     /// Directories `beezip mcp` may write under, when no `--root` is given.
@@ -61,15 +83,18 @@ pub struct McpConfig {
     pub read_only: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Default, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema, TS)]
 #[serde(default)]
 pub struct ExtractConfig {
+    /// What to do when a file being extracted already exists.
     pub overwrite: OverwritePolicy,
+    /// Create the symbolic and hard links an archive holds. Off, they are skipped.
     pub links: bool,
+    /// Whether extracted files keep the archive's "downloaded from the internet" mark.
     pub mark_of_the_web: MarkOfTheWeb,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema, TS)]
 #[serde(rename_all = "kebab-case")]
 pub enum MarkOfTheWeb {
     /// Copy the archive's `Zone.Identifier` to every extracted file, as Explorer does.
@@ -78,16 +103,17 @@ pub enum MarkOfTheWeb {
     None,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Default, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema, TS)]
 #[serde(default)]
 pub struct CreateConfig {
-    /// `0` is one per core.
+    /// Threads for compressing. `0` is one per core.
     pub threads: u32,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
 #[serde(default)]
 pub struct StreamConfig {
+    /// The codec `beezip compress` uses when none is given.
     pub codec: CodecName,
 }
 
@@ -99,13 +125,111 @@ impl Default for StreamConfig {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+/// Limits that stop zip bombs and runaway archives.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
 #[serde(default)]
 pub struct LimitsConfig {
+    /// The most an archive may expand, as unpacked size over packed size.
     pub max_ratio: u64,
+    /// The most entries an archive may hold.
     pub max_entries: u64,
+    /// The most memory one decoder may use, in MiB.
     pub decoder_memory_mib: u64,
+    /// The most bytes one job may unpack in all. None is unlimited.
     pub max_total_bytes: Option<u64>,
+}
+
+/// Explorer's right-click menu (docs/M4.md §7.2).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(default)]
+pub struct ShellConfig {
+    /// Show the items in a "BeeZip" submenu. Off, each is at the top level. Windows 11's own
+    /// menu always shows a submenu; this is for the classic menu.
+    pub cascade: bool,
+    pub items: ShellItems,
+}
+
+impl Default for ShellConfig {
+    fn default() -> Self {
+        Self {
+            cascade: true,
+            items: ShellItems::default(),
+        }
+    }
+}
+
+/// Which menu items Explorer shows. Every one is shown unless set to false.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(default, rename_all = "kebab-case")]
+#[allow(clippy::struct_excessive_bools)]
+pub struct ShellItems {
+    /// "Open with BeeZip".
+    pub open: bool,
+    /// "Extract here".
+    pub extract_here: bool,
+    /// "Extract to "a\"".
+    pub extract_folder: bool,
+    /// "Extract to…".
+    pub extract_to: bool,
+    /// "Test archive".
+    pub test: bool,
+    /// "Add to "a.zip"".
+    pub add_zip: bool,
+    /// "Add to "a.7z"".
+    pub add_7z: bool,
+    /// "Add to "a.tar.zst"".
+    pub add_tar_zst: bool,
+    /// "Compress to…".
+    pub compress_to: bool,
+}
+
+impl Default for ShellItems {
+    fn default() -> Self {
+        Self {
+            open: true,
+            extract_here: true,
+            extract_folder: true,
+            extract_to: true,
+            test: true,
+            add_zip: true,
+            add_7z: true,
+            add_tar_zst: true,
+            compress_to: true,
+        }
+    }
+}
+
+/// The job windows Explorer's menu opens.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(default)]
+pub struct JobsConfig {
+    /// A job window closes itself after a clean success.
+    pub close_when_done: bool,
+}
+
+impl Default for JobsConfig {
+    fn default() -> Self {
+        Self {
+            close_when_done: true,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(default)]
+pub struct DesktopConfig {
+    /// Light or dark, or as Windows is set.
+    pub theme: Theme,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "kebab-case")]
+pub enum Theme {
+    /// Follow Windows' light or dark mode.
+    #[default]
+    System,
+    Light,
+    Dark,
 }
 
 impl Default for LimitsConfig {
@@ -156,43 +280,60 @@ impl Config {
     }
 }
 
-const KNOWN: &[(&str, &[&str])] = &[
-    ("extract", &["overwrite", "links", "mark_of_the_web"]),
-    ("create", &["threads"]),
-    ("levels", &[]),
-    ("stream", &["codec"]),
-    (
-        "limits",
-        &[
-            "max_ratio",
-            "max_entries",
-            "decoder_memory_mib",
-            "max_total_bytes",
-        ],
-    ),
-    ("mcp", &["roots", "read_only"]),
-];
+/// Sections that are maps rather than fixed keys: `[levels]` takes any codec or method name.
+pub const MAP_SECTIONS: &[&str] = &["levels"];
 
-fn unknown_keys(table: &toml::Table) -> Vec<String> {
-    let mut out = Vec::new();
-    for (section, value) in table {
-        let Some((_, keys)) = KNOWN.iter().find(|(s, _)| s == section) else {
-            out.push(section.clone());
-            continue;
-        };
-        // `[levels]` takes any codec or method name.
-        if section == "levels" {
-            continue;
-        }
-        if let Some(t) = value.as_table() {
-            out.extend(
-                t.keys()
-                    .filter(|k| !keys.contains(&k.as_str()))
-                    .map(|k| format!("{section}.{k}")),
-            );
+/// Every setting by dotted key (`extract.overwrite`, `shell.items.test`, `levels.zstd`), with
+/// its value as JSON. `None` values (`limits.max_total_bytes` unset) are JSON null.
+pub fn flatten(config: &Config) -> BTreeMap<String, Value> {
+    fn walk(prefix: &str, value: Value, out: &mut BTreeMap<String, Value>) {
+        match value {
+            Value::Object(map) => {
+                for (k, v) in map {
+                    walk(&format!("{prefix}{k}."), v, out);
+                }
+            }
+            leaf => {
+                out.insert(prefix.trim_end_matches('.').to_owned(), leaf);
+            }
         }
     }
+    let mut out = BTreeMap::new();
+    // Plain structs, maps and enums: serialising them can't fail.
+    walk(
+        "",
+        serde_json::to_value(config).unwrap_or(Value::Null),
+        &mut out,
+    );
     out
+}
+
+/// The fixed keys, dotted and sorted: every key but the entries of [`MAP_SECTIONS`].
+pub fn known_keys() -> Vec<String> {
+    flatten(&Config::default()).into_keys().collect()
+}
+
+fn unknown_keys(table: &toml::Table) -> Vec<String> {
+    let known = known_keys();
+    let mut out = Vec::new();
+    walk_unknown("", table, &known, &mut out);
+    out
+}
+
+fn walk_unknown(prefix: &str, table: &toml::Table, known: &[String], out: &mut Vec<String>) {
+    for (key, value) in table {
+        let path = format!("{prefix}{key}");
+        if MAP_SECTIONS.contains(&path.as_str()) || known.contains(&path) {
+            continue;
+        }
+        let section = format!("{path}.");
+        if !known.iter().any(|k| k.starts_with(&section)) {
+            out.push(path);
+        } else if let Some(t) = value.as_table() {
+            walk_unknown(&section, t, known, out);
+        }
+        // A section given a plain value is a type error, which parsing reports.
+    }
 }
 
 /// Where the config lives: `BEEZIP_CONFIG`, else `<config dir>/BeeZip/config.toml`.
@@ -208,6 +349,8 @@ pub fn config_path() -> Option<PathBuf> {
 pub struct LoadedConfig {
     pub config: Result<Config, CmdError>,
     pub path: Option<PathBuf>,
+    /// Whether the file exists. Without it, every setting has its default.
+    pub exists: bool,
     pub warnings: Vec<String>,
 }
 
@@ -216,6 +359,7 @@ impl Default for LoadedConfig {
         Self {
             config: Ok(Config::default()),
             path: None,
+            exists: false,
             warnings: Vec::new(),
         }
     }
@@ -223,29 +367,36 @@ impl Default for LoadedConfig {
 
 /// Reads the config. A missing file is the defaults.
 pub fn load() -> LoadedConfig {
-    let Some(path) = config_path() else {
-        return LoadedConfig::default();
+    match config_path() {
+        Some(path) => load_from(&path),
+        None => LoadedConfig::default(),
+    }
+}
+
+/// Reads the config at `path`. A missing file is the defaults.
+pub fn load_from(path: &Path) -> LoadedConfig {
+    let loaded = LoadedConfig {
+        path: Some(path.to_path_buf()),
+        ..LoadedConfig::default()
     };
-    match std::fs::read_to_string(&path) {
+    match std::fs::read_to_string(path) {
         Ok(text) => {
-            let (config, warnings) = Config::parse(&text, &path);
+            let (config, warnings) = Config::parse(&text, path);
             LoadedConfig {
                 config,
-                path: Some(path),
+                exists: true,
                 warnings,
+                ..loaded
             }
         }
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => LoadedConfig {
-            path: Some(path),
-            ..LoadedConfig::default()
-        },
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => loaded,
         Err(e) => LoadedConfig {
             config: Err(CmdError::invalid_args(format!(
                 "could not read {}: {e}",
                 path.display()
             ))),
-            path: Some(path),
-            warnings: Vec::new(),
+            exists: true,
+            ..loaded
         },
     }
 }
@@ -292,10 +443,26 @@ decoder_memory_mib = 256
 [mcp]
 roots = ['C:\work', '/srv/drop']
 read_only = true
+
+[shell]
+cascade = false
+[shell.items]
+test = false
+add-tar-zst = false
+
+[jobs]
+close_when_done = false
+
+[desktop]
+theme = "dark"
 "#;
         let (c, w) = parse(text);
         let c = c.unwrap();
         assert!(w.is_empty(), "{w:?}");
+        assert!(!c.shell.cascade);
+        assert!(!c.shell.items.test && !c.shell.items.add_tar_zst && c.shell.items.open);
+        assert!(!c.jobs.close_when_done);
+        assert_eq!(c.desktop.theme, Theme::Dark);
         assert_eq!(
             c.mcp.roots,
             [PathBuf::from(r"C:\work"), PathBuf::from("/srv/drop")]
@@ -317,6 +484,44 @@ read_only = true
         assert!(c.is_ok());
         assert_eq!(w.len(), 2, "{w:?}");
         assert!(w[0].contains("extract.colour"), "{w:?}");
+
+        let (c, w) = parse(
+            "shell.flat = 1\n[shell.items]\ntest = false\nbogus = true\n[levels]\nanything = 3\n",
+        );
+        assert!(c.is_ok());
+        assert_eq!(w.len(), 2, "{w:?}");
+        assert!(w[0].contains("`shell.flat`"), "{w:?}");
+        assert!(w[1].contains("`shell.items.bogus`"), "{w:?}");
+        let (_, w) = parse("extract = 3\n");
+        assert!(
+            w.is_empty(),
+            "a wrong type is an error, not a warning: {w:?}"
+        );
+    }
+
+    #[test]
+    fn keys_are_dotted_and_complete() {
+        let keys = known_keys();
+        for k in [
+            "extract.overwrite",
+            "limits.max_total_bytes",
+            "mcp.roots",
+            "shell.cascade",
+            "shell.items.extract-here",
+            "shell.items.add-7z",
+            "jobs.close_when_done",
+            "desktop.theme",
+        ] {
+            assert!(keys.iter().any(|x| x == k), "{k} in {keys:?}");
+        }
+        assert!(!keys.iter().any(|k| k.starts_with("levels")), "{keys:?}");
+        let mut c = Config::default();
+        c.levels.insert("zstd".into(), 19);
+        let flat = flatten(&c);
+        assert_eq!(flat["levels.zstd"], 19);
+        assert_eq!(flat["limits.max_total_bytes"], Value::Null);
+        assert_eq!(flat["desktop.theme"], "system");
+        assert_eq!(flat["shell.items.test"], true);
     }
 
     #[test]
