@@ -1,5 +1,5 @@
-// The settings page (docs/M4.md §7.4): config.toml's settings, each saved as it changes. The
-// Explorer section comes with the menu (PR 3).
+// The settings page (docs/M4.md §7.4): config.toml's settings, each saved as it changes, and
+// Explorer's menu.
 import { openPath, revealItemInDir } from "@tauri-apps/plugin-opener";
 import { FileCog, FolderOpen } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -9,6 +9,7 @@ import type { CodecName, FormatsListOutput, LevelRange, MarkOfTheWeb, OverwriteP
 import { useFormats } from "../../lib/formats";
 import { chooseTheme, errorMessage, loadSettings, saveSettings, THEMES, useTheme } from "../../lib/settings";
 import { toastError } from "../../lib/toasts";
+import { ExplorerSettings } from "./ExplorerSettings";
 import { CheckSetting, ChoiceSetting, LevelSetting, NumberSetting, PathsSetting, Section, Segmented, Setting } from "./fields";
 
 const OVERWRITE: { id: OverwritePolicy; label: string }[] = [
@@ -215,6 +216,8 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
               />
             </Setting>
           </Section>
+
+          <ExplorerSettings shell={s.shell} errors={errors} save={save} />
 
           <Section title="MCP server" description="For beezip mcp, which AI assistants use. Its --root and --read-only flags win over these.">
             <Setting label="May write under" htmlFor="mcp-roots" hint="One folder per line. With none, assistants can read archives but write nothing." error={errors["mcp.roots"]}>

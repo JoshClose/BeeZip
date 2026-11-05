@@ -39,7 +39,8 @@ pnpm tauri dev      # the desktop app, reloading as you edit
 **The installer** works per user, with no admin rights:
 - **Files:** it puts `BeeZip.exe` in `%LOCALAPPDATA%\BeeZip`, and adds its `bin` folder (holding `beezip.exe`) to your PATH.
 - **File types:** it registers BeeZip for zip, 7z, rar, tar and the compressed and split formats, but not for zip-based documents such as `.docx` or `.jar`. Windows asks which app to use the first time you open each kind of file, with BeeZip offered. An app you've already chosen for a type (Windows sets Explorer's zip folder for `.zip` on many machines) stays until you pick BeeZip under *Open with → Choose another app*.
-- **Uninstalling** removes the PATH entry and the registrations, and leaves your file types as they were.
+- **Explorer's menu:** a "BeeZip" submenu on files and folders, with Extract here, Extract to "a\", Test archive, Add to "a.zip" and the rest. On Windows 11 it is under *Show more options* for now. A click opens a small window for the job, or BeeZip's own dialogs for Extract to… and Compress to…. Settings → Explorer menu chooses the items and removes or repairs the menu; so do `beezip shell status`, `beezip shell install` and `beezip shell uninstall`.
+- **Uninstalling** removes the PATH entry, the menu and the registrations, and leaves your file types as they were. An upgrade keeps the file types you had before BeeZip, too.
 
 ## Command line
 
@@ -116,7 +117,7 @@ read_only = false
 [desktop]
 theme = "system"           # system | light | dark
 
-[shell]                    # Explorer's right-click menu, which comes later in M4
+[shell]                    # Explorer's right-click menu
 cascade = true             # classic menu: false puts each item at the top level
 [shell.items]              # every item shows unless set to false: open, extract-here,
 test = false               # extract-folder, extract-to, test, add-zip, add-7z, add-tar-zst, compress-to

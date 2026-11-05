@@ -1,7 +1,9 @@
-//! `cargo xtask dist [--debug]`: the Windows installer (docs/M3.md §5.5).
+//! `cargo xtask dist [--debug] [--version V]`: the Windows installer (docs/M3.md §5.5, M4 §9).
 //!
-//! 1. The CLI is built into its own target dir, `target/dist-cli`, so the GUI's rename to
-//!    `BeeZip.exe` can't clobber `beezip.exe` on a case-insensitive file system.
+//! 1. The CLI and the Explorer menu's DLL are built into their own target dir,
+//!    `target/dist-cli`, so the GUI's rename to `BeeZip.exe` can't clobber `beezip.exe` on a
+//!    case-insensitive file system. The DLL is staged as `beezip_shell_<V>.dll`, a new name for
+//!    each version, so an upgrade never has to replace a file Explorer has loaded.
 //! 2. `target/dist/tauri.dist.json` is written from `packaging/windows/tauri.dist.json`, with the
 //!    staged resources, the NSIS hooks and the file associations, which come from `formats.list`
 //!    so the list has one source. It stays out of `tauri.conf.json` because tauri-build copies
@@ -9,6 +11,9 @@
 //! 3. `pnpm tauri build --bundles nsis --config target/dist/tauri.dist.json` builds the installer,
 //!    with `CARGO_TARGET_DIR=target/dist`: the rename to `BeeZip.exe` in `target/debug` would
 //!    replace the development `beezip.exe`, which Windows sees as the same file.
+//!
+//! `--version V` builds the installer as version V (the workspace's otherwise), so the upgrade
+//! check can build 0.1.0 and 0.1.1 from one tree.
 
 use std::{
     collections::BTreeMap,
@@ -32,27 +37,39 @@ const DOCUMENTS: &[&str] = &[
 /// Extensions that only name a later part of a set; the first part is what people open.
 const LATER_PARTS: &[&str] = &["r00"];
 
-pub fn run(debug: bool) -> anyhow::Result<()> {
+pub fn run(debug: bool, version: Option<&str>) -> anyhow::Result<()> {
     let root = workspace_root();
     let profile = if debug { "debug" } else { "release" };
+    let version = version.unwrap_or(env!("CARGO_PKG_VERSION"));
 
-    println!("building the CLI ({profile})");
+    println!("building the CLI and the Explorer menu ({profile})");
     let mut cargo = Command::new(std::env::var("CARGO").unwrap_or_else(|_| "cargo".into()));
     cargo
         .current_dir(&root)
-        .args(["build", "--locked", "-p", "beezip-cli", "--target-dir"])
+        .args([
+            "build",
+            "--locked",
+            "-p",
+            "beezip-cli",
+            "-p",
+            "beezip-shell",
+        ])
+        .arg("--target-dir")
         .arg(root.join("target/dist-cli"));
     if !debug {
         cargo.arg("--release");
     }
-    check(cargo.status(), "cargo build -p beezip-cli")?;
-    let exe = format!("beezip{}", std::env::consts::EXE_SUFFIX);
-    let cli = root.join("target/dist-cli").join(profile).join(&exe);
-    if !cli.is_file() {
-        bail!("{} wasn't built", cli.display());
+    check(cargo.status(), "cargo build -p beezip-cli -p beezip-shell")?;
+    let built = root.join("target/dist-cli").join(profile);
+    let cli = built.join(format!("beezip{}", std::env::consts::EXE_SUFFIX));
+    let dll = built.join("beezip_shell.dll");
+    for f in [&cli, &dll] {
+        if !f.is_file() {
+            bail!("{} wasn't built", f.display());
+        }
     }
 
-    let config = config(&root, &cli)?;
+    let config = config(&root, &cli, &dll, version)?;
     let dir = root.join("target/dist");
     std::fs::create_dir_all(&dir)?;
     let config_path = dir.join("tauri.dist.json");
@@ -110,7 +127,12 @@ fn slashes(p: &Path) -> String {
     p.display().to_string().replace('\\', "/")
 }
 
-fn config(root: &Path, cli: &Path) -> anyhow::Result<Value> {
+/// The DLL's name in the install folder.
+pub fn dll_name(version: &str) -> String {
+    format!("beezip_shell_{version}.dll")
+}
+
+fn config(root: &Path, cli: &Path, dll: &Path, version: &str) -> anyhow::Result<Value> {
     let template = root.join("packaging/windows/tauri.dist.json");
     let mut config: Value = serde_json::from_str(
         &std::fs::read_to_string(&template)
@@ -121,21 +143,30 @@ fn config(root: &Path, cli: &Path) -> anyhow::Result<Value> {
         .context("the template has no `bundle`")?;
     bundle["resources"] = json!({
         slashes(cli): "bin/beezip.exe",
+        slashes(dll): dll_name(version),
         slashes(&root.join("THIRD_PARTY_NOTICES.md")): "THIRD_PARTY_NOTICES.md",
     });
     let associations = associations()?;
-    let hooks = hooks(root, &associations)?;
+    let hooks = hooks(root, &associations, version)?;
     bundle["fileAssociations"] = Value::Array(associations);
     bundle["windows"]["nsis"]["installerHooks"] = json!(slashes(&hooks));
+    config["version"] = json!(version);
     Ok(config)
 }
 
-/// `target/dist/hooks.nsh`: `packaging/windows/hooks.nsh` and the list of associations its
-/// uninstall hooks walk.
-fn hooks(root: &Path, associations: &[Value]) -> anyhow::Result<PathBuf> {
+/// `target/dist/hooks.nsh`: the DLL's name, `packaging/windows/hooks.nsh`, and the list of
+/// associations its hooks walk.
+fn hooks(root: &Path, associations: &[Value], version: &str) -> anyhow::Result<PathBuf> {
     let template = root.join("packaging/windows/hooks.nsh");
-    let mut text = std::fs::read_to_string(&template)
-        .with_context(|| format!("reading {}", template.display()))?;
+    let mut text = format!(
+        "; Generated by `cargo xtask dist`: the Explorer menu's DLL in this version.\n\
+         !define BEEZIP_SHELL_DLL \"{}\"\n\n",
+        dll_name(version)
+    );
+    text.push_str(
+        &std::fs::read_to_string(&template)
+            .with_context(|| format!("reading {}", template.display()))?,
+    );
     text.push_str("\n; Generated by `cargo xtask dist` from formats.list.\n");
     text.push_str("!macro BEEZIP_FOR_EACH_ASSOCIATION MACRO\n");
     for a in associations {
