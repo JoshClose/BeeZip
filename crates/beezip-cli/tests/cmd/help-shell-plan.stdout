@@ -1,0 +1,44 @@
+Plan what a click on BeeZip's Explorer menu does: the steps for the item clicked and the
+selected paths, as the desktop app runs them when the menu starts it with `--job`. Archives
+in one volume set become one step; a path that has gone fails only its own step.
+
+Usage: beezip shell plan [OPTIONS] <ITEM> <PATHS>...
+
+Arguments:
+  <ITEM>
+          The item clicked
+
+          Possible values:
+          - open:           "Open with BeeZip": each archive in a tab of the main window
+          - extract-here:   "Extract here": into the archive's folder, or into a folder named after
+            it unless everything is under one top-level folder
+          - extract-folder: "Extract to "a/"": into a folder named after each archive
+          - extract-to:     "Extract to…": the main window's extract dialog
+          - test:           "Test archive"
+          - add-zip:        "Add to "a.zip"", beside the selection
+          - add-7z:         "Add to "a.7z""
+          - add-tar-zst:    "Add to "a.tar.zst""
+          - compress-to:    "Compress to…": the main window's create dialog, with the selection as
+            its inputs
+
+  <PATHS>...
+          The selected files and folders, absolute
+
+Options:
+  -h, --help
+          Print help (see a summary with '-h')
+
+Global options:
+      --output <FORMAT>
+          How to print results; ndjson streams every job event
+
+          Possible values:
+          - human:  Text for people
+          - json:   One JSON document on stdout: the output, or `{"error": {...}}`
+          - ndjson: Every job event as a JSON line on stdout, ending with `Finished`, `Failed` or
+            `Cancelled`
+          
+          [default: human]
+
+  -q, --quiet
+          No progress bars or info messages; warnings still print

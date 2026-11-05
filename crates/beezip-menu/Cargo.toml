@@ -1,0 +1,28 @@
+[package]
+name = "beezip-menu"
+description = "BeeZip's Explorer menu model: the items, which a selection gets, their titles, and the job request a click writes"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+# No Windows APIs and no unsafe: the DLL, the commands and the desktop share it, and it is
+# tested on Linux (docs/M4.md §3).
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+# The `wire` feature: what beezip-commands needs to take a JobRequest as a command input. The
+# DLL builds without it.
+clap = { workspace = true, optional = true }
+schemars = { workspace = true, optional = true }
+ts-rs = { workspace = true, optional = true }
+
+[features]
+wire = ["dep:clap", "dep:schemars", "dep:ts-rs"]
+
+[dev-dependencies]
+proptest.workspace = true
+
+[lints]
+workspace = true

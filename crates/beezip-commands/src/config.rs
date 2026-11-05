@@ -525,6 +525,21 @@ theme = "dark"
     }
 
     #[test]
+    fn shell_items_are_the_menus_items() {
+        let mut keys: Vec<String> = known_keys()
+            .into_iter()
+            .filter_map(|k| k.strip_prefix("shell.items.").map(str::to_owned))
+            .collect();
+        let mut ids: Vec<String> = beezip_menu::Item::ALL
+            .iter()
+            .map(|i| i.id().to_owned())
+            .collect();
+        keys.sort();
+        ids.sort();
+        assert_eq!(keys, ids);
+    }
+
+    #[test]
     fn wrong_types_fail_with_the_line() {
         let (c, _) = parse("[extract]\n\nlinks = \"yes\"\n");
         let err = c.unwrap_err();

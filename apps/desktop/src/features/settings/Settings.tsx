@@ -1,5 +1,5 @@
 // The settings page (docs/M4.md §7.4): config.toml's settings, each saved as it changes. The
-// Explorer section comes with the menu (PR 3), and the job windows' with them (PR 2).
+// Explorer section comes with the menu (PR 3).
 import { openPath, revealItemInDir } from "@tauri-apps/plugin-opener";
 import { FileCog, FolderOpen } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -202,6 +202,16 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
                 value={s.limits.max_total_bytes}
                 placeholder="Unlimited"
                 onCommit={(v) => save("limits.max_total_bytes", v)}
+              />
+            </Setting>
+          </Section>
+
+          <Section title="Job windows" description="Explorer's menu opens one for each click: Extract here, Test archive, Add to…">
+            <Setting label="When it's done" error={errors["jobs.close_when_done"]}>
+              <CheckSetting
+                checked={s.jobs.close_when_done}
+                label="Close the window after a success where nothing was skipped or renamed"
+                onCommit={(v) => save("jobs.close_when_done", v)}
               />
             </Setting>
           </Section>

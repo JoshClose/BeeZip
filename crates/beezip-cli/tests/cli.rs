@@ -146,3 +146,35 @@ fn commands_lists_app_version() {
         .success()
         .stdout(predicate::str::contains("app.version"));
 }
+
+#[test]
+fn shell_plan_turns_a_click_into_steps() {
+    let zip = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../tests/fixtures/thirdparty/7z-deflate.zip")
+        .canonicalize()
+        .unwrap();
+    let dir = zip.parent().unwrap();
+    let out = stdout_json(
+        beezip()
+            .args(["--output", "json", "shell", "plan", "extract-folder"])
+            .arg(&zip),
+    );
+    assert_eq!(out["steps"][0]["kind"], "run");
+    assert_eq!(out["steps"][0]["command"], "archive.extract");
+    assert_eq!(out["steps"][0]["title"], "Extracting 7z-deflate.zip");
+    assert_eq!(
+        out["steps"][0]["args"]["dest"],
+        dir.join("7z-deflate").display().to_string()
+    );
+    // `run` takes the job file itself.
+    let request = serde_json::json!({ "version": 1, "item": "open", "paths": [zip] });
+    let generic = stdout_json(
+        beezip()
+            .args(["--output", "json", "run", "shell.plan", "--json"])
+            .arg(request.to_string()),
+    );
+    assert_eq!(
+        generic["steps"][0],
+        serde_json::json!({ "kind": "open", "paths": [zip] })
+    );
+}

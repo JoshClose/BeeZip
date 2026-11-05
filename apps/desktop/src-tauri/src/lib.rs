@@ -1,18 +1,20 @@
 //! The BeeZip desktop app: a Tauri shell over the shared command engine.
 
 mod ipc;
+mod job;
 mod open;
 mod prompts;
 
 use std::{
-    sync::Arc,
-    time::{Duration, Instant},
+    path::Path,
+    sync::{Arc, Mutex},
+    time::{Duration, Instant, SystemTime},
 };
 
 use beezip_commands::{Engine, EngineOptions, Policy, Theme, config, registry};
 use tauri::{Manager, RunEvent};
 
-use crate::prompts::GuiInteractor;
+use crate::{open::Warnings, prompts::GuiInteractor};
 
 /// How long quitting waits for cancelled jobs to remove their partial files, as `beezip mcp`
 /// does on disconnect.
@@ -45,12 +47,19 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .manage(engine)
         .manage(gui)
+        .manage(Warnings(Mutex::new(warnings)))
         .setup(move |app| {
-            // App-wide, before the window exists, so it opens in the right theme and later
+            // App-wide, before any window exists, so each opens in the right theme and later
             // windows and changes follow it (docs/M4.md §7.5). On this, the main thread, the
             // call takes effect at once.
             app.handle().set_theme(tauri_theme(theme));
-            open::create_main_window(app, warnings.clone(), theme)?;
+            // Requests nobody read: BeeZip wasn't running, or couldn't start (§3.3).
+            std::thread::spawn(|| {
+                job::sweep(&job::jobs_dir(), SystemTime::now(), job::MAX_REQUEST_AGE)
+            });
+            let args: Vec<String> = std::env::args().collect();
+            let cwd = std::env::current_dir().unwrap_or_default();
+            open::launch(app.handle(), open::parse_args(&args, Path::new(&cwd)))?;
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

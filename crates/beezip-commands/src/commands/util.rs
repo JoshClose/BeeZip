@@ -4,12 +4,7 @@ use std::path::{Path, PathBuf};
 
 use std::sync::Arc;
 
-use beezip_core::{
-    CodecId, OpenOptions, Opened,
-    codec::{TAR_SHORTHANDS, strip_extension},
-    safefs::Partial,
-    source::open,
-};
+use beezip_core::{OpenOptions, Opened, safefs::Partial, source::open};
 
 use crate::{
     CmdError, ErrorCode, JobCtx,
@@ -150,45 +145,14 @@ pub fn write_atomically(
     Ok(())
 }
 
-/// The archive's name without archive or codec extensions: `a.tar.zst` → `a`, `b.zip` → `b`.
+/// The archive's name without archive or codec extensions: `a.tar.zst` → `a`, `b.zip` → `b`,
+/// `a.part1.rar` → `a`. The Explorer menu's titles use the same function (docs/M4.md §3.2).
 pub fn archive_stem(path: &Path) -> String {
-    let mut name = path
+    let name = path
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_default();
-    // A volume set is named after the joined archive: `a.7z.001` → `a.7z` → `a`.
-    if let Some((base, _, _)) = beezip_core::volume::numbered_name(&name) {
-        name = base.to_owned();
-    }
-    loop {
-        let lower = name.to_lowercase();
-        if let Some(c) = CodecId::ALL
-            .into_iter()
-            .find(|c| c.codec().extensions().iter().any(|e| lower.ends_with(e)))
-        {
-            match strip_extension(&name, c) {
-                Some(stripped) => {
-                    name = stripped;
-                    continue;
-                }
-                None => break,
-            }
-        }
-        let ext = beezip_core::format::formats()
-            .flat_map(|f| f.extensions().iter())
-            .chain(TAR_SHORTHANDS.iter())
-            .filter(|e| lower.ends_with(**e) && lower.len() > e.len())
-            .max_by_key(|e| e.len());
-        match ext {
-            Some(e) => name.truncate(name.len() - e.len()),
-            None => break,
-        }
-    }
-    if name.is_empty() {
-        "archive".into()
-    } else {
-        name
-    }
+    beezip_menu::archive_stem(&name)
 }
 
 /// Fails with `Conflict` if `path` exists and `overwrite` isn't set.
@@ -246,5 +210,23 @@ pub(crate) mod tests {
         assert_eq!(s(".zip"), ".zip");
         assert_eq!(s("e.tar.zst.002"), "e");
         assert_eq!(s("big.iso.001"), "big.iso");
+        assert_eq!(s("a.part1.rar"), "a");
+    }
+
+    /// beezip-menu knows extensions from a generated list (`cargo xtask codegen`), not from
+    /// core. Every extension core reads must be an archive to the menu, and lose itself in a
+    /// stem, so a stale list fails here as well as in `codegen --check`.
+    #[test]
+    fn the_menu_knows_every_extension_core_reads() {
+        use beezip_core::{CodecId, codec::TAR_SHORTHANDS};
+        let formats = beezip_core::format::formats().flat_map(|f| f.extensions().iter());
+        let codecs = CodecId::ALL
+            .into_iter()
+            .flat_map(|c| c.codec().extensions().iter());
+        for ext in formats.chain(codecs).chain(TAR_SHORTHANDS.iter()) {
+            let name = format!("name{ext}");
+            assert!(beezip_menu::is_archive(&name), "{name}");
+            assert_eq!(beezip_menu::archive_stem(&name), "name", "{name}");
+        }
     }
 }

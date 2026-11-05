@@ -14,6 +14,7 @@ cargo-fuzz = true
 
 [dependencies]
 beezip-core = { path = "../crates/beezip-core" }
+beezip-menu = { path = "../crates/beezip-menu" }
 libfuzzer-sys = "0.4.13"
 tempfile = "3.27.0"
 
@@ -62,6 +63,13 @@ bench = false
 [[bin]]
 name = "rar"
 path = "fuzz_targets/rar.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "menu"
+path = "fuzz_targets/menu.rs"
 test = false
 doc = false
 bench = false

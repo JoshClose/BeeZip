@@ -3,7 +3,7 @@ on:
   schedule:
     - cron: "23 3 * * *"          # nightly; scheduled runs use the default branch (master)
   pull_request:
-    paths: ["fuzz/**", "crates/beezip-core/**"]
+    paths: ["fuzz/**", "crates/beezip-core/**", "crates/beezip-menu/**"]
   workflow_dispatch:
 permissions: { contents: read }
 # Expressions stay in block style: `${{ }}` inside a `{ }` flow map broke CI once (M0).
@@ -20,7 +20,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target: [detect, zip, tar, sevenz, rar, codecs, paths]
+        target: [detect, zip, tar, sevenz, rar, codecs, paths, menu]
     env:
       SECONDS_PER_TARGET: ${{ github.event_name == 'schedule' && '600' || '60' }}
     steps:
