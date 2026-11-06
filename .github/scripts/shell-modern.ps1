@@ -20,9 +20,6 @@ $zip = Join-Path $root 'tests\fixtures\thirdparty\7z-deflate.zip'
 foreach ($f in $setup.FullName, $stub, $dump, $zip) { if (-not $f -or -not (Test-Path $f)) { Fail "$f is missing" } }
 $dir = Join-Path $env:LOCALAPPDATA 'BeeZip'
 $beezip = Join-Path $dir 'bin\beezip.exe'
-foreach ($f in 'beezip-sparse.msix', 'sparse\AppxManifest.xml') {
-  # The installer must carry the package; checked after the install below.
-}
 
 Write-Host "installing $($setup.Name) silently"
 $p = Start-Process $setup.FullName -ArgumentList '/S' -Wait -PassThru
@@ -46,11 +43,14 @@ if ($status.classic) { Fail 'the classic keys are there beside the package' }
 if ($status.problems.Count) { Fail "shell status has problems: $($status.problems -join '; ')" }
 Write-Host "the installer registered $($status.package.full_name), serving $($status.package.dll)"
 
-# A click starts the stub instead of the debug BeeZip.exe. It is started by the COM surrogate,
-# so it doesn't get this environment: it writes its record beside itself.
+# A click starts the stub instead of the debug BeeZip.exe. The surrogate gives the package's
+# identity only to programs in the package's external location, the install folder, where
+# BeeZip.exe is (docs/M4.md §16, PR 4 item 8), so the stub runs from a copy there. It doesn't get
+# this environment either, so it writes its record beside itself.
+$stub = Join-Path $dir 'stub_app.exe'
+Copy-Item (Join-Path $root 'target\debug\examples\stub_app.exe') $stub
 & $beezip shell install --mode modern --app $stub
 if ($LASTEXITCODE) { Fail "shell install --app failed: exit $LASTEXITCODE" }
-Get-ChildItem (Split-Path $stub) -Filter 'stub_app-*.json' | Remove-Item
 
 $menu = @(& $dump $zip)
 if ($LASTEXITCODE) { Fail "menu_dump failed: exit $LASTEXITCODE" }
@@ -77,6 +77,9 @@ if ($menu -notcontains 'BeeZip >') {
   if ($seen.package -ne $status.package.full_name) { Fail "the app ran as '$($seen.package)', not as the package" }
   Write-Host "the click started the app as $($seen.package) with $($seen.request)"
 }
+# The stub and its records aren't the installer's, so they go first; the uninstaller then has
+# the folder to itself.
+Get-ChildItem $dir -Filter 'stub_app*' | Remove-Item -Force
 
 Write-Host 'uninstalling silently'
 $p = Start-Process (Join-Path $dir 'uninstall.exe') -ArgumentList '/S' -Wait -PassThru

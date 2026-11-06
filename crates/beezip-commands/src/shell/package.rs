@@ -230,10 +230,11 @@ pub fn register(hive: &Hive, source: &Source, external: &Path) -> Result<String,
     } else {
         "the signed package"
     };
-    let replaced = if removed.is_empty() {
-        String::new()
-    } else {
-        format!(", replacing {}", removed.join(", "))
+    removed.dedup();
+    let replaced = match removed.as_slice() {
+        [] => String::new(),
+        [same] if *same == full_name => ", replacing its earlier registration".into(),
+        others => format!(", replacing {}", others.join(", ")),
     };
     Ok(format!(
         "registered Windows 11's menu ({kind}, {full_name}) for {}{replaced}",
