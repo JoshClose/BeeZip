@@ -1289,6 +1289,30 @@
       ]
     },
     {
+      "file": "7z-cp932.zip",
+      "producer": "7-Zip 26.00",
+      "command": "7z.exe a -tzip -mcp=932 7z-cp932.zip names-ja",
+      "chain": "zip",
+      "password": null,
+      "utc_mtimes": false,
+      "hardlinks": 0,
+      "symlinks": 0,
+      "entries": [
+        {
+          "path": "names-ja/日本語/表示.txt",
+          "kind": "file",
+          "size": 10,
+          "sha256": "15859196c8fb776cc8d739c534e207a6d5a16b2b1877ee58963f034ca8e19abd"
+        },
+        {
+          "path": "names-ja/ファイル.txt",
+          "kind": "file",
+          "size": 10,
+          "sha256": "15859196c8fb776cc8d739c534e207a6d5a16b2b1877ee58963f034ca8e19abd"
+        }
+      ]
+    },
+    {
       "file": "gnutar-ustar.tar",
       "producer": "GNU tar 1.35 (Git for Windows)",
       "command": "tar.exe --format=ustar --owner=0 --group=0 -cf gnutar-ustar.tar links",
@@ -1634,8 +1658,90 @@
       ]
     },
     {
+      "file": "python-latin1.tar",
+      "producer": "Python 3.14.10 tarfile",
+      "command": "python -c \"import tarfile; t = tarfile.open('python-latin1.tar', 'w', format=tarfile.GNU_FORMAT, encoding='latin-1'); t.add('names-latin1'); t.close()\"",
+      "chain": "tar",
+      "password": null,
+      "utc_mtimes": true,
+      "hardlinks": 0,
+      "symlinks": 0,
+      "encoding": "iso-8859-1",
+      "entries": [
+        {
+          "path": "names-latin1/café/résumé.txt",
+          "kind": "file",
+          "size": 8,
+          "sha256": "ff3f1fa3c91cb8860152fd87c5d02ce40fe42fd3b2bbd2f5c22edebd216bbcaa"
+        }
+      ]
+    },
+    {
+      "file": "dotnet-cp932.zip",
+      "producer": ".NET 10.0.14 ZipArchive",
+      "command": "ZipArchive(..., entryNameEncoding: Encoding.GetEncoding(932))",
+      "chain": "zip",
+      "password": null,
+      "utc_mtimes": false,
+      "hardlinks": 0,
+      "symlinks": 0,
+      "encoding": "cp932",
+      "entries": [
+        {
+          "path": "names-ja/日本語/表示.txt",
+          "kind": "file",
+          "size": 10,
+          "sha256": "15859196c8fb776cc8d739c534e207a6d5a16b2b1877ee58963f034ca8e19abd"
+        },
+        {
+          "path": "names-ja/ファイル.txt",
+          "kind": "file",
+          "size": 10,
+          "sha256": "15859196c8fb776cc8d739c534e207a6d5a16b2b1877ee58963f034ca8e19abd"
+        }
+      ]
+    },
+    {
+      "file": "dotnet-cp936.zip",
+      "producer": ".NET 10.0.14 ZipArchive",
+      "command": "ZipArchive(..., entryNameEncoding: Encoding.GetEncoding(936))",
+      "chain": "zip",
+      "password": null,
+      "utc_mtimes": false,
+      "hardlinks": 0,
+      "symlinks": 0,
+      "encoding": "cp936",
+      "entries": [
+        {
+          "path": "names-zh/中文/文件.txt",
+          "kind": "file",
+          "size": 4,
+          "sha256": "038e211ed32b0603a486de00ec7f925bb62a26f90b8d60ef332ad63b62016fd4"
+        }
+      ]
+    },
+    {
+      "file": "dotnet-cp866.zip",
+      "producer": ".NET 10.0.14 ZipArchive",
+      "command": "ZipArchive(..., entryNameEncoding: Encoding.GetEncoding(866))",
+      "chain": "zip",
+      "password": null,
+      "utc_mtimes": false,
+      "hardlinks": 0,
+      "symlinks": 0,
+      "encoding": "cp866",
+      "entries": [
+        {
+          "path": "names-ru/Привет/мир.txt",
+          "kind": "file",
+          "size": 6,
+          "sha256": "5660799a52003b9d119e94759c3bddee3b841fbe5d3bc57d7d9d03434e0e1a1b"
+        }
+      ]
+    },
+    {
       "file": "dotnet.zip",
-      "producer": ".NET 10.0.13 (PowerShell 7.6.7 Compress-Archive)",
+      "producer": ".NET 10.0.14 (PowerShell 7.6.9 Compress-Archive)",
       "command": "Compress-Archive -Path tree -DestinationPath dotnet.zip",
       "chain": "zip",
       "password": null,

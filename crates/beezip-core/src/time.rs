@@ -80,6 +80,46 @@ pub fn from_dos(dos: DosTime) -> Option<SystemTime> {
     Some(local.assume_offset(offset).into())
 }
 
+/// Reads DOS times like [`from_dos`], remembering the UTC offset of recent dates and hours:
+/// looking the offset up is most of the cost, and a zip's entries often share a few dates (a
+/// million entries took 0.3 s without it, docs/M5.md §4). The offset is taken at the start of
+/// the hour, so only a zone that changes its offset in the middle of an hour reads differently.
+pub struct DosClock {
+    slots: [Option<(u32, UtcOffset)>; 64],
+}
+
+impl Default for DosClock {
+    fn default() -> Self {
+        Self { slots: [None; 64] }
+    }
+}
+
+impl DosClock {
+    pub fn read(&mut self, dos: DosTime) -> Option<SystemTime> {
+        let year = 1980 + i32::from(dos.date >> 9);
+        let month = Month::try_from(u8::try_from((dos.date >> 5) & 0x0F).ok()?).ok()?;
+        let day = u8::try_from(dos.date & 0x1F).ok()?;
+        let hour = u8::try_from(dos.time >> 11).ok()?;
+        let minute = u8::try_from((dos.time >> 5) & 0x3F).ok()?;
+        let second = u8::try_from((dos.time & 0x1F) * 2).ok()?;
+        let date = Date::from_calendar_date(year, month, day).ok()?;
+        let local =
+            PrimitiveDateTime::new(date, Time::from_hms(hour, minute, second.min(59)).ok()?);
+        let key = (u32::from(dos.date) << 5) | u32::from(hour);
+        let slot = &mut self.slots[(key ^ (key >> 6)) as usize % 64];
+        let offset = match *slot {
+            Some((k, offset)) if k == key => offset,
+            _ => {
+                let start = PrimitiveDateTime::new(date, Time::from_hms(hour, 0, 0).ok()?);
+                let offset = local_offset_at(start.assume_utc());
+                *slot = Some((key, offset));
+                offset
+            }
+        };
+        Some(local.assume_offset(offset).into())
+    }
+}
+
 /// `t` as a local DOS time, rounded down to 2 seconds. `None` outside 1980–2107.
 pub fn to_dos(t: SystemTime) -> Option<DosTime> {
     let utc = OffsetDateTime::from(t);
@@ -141,6 +181,17 @@ mod tests {
         assert_eq!(to_unix(back), 1_700_000_000);
         assert_eq!(to_dos(from_unix(0, 0).unwrap()), None);
         assert_eq!(to_dos(from_unix(4_500_000_000, 0).unwrap()), None);
+    }
+
+    #[test]
+    fn the_clock_reads_dos_times_as_from_dos_does() {
+        let mut clock = DosClock::default();
+        for secs in (1_600_000_000..1_800_000_000).step_by(7_777_777) {
+            let dos = to_dos(from_unix(secs, 0).unwrap()).unwrap();
+            assert_eq!(clock.read(dos), from_dos(dos), "{secs}");
+            assert_eq!(clock.read(dos), from_dos(dos), "{secs}, cached");
+        }
+        assert_eq!(clock.read(DosTime { date: 0, time: 0 }), None);
     }
 
     #[test]

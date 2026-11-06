@@ -11,6 +11,7 @@ pub mod error;
 pub mod format;
 pub mod io;
 pub mod limits;
+pub mod names;
 pub mod ops;
 pub mod safefs;
 pub mod sinks;
@@ -27,6 +28,7 @@ pub use format::{
     FormatId, NewEntry, NewKind, Selection,
 };
 pub use limits::Limits;
+pub use names::{NameDecoding, NameEncoding, SystemPage};
 pub use ops::{ArchiveKind, CreateOptions, CreateReport, WriteSpec};
 pub use safefs::{ExtractReport, FsOptions, FsSink, OverwritePolicy, SkipReason};
 pub use sinks::{NullSink, TestReport, TestSink};

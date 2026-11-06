@@ -12,8 +12,8 @@ use std::{
 };
 
 use beezip_core::{
-    EntryKind, FsOptions, Limits, OpenOptions, OverwritePolicy, Selection, SimpleCtx, SkipReason,
-    detect_path, format::normalize, open, ops,
+    EntryKind, FsOptions, Limits, NameDecoding, NameEncoding, OpenOptions, OverwritePolicy,
+    Selection, SimpleCtx, SkipReason, detect_path, format::normalize, open, ops,
 };
 use serde_json::Value;
 use sha2::{Digest, Sha256};
@@ -26,6 +26,18 @@ fn manifest() -> Vec<Value> {
     let text = fs::read_to_string(fixtures().join("manifest.json")).unwrap();
     let v: Value = serde_json::from_str(&text).unwrap();
     v["fixtures"].as_array().unwrap().clone()
+}
+
+/// The options a fixture opens with: its `encoding`, on a US system's code pages (437, 1252).
+fn options(fx: &Value) -> OpenOptions {
+    let encoding = fx["encoding"]
+        .as_str()
+        .map(|e| NameEncoding::from_name(e).unwrap())
+        .unwrap_or_default();
+    OpenOptions::default().with_names(NameDecoding {
+        encoding,
+        ..NameDecoding::default()
+    })
 }
 
 fn sha256(data: &[u8]) -> String {
@@ -53,7 +65,7 @@ const MTIME: u64 = 1_767_225_600;
 #[test]
 fn every_fixture_reads_correctly() {
     let all = manifest();
-    assert_eq!(all.len(), 61, "the manifest lists every fixture");
+    assert_eq!(all.len(), 66, "the manifest lists every fixture");
     let mut failures = Vec::new();
     for fx in &all {
         let file = fx["file"].as_str().unwrap();
@@ -82,7 +94,7 @@ fn check(fx: &Value) -> Result<(), String> {
 
     // Listing.
     let mut cx = ctx(fx);
-    let mut opened = open(&path, &OpenOptions::default(), &mut cx).map_err(|e| e.to_string())?;
+    let mut opened = open(&path, &options(fx), &mut cx).map_err(|e| e.to_string())?;
     let entries = opened
         .reader
         .entries(&mut cx)
@@ -173,7 +185,7 @@ fn check(fx: &Value) -> Result<(), String> {
         &path,
         dest.path(),
         &Selection::all(),
-        &OpenOptions::default(),
+        &options(fx),
         opts,
         &mut ctx(fx),
     )
@@ -210,13 +222,8 @@ fn check(fx: &Value) -> Result<(), String> {
     }
 
     // Integrity test.
-    let tested = ops::test(
-        &path,
-        &Selection::all(),
-        &OpenOptions::default(),
-        &mut ctx(fx),
-    )
-    .map_err(|e| format!("test: {e}"))?;
+    let tested = ops::test(&path, &Selection::all(), &options(fx), &mut ctx(fx))
+        .map_err(|e| format!("test: {e}"))?;
     if !tested.ok() {
         return Err(format!("test found {:?}", tested.errors));
     }
@@ -284,4 +291,42 @@ fn info_reports_methods_and_encryption() {
     let info = opened.reader.info(&mut cx).unwrap();
     assert_eq!(info.codecs, [beezip_core::CodecId::Zstd]);
     assert!(info.solid);
+}
+
+/// The legacy code-page fixtures read right in their own encoding, and wrong in another: as
+/// UTF-8, and for zips under "auto" on a US system, which reads zip names in CP437. (A tar's
+/// Latin-1 names read right under "auto" there: Windows-1252 has the same letters.)
+#[test]
+fn legacy_names_need_their_encoding() {
+    for fx in manifest().iter().filter(|f| f["encoding"].is_string()) {
+        let file = fx["file"].as_str().unwrap();
+        let path = fixtures().join("thirdparty").join(file);
+        let want: Vec<&str> = fx["entries"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|e| e["path"].as_str().unwrap())
+            .collect();
+        let list = |opts: &OpenOptions| -> Vec<String> {
+            let mut cx = SimpleCtx::new();
+            let mut opened = open(&path, opts, &mut cx).unwrap();
+            let entries = opened.reader.entries(&mut cx).unwrap();
+            entries.iter().map(|e| normalize(&e.path)).collect()
+        };
+        let right = list(&options(fx));
+        let utf8 = OpenOptions::default().with_names(NameDecoding {
+            encoding: NameEncoding::Utf8,
+            ..NameDecoding::default()
+        });
+        let mut wrong = vec![list(&utf8)];
+        if fx["chain"] == "zip" {
+            wrong.push(list(&OpenOptions::default()));
+        }
+        for w in &want {
+            assert!(right.iter().any(|p| p == w), "{file}: {w} in {right:?}");
+            for listed in &wrong {
+                assert!(!listed.iter().any(|p| p == w), "{file}: {w} in {listed:?}");
+            }
+        }
+    }
 }

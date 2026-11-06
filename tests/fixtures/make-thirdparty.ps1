@@ -19,6 +19,11 @@ The GNU tar archives hold a symlink, so this needs Developer Mode (or an elevate
 M3 added the 7z set (docs/M3.md §6). The RAR fixtures in thirdparty/libarchive and
 thirdparty/rars come from fetch-rar.ps1 and are left alone here.
 
+M5 added names in legacy code pages (docs/M5.md §6): zips from .NET's ZipArchive given an
+entry name encoding, which writes the names in that code page with no UTF-8 flag (as Explorer
+on a Japanese or Russian Windows does), one from 7-Zip's -mcp, which adds Info-ZIP's Unicode
+Path extra, and a tar with Latin-1 names written by Python's tarfile (`python` on the PATH).
+
 .PARAMETER Keep
 Leave archives that are already in thirdparty/ as they are, and copy only new ones. Their
 contents are fixed, so the manifest still describes them; their bytes (atime and ctime fields,
@@ -71,10 +76,23 @@ Remove-Item -Recurse 'ascii/ünïcödé'
 Write-File (Join-Path $work 'empties/empty.txt') ([byte[]]::new(0))
 New-Item -ItemType Directory 'empties/nothing' | Out-Null
 
-foreach ($item in Get-ChildItem -Recurse -Force tree, links, ascii, empties) {
+# Names only one legacy code page can write, one tree per page: the manifest's `encoding` is
+# the one that reads them back.
+$legacy = [ordered]@{
+    cp932 = [ordered]@{ 'names-ja/日本語/表示.txt' = Text "Shift-JIS`n"; 'names-ja/ファイル.txt' = Text "Shift-JIS`n" }
+    cp936 = [ordered]@{ 'names-zh/中文/文件.txt' = Text "GBK`n" }
+    cp866 = [ordered]@{ 'names-ru/Привет/мир.txt' = Text "CP866`n" }
+    'iso-8859-1' = [ordered]@{ 'names-latin1/café/résumé.txt' = Text "Latin-1`n" }
+}
+foreach ($set in $legacy.Values) {
+    foreach ($f in $set.GetEnumerator()) { Write-File (Join-Path $work $f.Key) $f.Value }
+}
+$legacyRoots = 'names-ja', 'names-zh', 'names-ru', 'names-latin1'
+
+foreach ($item in Get-ChildItem -Recurse -Force (@('tree', 'links', 'ascii', 'empties') + $legacyRoots)) {
     if (-not $item.LinkType -or $item.LinkType -eq 'HardLink') { $item.LastWriteTimeUtc = $mtime }
 }
-foreach ($root in 'tree', 'links', 'ascii', 'empties') { (Get-Item $root).LastWriteTimeUtc = $mtime }
+foreach ($root in @('tree', 'links', 'ascii', 'empties') + $legacyRoots) { (Get-Item $root).LastWriteTimeUtc = $mtime }
 
 function Sha256([byte[]]$bytes) {
     [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($bytes)).ToLowerInvariant()
@@ -106,6 +124,13 @@ function Expected([string]$root) {
     , $entries
 }
 
+# What an archive of one of `$legacy`'s trees must contain.
+function Expected-Files($set) {
+    , @(foreach ($f in $set.GetEnumerator()) {
+        [ordered]@{ path = $f.Key; kind = 'file'; size = $f.Value.Length; sha256 = Sha256 $f.Value }
+    })
+}
+
 function Expected-Stream([string]$key) {
     $b = $files[$key]
     , @([ordered]@{ path = '*'; kind = 'file'; size = $b.Length; sha256 = Sha256 $b })
@@ -116,9 +141,10 @@ $fixtures = [Collections.Generic.List[object]]::new()
 # DOS times are local, which makes them depend on the machine's time zone.
 # `hardlinks`, `symlinks`: how many link entries the listing shows (GNU tar's archives have one
 # of each unless `$links` says otherwise). `parts`: the other volumes of a split set, after
-# `file`, the first.
+# `file`, the first. `encoding`: the name encoding that reads the names right, when "auto"
+# doesn't.
 function Add-Fixture($file, $producer, $command, $chain, $entries, $pw = $null, $mtimes = $false,
-    $links = $null, [string[]]$parts = @()) {
+    $links = $null, [string[]]$parts = @(), $encoding = $null) {
     if (-not (Test-Path $file)) { throw "$file was not created by: $command" }
     foreach ($p in $parts) { if (-not (Test-Path $p)) { throw "$p was not created by: $command" } }
     if ($null -eq $links) {
@@ -130,6 +156,7 @@ function Add-Fixture($file, $producer, $command, $chain, $entries, $pw = $null, 
         password = $pw; utc_mtimes = $mtimes; hardlinks = $links[0]; symlinks = $links[1]
     }
     if ($parts.Count -gt 0) { $fx.parts = $parts }
+    if ($encoding) { $fx.encoding = $encoding }
     $fx.entries = $entries
     $fixtures.Add($fx)
 }
@@ -204,6 +231,11 @@ foreach ($t in @(@('gzip', 'gz'), @('bzip2', 'bz2'), @('xz', 'xz'))) {
     Add-Fixture $file $z $cmd $t[0] (Expected-Stream 'tree/docs/readme.md')
 }
 
+# Legacy code pages. 7-Zip writes zip names in -mcp's code page without the UTF-8 flag, but adds
+# Info-ZIP's Unicode Path extra (0x7075) beside each non-ASCII one, so "auto" reads them right.
+$cmd = Run $sevenZip @('a', '-tzip', '-mcp=932', '7z-cp932.zip', 'names-ja')
+Add-Fixture '7z-cp932.zip' $z $cmd 'zip' (Expected-Files $legacy['cp932'])
+
 # GNU tar: ustar, gnu and pax headers, each with long names, a symlink and a hard link.
 $g = 'GNU tar 1.35 (Git for Windows)'
 foreach ($fmt in 'ustar', 'gnu', 'pax') {
@@ -222,6 +254,39 @@ $cmd = Run $bsdTar @('--zstd', '-cf', 'bsdtar.tar.zst', 'ascii')
 Add-Fixture 'bsdtar.tar.zst' $b $cmd 'zstd → tar' (Expected 'ascii') $null $true
 $cmd = Run $bsdTar @('--format', 'zip', '-cf', 'bsdtar.zip', 'ascii')
 Add-Fixture 'bsdtar.zip' $b $cmd 'zip' (Expected 'ascii')
+
+# Python's tarfile: a GNU tar with Latin-1 names (no pax records, so nothing marks them UTF-8).
+$py = "Python $((& python -c 'import sys; print(sys.version.split()[0])').Trim()) tarfile"
+$script = "import tarfile; t = tarfile.open('python-latin1.tar', 'w', format=tarfile.GNU_FORMAT, encoding='latin-1'); t.add('names-latin1'); t.close()"
+& python -I -c $script
+if ($LASTEXITCODE -ne 0) { throw "python tarfile failed with $LASTEXITCODE" }
+Add-Fixture 'python-latin1.tar' $py "python -c `"$script`"" 'tar' (Expected-Files $legacy['iso-8859-1']) $null $true $null @() 'iso-8859-1'
+
+# .NET's ZipArchive given an entry name encoding writes names in it, with no flag or extra:
+# only that encoding reads them right.
+Add-Type -AssemblyName System.IO.Compression
+[Text.Encoding]::RegisterProvider([Text.CodePagesEncodingProvider]::Instance)
+function New-LegacyZip([string]$file, [int]$codePage, $set) {
+    $fs = [IO.File]::Create((Join-Path $work $file))
+    $zip = [IO.Compression.ZipArchive]::new($fs, [IO.Compression.ZipArchiveMode]::Create, $false,
+        [Text.Encoding]::GetEncoding($codePage))
+    foreach ($f in $set.GetEnumerator()) {
+        $entry = $zip.CreateEntry($f.Key)
+        $entry.LastWriteTime = [DateTimeOffset]::new($mtime)
+        $w = $entry.Open()
+        $w.Write($f.Value, 0, $f.Value.Length)
+        $w.Dispose()
+    }
+    $zip.Dispose()
+    $fs.Dispose()
+}
+foreach ($cp in 'cp932', 'cp936', 'cp866') {
+    $file = "dotnet-$cp.zip"
+    New-LegacyZip $file ([int]$cp.Substring(2)) $legacy[$cp]
+    Add-Fixture $file ".NET $([Environment]::Version) ZipArchive" `
+        "ZipArchive(..., entryNameEncoding: Encoding.GetEncoding($($cp.Substring(2))))" 'zip' `
+        (Expected-Files $legacy[$cp]) $null $false $null @() $cp
+}
 
 # .NET: Compress-Archive, for its handling of non-ASCII names.
 Compress-Archive -Path tree -DestinationPath dotnet.zip
