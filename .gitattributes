@@ -8,3 +8,4 @@
 # Archives used as test data: never touch their bytes.
 tests/fixtures/malicious/** binary
 tests/fixtures/thirdparty/** binary
+tests/fixtures/regress/** binary

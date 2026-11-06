@@ -223,7 +223,7 @@ impl Source {
         let mut r: Box<dyn Read + Send> =
             Box::new(BufReader::with_capacity(BUF_SIZE, self.open_file()?));
         for c in &self.codecs {
-            r = c.codec().decoder(r, &self.limits)?;
+            r = c.decoder(r, &self.limits)?;
         }
         Ok(r)
     }

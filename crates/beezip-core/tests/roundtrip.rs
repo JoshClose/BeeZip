@@ -435,6 +435,44 @@ fn sevenz_keeps_100ns_mtimes() {
     assert_eq!(got, t);
 }
 
+/// A solid block goes on past an entry whose CRC is wrong, since its decoder is sound: only that
+/// entry fails. (A block whose decoder fails stops there: `regress.rs`.)
+#[test]
+fn sevenz_crc_mismatch_fails_only_its_entry() {
+    let root = tempfile::tempdir().unwrap();
+    let files: Vec<PathBuf> = [("a.txt", b'A'), ("b.txt", b'B'), ("c.txt", b'C')]
+        .into_iter()
+        .map(|(name, byte)| {
+            let path = root.path().join(name);
+            fs::write(&path, vec![byte; 5000]).unwrap();
+            path
+        })
+        .collect();
+    let archive = root.path().join("t.7z");
+    let spec = sevenz(SevenZMethod::Copy, true, None, false);
+    let mut cx = SimpleCtx::new();
+    ops::create(&archive, &files, &spec, &CreateOptions::default(), &mut cx).unwrap();
+    let mut bytes = fs::read(&archive).unwrap();
+    let at = bytes.windows(100).position(|w| w == [b'A'; 100]).unwrap();
+    bytes[at + 50] = b'Z';
+    fs::write(&archive, bytes).unwrap();
+
+    let mut opened = beezip_core::open(&archive, &OpenOptions::default(), &mut cx).unwrap();
+    let mut sink = beezip_core::TestSink::default();
+    opened
+        .reader
+        .extract(&Selection::all(), &mut sink, &mut cx)
+        .unwrap();
+    assert_eq!(sink.report.entries, 3);
+    let errors: Vec<_> = sink
+        .report
+        .errors
+        .iter()
+        .map(|e| (e.path.as_str(), e.message.as_str()))
+        .collect();
+    assert_eq!(errors, [("a.txt", "7z: CRC mismatch")]);
+}
+
 #[test]
 fn sevenz_passwords() {
     use beezip_core::ErrorKind;
