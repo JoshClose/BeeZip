@@ -56,6 +56,9 @@ pub fn run() -> anyhow::Result<()> {
         ])
         .env("BEEZIP_CERT_SUBJECT", PUBLISHER)
         .env("BEEZIP_CERT_FILE", &cer)
+        // Started from PowerShell 7, Windows PowerShell inherits its module path, loads 7's
+        // security module, and has no Cert: drive (seen on CI). Without it, it uses its own.
+        .env_remove("PSModulePath")
         .output()
         .context("starting powershell.exe")?;
     if !out.status.success() {

@@ -29,7 +29,7 @@ pub enum Mode {
 
 pub fn run(mode: Mode, remove: bool) -> anyhow::Result<()> {
     let root = workspace_root();
-    let debug = root.join("target/debug");
+    let debug = root.join("target").join("debug");
     let cli = debug.join("beezip.exe");
     if remove {
         if !cli.is_file() {
@@ -57,7 +57,7 @@ pub fn run(mode: Mode, remove: bool) -> anyhow::Result<()> {
         bail!("cargo build failed: {status}");
     }
 
-    let dir = root.join("target/shell");
+    let dir = root.join("target").join("shell");
     std::fs::create_dir_all(&dir)?;
     let n = SystemTime::now()
         .duration_since(UNIX_EPOCH)

@@ -83,8 +83,10 @@ $p = Start-Process (Join-Path $dir 'uninstall.exe') -ArgumentList '/S' -Wait -Pa
 if ($p.ExitCode) { Fail "the uninstaller exited with $($p.ExitCode)" }
 # NSIS's uninstaller runs again from %TEMP%; wait for it to finish.
 foreach ($i in 1..60) { if (-not (Test-Path $beezip)) { break }; Start-Sleep -Milliseconds 500 }
-# Windows PowerShell's Appx module; PowerShell 7's isn't reliable on every runner image.
-$left = powershell.exe -NoProfile -Command '(Get-AppxPackage -Name BeeZip).PackageFullName'
+# Windows PowerShell's Appx module; PowerShell 7's isn't reliable on every runner image. Without
+# PowerShell 7's module path, which would make it load 7's modules.
+$saved = $env:PSModulePath; $env:PSModulePath = $null
+try { $left = powershell.exe -NoProfile -Command '(Get-AppxPackage -Name BeeZip).PackageFullName' } finally { $env:PSModulePath = $saved }
 if ($left) { Fail "the uninstaller left the package $left" }
 $hkcu = [Microsoft.Win32.Registry]::CurrentUser
 foreach ($key in 'Software\Classes\*\shell\BeeZip', 'Software\Classes\Directory\shell\BeeZip', 'Software\BeeZip\Shell') {
