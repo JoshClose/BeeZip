@@ -46,6 +46,9 @@ pub(crate) struct Live {
     policy: RwLock<Arc<Policy>>,
     /// The file the config came from, which `settings.*` read and write.
     path: Option<PathBuf>,
+    /// Where Explorer's menu is registered.
+    shell: crate::shell::Hive,
+    shell_app: Option<PathBuf>,
 }
 
 impl Live {
@@ -59,6 +62,14 @@ impl Live {
 
     pub(crate) fn path(&self) -> Option<&PathBuf> {
         self.path.as_ref()
+    }
+
+    pub(crate) fn shell(&self) -> &crate::shell::Hive {
+        &self.shell
+    }
+
+    pub(crate) fn shell_app(&self) -> Option<&std::path::Path> {
+        self.shell_app.as_deref()
     }
 
     /// The new config, and the policy's limits from its `[limits]`.
@@ -80,6 +91,11 @@ pub struct EngineOptions {
     /// The file the config came from. `settings.get` and `settings.set` use it; without one
     /// they use [`crate::config::config_path`].
     pub config_path: Option<PathBuf>,
+    /// Where Explorer's menu is registered: the real registry, or a test's own key.
+    pub shell: crate::shell::Hive,
+    /// The desktop app's own exe, which `shell.install` registers for clicks unless told
+    /// otherwise. The CLI leaves it unset and looks in the install folder.
+    pub shell_app: Option<PathBuf>,
 }
 
 impl Default for EngineOptions {
@@ -88,6 +104,8 @@ impl Default for EngineOptions {
             config: Ok(Config::default()),
             policy: Policy::unrestricted(),
             config_path: None,
+            shell: crate::shell::Hive::real(),
+            shell_app: None,
         }
     }
 }
@@ -102,6 +120,8 @@ impl EngineOptions {
             config,
             policy,
             config_path: None,
+            shell: crate::shell::Hive::real(),
+            shell_app: None,
         }
     }
 
@@ -148,6 +168,8 @@ impl Engine {
                     config: RwLock::new(Arc::new(options.config)),
                     policy: RwLock::new(Arc::new(options.policy)),
                     path: options.config_path,
+                    shell: options.shell,
+                    shell_app: options.shell_app,
                 }),
                 cache: Arc::new(ArchiveCache::new()),
             }),

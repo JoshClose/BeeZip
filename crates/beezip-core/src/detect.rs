@@ -399,7 +399,7 @@ fn open_chain<'s>(
 ) -> Result<Option<Box<dyn Read + Send + 's>>> {
     let mut r = open().map_err(|e| Error::io("reading the file", &e))?;
     for c in codecs {
-        r = match c.codec().decoder(r, limits) {
+        r = match c.decoder(r, limits) {
             Ok(d) => d,
             Err(_) => return Ok(None),
         };

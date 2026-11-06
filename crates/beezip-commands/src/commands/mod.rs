@@ -14,7 +14,9 @@ mod formats_list;
 pub(crate) mod listing;
 mod settings_get;
 mod settings_set;
+mod shell_install;
 mod shell_plan;
+mod shell_status;
 mod stream_compress;
 mod stream_decompress;
 pub(crate) mod util;
@@ -37,7 +39,12 @@ pub use formats_list::{
 };
 pub use settings_get::{SettingsGet, SettingsGetInput, SettingsGetOutput};
 pub use settings_set::{SettingsSet, SettingsSetInput, SettingsSetOutput};
+pub use shell_install::{
+    InstallMode, ShellInstall, ShellInstallInput, ShellInstallOutput, ShellUninstall,
+    ShellUninstallInput, ShellUninstallOutput,
+};
 pub use shell_plan::{Existing, ShellPlan, ShellPlanOutput, Step};
+pub use shell_status::{ClassicKeys, ShellMode, ShellStatus, ShellStatusInput, ShellStatusOutput};
 pub use stream_compress::{StreamCompress, StreamCompressInput, StreamCompressOutput};
 pub use stream_decompress::{StreamDecompress, StreamDecompressInput, StreamDecompressOutput};
 
@@ -61,5 +68,8 @@ pub fn register_all(registry: &mut Registry) {
         .register::<CliLine>()
         .register::<SettingsGet>()
         .register::<SettingsSet>()
-        .register::<ShellPlan>();
+        .register::<ShellPlan>()
+        .register::<ShellStatus>()
+        .register::<ShellInstall>()
+        .register::<ShellUninstall>();
 }

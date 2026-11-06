@@ -72,6 +72,12 @@ dirs       = "7.0.0"
 toml       = "1.1.8"
 toml_edit  = "0.25.17"   # settings.set keeps config.toml's comments (docs/M4.md §1)
 base64     = "0.23.1"
+# M4 Explorer integration (docs/M4.md §1): the same windows 0.62.2 that Tauri already builds, so
+# one copy serves the shell DLL, the commands and the app. Features are chosen per crate.
+windows          = "=0.62.2"
+windows-core     = "=0.62.2"
+windows-registry = "0.6.1"
+windows-result   = "0.4.1"   # windows-registry's error type, which it doesn't re-export
 indicatif  = "0.18.6"
 
 # M3 formats (docs/M3.md §1). Churny, so pinned exactly.

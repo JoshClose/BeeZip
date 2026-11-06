@@ -31,7 +31,11 @@ pub fn run() {
         .as_ref()
         .map(|c| c.desktop.theme)
         .unwrap_or_default();
-    let options = EngineOptions::from_loaded(loaded, Policy::unrestricted());
+    let options = EngineOptions {
+        // The settings page's Install: a click on the menu starts this app.
+        shell_app: std::env::current_exe().ok(),
+        ..EngineOptions::from_loaded(loaded, Policy::unrestricted())
+    };
     let engine = Engine::with_options(registry(), options);
     let gui = Arc::new(GuiInteractor::new({
         let engine = engine.clone();

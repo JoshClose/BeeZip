@@ -1,2 +1,8 @@
 [alias]
 xtask = "run -p xtask --"
+
+# Link the C and C++ runtimes into every Windows binary (docs/M4.md §16, PR 3). A clean Windows 10
+# has no VC++ redistributable, so BeeZip.exe and beezip.exe wouldn't start there, and the shell
+# DLL loads into explorer.exe, which must never depend on one.
+[target.'cfg(all(windows, target_env = "msvc"))']
+rustflags = ["-C", "target-feature=+crt-static"]

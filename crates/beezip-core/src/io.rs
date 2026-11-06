@@ -385,6 +385,43 @@ impl Drop for PipeReader {
     }
 }
 
+/// Remembers a decoder's first error and gives it back on every later read, without calling
+/// the decoder again: after an error the decoder's state is whatever the bad data left. A
+/// reader that skips the rest of a damaged entry reads on, and libbz2-rs-sys 0.2.6 then resumes
+/// from that state and panics in an `extern "C"` function, which aborts the process (the
+/// `sevenz` fuzzer). `Interrupted` isn't latched: callers retry it, and nothing was decoded.
+pub struct LatchReader<R> {
+    inner: R,
+    error: Option<io::Error>,
+}
+
+impl<R: Read> LatchReader<R> {
+    pub fn new(inner: R) -> Self {
+        Self { inner, error: None }
+    }
+}
+
+impl<R: Read> Read for LatchReader<R> {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        if let Some(e) = &self.error {
+            return Err(again(e));
+        }
+        self.inner.read(buf).inspect_err(|e| {
+            if e.kind() != io::ErrorKind::Interrupted {
+                self.error = Some(again(e));
+            }
+        })
+    }
+}
+
+/// A copy of a read error, keeping a smuggled core error as it was.
+fn again(e: &io::Error) -> io::Error {
+    match e.get_ref().and_then(|x| x.downcast_ref::<Error>()) {
+        Some(inner) => inner.clone().into_io(),
+        None => io::Error::new(e.kind(), e.to_string()),
+    }
+}
+
 /// Remembers the first write error, for encoders (brotli) whose `finish` swallows them.
 pub struct LatchWriter<W> {
     inner: W,
@@ -454,6 +491,40 @@ mod tests {
             .read_to_end(&mut out)
             .unwrap();
         assert_eq!(out, b"abcd");
+    }
+
+    /// Gives these results in turn, and panics if read once more.
+    struct Script(Vec<io::Result<usize>>);
+
+    impl Read for Script {
+        fn read(&mut self, _: &mut [u8]) -> io::Result<usize> {
+            assert!(!self.0.is_empty(), "read after the script ended");
+            self.0.remove(0)
+        }
+    }
+
+    #[test]
+    fn latch_reader_never_reads_a_failed_decoder_again() {
+        let mut buf = [0u8; 4];
+        let mut r = LatchReader::new(Script(vec![
+            Err(io::ErrorKind::Interrupted.into()),
+            Ok(4),
+            Err(Error::limit("ratio").into_io()),
+        ]));
+        let e = r.read(&mut buf).unwrap_err();
+        assert_eq!(e.kind(), io::ErrorKind::Interrupted);
+        assert_eq!(r.read(&mut buf).unwrap(), 4);
+        for _ in 0..3 {
+            let e = r.read(&mut buf).unwrap_err();
+            assert_eq!(read_error(&e).kind, ErrorKind::LimitExceeded);
+        }
+        let bad = io::Error::new(io::ErrorKind::InvalidInput, "bad block");
+        let mut r = LatchReader::new(Script(vec![Err(bad)]));
+        for _ in 0..3 {
+            let e = r.read(&mut buf).unwrap_err();
+            assert_eq!(e.kind(), io::ErrorKind::InvalidInput);
+            assert_eq!(e.to_string(), "bad block");
+        }
     }
 
     #[test]

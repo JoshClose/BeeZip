@@ -1,5 +1,6 @@
-; Installer hooks for Tauri's NSIS template (docs/M3.md §5.5): put $INSTDIR\bin, which holds
-; beezip.exe, on the user's PATH, and take it off again on uninstall.
+; Installer hooks for Tauri's NSIS template (docs/M3.md §5.5, M4 §9): put $INSTDIR\bin, which
+; holds beezip.exe, on the user's PATH and add BeeZip to Explorer's menu, and on uninstall take
+; both away again. `cargo xtask dist` defines BEEZIP_SHELL_DLL, this version's menu DLL.
 ;
 ; PowerShell edits PATH rather than NSIS, whose strings hold 1 024 characters in its default
 ; build: a longer PATH would be cut. The script reads the value unexpanded (so %USERPROFILE%
@@ -13,6 +14,10 @@
 !macro NSIS_HOOK_POSTINSTALL
   System::Call 'Kernel32::SetEnvironmentVariable(t "BEEZIP_BIN", t "$INSTDIR\bin")'
   nsExec::ExecToLog `powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "$$d = $$env:BEEZIP_BIN.TrimEnd('\'); $$k = [Microsoft.Win32.Registry]::CurrentUser.CreateSubKey('Environment'); $$p = [string]$$k.GetValue('Path', '', 'DoNotExpandEnvironmentNames'); $$parts = [System.Collections.Generic.List[string]]$$p.Split(';'); if (-not ($$parts | Where-Object { $$_.TrimEnd('\') -eq $$d })) { if ($$parts[$$parts.Count - 1] -eq '') { $$parts.Insert($$parts.Count - 1, $$d) } else { $$parts.Add($$d) }; $$k.SetValue('Path', ($$parts -join ';'), 'ExpandString'); [Environment]::SetEnvironmentVariable('BEEZIP_PATH_REFRESH', $$null, 'User') }"`
+  Pop $0
+  ; Explorer's menu, for this user. It also deletes the DLLs an older version left, or has
+  ; Windows delete them at the next sign-in while Explorer still holds them (docs/M4.md §5.6).
+  nsExec::ExecToLog `"$INSTDIR\bin\beezip.exe" shell install --dll "$INSTDIR\${BEEZIP_SHELL_DLL}" --app "$INSTDIR\BeeZip.exe"`
   Pop $0
 !macroend
 
@@ -30,6 +35,21 @@
   WriteRegStr SHCTX "Software\Classes\.${EXT}" "${FILECLASS}_backup" "$R0"
 !macroend
 
+; An upgrade runs APP_ASSOCIATE again, which saves the current default as the backup: by then
+; BeeZip's own, so the default from before BeeZip was lost (M3 #51). Before it runs, each
+; extension whose default is still BeeZip's gets its saved backup back as the default, for
+; APP_ASSOCIATE to save again.
+!macro BEEZIP_RESTORE_BACKUP EXT FILECLASS
+  ReadRegStr $R0 SHCTX "Software\Classes\.${EXT}" ""
+  StrCmp $R0 "${FILECLASS}" 0 +3
+  ReadRegStr $R1 SHCTX "Software\Classes\.${EXT}" "${FILECLASS}_backup"
+  WriteRegStr SHCTX "Software\Classes\.${EXT}" "" "$R1"
+!macroend
+
+!macro NSIS_HOOK_PREINSTALL
+  !insertmacro BEEZIP_FOR_EACH_ASSOCIATION BEEZIP_RESTORE_BACKUP
+!macroend
+
 !macro BEEZIP_CLEAN_UP EXT FILECLASS
   DeleteRegValue SHCTX "Software\Classes\.${EXT}" "${FILECLASS}_backup"
   ReadRegStr $R0 SHCTX "Software\Classes\.${EXT}" ""
@@ -45,6 +65,10 @@
 !macroend
 
 !macro NSIS_HOOK_PREUNINSTALL
+  ; The menu goes first, while beezip.exe is still there. A DLL Explorer holds is moved out of
+  ; $INSTDIR, so the folder can go.
+  nsExec::ExecToLog `"$INSTDIR\bin\beezip.exe" shell uninstall`
+  Pop $0
   !insertmacro BEEZIP_FOR_EACH_ASSOCIATION BEEZIP_KEEP_CURRENT
   System::Call 'Kernel32::SetEnvironmentVariable(t "BEEZIP_BIN", t "$INSTDIR\bin")'
   nsExec::ExecToLog `powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "$$d = $$env:BEEZIP_BIN.TrimEnd('\'); $$k = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey('Environment', $$true); if ($$k) { $$p = [string]$$k.GetValue('Path', '', 'DoNotExpandEnvironmentNames'); $$all = $$p.Split(';'); $$parts = @($$all | Where-Object { $$_.TrimEnd('\') -ne $$d }); if ($$parts.Count -ne $$all.Count) { $$k.SetValue('Path', ($$parts -join ';'), 'ExpandString'); [Environment]::SetEnvironmentVariable('BEEZIP_PATH_REFRESH', $$null, 'User') } }"`

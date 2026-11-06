@@ -141,7 +141,7 @@ impl Command for StreamDecompress {
                 BUF_SIZE,
                 CountingReader::new(source, counter.clone()),
             ));
-            let dec = codec.codec().decoder(raw, &limits)?;
+            let dec = codec.decoder(raw, &limits)?;
             let mut data = Guarded::new(
                 dec,
                 RatioGuard::new(&counter, &limits),

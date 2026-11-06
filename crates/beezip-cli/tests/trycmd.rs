@@ -7,6 +7,8 @@ fn cli_cases() {
         .default_bin_name("beezip")
         // The developer's own config must not change what the CLI prints.
         .env("BEEZIP_CONFIG", "no-such-beezip-config.toml")
+        // Nor its Explorer menu: `settings set shell.…` updates an installed one (debug builds).
+        .env("BEEZIP_SHELL_BASE", r"Software\BeeZip-trycmd")
         .case("tests/cmd/*.toml")
         .skip("tests/cmd/settings-*.toml");
 }
@@ -17,5 +19,6 @@ fn cli_cases() {
 fn settings_cases() {
     trycmd::TestCases::new()
         .default_bin_name("beezip")
+        .env("BEEZIP_SHELL_BASE", r"Software\BeeZip-trycmd")
         .case("tests/cmd/settings-*.toml");
 }

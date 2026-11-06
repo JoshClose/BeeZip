@@ -505,10 +505,7 @@ impl SevenZReader {
             meter.current = Some(entry.path.clone());
             let mut mcx = MeteredCtx::new(cx, meter);
             mcx.report();
-            let mut tagged = DecodeTag {
-                inner: data,
-                encrypted,
-            };
+            let mut tagged = DecodeTag::new(data, encrypted);
             let sent = match &entry.kind {
                 EntryKind::Symlink { .. } => link_entry(entry, &mut tagged)
                     .and_then(|(entry, mut body)| sink.entry(&entry, &mut body, &mut mcx)),
@@ -517,7 +514,28 @@ impl SevenZReader {
                     sink.entry(entry, &mut data, &mut mcx)
                 }
             };
+            // A sink that records a damaged entry goes on. If the block's decoder failed, going
+            // on means sevenz-rust2 reads it again, for the rest of this entry and the next one,
+            // so the block fails here instead. The sink has the entry's own error.
+            let data_follows = || {
+                self.archive.files[range.start + at + 1..range.end]
+                    .iter()
+                    .any(|f| f.has_stream && f.size > 0)
+            };
             match sent {
+                Ok(()) if at < last && data_follows() => match tagged.failed.take() {
+                    Some(e) => {
+                        slot = Some(Error::new(
+                            e.kind,
+                            format!(
+                                "the rest of the solid block after {} can't be decoded",
+                                entry.path
+                            ),
+                        ));
+                        Err(sevenz_rust2::Error::Other("the decoder failed".into()))
+                    }
+                    None => Ok(true),
+                },
                 Ok(()) => Ok(at < last),
                 Err(e) => {
                     slot = Some(e);
@@ -637,22 +655,60 @@ fn make_entry(
 
 /// Turns decoder errors into "wrong password or damaged data" for an encrypted block, so the
 /// sinks stop and the reader can ask again, or into `Corrupt`.
+///
+/// Once the block's decoder fails, it gives that error back instead of reading the decoder
+/// again, as [`crate::io::LatchReader`] does for the codecs: sevenz-rust2 builds its own, and
+/// libbz2-rs-sys 0.2.6 aborts when read after an error. An entry's CRC mismatch is kept out of
+/// that: it comes after the entry's last byte and leaves the decoder sound.
 struct DecodeTag<'a> {
     inner: &'a mut dyn Read,
     encrypted: bool,
+    /// The block's decoder failed, with this error.
+    failed: Option<Error>,
+}
+
+impl<'a> DecodeTag<'a> {
+    fn new(inner: &'a mut dyn Read, encrypted: bool) -> Self {
+        Self {
+            inner,
+            encrypted,
+            failed: None,
+        }
+    }
 }
 
 impl Read for DecodeTag<'_> {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        self.inner.read(buf).map_err(|e| {
-            let err = read_error(&e);
-            if self.encrypted && err.kind == ErrorKind::Corrupt {
-                wrong_password().into_io()
-            } else {
-                err.into_io()
-            }
-        })
+        if let Some(err) = &self.failed {
+            return Err(err.clone().into_io());
+        }
+        let e = match self.inner.read(buf) {
+            Err(e) if e.kind() != io::ErrorKind::Interrupted => e,
+            other => return other,
+        };
+        let crc = crc_mismatch(&e);
+        let mut err = if crc {
+            Error::corrupt("7z: CRC mismatch")
+        } else {
+            read_error(&e)
+        };
+        if self.encrypted && err.kind == ErrorKind::Corrupt {
+            err = wrong_password();
+        }
+        if !crc {
+            self.failed = Some(err.clone());
+        }
+        Err(err.into_io())
     }
+}
+
+/// sevenz-rust2's check of an entry's CRC, which it makes after the entry's last byte.
+fn crc_mismatch(e: &io::Error) -> bool {
+    matches!(
+        e.get_ref()
+            .and_then(|x| x.downcast_ref::<sevenz_rust2::Error>()),
+        Some(sevenz_rust2::Error::ChecksumVerificationFailed)
+    )
 }
 
 /// A link entry with its target read from its data. Data that isn't a link after all (a
@@ -922,10 +978,7 @@ fn decode_one(
     let result = decoder.for_each_entries(&mut |_, data: &mut dyn Read| {
         let file = start + k;
         k += 1;
-        let mut tagged = DecodeTag {
-            inner: data,
-            encrypted,
-        };
+        let mut tagged = DecodeTag::new(data, encrypted);
         let mut buf = vec![0u8; BUF_SIZE];
         loop {
             if out.stopped() {

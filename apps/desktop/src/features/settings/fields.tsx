@@ -160,10 +160,20 @@ export function ChoiceSetting<T extends string>({
   );
 }
 
-export function CheckSetting({ checked, label, onCommit }: { checked: boolean; label: string; onCommit: (value: boolean) => void }) {
+export function CheckSetting({
+  checked,
+  label,
+  disabled,
+  onCommit,
+}: {
+  checked: boolean;
+  label: string;
+  disabled?: boolean;
+  onCommit: (value: boolean) => void;
+}) {
   return (
     <div className="pt-1">
-      <Checkbox checked={checked} onChange={onCommit} label={label} />
+      <Checkbox checked={checked} onChange={onCommit} label={label} disabled={disabled} />
     </div>
   );
 }

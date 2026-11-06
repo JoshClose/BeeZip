@@ -23,6 +23,7 @@ use std::{
 use crate::{
     Error, Limits, Result,
     detect::{Confidence, Probe},
+    io::LatchReader,
 };
 
 /// Every codec BeeZip knows, in the order `formats.list` shows them.
@@ -92,6 +93,16 @@ impl CodecId {
 
     pub fn from_name(name: &str) -> Option<Self> {
         Self::ALL.into_iter().find(|c| c.name() == name)
+    }
+
+    /// The codec's decoder over `r`, never read again once it fails ([`LatchReader`]).
+    pub fn decoder<'a>(
+        self,
+        r: Box<dyn Read + Send + 'a>,
+        limits: &Limits,
+    ) -> Result<Box<dyn Read + Send + 'a>> {
+        let d = self.codec().decoder(r, limits)?;
+        Ok(Box::new(LatchReader::new(d)))
     }
 
     pub fn codec(self) -> &'static dyn Codec {

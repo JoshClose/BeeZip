@@ -94,10 +94,18 @@ impl Command for SettingsSet {
         };
         let changed = changed(&new.before, &new.after.settings);
         cx.replace_config(new.after.settings.clone());
-        Ok(SettingsSetOutput {
-            current: new.after,
-            changed,
-        })
+        let mut current = new.after;
+        // The installed menu reads `[shell]` from the registry (docs/M4.md §5.4). The file is
+        // written by now, so a failure here is a warning rather than an error.
+        if changed.iter().any(|k| k.starts_with("shell."))
+            && let Err(e) = crate::shell::follow(cx.shell_hive(), &current.settings.shell)
+        {
+            current.warnings.push(format!(
+                "Explorer's menu didn't take the change: {}",
+                e.message
+            ));
+        }
+        Ok(SettingsSetOutput { current, changed })
     }
 
     fn human(out: &SettingsSetOutput) -> Option<String> {
@@ -489,7 +497,11 @@ mod tests {
         let loaded = config::load_from(path);
         Engine::with_options(
             registry(),
-            EngineOptions::from_loaded(loaded, Policy::unrestricted()),
+            EngineOptions {
+                // Never the real menu, which a developer may have installed.
+                shell: crate::shell::Hive::test("settings"),
+                ..EngineOptions::from_loaded(loaded, Policy::unrestricted())
+            },
         )
     }
 
