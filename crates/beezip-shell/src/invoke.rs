@@ -15,7 +15,7 @@ use windows::Win32::System::LibraryLoader::{
     GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS, GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
     GetModuleFileNameW, GetModuleHandleExW,
 };
-use windows::Win32::UI::WindowsAndMessaging::AllowSetForegroundWindow;
+use windows::Win32::UI::WindowsAndMessaging::{ASFW_ANY, AllowSetForegroundWindow};
 use windows_core::{HRESULT, PCWSTR, Result};
 
 use crate::settings::Settings;
@@ -35,6 +35,13 @@ pub fn run(item: Item, paths: Vec<PathBuf>, settings: &Settings) -> Result<()> {
         .or_else(beside_dll)
         .ok_or_else(|| windows_core::Error::from(E_FAIL))?;
     let file = write_new(&jobs_dir(), &json).map_err(io_error)?;
+    // Pass on the right to come to the front. Naming the child doesn't work: it can't be named
+    // until it has started (`ERROR_INVALID_PARAMETER` right after the spawn), and when BeeZip is
+    // already running the child only hands the job over, which a right it never got can't
+    // follow (§16, PR 4 item 15). So any process may take the front until the user's next input.
+    // SAFETY: plain call; failing only means the window may open behind.
+    let allowed = unsafe { AllowSetForegroundWindow(ASFW_ANY) };
+    crate::log::line(|| format!("AllowSetForegroundWindow(ASFW_ANY) -> {allowed:?}"));
     let child = Command::new(&app)
         .arg("--job")
         .arg(&file)
@@ -43,11 +50,7 @@ pub fn run(item: Item, paths: Vec<PathBuf>, settings: &Settings) -> Result<()> {
         .stderr(Stdio::null())
         .spawn();
     match child {
-        Ok(child) => {
-            // SAFETY: plain call; failing only means the window may open behind.
-            let _ = unsafe { AllowSetForegroundWindow(child.id()) };
-            Ok(())
-        }
+        Ok(_) => Ok(()),
         Err(e) => {
             let _ = std::fs::remove_file(&file);
             Err(io_error(e))
