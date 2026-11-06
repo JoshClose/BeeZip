@@ -2,11 +2,13 @@
 //! `shell.uninstall`, and `settings.set` when `[shell]` changes:
 //! - [`classic`]: the classic menu's HKCU keys, with or without the cascade;
 //! - [`mirror`]: `HKCU\Software\BeeZip\Shell`, the settings the DLL reads;
+//! - [`package`]: the Windows 11 menu's sparse package, through `PackageManager`;
 //! - [`files`]: DLLs an upgrade or uninstall left behind, which Explorer may still hold;
 //! - [`system`]: the Windows build and Developer Mode.
 //!
-//! Windows only, and safe Rust only (windows-registry). Every key goes through one [`Hive`], so
-//! tests write under a key of their own and never touch the real menu.
+//! Windows only, and safe Rust only (windows-registry, and windows' WinRT projection). Every key
+//! goes through one [`Hive`], so tests write under a key of their own and never touch the real
+//! menu; a test's hive has no package at all.
 
 #[cfg(windows)]
 pub(crate) mod classic;
@@ -14,6 +16,8 @@ pub(crate) mod classic;
 pub(crate) mod files;
 #[cfg(windows)]
 pub(crate) mod mirror;
+#[cfg(windows)]
+pub(crate) mod package;
 #[cfg(windows)]
 pub(crate) mod system;
 
@@ -48,6 +52,12 @@ impl Hive {
         }
     }
 
+    /// The package's name, `BeeZip`, for the real registry only. Packages have no test base, so
+    /// a test's hive, and a debug build's `BEEZIP_SHELL_BASE`, never find or change one.
+    pub fn package_name(&self) -> Option<&'static str> {
+        (self.base == "Software").then_some("BeeZip")
+    }
+
     /// `rest` under the base: `Classes\CLSID\{…}`.
     pub fn key(&self, rest: &str) -> String {
         format!(r"{}\{rest}", self.base)
@@ -57,6 +67,22 @@ impl Hive {
     pub fn base(&self) -> &str {
         &self.base
     }
+}
+
+/// The signed package's name in the install folder, from `cargo xtask dist --sign-dev`.
+pub const MSIX: &str = "beezip-sparse.msix";
+/// The folder in the install folder holding the unsigned package's `AppxManifest.xml` and logos.
+pub const SPARSE: &str = "sparse";
+
+/// The same path, ignoring case and a trailing separator, as Windows does.
+pub fn same_path(a: &Path, b: &Path) -> bool {
+    let norm = |p: &Path| {
+        p.to_string_lossy()
+            .trim_end_matches(['\\', '/'])
+            .replace('/', "\\")
+            .to_lowercase()
+    };
+    norm(a) == norm(b)
 }
 
 /// The CLI's and the app's install folder: `<dir>` for `<dir>\bin\beezip.exe` and for

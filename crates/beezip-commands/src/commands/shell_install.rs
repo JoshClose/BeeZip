@@ -39,18 +39,24 @@ pub enum InstallMode {
 }
 
 /// Add BeeZip to Explorer's right-click menu, or repair it. It registers the menu for this
-/// user (no admin), writes the settings the menu reads, and deletes DLLs older versions left.
+/// user (no admin), writes the settings the menu reads, removes the other kind of menu, and
+/// deletes DLLs older versions left.
 ///
 /// Running it again repairs the menu, and moves it to another DLL or app.
 #[derive(Debug, Default, Clone, Serialize, Deserialize, JsonSchema, clap::Args, TS)]
 #[serde(deny_unknown_fields)]
 #[ts(optional_fields)]
 pub struct ShellInstallInput {
-    /// Which menu [default: auto]. `auto` registers the classic menu, which is Windows 10's
-    /// menu and "Show more options" on Windows 11.
+    /// Which menu [default: auto]. `auto` gives Windows 11 its own menu when BeeZip's package
+    /// can be registered, and the classic menu otherwise, with the reason.
     #[arg(long, value_enum)]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mode: Option<InstallMode>,
+    /// Register Windows 11's menu from the unsigned package, as a development package. Needs
+    /// Developer Mode, and no certificate.
+    #[arg(long, num_args = 0..=1, require_equals = true, default_missing_value = "true")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dev: Option<bool>,
     /// The menu's DLL [default: the beezip_shell DLL in BeeZip's install folder].
     #[arg(long)]
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -59,6 +65,11 @@ pub struct ShellInstallInput {
     #[arg(long)]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub app: Option<PathBuf>,
+    /// Windows 11's package: a signed .msix, or with --dev a folder holding AppxManifest.xml
+    /// [default: beezip-sparse.msix, or with --dev the sparse folder, in BeeZip's install folder].
+    #[arg(long)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub package: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
@@ -204,6 +215,105 @@ fn plan(
     Ok(Plan { dll, app })
 }
 
+/// The first Windows 11 build. Windows 10 keeps the classic menu under `auto` (docs/M4.md §5.3).
+const WINDOWS_11: u32 = 22_000;
+/// Windows 10 2004, the first with packages that have an external location.
+const EXTERNAL_LOCATION: u32 = 19_041;
+
+/// Where Windows 11's menu would come from, or why it can't: the reason is a sentence `auto`
+/// gives back as its fallback, and an explicit `modern` as its error.
+#[cfg(windows)]
+fn modern_source(
+    input: &ShellInstallInput,
+    dll: &Path,
+    dir: Option<&Path>,
+) -> Result<crate::shell::package::Source, String> {
+    use crate::shell::package::{MANIFEST, Source, manifest_dll};
+    use crate::shell::{MSIX, SPARSE, system};
+
+    if system::build().is_some_and(|b| b < EXTERNAL_LOCATION) {
+        return Err(
+            "Windows 11's menu needs BeeZip's package, and this Windows is older than \
+                    Windows 10 2004, which can't register it"
+                .into(),
+        );
+    }
+    let in_dir = |name: &str| dir.map(|d| d.join(name));
+    if input.dev != Some(true) {
+        let msix = input.package.clone().map(absolute).or_else(|| in_dir(MSIX));
+        return match msix {
+            Some(p) if p.is_dir() => Err(format!(
+                "{} is an unsigned package, which registers only as a development package \
+                 (--dev, under Developer Mode)",
+                p.display()
+            )),
+            Some(p) if p.is_file() => Ok(Source::Msix(p)),
+            _ => {
+                let unsigned = in_dir(SPARSE).is_some_and(|d| d.join(MANIFEST).is_file());
+                let dev = if unsigned && system::developer_mode() {
+                    "; with Developer Mode on, `beezip shell install --mode modern --dev` \
+                     registers the unsigned one"
+                } else {
+                    ""
+                };
+                Err(format!(
+                    "this BeeZip has no signed package for Windows 11's menu{dev}"
+                ))
+            }
+        };
+    }
+    if !system::developer_mode() {
+        return Err(
+            "a development package needs Developer Mode (Settings → System → For \
+                    developers)"
+                .into(),
+        );
+    }
+    let folder = match input
+        .package
+        .clone()
+        .map(absolute)
+        .or_else(|| in_dir(SPARSE))
+    {
+        Some(p)
+            if p.is_file()
+                && p.file_name()
+                    .is_some_and(|n| n.eq_ignore_ascii_case(MANIFEST)) =>
+        {
+            p.parent().map(Path::to_path_buf).unwrap_or(p)
+        }
+        Some(p) if p.is_file() => {
+            return Err(format!(
+                "{} is a file; --dev registers a folder holding {MANIFEST}",
+                p.display()
+            ));
+        }
+        Some(p) => p,
+        None => {
+            return Err(format!(
+                "there's no {SPARSE} folder beside beezip; pass --package"
+            ));
+        }
+    };
+    let text = std::fs::read_to_string(folder.join(MANIFEST))
+        .map_err(|e| format!("can't read {}: {e}", folder.join(MANIFEST).display()))?;
+    let named = manifest_dll(&text);
+    let file = dll.file_name().map(|n| n.to_string_lossy().into_owned());
+    if !named
+        .as_deref()
+        .zip(file.as_deref())
+        .is_some_and(|(a, b)| a.eq_ignore_ascii_case(b))
+    {
+        return Err(format!(
+            "{}'s manifest names {}, but the DLL is {}",
+            folder.display(),
+            named.as_deref().unwrap_or("no DLL"),
+            dll.display()
+        ));
+    }
+    Ok(Source::Manifest(folder))
+}
+
 #[cfg(windows)]
 pub(crate) fn install(
     hive: &Hive,
@@ -211,39 +321,77 @@ pub(crate) fn install(
     shell: &ShellConfig,
     own_app: Option<&Path>,
 ) -> Result<ShellInstallOutput, CmdError> {
-    use crate::shell::{classic, files, mirror, system};
+    use crate::shell::{classic, files, mirror, package, system};
 
     let mode = input.mode.unwrap_or_default();
-    if mode == InstallMode::Modern {
-        return Err(CmdError::new(
-            ErrorCode::UnsupportedOperation,
-            "this BeeZip has only the classic menu; Windows 11's own menu needs BeeZip's \
-             package, which it doesn't include",
+    if input.dev == Some(true) && mode == InstallMode::Classic {
+        return Err(CmdError::invalid_args(
+            "--dev is for Windows 11's menu; the classic menu has no package",
         ));
     }
-    let fallback = (mode == InstallMode::Auto && system::build().is_some_and(|b| b >= 22_000))
-        .then(|| {
-            "Windows 11's own menu needs BeeZip's package, which this build doesn't include, \
-             so BeeZip is under \"Show more options\""
-                .to_owned()
-        });
-    let plan = plan(&input, crate::shell::install_dir().as_deref(), own_app)?;
+    let dir = crate::shell::install_dir();
+    let plan = plan(&input, dir.as_deref(), own_app)?;
     let hidden = shell.items.hidden();
-    mirror::write(
-        hive,
-        &mirror::Mirror {
-            app: Some(plan.app.clone()),
-            dll: Some(plan.dll.clone()),
-            mode: Some("classic".into()),
-            hidden: hidden.clone(),
-            cascade: shell.cascade,
-            log: false,
-        },
-    )?;
-    let mut actions = classic::register(hive, &plan.dll, shell.cascade, &hidden)?;
-    if let Some(dir) = plan.dll.parent() {
-        actions.extend(files::clean(hive, dir, Some(&plan.dll))?);
+    let write_mirror = |mode: &str| {
+        mirror::write(
+            hive,
+            &mirror::Mirror {
+                app: Some(plan.app.clone()),
+                dll: Some(plan.dll.clone()),
+                mode: Some(mode.into()),
+                hidden: hidden.clone(),
+                cascade: shell.cascade,
+                log: false,
+            },
+        )
+    };
+    let want_modern = match mode {
+        InstallMode::Classic => false,
+        InstallMode::Modern => true,
+        InstallMode::Auto => {
+            input.dev == Some(true) || system::build().is_some_and(|b| b >= WINDOWS_11)
+        }
+    };
+    let external = plan.dll.parent().unwrap_or(Path::new("."));
+
+    let mut actions = Vec::new();
+    let mut fallback = None;
+    let mut modern = false;
+    if want_modern {
+        let because = |why: String| format!("{why}, so BeeZip is under \"Show more options\"");
+        match modern_source(&input, &plan.dll, dir.as_deref()) {
+            Ok(source) => {
+                // The settings first: the surrogate reads them as soon as Explorer asks.
+                write_mirror("modern")?;
+                match package::register(hive, &source, external) {
+                    Ok(done) => {
+                        actions.push(done);
+                        modern = true;
+                    }
+                    Err(e) if mode == InstallMode::Auto => {
+                        fallback = Some(because(format!(
+                            "Windows 11's menu couldn't be registered: {}",
+                            e.message
+                        )));
+                    }
+                    Err(e) => return Err(e),
+                }
+            }
+            Err(why) if mode == InstallMode::Auto => fallback = Some(because(why)),
+            Err(why) => return Err(CmdError::new(ErrorCode::UnsupportedOperation, why)),
+        }
     }
+    if modern {
+        actions.extend(classic::unregister(hive)?);
+    } else {
+        write_mirror("classic")?;
+        actions.extend(classic::register(hive, &plan.dll, shell.cascade, &hidden)?);
+        for old in package::find(hive)? {
+            package::remove(hive, &old.full_name)?;
+            actions.push(format!("removed Windows 11's menu ({})", old.full_name));
+        }
+    }
+    actions.extend(files::clean(hive, external, Some(&plan.dll))?);
     Ok(ShellInstallOutput {
         status: status(hive)?,
         actions,
@@ -253,18 +401,35 @@ pub(crate) fn install(
 
 #[cfg(windows)]
 pub(crate) fn uninstall(hive: &Hive) -> Result<ShellUninstallOutput, CmdError> {
-    use crate::shell::{classic, files, mirror};
+    use crate::shell::{classic, files, mirror, package};
 
-    // The DLL's folder, from what was registered, before the keys go.
-    let dll = classic::read(hive)
-        .and_then(|k| k.dll)
-        .or_else(|| mirror::read(hive).and_then(|m| m.dll));
+    // The DLLs' folders, from what was registered, before it goes.
+    let packages = package::find(hive)?;
+    let dirs: Vec<PathBuf> = [
+        classic::read(hive).and_then(|k| k.dll),
+        mirror::read(hive).and_then(|m| m.dll),
+    ]
+    .into_iter()
+    .flatten()
+    .filter_map(|d| d.parent().map(Path::to_path_buf))
+    .chain(packages.iter().filter_map(|p| p.external.clone()))
+    .fold(Vec::new(), |mut all, d| {
+        if !all.iter().any(|a: &PathBuf| crate::shell::same_path(a, &d)) {
+            all.push(d);
+        }
+        all
+    });
+
     let mut actions = classic::unregister(hive)?;
+    for p in &packages {
+        package::remove(hive, &p.full_name)?;
+        actions.push(format!("removed Windows 11's menu ({})", p.full_name));
+    }
     if mirror::remove(hive)? {
         actions.push("removed the menu's settings".into());
     }
-    if let Some(dir) = dll.as_deref().and_then(Path::parent) {
-        actions.extend(files::clean(hive, dir, None)?);
+    for dir in dirs {
+        actions.extend(files::clean(hive, &dir, None)?);
     }
     Ok(ShellUninstallOutput { actions })
 }
@@ -303,6 +468,7 @@ mod tests {
             mode: Some(InstallMode::Classic),
             dll: Some(dll.clone()),
             app: Some(app.clone()),
+            ..ShellInstallInput::default()
         };
         let shell = ShellConfig {
             cascade: true,
@@ -348,13 +514,86 @@ mod tests {
         let _ = windows_registry::CURRENT_USER.remove_tree(hive.base());
     }
 
-    #[test]
-    fn modern_is_refused_until_the_package_exists() {
+    /// A DLL and an app in a temporary install folder.
+    fn layout() -> (tempfile::TempDir, ShellInstallInput) {
+        let dir = tempfile::tempdir().expect("a temporary folder");
+        let dll = dir.path().join("beezip_shell_0.1.0.dll");
+        let app = dir.path().join("BeeZip.exe");
+        for f in [&dll, &app] {
+            std::fs::write(f, "").expect("a stand-in file");
+        }
         let input = ShellInstallInput {
-            mode: Some(InstallMode::Modern),
+            dll: Some(dll),
+            app: Some(app),
             ..ShellInstallInput::default()
         };
-        let err = install(&Hive::test("modern"), input, &ShellConfig::default(), None).unwrap_err();
+        (dir, input)
+    }
+
+    #[test]
+    fn modern_without_a_package_says_why() {
+        let (_dir, input) = layout();
+        let input = ShellInstallInput {
+            mode: Some(InstallMode::Modern),
+            ..input
+        };
+        let hive = Hive::test("modern");
+        let err = install(&hive, input, &ShellConfig::default(), None).unwrap_err();
         assert_eq!(err.code, ErrorCode::UnsupportedOperation);
+        assert!(err.message.contains("no signed package"), "{}", err.message);
+        assert_eq!(crate::shell::mirror::read(&hive), None, "nothing written");
+    }
+
+    #[test]
+    fn modern_refuses_a_folder_without_dev_and_dev_refuses_classic() {
+        let (dir, input) = layout();
+        let input = ShellInstallInput {
+            mode: Some(InstallMode::Modern),
+            package: Some(dir.path().to_path_buf()),
+            ..input
+        };
+        let hive = Hive::test("modern-folder");
+        let err = install(&hive, input.clone(), &ShellConfig::default(), None).unwrap_err();
+        assert!(err.message.contains("--dev"), "{}", err.message);
+
+        let classic = ShellInstallInput {
+            mode: Some(InstallMode::Classic),
+            dev: Some(true),
+            ..input
+        };
+        let err = install(&hive, classic, &ShellConfig::default(), None).unwrap_err();
+        assert_eq!(err.code, ErrorCode::InvalidArgs);
+    }
+
+    /// `auto` with a package it can't register (a test's hive has none) gives the classic menu,
+    /// and says why, on Windows 11; Windows 10 gets the classic menu without trying.
+    #[test]
+    fn auto_falls_back_to_classic() {
+        let (dir, input) = layout();
+        let msix = dir.path().join("beezip-sparse.msix");
+        std::fs::write(&msix, "").unwrap();
+        let input = ShellInstallInput {
+            package: Some(msix),
+            ..input
+        };
+        let hive = Hive::test("auto");
+        let out = install(&hive, input, &ShellConfig::default(), None).unwrap();
+        let windows_11 = crate::shell::system::build().is_some_and(|b| b >= WINDOWS_11);
+        match &out.fallback {
+            Some(why) => {
+                assert!(windows_11);
+                assert!(why.contains("couldn't be registered"), "{why}");
+                assert!(why.ends_with("under \"Show more options\""), "{why}");
+            }
+            None => assert!(!windows_11),
+        }
+        assert_eq!(
+            out.status.mode,
+            Some(super::super::shell_status::ShellMode::Classic)
+        );
+        let mirror = crate::shell::mirror::read(&hive).unwrap();
+        assert_eq!(mirror.mode.as_deref(), Some("classic"));
+        uninstall(&hive).unwrap();
+        let _ = windows_registry::CURRENT_USER.remove_tree(hive.base());
     }
 }

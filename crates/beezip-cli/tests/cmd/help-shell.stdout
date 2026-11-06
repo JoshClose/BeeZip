@@ -4,8 +4,8 @@ Usage: beezip shell [OPTIONS] <COMMAND>
 
 Commands:
   install    Add BeeZip to Explorer's right-click menu, or repair it. It registers the menu for this
-             user (no admin), writes the settings the menu reads, and deletes DLLs older versions
-             left.
+             user (no admin), writes the settings the menu reads, removes the other kind of menu,
+             and deletes DLLs older versions left.
   plan       Plan what a click on BeeZip's Explorer menu does: the steps for the item clicked and
              the selected paths, as the desktop app runs them when the menu starts it with `--job`.
              Archives in one volume set become one step; a path that has gone fails only its own
