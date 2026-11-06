@@ -8,7 +8,7 @@ use ts_rs::TS;
 use crate::{
     Access, CliSpec, CmdError, Command, Effect, JobCtx,
     commands::util::{as_given, with_archive},
-    wire::{Secret, human_size, ratio},
+    wire::{NameEncoding, Secret, human_size, ratio},
 };
 
 /// Summarise an archive: its format chain, entry counts, sizes and compression ratio, methods,
@@ -23,6 +23,11 @@ pub struct ArchiveInfoInput {
     #[arg(short, long)]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub password: Option<Secret>,
+    /// How names stored as bytes are read: zip names without the UTF-8 flag, tar names outside
+    /// pax records [default: from config, `auto`].
+    #[arg(long, value_enum, value_name = "ENCODING")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name_encoding: Option<NameEncoding>,
 }
 
 /// How many entries are encrypted.
@@ -92,52 +97,58 @@ impl Command for ArchiveInfo {
 
     fn run(input: ArchiveInfoInput, cx: &mut JobCtx) -> Result<ArchiveInfoOutput, CmdError> {
         let given = input.archive.clone();
-        with_archive(&given, input.password.as_ref(), cx, |a, cx| {
-            let opened = &mut a.opened;
-            let info = opened.reader.info(cx)?;
-            let entries = opened.reader.entries(cx)?;
-            a.entries = Some(entries.len());
-            let count = |pred: fn(&EntryKind) -> bool| {
-                entries.iter().filter(|e| pred(&e.kind)).count() as u64
-            };
-            let files = count(|k| matches!(k, EntryKind::File | EntryKind::Hardlink { .. }));
-            let dirs = count(|k| *k == EntryKind::Dir);
-            let links = count(|k| matches!(k, EntryKind::Symlink { .. }));
-            let size: u64 = entries
-                .iter()
-                .filter(|e| e.kind == EntryKind::File)
-                .filter_map(|e| e.size)
-                .sum();
-            let entries_total = entries.len() as u64;
-            let out = ArchiveInfoOutput {
-                format: info.format.name().into(),
-                chain: opened.detection.chain(),
-                codecs: info.codecs.iter().map(|c| c.name().to_owned()).collect(),
-                entries: entries_total,
-                files,
-                dirs,
-                links,
-                size,
-                packed_size: opened.size,
-                ratio: ratio(size, opened.size),
-                methods: info.methods.iter().map(|m| (*m).to_owned()).collect(),
-                encryption: match info.encryption {
-                    Encryption::None => EncryptionState::None,
-                    Encryption::Some => EncryptionState::Some,
-                    Encryption::All => EncryptionState::All,
-                },
-                solid: info.solid,
-                sfx: info.sfx,
-                volumes: as_given(&input.archive, &opened.detection.volumes),
-                solid_blocks: info.solid_blocks,
-                encrypted_headers: info.encrypted_headers,
-                locked: info.locked,
-                recovery_record: info.recovery_record,
-                comment: info.comment,
-                archive: input.archive,
-            };
-            Ok(out)
-        })
+        with_archive(
+            &given,
+            input.password.as_ref(),
+            input.name_encoding,
+            cx,
+            |a, cx| {
+                let opened = &mut a.opened;
+                let info = opened.reader.info(cx)?;
+                let entries = opened.reader.entries(cx)?;
+                a.entries = Some(entries.len());
+                let count = |pred: fn(&EntryKind) -> bool| {
+                    entries.iter().filter(|e| pred(&e.kind)).count() as u64
+                };
+                let files = count(|k| matches!(k, EntryKind::File | EntryKind::Hardlink { .. }));
+                let dirs = count(|k| *k == EntryKind::Dir);
+                let links = count(|k| matches!(k, EntryKind::Symlink { .. }));
+                let size: u64 = entries
+                    .iter()
+                    .filter(|e| e.kind == EntryKind::File)
+                    .filter_map(|e| e.size)
+                    .sum();
+                let entries_total = entries.len() as u64;
+                let out = ArchiveInfoOutput {
+                    format: info.format.name().into(),
+                    chain: opened.detection.chain(),
+                    codecs: info.codecs.iter().map(|c| c.name().to_owned()).collect(),
+                    entries: entries_total,
+                    files,
+                    dirs,
+                    links,
+                    size,
+                    packed_size: opened.size,
+                    ratio: ratio(size, opened.size),
+                    methods: info.methods.iter().map(|m| (*m).to_owned()).collect(),
+                    encryption: match info.encryption {
+                        Encryption::None => EncryptionState::None,
+                        Encryption::Some => EncryptionState::Some,
+                        Encryption::All => EncryptionState::All,
+                    },
+                    solid: info.solid,
+                    sfx: info.sfx,
+                    volumes: as_given(&input.archive, &opened.detection.volumes),
+                    solid_blocks: info.solid_blocks,
+                    encrypted_headers: info.encrypted_headers,
+                    locked: info.locked,
+                    recovery_record: info.recovery_record,
+                    comment: info.comment,
+                    archive: input.archive,
+                };
+                Ok(out)
+            },
+        )
     }
 
     fn human(out: &ArchiveInfoOutput) -> Option<String> {

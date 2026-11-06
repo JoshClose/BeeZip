@@ -1,5 +1,7 @@
 //! TAR, through the `tar` crate (0.4.46). This is the only file that names `tar::`.
 //!
+//! - Names in pax records are UTF-8; the others (ustar and GNU long names) are bytes, read
+//!   through the source's `NameDecoding` with the system's ANSI code page (docs/M5.md §6).
 //! - Reading is one pass over `tar::Archive`; the crate handles pax and GNU long names. A plain
 //!   `.tar` is seekable, so listing skips the data and `open_entry` seeks straight to an
 //!   entry. A compressed tar is decoded from the start each time.
@@ -22,6 +24,7 @@ use crate::{
     codec::FinishWrite,
     detect::{Confidence, Probe},
     io::{BUF_SIZE, Checked, CountingReader, ExactReader, read_error, write_error},
+    names::{NameDecoding, SystemPage},
     source::{Input, Source},
     time::{from_unix, to_unix},
 };
@@ -287,16 +290,39 @@ impl<R: Read> Read for SparseData<R> {
     }
 }
 
-fn convert<R: Read>(id: usize, e: &mut tar::Entry<'_, R>) -> (Entry, Option<PaxSparse>) {
-    let sparse = pax_sparse(e);
-    let raw = match sparse.as_ref().and_then(|s| s.name.clone()) {
-        Some(name) => name.into_bytes(),
-        None => e.path_bytes().into_owned(),
+/// Which of the entry's names came from pax records, which are UTF-8: `(path, linkpath)`. A
+/// header with `hdrcharset=BINARY` says its records aren't.
+fn pax_names<R: Read>(e: &mut tar::Entry<'_, R>) -> (bool, bool) {
+    let Ok(Some(exts)) = e.pax_extensions() else {
+        return (false, false);
     };
-    let path = String::from_utf8_lossy(&raw).into_owned();
+    let (mut path, mut link, mut binary) = (false, false, false);
+    for ext in exts.flatten() {
+        match ext.key() {
+            Ok("path") => path = true,
+            Ok("linkpath") => link = true,
+            Ok("hdrcharset") => binary = ext.value_bytes() == b"BINARY",
+            _ => {}
+        }
+    }
+    (path && !binary, link && !binary)
+}
+
+fn convert<R: Read>(
+    id: usize,
+    e: &mut tar::Entry<'_, R>,
+    names: &NameDecoding,
+) -> (Entry, Option<PaxSparse>) {
+    let sparse = pax_sparse(e);
+    let (pax_path, pax_link) = pax_names(e);
+    let (raw, utf8) = match sparse.as_ref().and_then(|s| s.name.clone()) {
+        Some(name) => (name.into_bytes(), true),
+        None => (e.path_bytes().into_owned(), pax_path),
+    };
+    let path = names.decode(&raw, utf8, SystemPage::Ansi);
     let link = e
         .link_name_bytes()
-        .map(|b| String::from_utf8_lossy(&b).into_owned())
+        .map(|b| names.decode(&b, pax_link, SystemPage::Ansi))
         .unwrap_or_default();
     let t = e.header().entry_type();
     let kind = if t.is_dir() || (t.is_file() && path.ends_with('/')) {
@@ -452,7 +478,7 @@ fn walk_entries<R: Read>(
             continue;
         }
         source.limits.check_entries(id as u64 + 1)?;
-        let (entry, sparse) = convert(id, &mut e);
+        let (entry, sparse) = convert(id, &mut e, &source.names);
         let contiguous = entry.kind == EntryKind::File
             && !e.header().entry_type().is_gnu_sparse()
             && sparse.is_none();
@@ -558,7 +584,7 @@ impl ArchiveReader for TarReader {
                 continue;
             }
             if n == id {
-                let (_, sparse) = convert(n, &mut e);
+                let (_, sparse) = convert(n, &mut e, &self.source.names);
                 return Ok(Box::new(self.source.guard(entry_data(e, sparse.as_ref()))));
             }
             n += 1;

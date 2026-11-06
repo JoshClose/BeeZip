@@ -6,6 +6,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "../../components/ui/button";
 import { Dialog } from "../../components/ui/dialog";
 import type { CodecName, FormatsListOutput, LevelRange, MarkOfTheWeb, OverwritePolicy, SettingsGetOutput } from "../../gen/commands";
+import { NAME_ENCODINGS } from "../../lib/encodings";
 import { useFormats } from "../../lib/formats";
 import { chooseTheme, errorMessage, loadSettings, saveSettings, THEMES, useTheme } from "../../lib/settings";
 import { toastError } from "../../lib/toasts";
@@ -147,6 +148,14 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
               error={errors["extract.mark_of_the_web"]}
             >
               <ChoiceSetting id="extract-motw" value={s.extract.mark_of_the_web} options={MOTW} onCommit={(v) => save("extract.mark_of_the_web", v)} />
+            </Setting>
+            <Setting
+              label="Name encoding"
+              htmlFor="names-encoding"
+              hint="For names an archive stores as bytes: zips without the UTF-8 flag, and tars. Each tab can choose its own."
+              error={errors["names.encoding"]}
+            >
+              <ChoiceSetting id="names-encoding" value={s.names.encoding} options={NAME_ENCODINGS} onCommit={(v) => save("names.encoding", v)} />
             </Setting>
           </Section>
 

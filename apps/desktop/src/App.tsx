@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Toasts } from "./components/ui/toasts";
 import { About } from "./features/about/About";
 import { Browser, testArchive } from "./features/browser/Browser";
+import { EncodingDialog } from "./features/browser/EncodingSelect";
 import { InfoDialog } from "./features/browser/InfoDialog";
 import { TabStrip } from "./features/browser/TabStrip";
 import { CreateDialog } from "./features/create/CreateDialog";
@@ -17,7 +18,7 @@ import { FormDialog } from "./features/palette/SchemaForm";
 import { Prompts } from "./features/prompts/Prompts";
 import { SettingsDialog } from "./features/settings/Settings";
 import { Welcome } from "./features/welcome/Welcome";
-import { activeTab, useArchives } from "./lib/archives";
+import { activeTab, archiveArgs, useArchives } from "./lib/archives";
 import { useCloseGuard } from "./lib/closeGuard";
 import { type GuiCommand, run } from "./lib/engine";
 import { baseName } from "./lib/format";
@@ -198,6 +199,7 @@ export default function App() {
           { id: "extract", label: `Extract ${tab.name}…`, hint: "Ctrl+E", run: extract },
           { id: "test", label: `Test ${tab.name}`, run: () => testArchive(tab) },
           { id: "info", label: `Info on ${tab.name}`, run: () => show({ kind: "info", tab: tab.id }) },
+          { id: "encoding", label: `Name encoding for ${tab.name}…`, run: () => show({ kind: "encoding", tab: tab.id }) },
           { id: "close", label: `Close ${tab.name}`, hint: "Ctrl+W", run: () => useArchives.getState().close(tab.id) },
         ]
       : []),
@@ -214,7 +216,7 @@ export default function App() {
     if (takesOnlyArchive(c) && tab) {
       useJobs
         .getState()
-        .track(c.name as "archive.test", { archive: tab.path, ...(tab.password ? { password: tab.password } : {}) }, { title: `${c.name} ${tab.name}`, tab: tab.id })
+        .track(c.name as "archive.test", { archive: tab.path, ...archiveArgs(tab) }, { title: `${c.name} ${tab.name}`, tab: tab.id })
         .catch((e) => toastError(e, c.name));
       return;
     }
@@ -245,6 +247,7 @@ export default function App() {
       {dialog?.kind === "extract" && dialogTab && <ExtractDialog tab={dialogTab} entries={dialog.entries} onClose={closeDialog} />}
       {dialog?.kind === "create" && <CreateDialog inputs={dialog.inputs} onClose={closeDialog} />}
       {dialog?.kind === "info" && dialogTab && <InfoDialog tab={dialogTab} onClose={closeDialog} />}
+      {dialog?.kind === "encoding" && dialogTab && <EncodingDialog tab={dialogTab} onClose={closeDialog} />}
       {dialog?.kind === "about" && <About onClose={closeDialog} />}
       {dialog?.kind === "report" && <ReportDialog title={dialog.title} error={dialog.error} onClose={closeDialog} />}
       {dialog?.kind === "settings" && <SettingsDialog onClose={closeDialog} />}

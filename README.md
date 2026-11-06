@@ -56,6 +56,8 @@ beezip list backup.zip                # one folder level; --flat for everything,
 beezip list photos.rar --sort size --reverse --kind file
 beezip read backup.zip docs/a.md      # print part of an entry (--encoding hex|base64, --offset, --max-bytes)
 beezip test backup.zip                # read everything back and check CRCs; exit 8 if damaged
+beezip list old.zip --name-encoding cp932   # names a Japanese Windows wrote; the default reads
+                                            # UTF-8, else Windows' own code page
 
 beezip x backup.zip -o out            # extract (default: the current directory)
 beezip x backup.zip docs --smart      # just docs/; into a folder named after the archive if needed

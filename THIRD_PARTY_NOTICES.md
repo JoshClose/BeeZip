@@ -26,6 +26,15 @@ These crates are used unmodified by `beezip-core`. Their licenses are on the `de
 | `zlib-rs` | Zlib | a Rust port of zlib |
 | `ppmd-rust` | CC0-1.0 OR MIT-0 | PPMd, used by zip's PPMd method |
 
+## Name encodings
+
+Names stored in legacy code pages are read with these crates (docs/M5.md §6).
+
+| Crate | License | What it is |
+|---|---|---|
+| `encoding_rs` | (Apache-2.0 OR MIT) AND BSD-3-Clause | the WHATWG encodings (Shift-JIS, GBK, Big5, the Windows code pages…), © Mozilla Foundation. It includes data derived from the WHATWG Encoding Standard's data files, which are under the BSD 3-Clause License |
+| `oem_cp` | MIT | the DOS code pages (437, 850, 852…) |
+
 ## 7z
 
 | Crate | License | What it is |

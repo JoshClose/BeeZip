@@ -64,7 +64,7 @@ The rest of the config (default levels, the overwrite policy, limits) applies to
 | `stream_decompress` | ✓ | One codec layer off: `a.tar.zst` → `a.tar`. |
 | `app_version` | | BeeZip's version. |
 
-Each tool has an output schema, and its results come back as structured content plus the same JSON as text. The archive tools read zip, 7z, RAR 1.5–7 and tar (RAR is read only), and any part of a split archive (`a.7z.002`, `a.part3.rar`) opens the whole set.
+Each tool has an output schema, and its results come back as structured content plus the same JSON as text. The tools that read an archive take `name_encoding` for names it stores as bytes (zips without the UTF-8 flag, tars): `auto`, the default, reads UTF-8 and otherwise Windows' code page; `cp932`, `cp936`, `cp866` and the rest read the names that system wrote. The archive tools read zip, 7z, RAR 1.5–7 and tar (RAR is read only), and any part of a split archive (`a.7z.002`, `a.part3.rar`) opens the whole set.
 
 ## Where it may write
 

@@ -20,6 +20,7 @@ use crate::{
     },
     io::{BUF_SIZE, Counter, CountingReader},
     limits::{Budget, Guarded, RatioGuard},
+    names::NameDecoding,
     volume::{VolumeReader, numbered_name, truncated_hint},
 };
 
@@ -29,12 +30,23 @@ pub struct OpenOptions {
     pub limits: Limits,
     /// The job's `max_total_bytes` budget; share it with the `FsSink`.
     pub budget: Budget,
+    /// How names stored as bytes are read (docs/M5.md §6).
+    pub names: NameDecoding,
 }
 
 impl OpenOptions {
     pub fn new(limits: Limits) -> Self {
         let budget = Budget::new(&limits);
-        Self { limits, budget }
+        Self {
+            limits,
+            budget,
+            names: NameDecoding::default(),
+        }
+    }
+
+    /// The same, reading names with `names`.
+    pub fn with_names(self, names: NameDecoding) -> Self {
+        Self { names, ..self }
     }
 }
 
@@ -137,6 +149,8 @@ pub struct Source {
     pub codecs: Vec<CodecId>,
     pub limits: Limits,
     pub budget: Budget,
+    /// How names stored as bytes are read.
+    pub names: NameDecoding,
     /// Bytes of the input read so far in the current pass: progress and the ratio limit.
     pub counter: Counter,
     /// The input's size: the whole set's for a volume set.
@@ -179,6 +193,7 @@ impl Source {
             codecs,
             limits: opts.limits.clone(),
             budget: opts.budget.clone(),
+            names: opts.names,
             counter: Counter::new(),
             size,
             modified: meta.modified().ok(),

@@ -33,9 +33,10 @@ use crate::{
     Ctx, Error, ErrorKind, Meter, MeteredCtx, Result,
     detect::{Confidence, Probe},
     io::{BUF_SIZE, Checked, CountingReader, WriteSeek, copy, read_error, write_error},
+    names::SystemPage,
     safefs::Partial,
     source::{Input, Source},
-    time::{DosTime, from_dos, from_ntfs, from_unix, to_dos, to_unix},
+    time::{DosClock, DosTime, from_ntfs, from_unix, to_dos, to_unix},
 };
 
 pub struct Zip;
@@ -253,6 +254,8 @@ pub struct ZipReader {
     archive: ZipArchive<ZipFileReader>,
     entries: Vec<Entry>,
     zipcrypto: Vec<bool>,
+    /// Where each entry's bytes are, by id.
+    layouts: Vec<Layout>,
     sfx: bool,
     comment: Option<String>,
     /// The last password that worked.
@@ -260,6 +263,12 @@ pub struct ZipReader {
     /// Keeps a spooled zip (one that came out of a codec) alive.
     _spool: Option<Partial>,
 }
+
+/// Flag bit 11: the name and comment are UTF-8. zip also sets it when an Info-ZIP Unicode Path
+/// extra (0x7075) replaced the name.
+const UTF8_FLAG: u16 = 1 << 11;
+/// Flag bit 3: the sizes and CRC follow the data, in a data descriptor.
+const DESCRIPTOR_FLAG: u16 = 1 << 3;
 
 impl ZipReader {
     pub fn open(source: Source, sfx: bool, cx: &mut dyn Ctx) -> Result<Self> {
@@ -282,24 +291,21 @@ impl ZipReader {
         let config = Config {
             archive_offset: ArchiveOffset::Detect,
         };
-        let mut archive = ZipArchive::with_config(config, reader).map_err(zip_error)?;
+        let archive = ZipArchive::with_config(config, reader).map_err(zip_error)?;
         source.limits.check_entries(archive.len() as u64)?;
-        if archive.has_overlapping_files().map_err(zip_error)? {
-            return Err(Error::new(
-                ErrorKind::Unsafe,
-                "entries share compressed data (an overlapping-entry zip bomb)",
-            ));
-        }
+        // Replaces zip's `has_overlapping_files`, which seeks to every local header through a
+        // buffer it empties each time: 5 s of the 5.2 s a million entries took (#54).
+        let layouts = scan_local_headers(&archive, &mut cd_file)?;
         let times = central_times(&archive, &mut cd_file);
+        let names = source.names;
+        let mut clock = DosClock::default();
         let mut entries = Vec::with_capacity(archive.len());
         let mut zipcrypto = Vec::with_capacity(archive.len());
         for i in 0..archive.len() {
             let f = archive.by_index_data(i).map_err(zip_error)?;
-            let raw = f.name_raw().to_vec();
-            let path = f
-                .name()
-                .map(|n| n.into_owned())
-                .unwrap_or_else(|_| String::from_utf8_lossy(&raw).into_owned());
+            let raw = f.name_raw();
+            let utf8 = f.flags().as_u16() & UTF8_FLAG != 0;
+            let path = names.decode(raw, utf8, SystemPage::Oem);
             let kind = if f.is_dir() {
                 EntryKind::Dir
             } else if f.is_symlink() {
@@ -310,20 +316,24 @@ impl ZipReader {
                 EntryKind::File
             };
             let unix = matches!(f.system(), zip::System::Unix);
-            let dos_time = f.last_modified().and_then(|d| {
-                from_dos(DosTime {
-                    date: d.datepart(),
-                    time: d.timepart(),
+            // The DOS time is local, so reading it takes a time zone lookup: only when the
+            // entry has no NTFS or Unix time.
+            let modified = times.get(i).copied().flatten().or_else(|| {
+                f.last_modified().and_then(|d| {
+                    clock.read(DosTime {
+                        date: d.datepart(),
+                        time: d.timepart(),
+                    })
                 })
             });
             zipcrypto.push(f.encrypted() && f.get_metadata().aes_settings().is_none());
             entries.push(Entry {
                 id: i,
+                raw_path: raw.to_vec(),
                 path,
-                raw_path: raw,
                 size: Some(f.size()),
                 packed_size: Some(f.compressed_size()),
-                modified: times.get(i).copied().flatten().or(dos_time),
+                modified,
                 crc32: Some(f.crc32()),
                 method: Some(method_name(f.compression())),
                 encrypted: f.encrypted(),
@@ -332,28 +342,51 @@ impl ZipReader {
                 kind,
             });
         }
+        let mut archive = archive;
         // Symlink targets are the entry data; read the unencrypted ones now (they are short).
         for (i, entry) in entries.iter_mut().enumerate() {
             if matches!(entry.kind, EntryKind::Symlink { .. }) && !entry.encrypted {
-                let mut target = String::new();
+                let mut target = Vec::new();
+                let mut utf8 = false;
                 if let Ok(f) = archive.by_index(i) {
-                    let _ = f.take(4096).read_to_string(&mut target);
+                    utf8 = f.flags().as_u16() & UTF8_FLAG != 0;
+                    let _ = f.take(4096).read_to_end(&mut target);
                 }
-                entry.kind = EntryKind::Symlink { target };
+                entry.kind = EntryKind::Symlink {
+                    target: names.decode(&target, utf8, SystemPage::Oem),
+                };
             }
         }
+        // The archive comment has no flag of its own; it's in the code page the names are.
         let comment =
-            Some(String::from_utf8_lossy(archive.comment()).into_owned()).filter(|c| !c.is_empty());
+            Some(names.decode(archive.comment(), false, SystemPage::Oem)).filter(|c| !c.is_empty());
         let sfx = sfx || archive.offset() > 0;
         Ok(Self {
             source,
             archive,
             entries,
             zipcrypto,
+            layouts,
             sfx,
             comment,
             password: None,
             _spool: spool,
+        })
+    }
+
+    /// Where entry `id`'s bytes are in the input: its local header, data and data
+    /// descriptor. `None` for an empty entry whose local header couldn't be read.
+    pub fn span(&self, id: usize) -> Option<ZipSpan> {
+        let l = self.layouts.get(id)?;
+        (l.head != 0).then(|| {
+            let data = l.header + u64::from(l.head);
+            let data_end = data + l.packed;
+            ZipSpan {
+                header: l.header,
+                data,
+                data_end,
+                end: data_end + u64::from(l.tail),
+            }
         })
     }
 
@@ -418,6 +451,224 @@ impl<R: Read> Read for CrcHint<R> {
             }
         })
     }
+}
+
+/// Where an entry's bytes are in a zip, from its local header (docs/M5.md §3.3, §4).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ZipSpan {
+    /// The local header.
+    pub header: u64,
+    /// The data, after the header's name and extra fields.
+    pub data: u64,
+    pub data_end: u64,
+    /// The end of the entry: after its data descriptor, when it has one.
+    pub end: u64,
+}
+
+/// A [`ZipSpan`], kept small: a million entries hold a million of them.
+#[derive(Debug, Clone, Copy, Default)]
+struct Layout {
+    header: u64,
+    packed: u64,
+    /// The local header's length; 0 when it couldn't be read.
+    head: u32,
+    /// The data descriptor's length.
+    tail: u8,
+}
+
+/// Reads the local headers in file order, through a buffer it moves forward, so a million
+/// small entries take one pass over the file rather than a million seeks and refills. Far
+/// jumps (past a large entry's data) read only a little at the new place.
+struct HeaderReader<'a> {
+    file: &'a mut Input,
+    buf: Vec<u8>,
+    /// Where `buf` starts in the file, and how much of it holds data.
+    at: u64,
+    filled: usize,
+}
+
+impl HeaderReader<'_> {
+    /// What a jump to just past the buffer reads.
+    const NEAR: usize = 64 * 1024;
+    /// What a jump further away reads.
+    const FAR: usize = 4 * 1024;
+
+    /// Up to `want` bytes at `pos`; fewer at the end of the file.
+    fn bytes(&mut self, pos: u64, want: usize) -> io::Result<&[u8]> {
+        let end = self.at + self.filled as u64;
+        if pos >= self.at && pos.saturating_add(want as u64) <= end {
+            let s = usize::try_from(pos - self.at).unwrap_or(usize::MAX);
+            return Ok(&self.buf[s..s + want]);
+        }
+        let near = pos >= self.at && pos <= end + Self::NEAR as u64;
+        let chunk = if near { Self::NEAR } else { Self::FAR }.max(want);
+        if self.buf.len() < chunk {
+            self.buf.resize(chunk, 0);
+        }
+        self.file.seek(SeekFrom::Start(pos))?;
+        let mut n = 0;
+        while n < chunk {
+            match self.file.read(&mut self.buf[n..chunk]) {
+                Ok(0) => break,
+                Ok(k) => n += k,
+                Err(e) if e.kind() == io::ErrorKind::Interrupted => {}
+                Err(e) => return Err(e),
+            }
+        }
+        self.at = pos;
+        self.filled = n;
+        Ok(&self.buf[..want.min(n)])
+    }
+}
+
+fn u16_at(b: &[u8], at: usize) -> u16 {
+    u16::from_le_bytes([b[at], b[at + 1]])
+}
+
+fn u32_at(b: &[u8], at: usize) -> u32 {
+    u32::from_le_bytes([b[at], b[at + 1], b[at + 2], b[at + 3]])
+}
+
+fn u64_at(b: &[u8], at: usize) -> u64 {
+    let mut v = [0u8; 8];
+    v.copy_from_slice(&b[at..at + 8]);
+    u64::from_le_bytes(v)
+}
+
+/// Reads every entry's local header, in file order, and refuses archives whose entries share
+/// compressed data. The check is zip's `has_overlapping_files`: the data of entries with any
+/// must not overlap, or run into the central directory. An empty entry's header is read too,
+/// but not required, as zip doesn't read it either.
+fn scan_local_headers(
+    archive: &ZipArchive<ZipFileReader>,
+    file: &mut Input,
+) -> Result<Vec<Layout>> {
+    let n = archive.len();
+    let mut order: Vec<(u64, usize)> = Vec::with_capacity(n);
+    for i in 0..n {
+        let f = archive.by_index_data(i).map_err(zip_error)?;
+        order.push((f.header_start(), i));
+    }
+    if !order.is_sorted() {
+        order.sort_unstable();
+    }
+    let mut reader = HeaderReader {
+        file,
+        buf: Vec::new(),
+        at: 0,
+        filled: 0,
+    };
+    let mut layouts = vec![Layout::default(); n];
+    let mut ranges: Vec<std::ops::Range<u64>> = Vec::with_capacity(n);
+    for (start, i) in order {
+        let f = archive.by_index_data(i).map_err(zip_error)?;
+        let packed = f.compressed_size();
+        match local_header(&mut reader, start, packed, f.crc32(), f.size()) {
+            Ok(layout) => {
+                if packed > 0 {
+                    let data = start + u64::from(layout.head);
+                    ranges.push(data..data + packed);
+                }
+                layouts[i] = layout;
+            }
+            Err(_) if packed == 0 => {}
+            Err(e) => {
+                let name = String::from_utf8_lossy(f.name_raw()).into_owned();
+                return Err(Error::corrupt(format!("zip: {name}: {}", e.message)));
+            }
+        }
+    }
+    if !ranges.is_sorted_by_key(|r| (r.start, r.end)) {
+        ranges.sort_unstable_by_key(|r| (r.start, r.end));
+    }
+    let dir_start = archive.central_directory_start();
+    if ranges.iter().any(|r| r.end > dir_start) || ranges.windows(2).any(|w| w[0].end > w[1].start)
+    {
+        return Err(Error::new(
+            ErrorKind::Unsafe,
+            "entries share compressed data (an overlapping-entry zip bomb)",
+        ));
+    }
+    Ok(layouts)
+}
+
+/// One entry's local header at `start`, and the data descriptor after its data.
+fn local_header(
+    reader: &mut HeaderReader<'_>,
+    start: u64,
+    packed: u64,
+    crc: u32,
+    size: u64,
+) -> Result<Layout> {
+    let damaged = |what: &str| Error::corrupt(format!("the local header {what}"));
+    let h = reader.bytes(start, 30).map_err(|e| read_error(&e))?;
+    if h.len() < 30 || &h[..4] != LOCAL {
+        return Err(damaged("is missing"));
+    }
+    let flags = u16_at(h, 6);
+    let name_len = usize::from(u16_at(h, 26));
+    let extra_len = usize::from(u16_at(h, 28));
+    let head = 30 + name_len + extra_len;
+    let data_end = start
+        .checked_add(head as u64)
+        .and_then(|d| d.checked_add(packed))
+        .ok_or_else(|| damaged("is past the end"))?;
+    let mut tail = 0;
+    if flags & DESCRIPTOR_FLAG != 0 {
+        let extra = reader
+            .bytes(start + 30 + name_len as u64, extra_len)
+            .map_err(|e| read_error(&e))?;
+        let zip64 = has_zip64(extra);
+        let d = reader.bytes(data_end, 24).map_err(|e| read_error(&e))?;
+        tail = descriptor_len(d, crc, packed, size, zip64);
+    }
+    Ok(Layout {
+        header: start,
+        packed,
+        head: u32::try_from(head).unwrap_or(0),
+        tail,
+    })
+}
+
+/// Whether a local header's extra fields hold a Zip64 field (0x0001).
+fn has_zip64(mut extra: &[u8]) -> bool {
+    while extra.len() >= 4 {
+        if u16_at(extra, 0) == 1 {
+            return true;
+        }
+        let size = usize::from(u16_at(extra, 2));
+        extra = extra.get(4 + size..).unwrap_or_default();
+    }
+    false
+}
+
+/// The length of the data descriptor `d` starts with: an optional `PK\7\8`, the CRC, then the
+/// two sizes in 4 bytes each, or 8 when the entry is Zip64. Which layout it is comes from the
+/// values matching the central directory's, since writers don't agree on when to use the
+/// signature or the wide sizes; when none matches, the spec's layout for the header.
+fn descriptor_len(d: &[u8], crc: u32, packed: u64, size: u64, zip64: bool) -> u8 {
+    let signed = d.len() >= 4 && &d[..4] == SPANNED;
+    let offsets: &[usize] = if signed { &[4, 0] } else { &[0] };
+    let widths: [bool; 2] = if zip64 { [true, false] } else { [false, true] };
+    for &off in offsets {
+        for wide in widths {
+            let len = off + if wide { 20 } else { 12 };
+            if d.len() < len || u32_at(d, off) != crc {
+                continue;
+            }
+            let matches = if wide {
+                u64_at(d, off + 4) == packed && u64_at(d, off + 12) == size
+            } else {
+                u32::try_from(packed).is_ok_and(|p| u32_at(d, off + 4) == p)
+                    && u32::try_from(size).is_ok_and(|s| u32_at(d, off + 8) == s)
+            };
+            if matches {
+                return len as u8;
+            }
+        }
+    }
+    let off = if signed { 4 } else { 0 };
+    (off + if zip64 { 20 } else { 12 }) as u8
 }
 
 /// The NTFS (0x000A) or extended-timestamp (0x5455) mtime of each entry, from the central
@@ -712,5 +963,80 @@ impl ArchiveWriter for ZipWriter {
     fn finish(self: Box<Self>) -> Result<()> {
         let mut file = self.zip.finish().map_err(write_zip_error)?;
         file.flush().map_err(|e| write_error(&e))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A data descriptor: the signature if `signed`, the CRC, then sizes of 4 or 8 bytes.
+    fn descriptor(signed: bool, crc: u32, packed: u64, size: u64, wide: bool) -> Vec<u8> {
+        let mut d = Vec::new();
+        if signed {
+            d.extend_from_slice(SPANNED);
+        }
+        d.extend_from_slice(&crc.to_le_bytes());
+        if wide {
+            d.extend_from_slice(&packed.to_le_bytes());
+            d.extend_from_slice(&size.to_le_bytes());
+        } else {
+            d.extend_from_slice(&(packed as u32).to_le_bytes());
+            d.extend_from_slice(&(size as u32).to_le_bytes());
+        }
+        // The next entry's local header follows.
+        d.extend_from_slice(LOCAL);
+        d.resize(24, 0);
+        d
+    }
+
+    #[test]
+    fn descriptor_layouts() {
+        let (crc, packed, size) = (0x1234_5678, 1000, 4000);
+        for signed in [true, false] {
+            for wide in [true, false] {
+                let d = descriptor(signed, crc, packed, size, wide);
+                let want = u8::from(signed) * 4 + if wide { 20 } else { 12 };
+                // Whatever the local header suggests, the values decide.
+                for zip64 in [true, false] {
+                    assert_eq!(
+                        descriptor_len(&d, crc, packed, size, zip64),
+                        want,
+                        "{signed} {wide} {zip64}"
+                    );
+                }
+            }
+        }
+        // A CRC that happens to be the signature, unsigned.
+        let sig = u32::from_le_bytes(*SPANNED);
+        let d = descriptor(false, sig, packed, size, false);
+        assert_eq!(descriptor_len(&d, sig, packed, size, false), 12);
+        // Nothing matches (a damaged descriptor): the spec's layout for the header.
+        let d = descriptor(true, 1, 2, 3, false);
+        assert_eq!(descriptor_len(&d, crc, packed, size, false), 16);
+        assert_eq!(descriptor_len(&d, crc, packed, size, true), 24);
+        // Cut short by the end of the file.
+        assert_eq!(descriptor_len(&[0x50, 0x4B], crc, packed, size, false), 12);
+        // Sizes of 4 GiB and more only fit the wide layout.
+        let big = 5 << 30;
+        let d = descriptor(true, crc, big, big, false);
+        assert_eq!(
+            descriptor_len(&d, crc, big, big, false),
+            16,
+            "no false match"
+        );
+    }
+
+    #[test]
+    fn zip64_fields_are_found_among_the_extras() {
+        assert!(!has_zip64(&[]));
+        assert!(has_zip64(&[0x01, 0x00, 0x00, 0x00]));
+        // NTFS first, then Zip64.
+        let mut extra = vec![0x0A, 0x00, 0x04, 0x00, 0, 0, 0, 0];
+        assert!(!has_zip64(&extra));
+        extra.extend_from_slice(&[0x01, 0x00, 0x08, 0x00, 1, 2, 3, 4, 5, 6, 7, 8]);
+        assert!(has_zip64(&extra));
+        // A field claiming more than is there ends the walk.
+        assert!(!has_zip64(&[0x0A, 0x00, 0xFF, 0x00, 0x01, 0x00]));
     }
 }

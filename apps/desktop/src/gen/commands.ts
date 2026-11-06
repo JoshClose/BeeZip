@@ -168,6 +168,11 @@ links?: boolean,
  */
 password?: Secret,
 /**
+ * How names stored as bytes are read: zip names without the UTF-8 flag, tar names outside
+ * pax records [default: from config, `auto`].
+ */
+name_encoding?: NameEncoding,
+/**
  * Show what would be extracted, and where, without writing anything.
  */
 dry_run?: boolean, };
@@ -203,7 +208,12 @@ archive: string,
 /**
  * The password, if entry names or data need one.
  */
-password?: Secret, };
+password?: Secret,
+/**
+ * How names stored as bytes are read: zip names without the UTF-8 flag, tar names outside
+ * pax records [default: from config, `auto`].
+ */
+name_encoding?: NameEncoding, };
 
 export type ArchiveInfoOutput = { archive: string,
 /**
@@ -299,7 +309,12 @@ kind?: KindFilter,
 /**
  * The password, if entry names need one.
  */
-password?: Secret, };
+password?: Secret,
+/**
+ * How names stored as bytes are read: zip names without the UTF-8 flag, tar names outside
+ * pax records [default: from config, `auto`].
+ */
+name_encoding?: NameEncoding, };
 
 export type ArchiveListOutput = { entries: Array<EntryInfo>,
 /**
@@ -319,7 +334,12 @@ archive: string,
 /**
  * The password for encrypted entries.
  */
-password?: Secret, };
+password?: Secret,
+/**
+ * How names stored as bytes are read: zip names without the UTF-8 flag, tar names outside
+ * pax records [default: from config, `auto`].
+ */
+name_encoding?: NameEncoding, };
 
 export type ArchiveTestOutput = { archive: string, entries: number,
 /**
@@ -435,7 +455,7 @@ cli: string | null, };
 /**
  * Every setting, as `config.toml` holds it. A missing key has its default.
  */
-export type Config = { extract: ExtractConfig, create: CreateConfig,
+export type Config = { extract: ExtractConfig, names: NamesConfig, create: CreateConfig,
 /**
  * Default levels by codec name (`zstd`, `gzip`…) or zip and 7z method (`deflate`,
  * `lzma2`…). A codec or method missing here uses its own default.
@@ -526,7 +546,12 @@ encoding?: TextEncoding,
 /**
  * The password for an encrypted entry.
  */
-password?: Secret, };
+password?: Secret,
+/**
+ * How names stored as bytes are read: zip names without the UTF-8 flag, tar names outside
+ * pax records [default: from config, `auto`].
+ */
+name_encoding?: NameEncoding, };
 
 export type EntryReadOutput = { entry: string, index: number, data: string, encoding: TextEncoding, offset: number, bytes_read: number,
 /**
@@ -760,6 +785,26 @@ export type MethodInfo = { id: string, levels: LevelRange | null, };
  * can't reach a 7z.
  */
 export type MethodName = "store" | "deflate" | "bzip2" | "zstd" | "xz" | "ppmd" | "lzma2" | "lzma" | "copy";
+
+/**
+ * How names stored as bytes are read (docs/M5.md §6): zip names without the UTF-8 flag, tar
+ * names outside pax records. `auto` reads them as UTF-8 when they are valid UTF-8, otherwise in
+ * the system's code page (the OEM one for zip, as Explorer reads them). The others are code
+ * pages: `cp932` is Japanese (Shift-JIS), `cp936` Simplified Chinese (GBK), `cp949` Korean,
+ * `cp950` Traditional Chinese (Big5), `cp866` and `cp1251` Cyrillic, `cp437` and `cp850` DOS.
+ */
+export type NameEncoding = "auto" | "utf-8" | "cp437" | "cp850" | "cp852" | "cp866" | "cp874" | "cp932" | "cp936" | "cp949" | "cp950" | "cp1250" | "cp1251" | "cp1252" | "cp1253" | "cp1254" | "cp1255" | "cp1256" | "cp1257" | "cp1258" | "koi8-r" | "koi8-u" | "iso-8859-1" | "iso-8859-2" | "iso-8859-5" | "iso-8859-7" | "euc-jp" | "gb18030";
+
+/**
+ * How names stored as bytes are read: zip names without the UTF-8 flag, tar names outside pax
+ * records (docs/M5.md §6).
+ */
+export type NamesConfig = {
+/**
+ * The encoding archives' names are read in, unless a command is given one. `auto` reads
+ * UTF-8 when a name is valid UTF-8, otherwise the system's code page.
+ */
+encoding: NameEncoding, };
 
 export type OverwriteChoice = "Replace" | "ReplaceAll" | "Skip" | "SkipAll" | "Rename";
 

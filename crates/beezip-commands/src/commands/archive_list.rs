@@ -8,7 +8,7 @@ use ts_rs::TS;
 use crate::{
     Access, CliSpec, CmdError, Command, Effect, JobCtx,
     commands::{listing::ListKey, util::with_archive},
-    wire::{EntryInfo, EntryKindName, Secret, human_size, local_time},
+    wire::{EntryInfo, EntryKindName, NameEncoding, Secret, human_size, local_time},
 };
 
 /// List an archive's entries. Without `flat`, one folder level at a time (the root, or `dir`),
@@ -56,6 +56,11 @@ pub struct ArchiveListInput {
     #[arg(short, long)]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub password: Option<Secret>,
+    /// How names stored as bytes are read: zip names without the UTF-8 flag, tar names outside
+    /// pax records [default: from config, `auto`].
+    #[arg(long, value_enum, value_name = "ENCODING")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name_encoding: Option<NameEncoding>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
@@ -141,33 +146,39 @@ impl Command for ArchiveList {
             sort: input.sort,
             reverse: input.reverse.unwrap_or(false),
         };
-        with_archive(&input.archive, input.password.as_ref(), cx, |a, cx| {
-            let entries = a.opened.reader.entries(cx)?;
-            a.entries = Some(entries.len());
-            // Built once per archive and key, then kept with the archive in the cache.
-            let listing = a.memo.listing(entries, &key)?;
+        with_archive(
+            &input.archive,
+            input.password.as_ref(),
+            input.name_encoding,
+            cx,
+            |a, cx| {
+                let entries = a.opened.reader.entries(cx)?;
+                a.entries = Some(entries.len());
+                // Built once per archive and key, then kept with the archive in the cache.
+                let listing = a.memo.listing(entries, &key)?;
 
-            let total = listing.len() as u64;
-            let offset = input.offset.unwrap_or(0).min(total);
-            // A front end's cap (MCP's 500) shortens the page; `has_more` says to ask for more.
-            let limit = input
-                .limit
-                .unwrap_or(u64::MAX)
-                .min(cx.policy().max_list_entries.unwrap_or(u64::MAX));
-            let page: Vec<EntryInfo> = listing
-                .iter()
-                .skip(usize::try_from(offset).unwrap_or(usize::MAX))
-                .take(usize::try_from(limit).unwrap_or(usize::MAX))
-                .map(|row| a.memo.info(entries, *row))
-                .collect();
-            let has_more = offset + (page.len() as u64) < total;
-            Ok(ArchiveListOutput {
-                entries: page,
-                total,
-                offset,
-                has_more,
-            })
-        })
+                let total = listing.len() as u64;
+                let offset = input.offset.unwrap_or(0).min(total);
+                // A front end's cap (MCP's 500) shortens the page; `has_more` says to ask for more.
+                let limit = input
+                    .limit
+                    .unwrap_or(u64::MAX)
+                    .min(cx.policy().max_list_entries.unwrap_or(u64::MAX));
+                let page: Vec<EntryInfo> = listing
+                    .iter()
+                    .skip(usize::try_from(offset).unwrap_or(usize::MAX))
+                    .take(usize::try_from(limit).unwrap_or(usize::MAX))
+                    .map(|row| a.memo.info(entries, *row))
+                    .collect();
+                let has_more = offset + (page.len() as u64) < total;
+                Ok(ArchiveListOutput {
+                    entries: page,
+                    total,
+                    offset,
+                    has_more,
+                })
+            },
+        )
     }
 
     fn human(out: &ArchiveListOutput) -> Option<String> {

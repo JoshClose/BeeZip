@@ -4,12 +4,13 @@ use std::path::{Path, PathBuf};
 
 use std::sync::Arc;
 
-use beezip_core::{OpenOptions, Opened, safefs::Partial, source::open};
+use beezip_core::{NameDecoding, OpenOptions, Opened, safefs::Partial, source::open};
 
 use crate::{
     CmdError, ErrorCode, JobCtx,
     cache::{ArchiveCache, Key, OpenArchive},
-    wire::Secret,
+    codepages,
+    wire::{NameEncoding, Secret},
 };
 
 /// `path` made absolute against the current directory, as the CLI's relative paths mean.
@@ -34,15 +35,26 @@ pub fn as_given(given: &Path, parts: &[PathBuf]) -> Vec<PathBuf> {
 pub fn open_archive(
     path: &Path,
     password: Option<&Secret>,
+    encoding: Option<NameEncoding>,
     cx: &mut JobCtx,
 ) -> Result<Opened, CmdError> {
-    let opts = open_options(cx);
+    let opts = open_options(encoding, cx);
     open_archive_with(path, password, &opts, cx)
 }
 
-/// The job's open options. Keep them to share their budget with an `FsSink`.
-pub fn open_options(cx: &JobCtx) -> OpenOptions {
-    OpenOptions::new(cx.policy().limits.clone())
+/// The job's open options, reading names in `encoding` (else the config's). Keep them to share
+/// their budget with an `FsSink`.
+pub fn open_options(encoding: Option<NameEncoding>, cx: &JobCtx) -> OpenOptions {
+    OpenOptions::new(cx.policy().limits.clone()).with_names(names(encoding, cx))
+}
+
+/// How names are read: in `encoding`, else in `[names] encoding`, on this system's code pages.
+/// A config that can't be read gives "auto", as its limits give the defaults.
+pub fn names(encoding: Option<NameEncoding>, cx: &JobCtx) -> NameDecoding {
+    let encoding = encoding
+        .or_else(|| cx.config().ok().map(|c| c.names.encoding))
+        .unwrap_or_default();
+    codepages::decoding(encoding.into())
 }
 
 pub fn open_archive_with(
@@ -55,20 +67,29 @@ pub fn open_archive_with(
     Ok(open(&absolute(path), opts, cx)?)
 }
 
-/// An archive lent from the engine's cache, or opened for this job.
+/// An archive lent from the engine's cache, or opened for this job. Dropped without going back,
+/// it tells the cache, so a job waiting for it opens its own.
 struct Lent {
-    archive: OpenArchive,
+    archive: Option<OpenArchive>,
     home: Option<(Arc<ArchiveCache>, Key)>,
 }
 
 impl Lent {
     /// Back to the cache, unless a password reached the reader or the job was cancelled.
-    fn give_back(self, cx: &JobCtx) {
-        if let Some((cache, key)) = self.home
-            && !cx.password_used()
+    fn give_back(mut self, cx: &JobCtx) {
+        if !cx.password_used()
             && !cx.is_cancelled()
+            && let (Some((cache, key)), Some(archive)) = (self.home.take(), self.archive.take())
         {
-            cache.give_back(key, self.archive);
+            cache.give_back(key, archive);
+        }
+    }
+}
+
+impl Drop for Lent {
+    fn drop(&mut self) {
+        if let Some((cache, key)) = self.home.take() {
+            cache.release(&key);
         }
     }
 }
@@ -79,11 +100,15 @@ impl Lent {
 pub fn with_archive<T>(
     path: &Path,
     password: Option<&Secret>,
+    encoding: Option<NameEncoding>,
     cx: &mut JobCtx,
     f: impl FnOnce(&mut OpenArchive, &mut JobCtx) -> Result<T, CmdError>,
 ) -> Result<T, CmdError> {
-    let mut lent = open_lent(path, password, cx)?;
-    let result = f(&mut lent.archive, cx);
+    let mut lent = open_lent(path, password, encoding, cx)?;
+    let Some(archive) = lent.archive.as_mut() else {
+        return Err(CmdError::internal("the archive was lent twice"));
+    };
+    let result = f(archive, cx);
     let keep = match &result {
         Ok(_) => true,
         Err(e) => matches!(
@@ -97,30 +122,38 @@ pub fn with_archive<T>(
     result
 }
 
-fn open_lent(path: &Path, password: Option<&Secret>, cx: &mut JobCtx) -> Result<Lent, CmdError> {
+fn open_lent(
+    path: &Path,
+    password: Option<&Secret>,
+    encoding: Option<NameEncoding>,
+    cx: &mut JobCtx,
+) -> Result<Lent, CmdError> {
     cx.set_password(password);
     let path = absolute(path);
     let limits = cx.policy().limits.clone();
+    let names = names(encoding, cx);
     let cache = cx.cache().cloned();
     let canonical = std::fs::canonicalize(&path).ok();
     if let (Some(cache), Some(canonical)) = (&cache, &canonical)
-        && let Some((archive, key)) = cache.lend(canonical, &limits)
+        && let Some((archive, key)) = cache.lend(canonical, &limits, &names)
     {
         return Ok(Lent {
-            archive,
+            archive: Some(archive),
             home: Some((Arc::clone(cache), key)),
         });
     }
-    let opts = OpenOptions::new(limits.clone());
+    let opts = OpenOptions::new(limits.clone()).with_names(names);
+    let started = std::time::Instant::now();
     let opened = open(&path, &opts, cx)?;
+    let opening = started.elapsed();
     let home = match (cache, canonical) {
         (Some(cache), Some(canonical)) => {
-            Key::new(canonical, limits, &opened.detection.volumes).map(|key| (cache, key))
+            Key::new(canonical, limits, names, &opened.detection.volumes).map(|key| (cache, key))
         }
         _ => None,
     };
     Ok(Lent {
-        archive: OpenArchive::new(opened, opts.budget),
+        archive: Some(OpenArchive::new(opened, opts.budget, opening)),
         home,
     })
 }

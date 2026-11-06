@@ -2,7 +2,7 @@
 import { ChevronRight, Folder, FolderArchive } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { EntryInfo } from "../../gen/commands";
-import { type Tab, useArchives } from "../../lib/archives";
+import { archiveArgs, type Tab, useArchives } from "../../lib/archives";
 import { cn } from "../../lib/cn";
 import { baseName, normalize } from "../../lib/format";
 import { useJobs } from "../../lib/jobs";
@@ -38,7 +38,6 @@ export function FolderTree({ tab, ready }: { tab: Tab; ready: boolean }) {
       requested.current.add(dir);
       const gen = generation.current;
       setLevels((m) => new Map(m).set(dir, "loading"));
-      const password = useArchives.getState().tabs.find((t) => t.id === tab.id)?.password;
       useJobs
         .getState()
         .track(
@@ -48,7 +47,7 @@ export function FolderTree({ tab, ready }: { tab: Tab; ready: boolean }) {
             ...(dir ? { dir } : {}),
             kind: "dir",
             sort: "name",
-            ...(password ? { password } : {}),
+            ...archiveArgs(tab),
           },
           { title: `Listing ${tab.name}`, quiet: true, tab: tab.id },
         )

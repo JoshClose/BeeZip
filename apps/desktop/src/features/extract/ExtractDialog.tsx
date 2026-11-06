@@ -6,7 +6,7 @@ import { Button } from "../../components/ui/button";
 import { Checkbox } from "../../components/ui/checkbox";
 import { Dialog } from "../../components/ui/dialog";
 import { Field, Input, Select } from "../../components/ui/input";
-import type { ArchiveExtractInput, ArchiveExtractOutput, OverwritePolicy } from "../../gen/commands";
+import type { ArchiveExtractInput, ArchiveExtractOutput, NameEncoding, OverwritePolicy } from "../../gen/commands";
 import type { Tab } from "../../lib/archives";
 import { describeError, parentDir } from "../../lib/format";
 import { useJobs } from "../../lib/jobs";
@@ -23,10 +23,11 @@ export type ExtractForm = {
   strip: number;
 };
 
-/** The dialog's fields as `archive.extract` arguments. */
-export function extractArgs(archive: string, entries: string[], f: ExtractForm, dryRun = false): ArchiveExtractInput {
+/** The dialog's fields as `archive.extract` arguments; `encoding` is the tab's, which the selected paths are in. */
+export function extractArgs(archive: string, entries: string[], f: ExtractForm, dryRun = false, encoding?: NameEncoding): ArchiveExtractInput {
   return {
     archive,
+    ...(encoding ? { name_encoding: encoding } : {}),
     ...(f.selectedOnly && entries.length > 0 ? { entries } : {}),
     dest: f.dest,
     smart: f.smart,
@@ -63,7 +64,7 @@ export function ExtractDialog({ tab, entries, onClose }: { tab: Tab; entries: st
     setForm((f) => ({ ...f, ...patch }));
     setPlan(undefined);
   };
-  const args = useMemo(() => extractArgs(tab.path, entries, form), [tab.path, entries, form]);
+  const args = useMemo(() => extractArgs(tab.path, entries, form, false, tab.encoding), [tab.path, entries, form, tab.encoding]);
 
   const browse = async () => {
     const dir = await pickFolder({ directory: true, defaultPath: form.dest, title: "Extract to" });
@@ -82,7 +83,7 @@ export function ExtractDialog({ tab, entries, onClose }: { tab: Tab; entries: st
   const dryRun = async () => {
     setPlanError(undefined);
     try {
-      const out = await track("archive.extract", extractArgs(tab.path, entries, form, true), {
+      const out = await track("archive.extract", extractArgs(tab.path, entries, form, true, tab.encoding), {
         title: `Planning ${tab.name}`,
         quiet: true,
         tab: tab.id,

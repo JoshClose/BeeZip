@@ -5,6 +5,7 @@
 //! the same [`Engine`], so a new command needs no front-end code (PLAN §1).
 
 pub mod cache;
+pub mod codepages;
 mod command;
 pub mod commands;
 pub mod config;

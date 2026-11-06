@@ -1,11 +1,12 @@
-// `archive.info` for a tab's archive.
+// `archive.info` for a tab's archive, and the encoding its names are read in.
 import { useEffect, useState } from "react";
 import { Button } from "../../components/ui/button";
 import { Dialog } from "../../components/ui/dialog";
 import type { ArchiveInfoOutput, CmdError } from "../../gen/commands";
-import { type Tab, useArchives } from "../../lib/archives";
+import { archiveArgs, type Tab, useArchives } from "../../lib/archives";
 import { describeError, formatSize } from "../../lib/format";
 import { useJobs } from "../../lib/jobs";
+import { ENCODING_HINT, EncodingSelect } from "./EncodingSelect";
 
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -18,18 +19,31 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
 
 export function InfoDialog({ tab, onClose }: { tab: Tab; onClose: () => void }) {
   const update = useArchives((s) => s.update);
-  const [info, setInfo] = useState<ArchiveInfoOutput | undefined>(tab.info);
+  // What this dialog fetched, for the encoding it was fetched with: choosing another reads the
+  // archive's comment again.
+  const encoding = tab.encoding ?? "";
+  const [fetched, setFetched] = useState<{ encoding: string; info: ArchiveInfoOutput }>();
   const [error, setError] = useState<CmdError>();
+  const info = tab.info ?? (fetched?.encoding === encoding ? fetched.info : undefined);
   useEffect(() => {
     if (info) return;
+    let live = true;
+    setError(undefined);
     useJobs
       .getState()
-      .track("archive.info", { archive: tab.path, ...(tab.password ? { password: tab.password } : {}) }, { title: `Reading ${tab.name}`, quiet: true, tab: tab.id })
-      .then((i) => {
-        setInfo(i);
-        update(tab.id, { info: i });
-      }, setError);
-  }, [info, tab, update]);
+      .track("archive.info", { archive: tab.path, ...archiveArgs(tab) }, { title: `Reading ${tab.name}`, quiet: true, tab: tab.id })
+      .then(
+        (i) => {
+          if (!live) return;
+          setFetched({ encoding, info: i });
+          update(tab.id, { info: i });
+        },
+        (e) => live && setError(e),
+      );
+    return () => {
+      live = false;
+    };
+  }, [info, encoding, tab, update]);
 
   const encryption = { none: "None", some: "Some entries", all: "Every entry" };
   return (
@@ -73,6 +87,15 @@ export function InfoDialog({ tab, onClose }: { tab: Tab; onClose: () => void }) 
           )}
         </dl>
       )}
+      <div className="grid grid-cols-[10rem_1fr] gap-3 border-t border-rule pt-2 pb-1">
+        <label htmlFor="info-encoding" className="pt-1.5 text-muted">
+          Name encoding
+        </label>
+        <div className="flex min-w-0 flex-col gap-1">
+          <EncodingSelect tab={tab} id="info-encoding" />
+          <p className="text-[12px] text-muted">{ENCODING_HINT}</p>
+        </div>
+      </div>
     </Dialog>
   );
 }
