@@ -15,8 +15,10 @@
   System::Call 'Kernel32::SetEnvironmentVariable(t "BEEZIP_BIN", t "$INSTDIR\bin")'
   nsExec::ExecToLog `powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "$$d = $$env:BEEZIP_BIN.TrimEnd('\'); $$k = [Microsoft.Win32.Registry]::CurrentUser.CreateSubKey('Environment'); $$p = [string]$$k.GetValue('Path', '', 'DoNotExpandEnvironmentNames'); $$parts = [System.Collections.Generic.List[string]]$$p.Split(';'); if (-not ($$parts | Where-Object { $$_.TrimEnd('\') -eq $$d })) { if ($$parts[$$parts.Count - 1] -eq '') { $$parts.Insert($$parts.Count - 1, $$d) } else { $$parts.Add($$d) }; $$k.SetValue('Path', ($$parts -join ';'), 'ExpandString'); [Environment]::SetEnvironmentVariable('BEEZIP_PATH_REFRESH', $$null, 'User') }"`
   Pop $0
-  ; Explorer's menu, for this user. It also deletes the DLLs an older version left, or has
-  ; Windows delete them at the next sign-in while Explorer still holds them (docs/M4.md §5.6).
+  ; Explorer's menu, for this user (docs/M4.md §5.3): on Windows 11, its own menu when this
+  ; installer carries the signed package (`xtask dist --sign-dev`) and Windows trusts its
+  ; certificate, and otherwise the classic menu. It also deletes the DLLs an older version left,
+  ; or has Windows delete them at the next sign-in while Explorer still holds them (§5.6).
   nsExec::ExecToLog `"$INSTDIR\bin\beezip.exe" shell install --dll "$INSTDIR\${BEEZIP_SHELL_DLL}" --app "$INSTDIR\BeeZip.exe"`
   Pop $0
 !macroend

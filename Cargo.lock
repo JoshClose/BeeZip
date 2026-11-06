@@ -344,6 +344,10 @@ dependencies = [
  "toml 1.1.8+spec-1.1.0",
  "toml_edit 0.25.17+spec-1.1.0",
  "ts-rs",
+ "url",
+ "windows",
+ "windows-core",
+ "windows-future",
  "windows-registry",
  "windows-result",
 ]
@@ -5928,6 +5932,7 @@ dependencies = [
  "anyhow",
  "beezip-commands",
  "beezip-core",
+ "beezip-menu",
  "bzip2",
  "crc32fast",
  "flate2",

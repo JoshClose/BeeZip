@@ -24,8 +24,15 @@ toml.workspace = true
 toml_edit.workspace = true
 ts-rs.workspace = true
 
-# Explorer registration (docs/M4.md §5.5), from safe Rust.
+# Explorer registration (docs/M4.md §5.5), from safe Rust: the registry, and the Windows 11
+# menu's package through PackageManager.
 [target.'cfg(windows)'.dependencies]
+url.workspace = true
+windows = { workspace = true, features = [
+    "ApplicationModel", "Foundation", "Foundation_Collections", "Management_Deployment",
+] }
+windows-core.workspace = true
+windows-future.workspace = true
 windows-registry.workspace = true
 windows-result.workspace = true
 

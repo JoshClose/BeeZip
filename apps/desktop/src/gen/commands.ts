@@ -769,6 +769,31 @@ export type OverwriteChoice = "Replace" | "ReplaceAll" | "Skip" | "SkipAll" | "R
 export type OverwritePolicy = "ask" | "always" | "never" | "rename" | "newer";
 
 /**
+ * The package behind Windows 11's menu.
+ */
+export type PackageInfo = {
+/**
+ * The package's full name: `BeeZip_<version>_neutral__<publisher hash>`.
+ */
+full_name: string,
+/**
+ * Registered from the unsigned manifest under Developer Mode, not from a signed package.
+ */
+development: boolean,
+/**
+ * The folder the package's DLL is in, its external location.
+ */
+external_location: string | null,
+/**
+ * The DLL the package names.
+ */
+dll: string | null,
+/**
+ * Whether that DLL exists.
+ */
+dll_exists: boolean, };
+
+/**
  * One entry of a dry run.
  */
 export type PlannedEntry = { path: string,
@@ -913,16 +938,22 @@ cascade: boolean, items: ShellItems, };
 
 /**
  * Add BeeZip to Explorer's right-click menu, or repair it. It registers the menu for this
- * user (no admin), writes the settings the menu reads, and deletes DLLs older versions left.
+ * user (no admin), writes the settings the menu reads, removes the other kind of menu, and
+ * deletes DLLs older versions left.
  *
  * Running it again repairs the menu, and moves it to another DLL or app.
  */
 export type ShellInstallInput = {
 /**
- * Which menu [default: auto]. `auto` registers the classic menu, which is Windows 10's
- * menu and "Show more options" on Windows 11.
+ * Which menu [default: auto]. `auto` gives Windows 11 its own menu when BeeZip's package
+ * can be registered, and the classic menu otherwise, with the reason.
  */
 mode?: InstallMode,
+/**
+ * Register Windows 11's menu from the unsigned package, as a development package. Needs
+ * Developer Mode, and no certificate.
+ */
+dev?: boolean,
 /**
  * The menu's DLL [default: the beezip_shell DLL in BeeZip's install folder].
  */
@@ -930,7 +961,12 @@ dll?: string,
 /**
  * The BeeZip.exe a click starts [default: the one in BeeZip's install folder].
  */
-app?: string, };
+app?: string,
+/**
+ * Windows 11's package: a signed .msix, or with --dev a folder holding AppxManifest.xml
+ * [default: beezip-sparse.msix, or with --dev the sparse folder, in BeeZip's install folder].
+ */
+package?: string, };
 
 export type ShellInstallOutput = {
 /**
@@ -1026,6 +1062,10 @@ mode: ShellMode | null,
  * The classic menu's keys, if there are any.
  */
 classic: ClassicKeys | null,
+/**
+ * Windows 11's package, if it is registered.
+ */
+package: PackageInfo | null,
 /**
  * The `BeeZip.exe` a click starts.
  */
@@ -1241,7 +1281,8 @@ export type CommandMap = {
   "settings.set": { input: SettingsSetInput; output: SettingsSetOutput };
   /**
    * Add BeeZip to Explorer's right-click menu, or repair it. It registers the menu for this
-   * user (no admin), writes the settings the menu reads, and deletes DLLs older versions left.
+   * user (no admin), writes the settings the menu reads, removes the other kind of menu, and
+   * deletes DLLs older versions left.
    *
    * Running it again repairs the menu, and moves it to another DLL or app.
    */

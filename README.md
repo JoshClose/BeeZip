@@ -2,7 +2,7 @@
 
 A Windows archive manager with a desktop app, a command-line tool (`beezip`) and an MCP server, all driven by one Rust command engine.
 
-> **Status:** milestone M3: the engine, the command line, the MCP server and the desktop app read and write zip, 7z and tar and read RAR. See [`docs/PLAN.md`](docs/PLAN.md) for the architecture and roadmap, and [`docs/M3.md`](docs/M3.md) for the current milestone.
+> **Status:** milestone M4: the engine, the command line, the MCP server and the desktop app read and write zip, 7z and tar and read RAR, and Explorer's right-click menu reaches them. See [`docs/PLAN.md`](docs/PLAN.md) for the architecture and roadmap, and [`docs/M4.md`](docs/M4.md) for the current milestone.
 
 ## Building
 
@@ -20,7 +20,8 @@ pnpm tauri dev      # the desktop app, reloading as you edit
 ```
 
 - **Bindings:** after changing a command's input or output types, regenerate the TypeScript bindings with `cargo xtask codegen`.
-- **Installer:** `cargo xtask dist` builds it (`target\dist\release\bundle\nsis\BeeZip_<version>_x64-setup.exe`); `--debug` is quicker.
+- **Installer:** `cargo xtask dist` builds it (`target\dist\release\bundle\nsis\BeeZip_<version>_x64-setup.exe`); `--debug` is quicker. `--sign-dev` adds Windows 11's menu as a package signed with the certificate `cargo xtask dev-cert` makes; Windows installs it once that certificate is trusted, with the elevated command dev-cert prints.
+- **Explorer's menu, from this tree:** `cargo xtask shell` registers the classic menu with the debug DLL and app, and `cargo xtask shell --mode modern` registers Windows 11's menu as a development package, which needs Developer Mode but no certificate. `--remove` takes either away. A click starts the debug app, so keep `pnpm dev` running.
 - **A big test archive:** `cargo xtask bigzip` writes a zip of a million entries, for trying the browser.
 
 ## Desktop app
@@ -39,7 +40,8 @@ pnpm tauri dev      # the desktop app, reloading as you edit
 **The installer** works per user, with no admin rights:
 - **Files:** it puts `BeeZip.exe` in `%LOCALAPPDATA%\BeeZip`, and adds its `bin` folder (holding `beezip.exe`) to your PATH.
 - **File types:** it registers BeeZip for zip, 7z, rar, tar and the compressed and split formats, but not for zip-based documents such as `.docx` or `.jar`. Windows asks which app to use the first time you open each kind of file, with BeeZip offered. An app you've already chosen for a type (Windows sets Explorer's zip folder for `.zip` on many machines) stays until you pick BeeZip under *Open with → Choose another app*.
-- **Explorer's menu:** a "BeeZip" submenu on files and folders, with Extract here, Extract to "a\", Test archive, Add to "a.zip" and the rest. On Windows 11 it is under *Show more options* for now. A click opens a small window for the job, or BeeZip's own dialogs for Extract to… and Compress to…. Settings → Explorer menu chooses the items and removes or repairs the menu; so do `beezip shell status`, `beezip shell install` and `beezip shell uninstall`.
+- **Explorer's menu:** a "BeeZip" submenu on files and folders, with Extract here, Extract to "a\", Test archive, Add to "a.zip" and the rest. A click opens a small window for the job, or BeeZip's own dialogs for Extract to… and Compress to…. Settings → Explorer menu chooses the items and removes or repairs the menu; so do `beezip shell status`, `beezip shell install` and `beezip shell uninstall`.
+- **On Windows 11** the menu needs BeeZip's signed package to be in Windows 11's own menu. Until releases are signed, the installer puts it under *Show more options*. With Developer Mode on, `beezip shell install --mode modern --dev` moves it into the Windows 11 menu, and `beezip shell install --mode classic` moves it back. Only one of the two is registered at a time.
 - **Uninstalling** removes the PATH entry, the menu and the registrations, and leaves your file types as they were. An upgrade keeps the file types you had before BeeZip, too.
 
 ## Command line
