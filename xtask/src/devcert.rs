@@ -42,7 +42,8 @@ pub fn run() -> anyhow::Result<()> {
     if !cfg!(windows) {
         bail!("dev-cert is for Windows");
     }
-    let dir = workspace_root().join("target/dev-cert");
+    // Joined part by part: the path goes into a command to copy, so no mixed separators.
+    let dir = workspace_root().join("target").join("dev-cert");
     std::fs::create_dir_all(&dir)?;
     let cer = dir.join("BeeZip-Dev.cer");
     let out = Command::new("powershell.exe")
