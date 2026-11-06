@@ -49,6 +49,7 @@ const notInstalled = (patch: Partial<ShellStatusOutput> = {}): ShellStatusOutput
   developer_mode: false,
   mode: null,
   classic: null,
+  package: null,
   app: null,
   hidden: [],
   cascade: true,
@@ -160,6 +161,29 @@ describe("the settings page's Explorer menu section", () => {
     await user.click(await section.findByRole("button", { name: "Repair" }));
     expect(ask).toHaveBeenCalledWith(expect.stringMatching(/again/), expect.objectContaining({ okLabel: "Repair" }));
     await waitFor(() => expect(shellCalls().slice(-2)).toEqual(["shell.install", "shell.status"]));
+    expect(fake.calls).toContainEqual({ name: "shell.install", args: { mode: "classic" } });
+  });
+
+  it("repairs a development package as one", async () => {
+    const dev = notInstalled({
+      windows_build: 26300,
+      developer_mode: true,
+      mode: "modern",
+      package: {
+        full_name: "BeeZip_0.1.0.0_neutral__9vzn3qywa4gqa",
+        development: true,
+        external_location: "C:\\src\\BeeZip\\target\\shell\\",
+        dll: "C:\\src\\BeeZip\\target\\shell\\beezip_shell_1.dll",
+        dll_exists: true,
+      },
+    });
+    fake.handlers.set("shell.status", () => dev);
+    fake.handlers.set("shell.install", () => ({ status: dev, actions: [], fallback: null }));
+    const user = userEvent.setup();
+    const section = await explorer();
+    expect(await section.findByText("Installed: Windows 11's menu, as a development package")).toBeInTheDocument();
+    await user.click(section.getByRole("button", { name: "Repair" }));
+    await waitFor(() => expect(fake.calls).toContainEqual({ name: "shell.install", args: { mode: "modern", dev: true } }));
   });
 
   it("removes the menu once asked", async () => {

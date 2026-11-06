@@ -5,7 +5,7 @@ import { ask } from "@tauri-apps/plugin-dialog";
 import { useCallback, useEffect, useState } from "react";
 import { Button } from "../../components/ui/button";
 import { Checkbox } from "../../components/ui/checkbox";
-import type { MenuItem, ShellConfig, ShellStatusOutput } from "../../gen/commands";
+import type { MenuItem, ShellConfig, ShellInstallInput, ShellStatusOutput } from "../../gen/commands";
 import { run } from "../../lib/engine";
 import { describeError } from "../../lib/format";
 import { CheckSetting, Section, Setting } from "./fields";
@@ -35,7 +35,7 @@ export function statusLine(s: ShellStatusOutput): string {
     case "classic":
       return s.classic?.cascade === false ? "Installed: items at the top level" : 'Installed: a "BeeZip" submenu';
     case "modern":
-      return "Installed: Windows 11's menu";
+      return s.package?.development ? "Installed: Windows 11's menu, as a development package" : "Installed: Windows 11's menu";
     default:
       return "Not installed";
   }
@@ -102,7 +102,12 @@ export function ExplorerSettings({
     setNote(undefined);
     try {
       if (a.command === "shell.install") {
-        const out = await run("shell.install", {});
+        // Install lets the backend choose (`auto`); Repair keeps the menu that is there, so a
+        // development package stays one rather than turning into the classic menu.
+        const now = status.state === "known" ? status.status : undefined;
+        const input: ShellInstallInput =
+          action === "repair" && now?.mode ? { mode: now.mode, ...(now.package?.development ? { dev: true } : {}) } : {};
+        const out = await run("shell.install", input);
         setNote(out.fallback ?? undefined);
       } else {
         await run("shell.uninstall", {});
