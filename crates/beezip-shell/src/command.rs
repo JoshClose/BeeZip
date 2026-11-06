@@ -7,6 +7,11 @@
 //! state. `EnumSubCommands` has no selection, so the root keeps the entries its last `GetState`
 //! computed and hands them to the subcommands; a subcommand given the selection itself recomputes
 //! from it.
+//!
+//! The separator is `ECF_SEPARATORBEFORE` on the item after it. The classic menu draws it, and so
+//! does "Show more options" for the package. Windows 11's flyout draws no separator at all (§16,
+//! PR 4 item 14): it ignores that flag, drops an `ECF_ISSEPARATOR` item with an empty title, and
+//! shows one with a title as an ordinary row.
 
 use std::cell::{Cell, RefCell};
 
