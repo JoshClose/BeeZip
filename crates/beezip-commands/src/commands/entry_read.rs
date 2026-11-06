@@ -9,7 +9,7 @@ use ts_rs::TS;
 use crate::{
     Access, CliSpec, CmdError, Command, Effect, ErrorCode, JobCtx,
     commands::util::with_archive,
-    wire::{Secret, TextEncoding},
+    wire::{NameEncoding, Secret, TextEncoding},
 };
 
 /// Read part of one entry without extracting it, as text, hex or base64. An offset is reached
@@ -43,6 +43,11 @@ pub struct EntryReadInput {
     #[arg(short, long)]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub password: Option<Secret>,
+    /// How names stored as bytes are read: zip names without the UTF-8 flag, tar names outside
+    /// pax records [default: from config, `auto`].
+    #[arg(long, value_enum, value_name = "ENCODING")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name_encoding: Option<NameEncoding>,
 }
 
 pub const DEFAULT_MAX_BYTES: u64 = 64 * 1024;
@@ -94,8 +99,12 @@ impl Command for EntryRead {
         let encoding = input.encoding.unwrap_or_default();
         let offset = input.offset.unwrap_or(0);
         let given = input.archive.clone();
-        let (path, id, size, skipped, mut buf, eof) =
-            with_archive(&given, input.password.as_ref(), cx, |a, cx| {
+        let (path, id, size, skipped, mut buf, eof) = with_archive(
+            &given,
+            input.password.as_ref(),
+            input.name_encoding,
+            cx,
+            |a, cx| {
                 let opened = &mut a.opened;
                 let entries = opened.reader.entries(cx)?;
                 a.entries = Some(entries.len());
@@ -137,7 +146,8 @@ impl Command for EntryRead {
                 let eof = buf.len() as u64 <= max;
                 drop(r);
                 Ok((path, id, size, skipped, buf, eof))
-            })?;
+            },
+        )?;
         buf.truncate(usize::try_from(max).unwrap_or(usize::MAX));
 
         let (data, lossy) = match encoding {

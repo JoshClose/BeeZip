@@ -318,6 +318,147 @@ impl EncryptionName {
     }
 }
 
+/// How names stored as bytes are read (docs/M5.md §6): zip names without the UTF-8 flag, tar
+/// names outside pax records. `auto` reads them as UTF-8 when they are valid UTF-8, otherwise in
+/// the system's code page (the OEM one for zip, as Explorer reads them). The others are code
+/// pages: `cp932` is Japanese (Shift-JIS), `cp936` Simplified Chinese (GBK), `cp949` Korean,
+/// `cp950` Traditional Chinese (Big5), `cp866` and `cp1251` Cyrillic, `cp437` and `cp850` DOS.
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    Default,
+    Serialize,
+    Deserialize,
+    JsonSchema,
+    TS,
+    clap::ValueEnum,
+)]
+pub enum NameEncoding {
+    #[default]
+    #[serde(rename = "auto")]
+    #[value(name = "auto")]
+    Auto,
+    #[serde(rename = "utf-8")]
+    #[value(name = "utf-8")]
+    Utf8,
+    #[serde(rename = "cp437")]
+    #[value(name = "cp437")]
+    Cp437,
+    #[serde(rename = "cp850")]
+    #[value(name = "cp850")]
+    Cp850,
+    #[serde(rename = "cp852")]
+    #[value(name = "cp852")]
+    Cp852,
+    #[serde(rename = "cp866")]
+    #[value(name = "cp866")]
+    Cp866,
+    #[serde(rename = "cp874")]
+    #[value(name = "cp874")]
+    Cp874,
+    #[serde(rename = "cp932")]
+    #[value(name = "cp932")]
+    Cp932,
+    #[serde(rename = "cp936")]
+    #[value(name = "cp936")]
+    Cp936,
+    #[serde(rename = "cp949")]
+    #[value(name = "cp949")]
+    Cp949,
+    #[serde(rename = "cp950")]
+    #[value(name = "cp950")]
+    Cp950,
+    #[serde(rename = "cp1250")]
+    #[value(name = "cp1250")]
+    Cp1250,
+    #[serde(rename = "cp1251")]
+    #[value(name = "cp1251")]
+    Cp1251,
+    #[serde(rename = "cp1252")]
+    #[value(name = "cp1252")]
+    Cp1252,
+    #[serde(rename = "cp1253")]
+    #[value(name = "cp1253")]
+    Cp1253,
+    #[serde(rename = "cp1254")]
+    #[value(name = "cp1254")]
+    Cp1254,
+    #[serde(rename = "cp1255")]
+    #[value(name = "cp1255")]
+    Cp1255,
+    #[serde(rename = "cp1256")]
+    #[value(name = "cp1256")]
+    Cp1256,
+    #[serde(rename = "cp1257")]
+    #[value(name = "cp1257")]
+    Cp1257,
+    #[serde(rename = "cp1258")]
+    #[value(name = "cp1258")]
+    Cp1258,
+    #[serde(rename = "koi8-r")]
+    #[value(name = "koi8-r")]
+    Koi8R,
+    #[serde(rename = "koi8-u")]
+    #[value(name = "koi8-u")]
+    Koi8U,
+    #[serde(rename = "iso-8859-1")]
+    #[value(name = "iso-8859-1")]
+    Iso8859_1,
+    #[serde(rename = "iso-8859-2")]
+    #[value(name = "iso-8859-2")]
+    Iso8859_2,
+    #[serde(rename = "iso-8859-5")]
+    #[value(name = "iso-8859-5")]
+    Iso8859_5,
+    #[serde(rename = "iso-8859-7")]
+    #[value(name = "iso-8859-7")]
+    Iso8859_7,
+    #[serde(rename = "euc-jp")]
+    #[value(name = "euc-jp")]
+    EucJp,
+    #[serde(rename = "gb18030")]
+    #[value(name = "gb18030")]
+    Gb18030,
+}
+
+impl From<NameEncoding> for beezip_core::NameEncoding {
+    fn from(e: NameEncoding) -> Self {
+        match e {
+            NameEncoding::Auto => Self::Auto,
+            NameEncoding::Utf8 => Self::Utf8,
+            NameEncoding::Cp437 => Self::Cp437,
+            NameEncoding::Cp850 => Self::Cp850,
+            NameEncoding::Cp852 => Self::Cp852,
+            NameEncoding::Cp866 => Self::Cp866,
+            NameEncoding::Cp874 => Self::Cp874,
+            NameEncoding::Cp932 => Self::Cp932,
+            NameEncoding::Cp936 => Self::Cp936,
+            NameEncoding::Cp949 => Self::Cp949,
+            NameEncoding::Cp950 => Self::Cp950,
+            NameEncoding::Cp1250 => Self::Cp1250,
+            NameEncoding::Cp1251 => Self::Cp1251,
+            NameEncoding::Cp1252 => Self::Cp1252,
+            NameEncoding::Cp1253 => Self::Cp1253,
+            NameEncoding::Cp1254 => Self::Cp1254,
+            NameEncoding::Cp1255 => Self::Cp1255,
+            NameEncoding::Cp1256 => Self::Cp1256,
+            NameEncoding::Cp1257 => Self::Cp1257,
+            NameEncoding::Cp1258 => Self::Cp1258,
+            NameEncoding::Koi8R => Self::Koi8R,
+            NameEncoding::Koi8U => Self::Koi8U,
+            NameEncoding::Iso8859_1 => Self::Iso8859_1,
+            NameEncoding::Iso8859_2 => Self::Iso8859_2,
+            NameEncoding::Iso8859_5 => Self::Iso8859_5,
+            NameEncoding::Iso8859_7 => Self::Iso8859_7,
+            NameEncoding::EucJp => Self::EucJp,
+            NameEncoding::Gb18030 => Self::Gb18030,
+        }
+    }
+}
+
 /// How `entry.read` returns data.
 #[derive(
     Debug,
@@ -614,6 +755,11 @@ pub(crate) mod tests {
             }
         }
         names_agree::<EncryptionName>();
+        names_agree::<NameEncoding>();
+        for e in <NameEncoding as clap::ValueEnum>::value_variants() {
+            let core = beezip_core::NameEncoding::from(*e);
+            assert_eq!(serde_json::to_value(e).unwrap(), core.name());
+        }
         names_agree::<TextEncoding>();
     }
 

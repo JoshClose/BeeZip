@@ -9,7 +9,7 @@ use ts_rs::TS;
 use crate::{
     Access, CliSpec, CmdError, Command, Effect, ErrorCode, JobCtx,
     commands::util::open_archive,
-    wire::{Secret, human_size},
+    wire::{NameEncoding, Secret, human_size},
 };
 
 /// Test an archive's integrity: read every entry to the end, checking CRCs and codec checksums.
@@ -24,6 +24,11 @@ pub struct ArchiveTestInput {
     #[arg(short, long)]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub password: Option<Secret>,
+    /// How names stored as bytes are read: zip names without the UTF-8 flag, tar names outside
+    /// pax records [default: from config, `auto`].
+    #[arg(long, value_enum, value_name = "ENCODING")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name_encoding: Option<NameEncoding>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
@@ -53,7 +58,12 @@ impl Command for ArchiveTest {
     }
 
     fn run(input: ArchiveTestInput, cx: &mut JobCtx) -> Result<ArchiveTestOutput, CmdError> {
-        let mut opened = open_archive(&input.archive, input.password.as_ref(), cx)?;
+        let mut opened = open_archive(
+            &input.archive,
+            input.password.as_ref(),
+            input.name_encoding,
+            cx,
+        )?;
         let mut sink = TestSink::default();
         match opened.reader.extract(&Selection::all(), &mut sink, cx) {
             Ok(()) => {}

@@ -11,6 +11,14 @@ Options:
   -p, --password <PASSWORD>
           The password for encrypted entries
 
+      --name-encoding <ENCODING>
+          How names stored as bytes are read: zip names without the UTF-8 flag, tar names outside
+          pax records [default: from config, `auto`]
+          
+          [possible values: auto, utf-8, cp437, cp850, cp852, cp866, cp874, cp932, cp936, cp949,
+          cp950, cp1250, cp1251, cp1252, cp1253, cp1254, cp1255, cp1256, cp1257, cp1258, koi8-r,
+          koi8-u, iso-8859-1, iso-8859-2, iso-8859-5, iso-8859-7, euc-jp, gb18030]
+
   -h, --help
           Print help (see a summary with '-h')
 

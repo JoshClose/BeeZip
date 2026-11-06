@@ -8,6 +8,9 @@
 //! links = false
 //! mark_of_the_web = "all"    # all | none
 //!
+//! [names]                    # names stored as bytes (docs/M5.md §6)
+//! encoding = "auto"          # auto | utf-8 | cp437 | cp932 | …
+//!
 //! [create]
 //! threads = 0                # 0 = one per core
 //!
@@ -54,7 +57,7 @@ use ts_rs::TS;
 
 use crate::{
     CmdError,
-    wire::{CodecName, OverwritePolicy},
+    wire::{CodecName, NameEncoding, OverwritePolicy},
 };
 
 /// Every setting, as `config.toml` holds it. A missing key has its default.
@@ -62,6 +65,7 @@ use crate::{
 #[serde(default)]
 pub struct Config {
     pub extract: ExtractConfig,
+    pub names: NamesConfig,
     pub create: CreateConfig,
     /// Default levels by codec name (`zstd`, `gzip`…) or zip and 7z method (`deflate`,
     /// `lzma2`…). A codec or method missing here uses its own default.
@@ -101,6 +105,16 @@ pub enum MarkOfTheWeb {
     #[default]
     All,
     None,
+}
+
+/// How names stored as bytes are read: zip names without the UTF-8 flag, tar names outside pax
+/// records (docs/M5.md §6).
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(default)]
+pub struct NamesConfig {
+    /// The encoding archives' names are read in, unless a command is given one. `auto` reads
+    /// UTF-8 when a name is valid UTF-8, otherwise the system's code page.
+    pub encoding: NameEncoding,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema, TS)]
@@ -451,6 +465,9 @@ overwrite = "rename"
 links = true
 mark_of_the_web = "none"
 
+[names]
+encoding = "cp932"
+
 [create]
 threads = 4
 
@@ -498,6 +515,7 @@ theme = "dark"
         assert!(c.extract.links);
         assert_eq!(c.extract.mark_of_the_web, MarkOfTheWeb::None);
         assert_eq!(c.create.threads, 4);
+        assert_eq!(c.names.encoding, NameEncoding::Cp932);
         assert_eq!(c.level("zstd"), Some(19));
         assert_eq!(c.stream.codec, CodecName::Gzip);
         assert_eq!(c.limits().decoder_memory, 256 * MIB);
@@ -537,6 +555,7 @@ theme = "dark"
             "shell.items.add-7z",
             "jobs.close_when_done",
             "desktop.theme",
+            "names.encoding",
         ] {
             assert!(keys.iter().any(|x| x == k), "{k} in {keys:?}");
         }
@@ -547,6 +566,7 @@ theme = "dark"
         assert_eq!(flat["levels.zstd"], 19);
         assert_eq!(flat["limits.max_total_bytes"], Value::Null);
         assert_eq!(flat["desktop.theme"], "system");
+        assert_eq!(flat["names.encoding"], "auto");
         assert_eq!(flat["shell.items.test"], true);
     }
 

@@ -4,8 +4,8 @@
 //!
 //! - **Lending:** a job takes its archive out and puts it back when it succeeds, so a reader
 //!   is never shared. A second job on the same archive meanwhile opens its own.
-//! - **The key** is the canonical path, the limits it was opened under, and each volume's size
-//!   and mtime; a volume that changed makes the next lookup a miss.
+//! - **The key** is the canonical path, the limits and name encoding it was opened under, and
+//!   each volume's size and mtime; a volume that changed makes the next lookup a miss.
 //! - **Passwords:** a reader that was given one remembers it, so it isn't put back.
 //! - **Size:** at most [`MAX_ARCHIVES`] archives and [`MAX_ENTRIES`] entries and listing rows
 //!   in all; the least recently used goes first.
@@ -17,7 +17,7 @@ use std::{
     time::SystemTime,
 };
 
-use beezip_core::{Limits, Opened, limits::Budget};
+use beezip_core::{Limits, NameDecoding, Opened, limits::Budget};
 
 use crate::commands::listing::Memo;
 
@@ -75,12 +75,19 @@ pub struct Key {
     /// The canonical path it was opened by; any of its volumes finds it too.
     path: PathBuf,
     limits: Limits,
+    /// How its names were read (docs/M5.md §6).
+    names: NameDecoding,
     stamps: Vec<Stamp>,
 }
 
 impl Key {
     /// `path` is canonical; `volumes` are the parts detection found (empty for one file).
-    pub fn new(path: PathBuf, limits: Limits, volumes: &[PathBuf]) -> Option<Self> {
+    pub fn new(
+        path: PathBuf,
+        limits: Limits,
+        names: NameDecoding,
+        volumes: &[PathBuf],
+    ) -> Option<Self> {
         let stamps = if volumes.is_empty() {
             vec![Stamp::of(&path)?]
         } else {
@@ -92,16 +99,19 @@ impl Key {
         Some(Self {
             path,
             limits,
+            names,
             stamps,
         })
     }
 
-    fn finds(&self, path: &Path, limits: &Limits) -> bool {
-        (self.path == path || self.stamps.iter().any(|s| s.path == path)) && self.limits == *limits
+    fn finds(&self, path: &Path, limits: &Limits, names: &NameDecoding) -> bool {
+        (self.path == path || self.stamps.iter().any(|s| s.path == path))
+            && self.limits == *limits
+            && self.names == *names
     }
 
     fn same(&self, other: &Key) -> bool {
-        self.limits == other.limits && self.stamps == other.stamps
+        self.limits == other.limits && self.names == other.names && self.stamps == other.stamps
     }
 
     fn fresh(&self) -> bool {
@@ -151,10 +161,19 @@ impl ArchiveCache {
 
     /// Takes the archive `path` (canonical) opens, if it is here and unchanged, with its budget
     /// and counters reset for the new job.
-    pub fn lend(&self, path: &Path, limits: &Limits) -> Option<(OpenArchive, Key)> {
+    pub fn lend(
+        &self,
+        path: &Path,
+        limits: &Limits,
+        names: &NameDecoding,
+    ) -> Option<(OpenArchive, Key)> {
         let slot = {
             let mut state = self.state();
-            let Some(i) = state.slots.iter().position(|s| s.key.finds(path, limits)) else {
+            let Some(i) = state
+                .slots
+                .iter()
+                .position(|s| s.key.finds(path, limits, names))
+            else {
                 state.misses += 1;
                 return None;
             };

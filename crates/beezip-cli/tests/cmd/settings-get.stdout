@@ -13,6 +13,7 @@ limits.max_ratio            10000
 limits.max_total_bytes      none
 mcp.read_only               false
 mcp.roots                   []
+names.encoding              auto
 shell.cascade               true
 shell.items.add-7z          true
 shell.items.add-tar-zst     true

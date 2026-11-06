@@ -19,7 +19,7 @@ use crate::{
     Access, CliSpec, CmdError, Command, Effect, ErrorCode, JobCtx,
     commands::util::{absolute, archive_stem, open_archive_with, open_options},
     config::MarkOfTheWeb,
-    wire::{OverwritePolicy, Secret, human_size},
+    wire::{NameEncoding, OverwritePolicy, Secret, human_size},
 };
 
 /// Extract an archive, or the selected entries. Unsafe entries (paths climbing out with `..`,
@@ -69,6 +69,11 @@ pub struct ArchiveExtractInput {
     #[arg(short, long)]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub password: Option<Secret>,
+    /// How names stored as bytes are read: zip names without the UTF-8 flag, tar names outside
+    /// pax records [default: from config, `auto`].
+    #[arg(long, value_enum, value_name = "ENCODING")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name_encoding: Option<NameEncoding>,
     /// Show what would be extracted, and where, without writing anything.
     #[arg(long, num_args = 0..=1, require_equals = true, default_missing_value = "true")]
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -192,7 +197,7 @@ impl Command for ArchiveExtract {
             input.glob.as_deref().unwrap_or_default(),
             input.exclude.as_deref().unwrap_or_default(),
         )?;
-        let open_opts = open_options(cx);
+        let open_opts = open_options(input.name_encoding, cx);
         let mut opened =
             open_archive_with(&input.archive, input.password.as_ref(), &open_opts, cx)?;
         let links = input.links.unwrap_or(config.extract.links);

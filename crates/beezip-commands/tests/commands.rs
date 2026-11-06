@@ -959,3 +959,66 @@ fn archive_cache_hits_misses_and_skips_passwords() {
     engine.cache().clear();
     assert_eq!(engine.cache().stats().archives, 0);
 }
+
+/// docs/M5.md §6: `name_encoding` picks how names stored as bytes read, `[names] encoding` is
+/// its default, and the cache keeps a listing per encoding.
+#[test]
+fn name_encoding_and_its_config_default() {
+    let zip = fx("thirdparty/dotnet-cp932.zip");
+    let engine = Engine::new(registry());
+    let list = |engine: &Engine, args: Value| {
+        let out = run_with(engine, "archive.list", args, Arc::new(NonInteractive))
+            .0
+            .unwrap();
+        out["entries"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|e| e["path"].as_str().unwrap().to_owned())
+            .collect::<Vec<_>>()
+    };
+    let flat = |enc: Option<&str>| {
+        let mut a = json!({ "archive": zip, "flat": true });
+        if let Some(e) = enc {
+            a["name_encoding"] = json!(e);
+        }
+        a
+    };
+    let japanese = "names-ja/日本語/表示.txt".to_owned();
+    // With the default "auto", a US system reads them in CP437 (other systems in their OEM page).
+    let auto = list(&engine, flat(None));
+    if beezip_commands::codepages::system().0 == 437 {
+        assert!(!auto.contains(&japanese), "{auto:?}");
+    }
+    let right = list(&engine, flat(Some("cp932")));
+    assert!(right.contains(&japanese), "{right:?}");
+    // The cached "auto" listing isn't what a later "auto" call gets wrong, nor cp932's.
+    assert_eq!(list(&engine, flat(None)), auto);
+    assert_eq!(list(&engine, flat(Some("cp932"))), right);
+    assert_eq!(engine.cache().stats().archives, 2);
+
+    // `[names] encoding` is the default.
+    let (config, _) = Config::parse("[names]\nencoding = \"cp932\"\n", Path::new("c.toml"));
+    let configured = Engine::with_options(
+        registry(),
+        EngineOptions::from_config(config, Policy::unrestricted()),
+    );
+    assert_eq!(list(&configured, flat(None)), right);
+    // ...and extracting writes the names it lists.
+    let dest = tempfile::tempdir().unwrap();
+    run_with(
+        &configured,
+        "archive.extract",
+        json!({ "archive": zip, "dest": dest.path() }),
+        Arc::new(NonInteractive),
+    )
+    .0
+    .unwrap();
+    assert!(dest.path().join(&japanese).is_file());
+    let err = run(
+        "archive.list",
+        json!({ "archive": zip, "name_encoding": "cp9999" }),
+    )
+    .unwrap_err();
+    assert_eq!(err.code, ErrorCode::InvalidArgs);
+}
