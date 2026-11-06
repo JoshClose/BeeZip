@@ -52,8 +52,16 @@ jobs:
       - name: Frontend tests (vitest)
         working-directory: apps/desktop
         run: pnpm test
-      - name: Installer (debug), which also runs tsc and vite build
-        run: cargo xtask dist --debug
+      - name: A throwaway certificate for the Windows 11 menu's package, trusted on the runner only
+        shell: pwsh
+        run: |
+          cargo xtask dev-cert
+          if ($LASTEXITCODE) { exit 1 }
+          Import-Certificate -FilePath target/dev-cert/BeeZip-Dev.cer -CertStoreLocation Cert:\LocalMachine\TrustedPeople | Out-Null
+      - name: Installer (debug) with the signed package, which also runs tsc and vite build
+        run: cargo xtask dist --debug --sign-dev
+      - name: Explorer's Windows 11 menu, end to end (docs/M4.md §10)
+        run: pwsh -NoProfile -File .github/scripts/shell-modern.ps1
       - name: Keep the installer
         uses: actions/upload-artifact@v7
         with:

@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  BeeZip's sparse package (docs/M4.md §5.2): it gives Windows 11's own context menu a "BeeZip"
+  entry, served by the menu's DLL in the install folder (the package's external location). It
+  has no files of its own beyond this manifest and its logos.
+
+  `cargo xtask dist` and `cargo xtask shell` fill in {{VERSION}} (four parts), {{PUBLISHER}},
+  {{DLL}} (the DLL's file name in the external location) and {{CLSID}} (the modern root's).
+  - The publisher must match the signing certificate's subject; `CN=BeeZip Dev` until M6.
+  - Write virtualization is off: BeeZip.exe started from the menu inherits the package's
+    identity, and its config.toml, partial files and WebView2 data must land where an
+    ordinary launch puts them (docs/M4.md §16, item 8).
+  - One verb for files and one for folders, both the same class: Windows 11 shows one entry per
+    package (§16, item 5), the "BeeZip" cascade.
+-->
+<Package
+  xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+  xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+  xmlns:uap10="http://schemas.microsoft.com/appx/manifest/uap/windows10/10"
+  xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
+  xmlns:com="http://schemas.microsoft.com/appx/manifest/com/windows10"
+  xmlns:desktop4="http://schemas.microsoft.com/appx/manifest/desktop/windows10/4"
+  xmlns:desktop5="http://schemas.microsoft.com/appx/manifest/desktop/windows10/5"
+  xmlns:desktop6="http://schemas.microsoft.com/appx/manifest/desktop/windows10/6"
+  IgnorableNamespaces="uap uap10 rescap com desktop4 desktop5 desktop6">
+  <Identity Name="BeeZip" Publisher="{{PUBLISHER}}" Version="{{VERSION}}" ProcessorArchitecture="neutral" />
+  <Properties>
+    <DisplayName>BeeZip</DisplayName>
+    <PublisherDisplayName>BeeZip</PublisherDisplayName>
+    <Logo>StoreLogo.png</Logo>
+    <uap10:AllowExternalContent>true</uap10:AllowExternalContent>
+    <desktop6:FileSystemWriteVirtualization>disabled</desktop6:FileSystemWriteVirtualization>
+    <desktop6:RegistryWriteVirtualization>disabled</desktop6:RegistryWriteVirtualization>
+  </Properties>
+  <Resources>
+    <Resource Language="en-us" />
+  </Resources>
+  <Dependencies>
+    <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.19041.0" MaxVersionTested="10.0.26100.0" />
+  </Dependencies>
+  <Capabilities>
+    <rescap:Capability Name="runFullTrust" />
+    <rescap:Capability Name="unvirtualizedResources" />
+  </Capabilities>
+  <Applications>
+    <Application Id="BeeZip" Executable="BeeZip.exe" uap10:TrustLevel="mediumIL" uap10:RuntimeBehavior="win32App">
+      <uap:VisualElements AppListEntry="none" DisplayName="BeeZip" Description="BeeZip's Explorer menu"
+        BackgroundColor="transparent" Square150x150Logo="Square150x150Logo.png" Square44x44Logo="Square44x44Logo.png" />
+      <Extensions>
+        <com:Extension Category="windows.comServer">
+          <com:ComServer>
+            <com:SurrogateServer DisplayName="BeeZip's Explorer menu">
+              <com:Class Id="{{CLSID}}" Path="{{DLL}}" ThreadingModel="STA" />
+            </com:SurrogateServer>
+          </com:ComServer>
+        </com:Extension>
+        <desktop4:Extension Category="windows.fileExplorerContextMenus">
+          <desktop4:FileExplorerContextMenus>
+            <desktop5:ItemType Type="*">
+              <desktop5:Verb Id="BeeZip" Clsid="{{CLSID}}" />
+            </desktop5:ItemType>
+            <desktop5:ItemType Type="Directory">
+              <desktop5:Verb Id="BeeZip" Clsid="{{CLSID}}" />
+            </desktop5:ItemType>
+          </desktop4:FileExplorerContextMenus>
+        </desktop4:Extension>
+      </Extensions>
+    </Application>
+  </Applications>
+</Package>

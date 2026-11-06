@@ -14,6 +14,13 @@
 //!
 //! `--version V` builds the installer as version V (the workspace's otherwise), so the upgrade
 //! check can build 0.1.0 and 0.1.1 from one tree.
+//!
+//! The Windows 11 menu's package goes in as well (M4 §9): `sparse\` holds its manifest, naming
+//! this version's DLL, and its logos, which `beezip shell install --mode modern --dev` registers
+//! under Developer Mode. `--sign-dev` also packs them into `beezip-sparse.msix`, signed with
+//! `xtask dev-cert`'s certificate, which the installer's `shell install` registers on Windows 11
+//! where that certificate is trusted. An unsigned `.msix` is never shipped: nothing can install
+//! it without admin.
 
 use std::{
     collections::BTreeMap,
@@ -23,6 +30,7 @@ use std::{
 };
 
 use anyhow::{Context, bail};
+use beezip_commands::shell::{MSIX, SPARSE};
 use beezip_commands::{Engine, NonInteractive, discard_events, registry};
 use serde_json::{Value, json};
 
@@ -37,7 +45,7 @@ const DOCUMENTS: &[&str] = &[
 /// Extensions that only name a later part of a set; the first part is what people open.
 const LATER_PARTS: &[&str] = &["r00"];
 
-pub fn run(debug: bool, version: Option<&str>) -> anyhow::Result<()> {
+pub fn run(debug: bool, version: Option<&str>, sign_dev: bool) -> anyhow::Result<()> {
     let root = workspace_root();
     let profile = if debug { "debug" } else { "release" };
     let version = version.unwrap_or(env!("CARGO_PKG_VERSION"));
@@ -69,9 +77,23 @@ pub fn run(debug: bool, version: Option<&str>) -> anyhow::Result<()> {
         }
     }
 
-    let config = config(&root, &cli, &dll, version)?;
     let dir = root.join("target/dist");
     std::fs::create_dir_all(&dir)?;
+    let sparse = dir.join(SPARSE);
+    crate::sparse::stage(&root, &sparse, version, &dll_name(version))?;
+    let msix = if sign_dev {
+        let msix = dir.join(MSIX);
+        crate::sparse::pack_and_sign(&sparse, &msix)?;
+        println!("packed and signed {}", msix.display());
+        Some(msix)
+    } else {
+        None
+    };
+    let package = Package {
+        sparse: &sparse,
+        msix: msix.as_deref(),
+    };
+    let config = config(&root, &cli, &dll, version, &package)?;
     let config_path = dir.join("tauri.dist.json");
     std::fs::write(&config_path, serde_json::to_string_pretty(&config)? + "\n")?;
     println!("wrote {}", config_path.display());
@@ -132,7 +154,19 @@ pub fn dll_name(version: &str) -> String {
     format!("beezip_shell_{version}.dll")
 }
 
-fn config(root: &Path, cli: &Path, dll: &Path, version: &str) -> anyhow::Result<Value> {
+/// The Windows 11 menu's package, staged: the manifest's folder, and the signed `.msix`.
+struct Package<'a> {
+    sparse: &'a Path,
+    msix: Option<&'a Path>,
+}
+
+fn config(
+    root: &Path,
+    cli: &Path,
+    dll: &Path,
+    version: &str,
+    package: &Package,
+) -> anyhow::Result<Value> {
     let template = root.join("packaging/windows/tauri.dist.json");
     let mut config: Value = serde_json::from_str(
         &std::fs::read_to_string(&template)
@@ -141,11 +175,25 @@ fn config(root: &Path, cli: &Path, dll: &Path, version: &str) -> anyhow::Result<
     let bundle = config
         .get_mut("bundle")
         .context("the template has no `bundle`")?;
-    bundle["resources"] = json!({
-        slashes(cli): "bin/beezip.exe",
-        slashes(dll): dll_name(version),
-        slashes(&root.join("THIRD_PARTY_NOTICES.md")): "THIRD_PARTY_NOTICES.md",
-    });
+    let mut resources = serde_json::Map::new();
+    resources.insert(slashes(cli), json!("bin/beezip.exe"));
+    resources.insert(slashes(dll), json!(dll_name(version)));
+    resources.insert(
+        slashes(&root.join("THIRD_PARTY_NOTICES.md")),
+        json!("THIRD_PARTY_NOTICES.md"),
+    );
+    for entry in std::fs::read_dir(package.sparse)? {
+        let path = entry?.path();
+        let name = path.file_name().context("a staged file without a name")?;
+        resources.insert(
+            slashes(&path),
+            json!(format!("{SPARSE}/{}", name.to_string_lossy())),
+        );
+    }
+    if let Some(msix) = package.msix {
+        resources.insert(slashes(msix), json!(MSIX));
+    }
+    bundle["resources"] = Value::Object(resources);
     let associations = associations()?;
     let hooks = hooks(root, &associations, version)?;
     bundle["fileAssociations"] = Value::Array(associations);

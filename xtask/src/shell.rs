@@ -1,14 +1,19 @@
-//! `cargo xtask shell [--remove]`: this tree's Explorer menu, for the developer (docs/M4.md §9).
+//! `cargo xtask shell [--mode classic|modern] [--remove]`: this tree's Explorer menu, for the
+//! developer (docs/M4.md §9).
 //!
 //! 1. It builds the DLL, the CLI and `beezip-desktop` (debug).
 //! 2. It copies the DLL to `target/shell/beezip_shell_<n>.dll`, a new name each time, so a
-//!    rebuild never fights the copy an Explorer window still has loaded.
-//! 3. It runs `beezip shell install --mode classic` with that copy and
-//!    `target/debug/beezip-desktop.exe`, which deletes the older copies it can.
+//!    rebuild never fights the copy an Explorer window (or the surrogate) still has loaded.
+//! 3. For `--mode modern`, it writes the package's manifest, naming that copy, and its logos to
+//!    `target/shell/sparse/`.
+//! 4. It runs `beezip shell install` with that copy and `target/debug/beezip-desktop.exe`, which
+//!    deletes the older copies it can. `modern` registers the unsigned package under Developer
+//!    Mode (`--dev`), with `target/shell` as its external location.
 //!
 //! `--remove` runs `beezip shell uninstall`. A click starts the debug app, which needs
-//! `pnpm dev` serving the page. The Windows 11 menu (`--mode modern`) comes with its package.
+//! `pnpm dev` serving the page.
 
+use std::path::Path;
 use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -16,7 +21,13 @@ use anyhow::{Context, bail};
 
 use crate::codegen::workspace_root;
 
-pub fn run(remove: bool) -> anyhow::Result<()> {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Mode {
+    Classic,
+    Modern,
+}
+
+pub fn run(mode: Mode, remove: bool) -> anyhow::Result<()> {
     let root = workspace_root();
     let debug = root.join("target/debug");
     let cli = debug.join("beezip.exe");
@@ -51,31 +62,28 @@ pub fn run(remove: bool) -> anyhow::Result<()> {
     let n = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_or(0, |d| d.as_secs());
-    let dll = dir.join(format!("beezip_shell_{n}.dll"));
+    let name = format!("beezip_shell_{n}.dll");
+    let dll = dir.join(&name);
     std::fs::copy(debug.join("beezip_shell.dll"), &dll)
         .with_context(|| format!("copying the DLL to {}", dll.display()))?;
     let app = debug.join("beezip-desktop.exe");
-    beezip(
-        &cli,
-        &[
-            "shell",
-            "install",
-            "--mode",
-            "classic",
-            "--dll",
-            &dll.to_string_lossy(),
-            "--app",
-            &app.to_string_lossy(),
-        ],
-    )?;
-    println!(
-        "a click starts {}: run `pnpm --dir apps/desktop dev` first",
-        app.display()
-    );
+    let (dll, app) = (dll.to_string_lossy(), app.to_string_lossy());
+    let mut args = vec!["shell", "install", "--dll", &dll, "--app", &app];
+    let sparse = dir.join("sparse");
+    let sparse_text = sparse.to_string_lossy();
+    match mode {
+        Mode::Classic => args.extend(["--mode", "classic"]),
+        Mode::Modern => {
+            crate::sparse::stage(&root, &sparse, env!("CARGO_PKG_VERSION"), &name)?;
+            args.extend(["--mode", "modern", "--dev", "--package", &sparse_text]);
+        }
+    }
+    beezip(&cli, &args)?;
+    println!("a click starts {app}: run `pnpm --dir apps/desktop dev` first");
     Ok(())
 }
 
-fn beezip(cli: &std::path::Path, args: &[&str]) -> anyhow::Result<()> {
+fn beezip(cli: &Path, args: &[&str]) -> anyhow::Result<()> {
     let status = Command::new(cli)
         .args(args)
         .status()
