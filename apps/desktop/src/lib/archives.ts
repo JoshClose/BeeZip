@@ -1,7 +1,8 @@
 // The open archives, one tab each (docs/M3.md §5.2). A password typed for an archive is kept
-// here, in memory only, and passed to later calls on it.
+// here, in memory only, and passed to later calls on it, as is the name encoding chosen for it
+// (docs/M5.md §8.4).
 import { create } from "zustand";
-import type { ArchiveInfoOutput, EntryInfo, SortKey } from "../gen/commands";
+import type { ArchiveInfoOutput, EntryInfo, NameEncoding, SortKey } from "../gen/commands";
 import { baseName } from "./format";
 
 export type Tab = {
@@ -13,6 +14,8 @@ export type Tab = {
   sort?: SortKey;
   reverse: boolean;
   password?: string;
+  /** How its names are read; unset, the settings' default. */
+  encoding?: NameEncoding;
   info?: ArchiveInfoOutput;
   /** Selected rows, by index in the current listing. */
   selected: number[];
@@ -38,6 +41,8 @@ type ArchivesState = {
   update: (id: string, patch: Partial<Tab> | ((t: Tab) => Partial<Tab>)) => void;
   setDir: (id: string, dir: string) => void;
   setSort: (id: string, key: SortKey) => void;
+  /** Reads the tab's names another way: it lists again from the top. */
+  setEncoding: (id: string, encoding: NameEncoding | undefined) => void;
 };
 
 let nextTab = 1;
@@ -101,7 +106,32 @@ export const useArchives = create<ArchivesState>((set, get) => ({
       focus: undefined,
     }));
   },
+
+  setEncoding(id, encoding) {
+    // Folder names change with the encoding, so the folder shown may no longer exist.
+    get().update(id, (t) => ({
+      encoding,
+      dir: "",
+      selected: [],
+      all: false,
+      anchor: undefined,
+      focus: undefined,
+      preview: undefined,
+      info: undefined,
+      version: t.version + 1,
+    }));
+  },
 }));
+
+/** What every command on a tab's archive passes: its password and name encoding, if set. Read
+ * from the store when called, so a password typed since still applies. */
+export function archiveArgs(tab: Pick<Tab, "id">): { password?: string; name_encoding?: NameEncoding } {
+  const t = useArchives.getState().tabs.find((x) => x.id === tab.id);
+  return {
+    ...(t?.password ? { password: t.password } : {}),
+    ...(t?.encoding ? { name_encoding: t.encoding } : {}),
+  };
+}
 
 export function activeTab(s: Pick<ArchivesState, "tabs" | "active">): Tab | undefined {
   return s.tabs.find((t) => t.id === s.active);

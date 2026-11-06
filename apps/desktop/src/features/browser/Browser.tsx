@@ -3,7 +3,7 @@ import { ArrowUp, ChevronRight, FolderOutput, Info, RotateCw, ShieldCheck } from
 import { type KeyboardEvent, type MouseEvent, useCallback, useEffect } from "react";
 import { Button } from "../../components/ui/button";
 import type { EntryInfo } from "../../gen/commands";
-import { type Tab, useArchives } from "../../lib/archives";
+import { archiveArgs, type Tab, useArchives } from "../../lib/archives";
 import { archiveParent, describeError, formatSize, normalize } from "../../lib/format";
 import { useJobs } from "../../lib/jobs";
 import { toastError, toastInfo } from "../../lib/toasts";
@@ -27,7 +27,7 @@ export function selectedPaths(tab: Tab, loaded: Map<number, EntryInfo>): string[
 export function testArchive(tab: Tab) {
   useJobs
     .getState()
-    .track("archive.test", { archive: tab.path, ...(tab.password ? { password: tab.password } : {}) }, { title: `Testing ${tab.name}`, tab: tab.id })
+    .track("archive.test", { archive: tab.path, ...archiveArgs(tab) }, { title: `Testing ${tab.name}`, tab: tab.id })
     .then(
       (out) => toastInfo(`${tab.name} is OK`, `${out.entries} entries, ${formatSize(out.bytes)} checked.`),
       (e) => toastError(e, `Testing ${tab.name}`),
@@ -71,9 +71,9 @@ export function Browser({ tab }: { tab: Tab }) {
     if (!ready || tab.info) return;
     useJobs
       .getState()
-      .track("archive.info", { archive: tab.path, ...(tab.password ? { password: tab.password } : {}) }, { title: `Reading ${tab.name}`, quiet: true, tab: tab.id })
+      .track("archive.info", { archive: tab.path, ...archiveArgs(tab) }, { title: `Reading ${tab.name}`, quiet: true, tab: tab.id })
       .then((info) => update(tab.id, { info }), () => {});
-  }, [ready, tab.id, tab.path, tab.name, tab.info, tab.password, update]);
+  }, [ready, tab.id, tab.path, tab.name, tab.info, tab.password, tab.encoding, update]);
 
   const selection: Selection = { selected: tab.selected, all: tab.all, anchor: tab.anchor, focus: tab.focus };
 

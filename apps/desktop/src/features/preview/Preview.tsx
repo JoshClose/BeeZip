@@ -4,7 +4,7 @@ import { FileQuestion } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Button } from "../../components/ui/button";
 import type { CmdError, EntryInfo } from "../../gen/commands";
-import { type Tab, useArchives } from "../../lib/archives";
+import { archiveArgs, type Tab, useArchives } from "../../lib/archives";
 import {
   base64ToBytes,
   baseName,
@@ -42,10 +42,9 @@ export function hexLines(bytes: Uint8Array, start = 0, width = 8): string {
 }
 
 function read(tab: Tab, entry: EntryInfo, args: { offset?: number; max_bytes: number; encoding: "text" | "hex" | "base64" }) {
-  const password = useArchives.getState().tabs.find((t) => t.id === tab.id)?.password;
   return useJobs.getState().track(
     "entry.read",
-    { archive: tab.path, index: entry.id ?? undefined, ...args, ...(password ? { password } : {}) },
+    { archive: tab.path, index: entry.id ?? undefined, ...args, ...archiveArgs(tab) },
     { title: `Reading ${baseName(entry.path)}`, quiet: true, tab: tab.id },
   );
 }

@@ -13,6 +13,7 @@ vi.mock("@tauri-apps/plugin-dialog", () => ({ ask: vi.fn(async () => true) }));
 
 const settings: Config = {
   extract: { overwrite: "ask", links: false, mark_of_the_web: "all" },
+  names: { encoding: "auto" },
   create: { threads: 0 },
   levels: {},
   stream: { codec: "zstd" },

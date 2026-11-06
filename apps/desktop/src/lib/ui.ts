@@ -7,6 +7,7 @@ export type DialogState =
   | { kind: "create"; inputs: string[] }
   | { kind: "about" }
   | { kind: "info"; tab: string }
+  | { kind: "encoding"; tab: string }
   | { kind: "form"; command: string }
   | { kind: "report"; title: string; error: CmdError }
   | { kind: "settings" };

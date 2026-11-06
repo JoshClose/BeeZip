@@ -2,7 +2,7 @@
 // engine sorts and keeps each listing in its archive cache, so a page costs a lookup.
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { CmdError, EntryInfo } from "../../gen/commands";
-import { type Tab, useArchives } from "../../lib/archives";
+import { archiveArgs, type Tab } from "../../lib/archives";
 import { useJobs } from "../../lib/jobs";
 
 export const PAGE = 1000;
@@ -22,8 +22,8 @@ export type Listing = {
 
 type State = { key: string; total?: number; pages: Map<number, EntryInfo[]>; error?: CmdError };
 
-export function listingKey(tab: Pick<Tab, "path" | "dir" | "sort" | "reverse" | "version">): string {
-  return [tab.path, tab.dir, tab.sort ?? "", tab.reverse, tab.version].join("\n");
+export function listingKey(tab: Pick<Tab, "path" | "dir" | "sort" | "reverse" | "version" | "encoding">): string {
+  return [tab.path, tab.dir, tab.sort ?? "", tab.reverse, tab.version, tab.encoding ?? ""].join("\n");
 }
 
 export function useListing(tab: Tab): Listing {
@@ -44,8 +44,7 @@ export function useListing(tab: Tab): Listing {
       const id = `${key}\n${page}`;
       if (inflight.current.has(id)) return;
       inflight.current.add(id);
-      // The password typed for this tab, if any, read now rather than when the key was made.
-      const password = useArchives.getState().tabs.find((t) => t.id === tab.id)?.password;
+      // The password typed for this tab, if any, is read now rather than when the key was made.
       useJobs
         .getState()
         .track(
@@ -56,7 +55,7 @@ export function useListing(tab: Tab): Listing {
             ...(tab.sort ? { sort: tab.sort, reverse: tab.reverse } : {}),
             offset: page * PAGE,
             limit: PAGE,
-            ...(password ? { password } : {}),
+            ...archiveArgs(tab),
           },
           { title: `Listing ${tab.name}`, quiet: true, tab: tab.id },
         )

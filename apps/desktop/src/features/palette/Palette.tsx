@@ -23,10 +23,10 @@ export function resetCommands() {
   commandsCache = undefined;
 }
 
-/** Commands whose only inputs are the archive (and its password) run on the current tab. */
+/** Commands whose only inputs are the archive (and its password and name encoding) run on the current tab. */
 export function takesOnlyArchive(c: GuiCommand): boolean {
   const props = Object.keys((c.input_schema.properties ?? {}) as object);
-  return props.includes("archive") && props.every((p) => p === "archive" || p === "password");
+  return props.includes("archive") && props.every((p) => p === "archive" || p === "password" || p === "name_encoding");
 }
 
 /** Matches when every typed word appears in the item; names that start with the search rank first. */
