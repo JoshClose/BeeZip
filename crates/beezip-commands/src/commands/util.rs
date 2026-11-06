@@ -67,20 +67,29 @@ pub fn open_archive_with(
     Ok(open(&absolute(path), opts, cx)?)
 }
 
-/// An archive lent from the engine's cache, or opened for this job.
+/// An archive lent from the engine's cache, or opened for this job. Dropped without going back,
+/// it tells the cache, so a job waiting for it opens its own.
 struct Lent {
-    archive: OpenArchive,
+    archive: Option<OpenArchive>,
     home: Option<(Arc<ArchiveCache>, Key)>,
 }
 
 impl Lent {
     /// Back to the cache, unless a password reached the reader or the job was cancelled.
-    fn give_back(self, cx: &JobCtx) {
-        if let Some((cache, key)) = self.home
-            && !cx.password_used()
+    fn give_back(mut self, cx: &JobCtx) {
+        if !cx.password_used()
             && !cx.is_cancelled()
+            && let (Some((cache, key)), Some(archive)) = (self.home.take(), self.archive.take())
         {
-            cache.give_back(key, self.archive);
+            cache.give_back(key, archive);
+        }
+    }
+}
+
+impl Drop for Lent {
+    fn drop(&mut self) {
+        if let Some((cache, key)) = self.home.take() {
+            cache.release(&key);
         }
     }
 }
@@ -96,7 +105,10 @@ pub fn with_archive<T>(
     f: impl FnOnce(&mut OpenArchive, &mut JobCtx) -> Result<T, CmdError>,
 ) -> Result<T, CmdError> {
     let mut lent = open_lent(path, password, encoding, cx)?;
-    let result = f(&mut lent.archive, cx);
+    let Some(archive) = lent.archive.as_mut() else {
+        return Err(CmdError::internal("the archive was lent twice"));
+    };
+    let result = f(archive, cx);
     let keep = match &result {
         Ok(_) => true,
         Err(e) => matches!(
@@ -126,12 +138,14 @@ fn open_lent(
         && let Some((archive, key)) = cache.lend(canonical, &limits, &names)
     {
         return Ok(Lent {
-            archive,
+            archive: Some(archive),
             home: Some((Arc::clone(cache), key)),
         });
     }
     let opts = OpenOptions::new(limits.clone()).with_names(names);
+    let started = std::time::Instant::now();
     let opened = open(&path, &opts, cx)?;
+    let opening = started.elapsed();
     let home = match (cache, canonical) {
         (Some(cache), Some(canonical)) => {
             Key::new(canonical, limits, names, &opened.detection.volumes).map(|key| (cache, key))
@@ -139,7 +153,7 @@ fn open_lent(
         _ => None,
     };
     Ok(Lent {
-        archive: OpenArchive::new(opened, opts.budget),
+        archive: Some(OpenArchive::new(opened, opts.budget, opening)),
         home,
     })
 }
