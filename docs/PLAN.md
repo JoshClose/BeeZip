@@ -73,14 +73,14 @@ tests/fixtures/               # reference archives + manifest.json (entries + ha
 ### Core abstractions (`beezip-core`)
 - **`Codec`** (single-stream formats: gzip, bz2, xz, zstd and so on): `sniff(head)`, `caps()`, `decoder(Box<dyn Read>)`, `encoder(Box<dyn Write>, EncodeOpts)`.
 - **`ArchiveFormat`**: `sniff(&Probe) -> Confidence`, `caps() -> FormatCaps`, `open(Source) -> Box<dyn ArchiveReader>`, `create(Sink) -> Box<dyn ArchiveWriter>`.
-  - `FormatCaps` flags: list, extract, create, append, delete, rename, encrypt, encrypt_headers, solid, volumes, random_access.
+  - `FormatCaps` flags: list, extract, create, append, delete, rename, encrypt, encrypt_headers, solid, volumes, random_access. Append, delete and rename are on for zip, 7z, tar, cpio and ar from M5 (docs/M5.md §3.9).
 - **`ArchiveReader`**:
   - `entries()` returns the cached index.
   - `extract(&Selection, &mut dyn EntrySink, &Ctx)` streams entries in archive order, which keeps solid archives fast.
   - `open_entry(id) -> Read`.
 - **`ArchiveWriter`**:
   - `add(meta, Read, &Ctx)`.
-  - `add_raw_from(reader, id) -> bool`, which copies an entry without recompressing it (zip `raw_copy_file`).
+  - `copy_from(reader, keep) -> ids not copied`, which copies entries without recompressing them: zip entries byte for byte (BeeZip's own copy, not the zip crate's `raw_copy_file`, whose copies are corrupt for ZipCrypto and LZMA), whole 7z blocks, tar, cpio and ar members. It takes a list rather than one id because 7z copies whole blocks (docs/M5.md §3.2).
   - `finish()`.
 - **`Backend`** groups formats: `Native`, `SevenZipCli` and `Libarchive`. The registry picks a backend for each format and operation using capabilities and priority.
 - **No serialization in core:** core doesn't depend on serde, schemars or ts-rs. `beezip-commands` owns every wire type and converts, so core types can change without changing the API the front ends see.
@@ -107,7 +107,7 @@ tests/fixtures/               # reference archives + manifest.json (entries + ha
   - **Atomic writes:** `.partial` + rename, with cleanup on cancel.
   - **Metadata:** timestamps and attributes are kept (`filetime`).
   - **Mark of the Web:** on Windows, the archive's `Zone.Identifier` stream is copied to every extracted file, as Explorer does, so SmartScreen and Office Protected View still apply. It is on by default, and config can turn it off.
-  - **Filename encoding:** zip CP437 vs UTF-8, with a codepage override (`encoding_rs`/`oem_cp`).
+  - **Filename encoding:** names stored as bytes (zip without the UTF-8 flag, tar, cpio, LHA…) are read as UTF-8 when marked or valid, otherwise in the system's OEM code page for zip and its ANSI code page for the others; an encoding can be chosen for every format that stores names as bytes (`encoding_rs`/`oem_cp`, docs/M5.md §6).
 - **Progress** comes from a `CountingReader` on the compressed input, so it is reliable, and is throttled to about 10 Hz. **Cancellation** is a shared `CancelToken` that is checked between buffers.
 - **Threading:** core is synchronous. The engine runs each job on its own thread rather than a worker pool, because jobs are few and long-running. Parallelism inside a job comes from the codecs (zstdmt, xz MT, and in M6 the zip rayon writer and parallel extraction of non-solid zips).
 
@@ -154,10 +154,10 @@ pub trait Command: Send + Sync + 'static {
 | `entry.read` | RO | `offset/max_bytes`; text, hex or base64 (for preview and MCP) |
 | `archive.extract` | W | all or selected, `dest`, overwrite policy, password, `strip_components`, `--dry-run` |
 | `archive.create` | W | inputs, format chain, level/method/threads, solid, password, encrypt headers, volume size, excludes, `--dry-run` |
-| `archive.add` / `archive.remove` / `archive.rename` | Destructive | rewrite to temp + atomic replace; raw copy for unchanged entries |
-| `archive.convert` | W | streams reader to writer, no temp extraction where possible |
+| `archive.add` / `archive.remove` / `archive.rename` | Destructive | rewrite to temp + atomic replace; raw copy for unchanged entries. Volume sets and SFX archives are refused (docs/M5.md §3.7). CLI aliases `a`, `d`, `rn` |
+| `archive.convert` | W | streams reader to writer, no temp extraction where possible. Never drops encryption silently: an encrypted source needs `new_password` or `decrypt` |
 | `stream.compress` / `stream.decompress` | W | single-file codecs (`a.txt → a.txt.zst`) |
-| `entry.open` | W | extract to temp cache + open with the default app (GUI/CLI only, hidden from MCP) |
+| `entry.open` | W | extract to temp cache + open with the default app (GUI/CLI only, hidden from MCP). CLI: `beezip open` |
 | `bench.run` | RO | codecs × levels on a sample, giving ratio/speed table (M6) |
 | `settings.get` / `settings.set` | RO / W | config.toml, edited in place. Hidden from MCP: an assistant that could set `[mcp] roots` could widen its own sandbox. CLI: `beezip settings get`, `beezip settings set KEY=VALUE… [--reset KEY]` |
 | `shell.status` | RO | which Explorer registration is in place, and why (docs/M4.md §5.5) |
@@ -181,7 +181,7 @@ Every archive command names the archive file `archive`. The M1 inputs and output
   - **Sandbox:** writes require `--root <dir>` (repeatable). In sessions that still have client roots (2025-11-25 and older; 2026-07-28 deprecates them), a non-empty list is intersected with `--root`. `--read-only` (which also hides the write tools) and `--unrestricted` flags. Limits are stricter by default: a list page holds at most 500 entries and `entry.read` returns at most 256 KiB, through two `Policy` caps the CLI and GUI leave unset.
   - **Transport:** stdio. Streamable HTTP on 127.0.0.1 (axum) isn't scheduled.
 - **Desktop (Tauri 2.12.x, staying off the 3.0 alpha):**
-  - **IPC:** exactly four Tauri commands: `cmd_run(name, args, Channel<JobEvent>) -> JobId`, `cmd_cancel`, `cmd_respond` and `cmd_list`. Rust sends the page one event, `open-paths`, with the files a second instance forwards; the paths `BeeZip.exe` starts with reach the page through an initialization script. Prompts carry the job id, so `cmd_respond(job, prompt, reply)` knows which job asked. "Copy as CLI" lines come from the `cli.line` command, built from the same clap definition that parses them.
+  - **IPC:** exactly four Tauri commands: `cmd_run(name, args, Channel<JobEvent>) -> JobId`, `cmd_cancel`, `cmd_respond` and `cmd_list`. Rust sends the page `open-paths`, with the files a second instance forwards, and from M5 `entry-changed`, when a file `entry.open` extracted has changed (docs/M5.md §8.3); the paths `BeeZip.exe` starts with reach the page through an initialization script. Prompts carry the job id, so `cmd_respond(job, prompt, reply)` knows which job asked. "Copy as CLI" lines come from the `cli.line` command, built from the same clap definition that parses them.
   - **TS types:** `xtask codegen` uses ts-rs, which is stable; tauri-specta is still an RC. It writes `src/gen/commands.ts`, a typed `CommandMap` so that `run("archive.extract", {...})` is fully typed. CI fails if the generated file is stale. Codegen details:
       - It uses ts-rs 12 with `Config::with_large_int("number")`, because the wire format is JSON numbers.
       - Types don't use `#[ts(export)]`, so `cargo test` writes no files.
@@ -261,17 +261,19 @@ Crate versions were checked on 2026-11-01. Churny crates are pinned exactly behi
 | 7z: LZMA/2, PPMd, BCJ*, AES-256, solid | ✓ | ✓ | `sevenz-rust2` `=0.24.2` + our `VolumeSet` for `.7z.001`. It reads everything listed plus Deflate, BZip2, LZ4, Brotli and ARM64, but not zstd. It writes LZMA2, LZMA, PPMd, BZip2, Deflate and Copy, with encrypted headers on by default when there is a password and solid blocks capped at 1 GiB. BeeZip checks decoder memory itself, because the crate has no limit | M3 |
 | RAR 1.5–7 incl. multipart and passwords | ✓ | ✗ | UnRAR through `unrar_sys` in a new `beezip-unrar` crate, not the `unrar` crate, which can only buffer whole entries. BeeZip declares UnRAR's packed structs itself, links advapi32, and takes one lock for every call into UnRAR (cargo feature `rar`, on by default; UnRAR license notice shipped). `rars` (pure Rust) stays the tracked alternative. RAR creation is never offered | M3 |
 | Split files (.001…) | ✓ | ✓ | in-house `VolumeSet` reader/writer | M3 |
-| CAB | ✓ | ✓ (MSZIP) | `cab` (LZX is read-only) | M5 |
-| ISO 9660 / Joliet / Rock Ridge | ✓ | ✓ | `hadris-iso` 2.5 | M5 |
-| cpio, ar, deb (ar + tar.*) | ✓ | ✓ | `cpio`, `ar`, composition | M5 |
-| RPM | ✓ | — | `rpm` (writing deferred) | M5 |
-| LHA/LZH | ✓ | ✗ | `delharc` | M5 |
-| Unix `.Z` | ✓ | ✓ | in-house LZW (weezl cannot handle `.Z`) | M5 |
-| lzop | ✓ | ✓ | `lzokay` + in-house container (avoid the GPL lzo crates) | M5 |
-| squashfs | ✓ | ✓ | `backhand` (`xz-static`, **no** `lzo` feature) | M5 |
-| DMG (UDIF) | ✓ | ✓ | `udif` 0.4 | M5 |
+| CAB | ✓ | ✓ (none, MSZIP) | in-house; LZX read through `lzxd` 0.2.7; cabinet sets read (docs/M5.md §5.5) | M5 |
+| ISO 9660 / Joliet / Rock Ridge, UDF | ✓ | ✓ (ISO 9660 level 3 + Joliet + Rock Ridge) | `hadris-iso` and `hadris-udf` 3.0, patched (docs/M5.md §5.9) | M5 |
+| cpio | ✓ | ✓ (newc) | in-house: newc, crc, odc, binary, RPM's large files; also under every tar codec | M5 |
+| ar | ✓ | ✓ (GNU) | in-house | M5 |
+| deb | ✓ | ✗ | in-house over ar and tar, listed as `dpkg-deb -R` unpacks it | M5 |
+| RPM | ✓ | ✗ | in-house headers, cpio payload through the codecs | M5 |
+| LHA/LZH | ✓ | ✗ | `delharc` 0.8.0, names decoded by BeeZip | M5 |
+| Unix `.Z` | ✓ | ✓ | in-house LZW | M5 |
+| lzop | ✓ | ✓ | in-house container, `lzokay` 2.0.1 blocks | M5 |
+| squashfs | ✓ | ✓ | in-house reader; `backhand` 0.25.5 writer with BeeZip's codecs | M5 |
+| DMG (UDIF) | ✓ (HFS+, HFSX, APFS) | ✓ (HFS+, UDZO) | in-house UDIF; `fstool` 0.5.2 for the volumes | M5 |
 | ARJ, ACE, ARC, ZOO, HA, UC2, Amiga LZX… | ✓ | ✗ | `unarc-rs` (**license to be checked before adopting**) | M6 |
-| WIM, CHM, MSI, NSIS, VHD(X), VMDK, QCOW2, HFS/APFS, NTFS/FAT/EXT images, UDF, CramFS… | ✓ | ✗ | `SevenZipCli` backend: finds an installed `7z.exe` (configurable path) and parses `7z l -slt`. Extraction goes to a staging dir, then through `FsSink` safety | M6 |
+| WIM, CHM, MSI, NSIS, VHD(X), VMDK, QCOW2, bare HFS/APFS, NTFS/FAT/EXT images, CramFS… | ✓ | ✗ | `SevenZipCli` backend: finds an installed `7z.exe` (configurable path) and parses `7z l -slt`. Extraction goes to a staging dir, then through `FsSink` safety | M6 |
 | XAR/pkg | ✓ | ? | evaluate `zar` (MIT) first; apple-xar (MPL-2.0) is acceptable with a per-crate cargo-deny exception if needed | M6 |
 | libarchive (everything it reads or writes) | ✓ | some | `libarchive2` behind cargo feature `libarchive`, **off** by default (needs vcpkg/CMake on MSVC) | optional |
 
@@ -283,6 +285,7 @@ Formats that are known not to be supported (or only partly): split/spanned ZIP (
   - `option-ext`, via dirs-sys ← dirs ← tauri;
   - `cssparser`, `cssparser-macros`, `dtoa-short` and `selectors`, via dom_query ← tauri-utils.
 - These crates get per-crate exceptions and are listed in `THIRD_PARTY_NOTICES`. MPL is file-level copyleft, so using them unmodified in an MIT/Apache app is fine. Any new MPL crate still fails the check until it gets its own exception.
+- **BSL-1.0** has one per-crate exception, `xxhash-rust`, which backhand needs to write squashfs (M5). The Boost license is permissive; the exception keeps any other BSL crate visible.
 - The UnRAR license (`unrar_sys`) gets a cargo-deny clarification as well as an exception (M3). `unrar_sys` declares MIT OR Apache-2.0, but it compiles UnRAR's own C++, so the clarification makes it `(MIT OR Apache-2.0) AND LicenseRef-UnRAR`.
 - **Third-party notices** ship in the installer and on the About page from M3. A complete generated list stays an M6 task.
 - On the Windows runner, cargo-deny runs as an installed binary, because `cargo-deny-action` is a Docker action and only runs on Linux.
@@ -353,6 +356,7 @@ After approval I implement **M0 + M1** and then stop for your review before goin
 
 ## 5. Risks and mitigations
 - **API churn** (zip, rmcp, specta): wrap each crate in an adapter module, pin versions exactly, use Renovate, and keep ts-rs instead of tauri-specta for now.
+- **The zip crate's raw copy** (`raw_copy_file`, `new_append`, 9.2.2–9.4.1) rebuilds the flags it copies, so ZipCrypto and LZMA entries come out corrupt. Worked around: BeeZip copies zip entries itself, byte for byte (docs/M5.md §3.3).
 - **UnRAR license:** keep it behind a feature, ship the notice in `THIRD_PARTY_NOTICES`, never offer RAR creation, and track `rars` as a pure-Rust replacement.
 - **libarchive on Windows:** optional feature, off by default. Most of the long tail comes from the 7-Zip external backend, which carries no license coupling because it runs as a separate process.
 - **Solid archives and random access:** previews use the index cache plus a temp extraction cache, and `FormatCaps.random_access` tells the UI when a preview will be slow.
