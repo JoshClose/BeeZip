@@ -4,7 +4,12 @@ import type { CmdError } from "../gen/commands";
 
 export type DialogState =
   | { kind: "extract"; tab: string; entries: string[] }
-  | { kind: "create"; inputs: string[] }
+  /** `note` says why the files go into a new archive: the open one can't take them. */
+  | { kind: "create"; inputs: string[]; note?: string }
+  /** Files to add to a tab's archive, into its folder `dir` (docs/M5.md §8.1). */
+  | { kind: "add"; tab: string; inputs: string[]; dir: string }
+  /** The create dialog's convert mode, for a tab's archive (§8.5). */
+  | { kind: "convert"; tab: string }
   | { kind: "about" }
   | { kind: "info"; tab: string }
   | { kind: "encoding"; tab: string }

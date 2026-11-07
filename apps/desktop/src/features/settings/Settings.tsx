@@ -11,6 +11,7 @@ import { useFormats } from "../../lib/formats";
 import { chooseTheme, errorMessage, loadSettings, saveSettings, THEMES, useTheme } from "../../lib/settings";
 import { toastError } from "../../lib/toasts";
 import { ExplorerSettings } from "./ExplorerSettings";
+import { EDIT_OVERWRITE } from "../edit/AddDialog";
 import { CheckSetting, ChoiceSetting, LevelSetting, NumberSetting, PathsSetting, Section, Segmented, Setting } from "./fields";
 
 const OVERWRITE: { id: OverwritePolicy; label: string }[] = [
@@ -156,6 +157,12 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
               error={errors["names.encoding"]}
             >
               <ChoiceSetting id="names-encoding" value={s.names.encoding} options={NAME_ENCODINGS} onCommit={(v) => save("names.encoding", v)} />
+            </Setting>
+          </Section>
+
+          <Section title="Editing" description="Adding files to an archive, from the add dialog or beezip add.">
+            <Setting label="An entry is already there" htmlFor="edit-overwrite" error={errors["edit.overwrite"]}>
+              <ChoiceSetting id="edit-overwrite" value={s.edit.overwrite} options={EDIT_OVERWRITE} onCommit={(v) => save("edit.overwrite", v)} />
             </Setting>
           </Section>
 

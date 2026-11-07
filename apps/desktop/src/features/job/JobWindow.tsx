@@ -8,7 +8,7 @@ import { CircleAlert, CircleCheck, CircleSlash, FolderOpen, LoaderCircle } from 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "../../components/ui/button";
 import { Dialog } from "../../components/ui/dialog";
-import type { ArchiveExtractOutput, ArchiveCreateOutput, CmdError, CommandName, Existing, Step } from "../../gen/commands";
+import type { ArchiveCreateOutput, ArchiveExtractOutput, CmdError, CommandName, EditOutput, Existing, Step } from "../../gen/commands";
 import { useCloseGuard } from "../../lib/closeGuard";
 import { baseName, formatDuration, formatRate, formatSize, isCancelled, parentDir, samePath } from "../../lib/format";
 import { type JobRecord, orderedJobs, useJobs } from "../../lib/jobs";
@@ -38,13 +38,14 @@ export type Outcome =
   | { status: "pending" }
   | { status: "asking" }
   | { status: "running" }
-  | { status: "done"; output: unknown }
+  /** `command` is what ran, when an answer changed it (Add to it). */
+  | { status: "done"; output: unknown; command?: string }
   | { status: "failed"; error: CmdError }
   | { status: "skipped" }
   | { status: "cancelled" };
 
 /** The answer about an archive that's already there. */
-export type ExistingChoice = "replace" | "keep-both" | "skip" | "cancel";
+export type ExistingChoice = "add" | "replace" | "keep-both" | "skip" | "cancel";
 
 /** A run step's arguments after that answer: replace it, or write the free name beside it. */
 export function argsFor(step: RunStep, choice?: ExistingChoice): Record<string, unknown> {
@@ -54,8 +55,23 @@ export function argsFor(step: RunStep, choice?: ExistingChoice): Record<string, 
   return args;
 }
 
+/** What a run step runs after that answer. "Add to it" (docs/M5.md §9) adds the selection to
+ * the archive that's there, into its top folder, asking about entries already in it. */
+export function runFor(step: RunStep, choice?: ExistingChoice): { command: string; args: Record<string, unknown>; title: string } {
+  if (choice === "add" && step.existing) {
+    const inputs = (step.args as { inputs?: unknown }).inputs;
+    return {
+      command: "archive.add",
+      args: { archive: step.existing.path, inputs, overwrite: "ask" },
+      title: `Adding to ${baseName(step.existing.path)}`,
+    };
+  }
+  return { command: step.command, args: argsFor(step, choice), title: step.title };
+}
+
 /** What "Open folder" shows: the folder files went into (or the archive, when they went beside it), or the archive written. */
-export function revealTarget(step: RunStep, output: unknown): string | undefined {
+export function revealTarget(step: RunStep, output: unknown, command = step.command): string | undefined {
+  if (command === "archive.add") return (output as EditOutput).path;
   if (step.command === "archive.extract") {
     const dest = (output as ArchiveExtractOutput).dest;
     const archive = (step.args as { archive?: string }).archive;
@@ -70,7 +86,8 @@ export function revealTarget(step: RunStep, output: unknown): string | undefined
 }
 
 /** Whether a finished step lets the window close itself: nothing was skipped or renamed. */
-export function isClean(step: RunStep, output: unknown): boolean {
+export function isClean(step: RunStep, output: unknown, command = step.command): boolean {
+  if (command === "archive.add") return (output as EditOutput).skipped === 0;
   if (step.command !== "archive.extract") return true;
   const o = output as ArchiveExtractOutput;
   return o.skipped_total === 0 && o.renamed_total === 0 && o.unsafe_total === 0;
@@ -84,6 +101,8 @@ function initial(steps: Step[]): Outcome[] {
 function useSteps(steps: Step[]) {
   const track = useJobs((s) => s.track);
   const [outcomes, setOutcomes] = useState<Outcome[]>(() => initial(steps));
+  // Each step's title, as an answer may change it: "Adding to a.zip".
+  const [titles, setTitles] = useState<string[]>(() => steps.map((s) => (s.kind === "run" || s.kind === "failed" ? s.title : "")));
   const [current, setCurrent] = useState<number>();
   const [finished, setFinished] = useState(false);
   const answer = useRef<(c: ExistingChoice) => void>(undefined);
@@ -120,10 +139,12 @@ function useSteps(steps: Step[]) {
             continue;
           }
         }
+        const run = runFor(step, choice);
+        if (run.title !== step.title) setTitles((all) => all.map((t, j) => (j === i ? run.title : t)));
         set(i, { status: "running" });
         try {
-          const output = await track(step.command as CommandName, argsFor(step, choice) as never, { title: step.title });
-          set(i, { status: "done", output });
+          const output = await track(run.command as CommandName, run.args as never, { title: run.title });
+          set(i, { status: "done", output, command: run.command });
         } catch (e) {
           if (isCancelled(e)) {
             stopped.current = true;
@@ -148,10 +169,11 @@ function useSteps(steps: Step[]) {
 
   const choose = useCallback((c: ExistingChoice) => answer.current?.(c), []);
 
-  return { outcomes, current, finished, cancelAll, choose };
+  return { outcomes, titles, current, finished, cancelAll, choose };
 }
 
 function ExistingPrompt({ existing, onChoose }: { existing: Existing; onChoose: (c: ExistingChoice) => void }) {
+  // Adding to it comes first when it can be added to; replacing it otherwise.
   return (
     <Dialog
       open
@@ -164,13 +186,21 @@ function ExistingPrompt({ existing, onChoose }: { existing: Existing; onChoose: 
           <Button onClick={() => onChoose("skip")}>Skip</Button>
           <span className="flex-1" />
           <Button onClick={() => onChoose("keep-both")}>Keep both</Button>
-          <Button variant="primary" onClick={() => onChoose("replace")}>
+          <Button variant={existing.can_add ? "default" : "primary"} onClick={() => onChoose("replace")}>
             Replace
           </Button>
+          {existing.can_add && (
+            <Button variant="primary" autoFocus onClick={() => onChoose("add")}>
+              Add to it
+            </Button>
+          )}
         </>
       }
     >
-      <p className="pb-1 text-[12px] text-muted">“Keep both” writes {baseName(existing.keep_both)} beside it.</p>
+      <p className="pb-1 text-[12px] text-muted">
+        {existing.can_add && "“Add to it” adds the files to it, asking about any it already has. "}
+        “Keep both” writes {baseName(existing.keep_both)} beside it.
+      </p>
     </Dialog>
   );
 }
@@ -208,13 +238,13 @@ const ICONS = {
   running: <LoaderCircle className="size-4 shrink-0 animate-spin text-amber" />,
 };
 
-function Row({ step, outcome, onReport }: { step: Step; outcome: Outcome; onReport: (title: string, error: CmdError) => void }) {
-  const title = step.kind === "run" || step.kind === "failed" ? step.title : "";
+function Row({ step, title, outcome, onReport }: { step: Step; title: string; outcome: Outcome; onReport: (title: string, error: CmdError) => void }) {
   let detail = "";
   let reveal: string | undefined;
   if (outcome.status === "done" && step.kind === "run") {
-    detail = outputSummary(step.command, outcome.output);
-    reveal = revealTarget(step, outcome.output);
+    const command = outcome.command ?? step.command;
+    detail = outputSummary(command, outcome.output);
+    reveal = revealTarget(step, outcome.output, command);
   } else if (outcome.status === "failed") detail = `${outcome.error.code}: ${outcome.error.message}`;
   else if (outcome.status === "cancelled") detail = "Cancelled. Files it had started writing were removed.";
   else if (outcome.status === "skipped") detail = "Skipped: the archive was left as it was.";
@@ -241,24 +271,24 @@ function Row({ step, outcome, onReport }: { step: Step; outcome: Outcome; onRepo
 }
 
 /** What the header says. */
-function heading(steps: Step[], outcomes: Outcome[], current: number | undefined, finished: boolean): string {
+function heading(steps: Step[], titles: string[], outcomes: Outcome[], current: number | undefined, finished: boolean): string {
   if (!finished) {
     // Before the first step starts, its title: the one Rust gave the window.
-    const step = steps[current ?? steps.findIndex((s) => s.kind === "run")];
-    return step?.kind === "run" ? step.title : "BeeZip";
+    const i = current ?? steps.findIndex((s) => s.kind === "run");
+    return steps[i]?.kind === "run" ? titles[i] : "BeeZip";
   }
   const all = outcomes.length;
   const count = (s: Outcome["status"]) => outcomes.filter((o) => o.status === s).length;
   if (count("done") === all) return "Done";
   if (count("cancelled") > 0) return "Cancelled";
-  if (all === 1 && outcomes[0].status === "failed") return `${(steps[0] as { title: string }).title} failed`;
+  if (all === 1 && outcomes[0].status === "failed") return `${titles[0]} failed`;
   if (count("failed") > 0) return `Done, with ${count("failed")} of ${all} failed`;
   return "Done";
 }
 
 export function JobWindow({ job }: { job: JobStartup }) {
   const steps = job.steps;
-  const { outcomes, current, finished, cancelAll, choose } = useSteps(steps);
+  const { outcomes, titles, current, finished, cancelAll, choose } = useSteps(steps);
   const [report, setReport] = useState<{ title: string; error: CmdError }>();
   const jobs = useJobs((s) => s.jobs);
   const order = useJobs((s) => s.order);
@@ -268,7 +298,7 @@ export function JobWindow({ job }: { job: JobStartup }) {
 
   const runSteps = steps.filter((s) => s.kind === "run").length;
   const position = current === undefined ? undefined : steps.slice(0, current + 1).filter((s) => s.kind === "run").length;
-  const title = heading(steps, outcomes, current, finished);
+  const title = heading(steps, titles, outcomes, current, finished);
   const step = current === undefined ? undefined : steps[current];
   const asking = step?.kind === "run" && outcomes[current ?? -1]?.status === "asking" ? step.existing : undefined;
 
@@ -276,9 +306,9 @@ export function JobWindow({ job }: { job: JobStartup }) {
   // in either order.
   const titled = useRef(Promise.resolve());
   useEffect(() => {
-    const text = title === "Done" && steps.length === 1 && steps[0].kind === "run" ? steps[0].title : title;
+    const text = title === "Done" && steps.length === 1 && steps[0].kind === "run" ? titles[0] : title;
     titled.current = titled.current.then(() => getCurrentWindow().setTitle(text)).catch(() => {});
-  }, [title, steps]);
+  }, [title, titles, steps]);
 
   // A prompt or the report gets the room it needs; the window starts small.
   const prompting = useJobs((s) => Object.values(s.jobs).some((j) => j.prompts.length > 0));
@@ -289,7 +319,12 @@ export function JobWindow({ job }: { job: JobStartup }) {
 
   // A clean success closes the window, unless the person asked to keep it.
   const clean =
-    finished && job.close_when_done && steps.every((s, i) => s.kind === "run" && outcomes[i].status === "done" && isClean(s, (outcomes[i] as { output: unknown }).output));
+    finished &&
+    job.close_when_done &&
+    steps.every((s, i) => {
+      const o = outcomes[i];
+      return s.kind === "run" && o.status === "done" && isClean(s, o.output, o.command);
+    });
   useEffect(() => {
     if (!clean) return;
     const timer = setTimeout(close, CLOSE_AFTER_MS);
@@ -314,7 +349,7 @@ export function JobWindow({ job }: { job: JobStartup }) {
       {!finished && running && <Progress job={running} />}
       <ul className="min-h-0 flex-1 overflow-auto px-4" aria-label="Results">
         {steps.map((s, i) => (
-          <Row key={i} step={s} outcome={outcomes[i]} onReport={(t, e) => setReport({ title: t, error: e })} />
+          <Row key={i} step={s} title={titles[i]} outcome={outcomes[i]} onReport={(t, e) => setReport({ title: t, error: e })} />
         ))}
       </ul>
       <footer className="flex items-center justify-end gap-2 border-t border-rule bg-panel px-4 py-2.5">

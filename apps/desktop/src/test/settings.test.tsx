@@ -87,6 +87,17 @@ describe("the settings page", () => {
     await waitFor(() => expect(screen.getByLabelText("A file is already there")).toHaveValue("never"));
   });
 
+  it("has the editing default, [edit] overwrite (docs/M5.md §7.1)", async () => {
+    fake.handlers.set("settings.set", () => ({ ...got(), settings: { ...settings, edit: { overwrite: "always" } }, changed: ["edit.overwrite"] }));
+    const user = userEvent.setup();
+    render(<SettingsDialog onClose={() => {}} />);
+    const field = await screen.findByLabelText("An entry is already there");
+    expect(field).toHaveValue("ask");
+    await user.selectOptions(field, "always");
+    await waitFor(() => expect(fake.calls).toContainEqual({ name: "settings.set", args: { set: { "edit.overwrite": "always" } } }));
+    await waitFor(() => expect(screen.getByLabelText("An entry is already there")).toHaveValue("always"));
+  });
+
   it("saves text when the field is left, and shows an error beside it", async () => {
     fake.handlers.set("settings.set", () => {
       throw { code: "InvalidArgs", message: "nothing was written: line 3" };

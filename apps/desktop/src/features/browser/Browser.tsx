@@ -1,13 +1,18 @@
 // One archive's view: breadcrumb and actions, folder tree, entry table, preview.
-import { ArrowUp, ChevronRight, FolderOutput, Info, RotateCw, ShieldCheck } from "lucide-react";
-import { type KeyboardEvent, type MouseEvent, useCallback, useEffect } from "react";
+import { open as pickFiles } from "@tauri-apps/plugin-dialog";
+import { ArrowRightLeft, ArrowUp, ChevronRight, FilePlus2, FolderOutput, FolderPlus, Info, PencilLine, RotateCw, ShieldCheck, Trash2 } from "lucide-react";
+import { type KeyboardEvent, type MouseEvent, type ReactNode, useCallback, useEffect, useRef } from "react";
 import { Button } from "../../components/ui/button";
 import type { EntryInfo } from "../../gen/commands";
 import { archiveArgs, type Tab, useArchives } from "../../lib/archives";
+import { editBlocked, registerBrowser, type SelectionByPath } from "../../lib/edit";
 import { archiveParent, describeError, formatSize, normalize } from "../../lib/format";
 import { useJobs } from "../../lib/jobs";
+import { openEntry } from "../../lib/opened";
 import { toastError, toastInfo } from "../../lib/toasts";
 import { useUi } from "../../lib/ui";
+import { deleteSelection } from "../edit/confirmDelete";
+import { cancelRename, saveRename, startRename } from "../edit/rename";
 import { Preview } from "../preview/Preview";
 import { EntryTable } from "./EntryTable";
 import { FolderTree } from "./FolderTree";
@@ -21,6 +26,29 @@ export function selectedPaths(tab: Tab, loaded: Map<number, EntryInfo>): string[
     .map((i) => loaded.get(i))
     .filter((e): e is EntryInfo => e !== undefined)
     .map((e) => normalize(e.path));
+}
+
+/** Picks files or a folder, then opens the add dialog with them, into the folder shown. */
+export async function pickAndAdd(tab: Tab, directory: boolean) {
+  const picked = await pickFiles({ multiple: true, directory, title: directory ? `Add a folder to ${tab.name}` : `Add files to ${tab.name}` });
+  const inputs = picked === null ? [] : Array.isArray(picked) ? picked : [picked];
+  if (inputs.length > 0) useUi.getState().show({ kind: "add", tab: tab.id, inputs, dir: tab.dir });
+}
+
+/** A tab's entry, opened with its app or as a tab (docs/M5.md §8.3). */
+export function openFile(tab: Tab, entry: EntryInfo) {
+  openEntry(tab, entry).catch((e) => toastError(e, `Opening ${entry.path}`));
+}
+
+/** A disabled command still says why on hover: a disabled button gets no pointer events. */
+function Why({ reason, children }: { reason?: string; children: ReactNode }) {
+  return reason ? (
+    <span title={reason} className="inline-flex">
+      {children}
+    </span>
+  ) : (
+    children
+  );
 }
 
 /** Runs `archive.test` on a tab's archive, from the toolbar or the palette. */
@@ -82,15 +110,68 @@ export function Browser({ tab }: { tab: Tab }) {
       // One file selected shows it; one folder clears the pane; several keep what it shows.
       const one = !sel.all && sel.selected.length === 1 ? listing.row(sel.selected[0]) : undefined;
       const preview = one ? (one.kind === "dir" ? undefined : one) : tab.preview;
-      update(tab.id, { ...sel, preview });
+      update(tab.id, { ...sel, preview, reselect: undefined, renaming: undefined });
     },
     [listing, tab.id, tab.preview, update],
   );
 
+  // The selection by path, for an edit to find again afterwards.
+  const byPath = useCallback((): SelectionByPath => {
+    const t = useArchives.getState().tabs.find((x) => x.id === tab.id);
+    if (!t) return { all: false, paths: [] };
+    const rows = listing.loaded();
+    const paths = t.selected.map((i) => rows.get(i)).filter((e): e is EntryInfo => e !== undefined).map((e) => normalize(e.path));
+    return { all: t.all, paths };
+  }, [listing, tab.id]);
+
+  // After an edit, the listing comes back with the rows that were selected (docs/M5.md §8.1).
+  useEffect(() => {
+    if (!tab.reselect || !ready || listing.stale) return;
+    const want = new Set(tab.reselect);
+    const found = [...listing.loaded()].filter(([, e]) => want.has(normalize(e.path))).map(([i]) => i);
+    const one = found.length === 1 ? listing.row(found[0]) : undefined;
+    update(tab.id, {
+      reselect: undefined,
+      selected: found,
+      anchor: found[0],
+      focus: found[0],
+      preview: one && one.kind !== "dir" ? one : undefined,
+    });
+  }, [tab.reselect, ready, listing, tab.id, update]);
+
+  const blocked = editBlocked(tab);
+
   const open = (index: number) => {
     const e = listing.row(index);
     if (e?.kind === "dir") setDir(tab.id, normalize(e.path));
+    else if (e) openFile(tab, e);
   };
+
+  /** The row F2 and the toolbar rename: the focused one, else the one selected. */
+  const renameRow = (): number | undefined => {
+    if (selection.focus !== undefined && (tab.all || tab.selected.includes(selection.focus))) return selection.focus;
+    return !tab.all && tab.selected.length === 1 ? tab.selected[0] : undefined;
+  };
+  const rename = () => {
+    const i = renameRow();
+    if (i !== undefined) startRename(tab, i, listing.row(i)?.path);
+  };
+  const remove = () => {
+    if (!blocked) void deleteSelection(tab, count(selection, total), byPath());
+  };
+
+  // The palette's Rename and Delete act through the browser, which has the rows.
+  const latest = useRef({ selection: byPath, rename, remove });
+  latest.current = { selection: byPath, rename, remove };
+  useEffect(
+    () =>
+      registerBrowser(tab.id, {
+        selection: () => latest.current.selection(),
+        rename: () => latest.current.rename(),
+        remove: () => latest.current.remove(),
+      }),
+    [tab.id],
+  );
 
   const onClick = (index: number, e: MouseEvent) => apply(click(selection, index, { ctrl: e.ctrlKey || e.metaKey, shift: e.shiftKey }));
 
@@ -130,6 +211,14 @@ export function Browser({ tab }: { tab: Tab }) {
           apply(selectAll(selection));
         }
         return;
+      case "Delete":
+        e.preventDefault();
+        remove();
+        return;
+      case "F2":
+        e.preventDefault();
+        if (!blocked) rename();
+        return;
     }
   };
 
@@ -167,6 +256,9 @@ export function Browser({ tab }: { tab: Tab }) {
         onClick={onClick}
         onOpen={open}
         onKeyDown={onKeyDown}
+        renaming={tab.renaming}
+        onRenameSave={(name) => void saveRename(tab, name)}
+        onRenameCancel={() => cancelRename(tab)}
       />
     );
   }
@@ -185,11 +277,39 @@ export function Browser({ tab }: { tab: Tab }) {
           <Button size="icon" onClick={() => show({ kind: "info", tab: tab.id })} disabled={!ready} aria-label="Archive info" title="Archive info">
             <Info />
           </Button>
+          <span className="mx-1 h-5 w-px bg-rule" aria-hidden />
+          <Why reason={blocked}>
+            <Button size="icon" onClick={() => void pickAndAdd(tab, false)} disabled={!!blocked} aria-label="Add files…" title="Add files…">
+              <FilePlus2 />
+            </Button>
+          </Why>
+          <Why reason={blocked}>
+            <Button size="icon" onClick={() => void pickAndAdd(tab, true)} disabled={!!blocked} aria-label="Add folder…" title="Add folder…">
+              <FolderPlus />
+            </Button>
+          </Why>
+          <Why reason={blocked}>
+            <Button size="icon" onClick={rename} disabled={!!blocked || renameRow() === undefined} aria-label="Rename" title="Rename (F2)">
+              <PencilLine />
+            </Button>
+          </Why>
+          <Why reason={blocked}>
+            <Button size="icon" variant="danger" onClick={remove} disabled={!!blocked || selected === 0} aria-label="Delete" title="Delete (Del)">
+              <Trash2 />
+            </Button>
+          </Why>
+          <Button size="icon" onClick={() => show({ kind: "convert", tab: tab.id })} disabled={!ready} aria-label="Convert…" title="Convert to another format…">
+            <ArrowRightLeft />
+          </Button>
         </div>
       </div>
       <div className="flex min-h-0 flex-1">
         <aside className="w-52 shrink-0 border-r border-rule">{ready && <FolderTree tab={tab} ready={ready} />}</aside>
-        <main className={`flex min-w-0 flex-1 flex-col bg-panel transition-opacity ${listing.stale ? "opacity-60" : ""}`} aria-busy={listing.stale}>
+        <main
+          data-drop="entries"
+          className={`flex min-w-0 flex-1 flex-col bg-panel transition-opacity ${listing.stale ? "opacity-60" : ""}`}
+          aria-busy={listing.stale}
+        >
           {table}
         </main>
         <aside className="w-80 shrink-0 border-l border-rule max-[1000px]:hidden">
@@ -199,6 +319,11 @@ export function Browser({ tab }: { tab: Tab }) {
       <div className="tabular flex h-6 shrink-0 items-center gap-4 border-t border-rule px-3 text-[12px] text-muted">
         <span>{ready ? `${total.toLocaleString()} ${total === 1 ? "item" : "items"}` : ""}</span>
         {selected > 0 && <span>{selected.toLocaleString()} selected</span>}
+        {tab.info?.not_editable && (
+          <span className="min-w-0 truncate" title={tab.info.not_editable}>
+            Can't be edited: {tab.info.not_editable}
+          </span>
+        )}
         {tab.info && (
           <span className="ml-auto truncate">
             {tab.info.chain}, {formatSize(tab.info.size)} in {formatSize(tab.info.packed_size)}

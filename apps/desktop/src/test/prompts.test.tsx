@@ -19,6 +19,12 @@ describe("the overwrite prompt", () => {
     expect(onReply).toHaveBeenCalledWith(reply);
   });
 
+  it("names the archive when the path is an entry in it (docs/M5.md §7.1)", () => {
+    render(<OverwritePrompt path="docs/a.txt" archive={String.raw`C:\work\a.zip`} title="Adding to a.zip" onReply={() => {}} />);
+    expect(screen.getByRole("heading", { name: "a.txt is already in a.zip" })).toBeInTheDocument();
+    expect(screen.getByText(/adds it under a new name/)).toBeInTheDocument();
+  });
+
   it("treats Escape as Cancel", async () => {
     const onReply = vi.fn();
     render(<OverwritePrompt path="x" title="t" onReply={onReply} />);

@@ -28,8 +28,22 @@ export type Tab = {
   preview?: EntryInfo;
   /** The person agreed to decode a solid block for previews. */
   solidOk: boolean;
-  /** Bumped to list again (after a password, or Retry). */
+  /** Bumped to list again (after a password, Retry, or an edit). */
   version: number;
+  /** Paths to select once the listing after an edit arrives (docs/M5.md §8.1). */
+  reselect?: string[];
+  /** The row being renamed in place, while its name is a field. */
+  renaming?: Renaming;
+};
+
+export type Renaming = {
+  index: number;
+  /** The entry's path, which the rename starts from. */
+  path: string;
+  /** The rename is running. */
+  busy: boolean;
+  /** Why the last try failed. */
+  error?: string;
 };
 
 type ArchivesState = {
@@ -93,7 +107,7 @@ export const useArchives = create<ArchivesState>((set, get) => ({
   },
 
   setDir(id, dir) {
-    get().update(id, { dir, selected: [], all: false, anchor: undefined, focus: undefined, preview: undefined });
+    get().update(id, { dir, selected: [], all: false, anchor: undefined, focus: undefined, preview: undefined, renaming: undefined });
   },
 
   setSort(id, key) {
@@ -104,6 +118,7 @@ export const useArchives = create<ArchivesState>((set, get) => ({
       all: false,
       anchor: undefined,
       focus: undefined,
+      renaming: undefined,
     }));
   },
 
@@ -118,6 +133,7 @@ export const useArchives = create<ArchivesState>((set, get) => ({
       focus: undefined,
       preview: undefined,
       info: undefined,
+      renaming: undefined,
       version: t.version + 1,
     }));
   },

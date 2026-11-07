@@ -4,8 +4,10 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { ArrowDown, ArrowUp, File, FileImage, FileText, Folder, Link2, Lock } from "lucide-react";
 import { type KeyboardEvent, type MouseEvent, useEffect, useMemo, useRef } from "react";
 import type { EntryInfo, SortKey } from "../../gen/commands";
+import type { Renaming } from "../../lib/archives";
 import { cn } from "../../lib/cn";
 import { baseName, formatCrc, formatSize, formatTime, previewKind } from "../../lib/format";
+import { RenameCell } from "../edit/RenameCell";
 import { isSelected, type Selection } from "./select";
 
 export const ROW_HEIGHT = 26;
@@ -34,6 +36,10 @@ export type EntryTableProps = {
   onClick: (index: number, e: MouseEvent) => void;
   onOpen: (index: number) => void;
   onKeyDown: (e: KeyboardEvent<HTMLDivElement>) => void;
+  /** The row whose name is a field (docs/M5.md §8.1). */
+  renaming?: Renaming;
+  onRenameSave?: (name: string) => void;
+  onRenameCancel?: () => void;
   /** For jsdom, which has no layout. */
   initialHeight?: number;
 };
@@ -66,14 +72,20 @@ function Packed({ entry }: { entry: EntryInfo }) {
   );
 }
 
-function Cells({ entry }: { entry: EntryInfo }) {
+function Cells({ entry, rename }: { entry: EntryInfo; rename?: { renaming: Renaming; onSave: (name: string) => void; onCancel: () => void } }) {
   const name = baseName(entry.path);
   return (
     <>
       <span className="flex min-w-0 items-center gap-2">
         <EntryIcon entry={entry} />
-        <span className="truncate">{name}</span>
-        {entry.target && entry.kind === "symlink" && <span className="truncate text-muted">→ {entry.target}</span>}
+        {rename ? (
+          <RenameCell path={rename.renaming.path} busy={rename.renaming.busy} error={rename.renaming.error} onSave={rename.onSave} onCancel={rename.onCancel} />
+        ) : (
+          <>
+            <span className="truncate">{name}</span>
+            {entry.target && entry.kind === "symlink" && <span className="truncate text-muted">→ {entry.target}</span>}
+          </>
+        )}
       </span>
       <span className="tabular text-right">{entry.kind === "dir" ? "" : formatSize(entry.size)}</span>
       <Packed entry={entry} />
@@ -87,7 +99,7 @@ function Cells({ entry }: { entry: EntryInfo }) {
 }
 
 export function EntryTable(props: EntryTableProps) {
-  const { total, row, ensure, sort, reverse, selection, onSort, onClick, onOpen, onKeyDown } = props;
+  const { total, row, ensure, sort, reverse, selection, onSort, onClick, onOpen, onKeyDown, renaming, onRenameSave, onRenameCancel } = props;
   const scroller = useRef<HTMLDivElement>(null);
   const virtualizer = useVirtualizer({
     count: total,
@@ -172,9 +184,22 @@ export function EntryTable(props: EntryTableProps) {
                 onMouseDown={(e) => {
                   if (e.button === 0) onClick(item.index, e);
                 }}
-                onDoubleClick={() => onOpen(item.index)}
+                onDoubleClick={() => {
+                  if (renaming?.index !== item.index) onOpen(item.index);
+                }}
               >
-                {entry ? <Cells entry={entry} /> : <span className="h-2 w-40 rounded bg-sunken" aria-label="Loading" />}
+                {entry ? (
+                  <Cells
+                    entry={entry}
+                    rename={
+                      renaming?.index === item.index && onRenameSave && onRenameCancel
+                        ? { renaming, onSave: onRenameSave, onCancel: onRenameCancel }
+                        : undefined
+                    }
+                  />
+                ) : (
+                  <span className="h-2 w-40 rounded bg-sunken" aria-label="Loading" />
+                )}
               </div>
             );
           })}

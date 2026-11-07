@@ -74,13 +74,24 @@ const CHOICES: { choice: OverwriteChoice; label: string }[] = [
   { choice: "Rename", label: "Keep both" },
 ];
 
-export function OverwritePrompt({ path, title, onReply }: { path: string; title: string; onReply: (reply: PromptReply) => void }) {
+export function OverwritePrompt({
+  path,
+  archive,
+  title,
+  onReply,
+}: {
+  path: string;
+  /** Set when adding to an archive: `path` is an entry in it (docs/M5.md §7.1). */
+  archive?: string;
+  title: string;
+  onReply: (reply: PromptReply) => void;
+}) {
   return (
     <Dialog
       open
       dismissable={false}
       onClose={() => onReply({ kind: "Cancel" })}
-      title="A file with this name exists"
+      title={archive ? `${baseName(path)} is already in ${baseName(archive)}` : "A file with this name exists"}
       description={title}
       className="w-[38rem]"
       footer={
@@ -100,7 +111,11 @@ export function OverwritePrompt({ path, title, onReply }: { path: string; title:
       }
     >
       <p className="selectable pb-2 break-all">{path}</p>
-      <p className="pb-1 text-[12px] text-muted">“Keep both” extracts it under a new name, such as “name (1).txt”.</p>
+      <p className="pb-1 text-[12px] text-muted">
+        {archive
+          ? "“Replace” puts the new file in its place; “Keep both” adds it under a new name, such as “name (1).txt”."
+          : "“Keep both” extracts it under a new name, such as “name (1).txt”."}
+      </p>
     </Dialog>
   );
 }
@@ -118,6 +133,6 @@ export function Prompts() {
   return pending.prompt.kind === "Password" ? (
     <PasswordPrompt key={key} entry={pending.prompt.entry} title={job.title} onReply={reply} kept={job.tab !== undefined} />
   ) : (
-    <OverwritePrompt key={key} path={pending.prompt.path} title={job.title} onReply={reply} />
+    <OverwritePrompt key={key} path={pending.prompt.path} archive={pending.prompt.archive} title={job.title} onReply={reply} />
   );
 }

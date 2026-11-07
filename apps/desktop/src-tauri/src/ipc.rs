@@ -8,23 +8,29 @@ use beezip_commands::{
 };
 use serde::Serialize;
 use serde_json::Value;
-use tauri::{State, ipc::Channel};
+use tauri::{State, Window, ipc::Channel};
 
-use crate::prompts::GuiInteractor;
+use crate::{open::MAIN, opened::Opened, prompts::GuiInteractor};
 
 /// Starts command `name` and streams its events to `on_event`. Returns the job id at once.
 #[tauri::command]
 pub fn cmd_run(
+    window: Window,
     engine: State<'_, Engine>,
     gui: State<'_, Arc<GuiInteractor>>,
+    opened: State<'_, Arc<Opened>>,
     name: String,
     args: Value,
     on_event: Channel<JobEvent>,
 ) -> Result<JobId, CmdError> {
     // A send fails only if the webview has gone away, and then nobody is listening.
-    let sink: EventSink = Arc::new(move |event| {
+    let mut sink: EventSink = Arc::new(move |event| {
         let _ = on_event.send(event);
     });
+    // The main window asks whether to update an archive whose opened entry changed.
+    if name == "entry.open" && window.label() == MAIN {
+        sink = opened.watch(&args, sink);
+    }
     let interactor: Arc<GuiInteractor> = Arc::clone(&gui);
     let job = engine.invoke(&name, args, interactor, sink)?;
     Ok(job.id())
