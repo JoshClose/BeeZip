@@ -103,10 +103,6 @@ const BLOCK: BlockSize = match BlockSize::new(SECTOR as u32) {
     None => panic!("2 048 is a block size"),
 };
 
-fn bs() -> BlockSize {
-    BLOCK
-}
-
 type Device = StreamDevice<ReadOnly<StdIo<BufReader<CountingReader<Input>>>>>;
 type FsError = hadris_fs::Error<io::Error>;
 
@@ -457,7 +453,7 @@ impl IsoReader {
         let device = |r: CountingReader<Input>| -> Result<Device> {
             StreamDevice::new(
                 ReadOnly::new(StdIo::new(BufReader::with_capacity(BUF_SIZE, r))),
-                bs(),
+                BLOCK,
             )
             .map_err(|e| Error::new(ErrorKind::Io, format!("reading the image: {e}")))
         };
@@ -497,7 +493,9 @@ impl IsoReader {
             }
         };
         let udf: Candidate = if udf {
-            let listed = match UdfFs::mount(device(input(false)?)?, MountOptions::new()) {
+            // Counted too: if this tree is listed, its reads are the ones progress and the ratio
+            // limit see.
+            let listed = match UdfFs::mount(device(input(true)?)?, MountOptions::new()) {
                 Ok(fs) => {
                     let mut m = Mounted::Udf(Box::new(fs));
                     list(&mut m, Names::Unicode, &source, true, cx).map(|l| (m, l))
@@ -874,7 +872,7 @@ impl ArchiveWriter for IsoWriter {
             last: 0,
             files: this.files,
         };
-        let dev = StreamDevice::new_growable(StdIo::new(out), bs())
+        let dev = StreamDevice::new_growable(StdIo::new(out), BLOCK)
             .map_err(|e| Error::new(ErrorKind::Io, format!("writing the image: {e}")))?;
         let written = hadris_iso::sync::write(dev, &this.tree, &opts);
         if cx.is_cancelled() {
