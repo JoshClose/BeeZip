@@ -52,30 +52,30 @@ The rest of the config (default levels, the overwrite policy, limits) applies to
 
 | Tool | Writes | What it does |
 |---|---|---|
-| `formats_list` | | The formats and codecs BeeZip reads and writes: zip, 7z, tar, cpio, ar and CAB, RAR, Debian packages, RPMs and LHA (read only), tar and cpio under any codec, and bare compressed files (Unix `.Z` and lzop among them). |
+| `formats_list` | | The formats and codecs BeeZip reads and writes: zip, 7z, tar, cpio, ar, CAB, ISO, squashfs and DMG, RAR, Debian packages, RPMs, LHA and UDF (read only), tar and cpio under any codec, and bare compressed files (Unix `.Z` and lzop among them). |
 | `file_detect` | | What a file is: `zstd → tar`, `gzip → cpio`, a deb or RPM, a 7z, a RAR, zip, CAB or LHA SFX, a volume set (`a.7z.001`…, `a.part1.rar`…), or not an archive. |
 | `archive_info` | | Counts, sizes, ratio, methods, encryption, solid blocks, the volumes of a split archive, and why the edit tools would refuse it (`not_editable`). |
 | `archive_list` | | Entries, one folder level at a time or `flat`, with `glob` filters, `kind`, and `sort` (folders first). |
 | `archive_test` | | Reads everything back and checks CRCs. |
 | `entry_read` | | Part of one entry, as text, hex or base64. |
 | `archive_extract` | ✓ | All entries, or selected ones, into `dest`. |
-| `archive_create` | ✓ | A zip, 7z, tar or cpio (those two optionally compressed), ar or CAB from files and folders (ar and CAB hold files only), optionally split into volumes (`volume_size`). A 7z with a password encrypts the names too, unless `encrypt_headers` is false. |
+| `archive_create` | ✓ | A zip, 7z, tar or cpio (those two optionally compressed), ar, CAB, ISO, squashfs or DMG from files and folders (ar and CAB hold files only), optionally split into volumes (`volume_size`). A 7z with a password encrypts the names too, unless `encrypt_headers` is false. |
 | `archive_add` | ✓ (destructive) | Files and folders added to a zip, 7z, tar, cpio or ar (tar and cpio compressed or not), in `dir` if given. An entry already there is asked about, or follows `overwrite`. |
 | `archive_remove` | ✓ (destructive) | Entries removed, by path (a folder takes everything under it) or `glob`. |
 | `archive_rename` | ✓ (destructive) | One entry, or a folder and everything under it, renamed or moved (`from`, `to`). |
-| `archive_convert` | ✓ | A zip, 7z, tar, cpio, ar or CAB written from any archive BeeZip reads, RAR, packages and split archives included, all of it or `entries`/`glob`. The source isn't changed. |
+| `archive_convert` | ✓ | A zip, 7z, tar, cpio, ar, CAB, ISO, squashfs or DMG written from any archive BeeZip reads, RAR, packages, disk images and split archives included, all of it or `entries`/`glob`. The source isn't changed. |
 | `stream_compress` | ✓ | One file through one codec: `a.txt` → `a.txt.zst`. |
 | `stream_decompress` | ✓ | One codec layer off: `a.tar.zst` → `a.tar`. |
 | `app_version` | | BeeZip's version. |
 
-Each tool has an output schema, and its results come back as structured content plus the same JSON as text. The tools that read an archive take `name_encoding` for names it stores as bytes (zips and CABs without the UTF-8 flag, tars, cpio, ar and LHA): `auto`, the default, reads UTF-8 and otherwise Windows' code page; `cp932`, `cp936`, `cp866` and the rest read the names that system wrote. The archive tools read zip, 7z, tar, cpio, ar, CAB (sets too), RAR 1.5–7, Debian packages (listed as `dpkg-deb -R` unpacks them), RPMs and LHA, and any part of a split archive (`a.7z.002`, `a.part3.rar`) opens the whole set.
+Each tool has an output schema, and its results come back as structured content plus the same JSON as text. The tools that read an archive take `name_encoding` for names it stores as bytes (zips and CABs without the UTF-8 flag, tars, cpio, ar, LHA, squashfs, and ISO names outside Joliet): `auto`, the default, reads UTF-8 and otherwise Windows' code page; `cp932`, `cp936`, `cp866` and the rest read the names that system wrote. The archive tools read zip, 7z, tar, cpio, ar, CAB (sets too), RAR 1.5–7, Debian packages (listed as `dpkg-deb -R` unpacks them), RPMs, LHA, ISO and UDF, squashfs and DMG, and any part of a split archive (`a.7z.002`, `a.part3.rar`) opens the whole set.
 
 ## Changing archives
 
 - **Nothing is written in place.** `archive_add`, `archive_remove` and `archive_rename` write a new archive beside the old one and swap it in, so a failed or cancelled change leaves the archive as it was. They are marked `destructiveHint`, since what they replace can't be had back, and `--read-only` hides them.
 - **Entries that stay are copied as they are,** without decoding: zip entries byte for byte, whole 7z blocks, tar, cpio and ar members. A 7z solid block that loses an entry is decoded and encoded again; a compressed tar's or cpio's stream is encoded again at the config's level. The output's `copied` and `recompressed` say how much was which.
 - **Encryption is never dropped.** Adding to an archive whose entries are encrypted needs `password` for the new files (the call fails with `PasswordRequired` otherwise), or `unencrypted: true` to add them in the clear, which the output counts. Converting an encrypted archive needs `new_password` or `decrypt`.
-- **Not changed:** split archives (`a.7z.001`…), self-extracting ones, RAR, Debian packages, RPMs, LHA, CAB and bare compressed files fail with `UnsupportedOperation`; `archive_convert` makes a single archive of them.
+- **Not changed:** split archives (`a.7z.001`…), self-extracting ones, RAR, Debian packages, RPMs, LHA, CAB, the disk images and bare compressed files fail with `UnsupportedOperation`; `archive_convert` makes a single archive of them.
 - **`dry_run: true`** reports each change (`plan`) and writes nothing.
 - **The archive must be under a root,** since it is rewritten. `archive_add`'s inputs are reads, and aren't confined.
 

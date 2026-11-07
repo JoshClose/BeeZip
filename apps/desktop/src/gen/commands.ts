@@ -107,8 +107,8 @@ dry_run?: boolean, };
 
 /**
  * Write an archive's entries to a new archive in another format, or with other options: zip,
- * 7z, tar, cpio, ar or cab, tar and cpio under a codec too, from any archive BeeZip reads (RAR,
- * packages and split archives included). The source isn't changed. Entries are copied without decoding when the formats
+ * 7z, tar, cpio, ar, cab, ISO, squashfs or DMG, tar and cpio under a codec too, from any archive
+ * BeeZip reads (RAR, packages, disk images and split archives included). The source isn't changed. Entries are copied without decoding when the formats
  * match and no option asks for something else (`a.tar.gz` → `a.tar.zst` keeps every tar
  * entry, encoding the stream again). An encrypted source needs `new_password` or `decrypt`:
  * encryption is never dropped silently. What the new format can't hold is left out and
@@ -225,9 +225,10 @@ volumes: Array<string> | null, };
 /**
  * Create an archive from files and folders. Each input is stored under its own name (`src/`
  * becomes `src/…`). The format comes from `format` or the output's extension (`.zip`, `.7z`,
- * `.tar`, `.tar.zst`, `.tgz`, `.cpio.gz`, `.ar`, `.cab`…); ar and cab hold files only. The
- * archive is written to a temporary file and renamed into place, so a failed or cancelled
- * create leaves nothing behind.
+ * `.tar`, `.tar.zst`, `.tgz`, `.cpio.gz`, `.ar`, `.cab`, `.iso`, `.squashfs`, `.dmg`…); ar
+ * and cab hold files only. An ISO has Joliet and Rock Ridge, a DMG is an HFS+ volume in a
+ * zlib-compressed image. The archive is written to a temporary file and renamed into place,
+ * so a failed or cancelled create leaves nothing behind.
  */
 export type ArchiveCreateInput = {
 /**
@@ -245,7 +246,8 @@ format?: ArchiveFormatName,
 /**
  * The compression method: for zip `store`, `deflate` (the default), `bzip2`, `zstd`, `xz`
  * or `ppmd`; for 7z `lzma2` (the default), `lzma`, `ppmd`, `bzip2`, `deflate` or `copy`; for
- * cab `mszip` (the default) or `store`. A tar's or cpio's codec comes from `format`.
+ * cab `mszip` (the default) or `store`; for squashfs `gzip` (the default), `xz`, `zstd`,
+ * `lz4` or `lzo`. A tar's or cpio's codec comes from `format`.
  */
 method?: MethodName,
 /**
@@ -363,8 +365,8 @@ links?: boolean,
 password?: Secret,
 /**
  * How names stored as bytes are read: zip names without the UTF-8 flag, tar names outside
- * pax records, cpio, ar and LHA names, CAB names without the UTF-8 flag [default: from
- * config, `auto`].
+ * pax records, cpio, ar, LHA and squashfs names, CAB names without the UTF-8 flag, ISO
+ * names outside Joliet [default: from config, `auto`].
  */
 name_encoding?: NameEncoding,
 /**
@@ -406,8 +408,8 @@ archive: string,
 password?: Secret,
 /**
  * How names stored as bytes are read: zip names without the UTF-8 flag, tar names outside
- * pax records, cpio, ar and LHA names, CAB names without the UTF-8 flag [default: from
- * config, `auto`].
+ * pax records, cpio, ar, LHA and squashfs names, CAB names without the UTF-8 flag, ISO
+ * names outside Joliet [default: from config, `auto`].
  */
 name_encoding?: NameEncoding, };
 
@@ -514,8 +516,8 @@ kind?: KindFilter,
 password?: Secret,
 /**
  * How names stored as bytes are read: zip names without the UTF-8 flag, tar names outside
- * pax records, cpio, ar and LHA names, CAB names without the UTF-8 flag [default: from
- * config, `auto`].
+ * pax records, cpio, ar, LHA and squashfs names, CAB names without the UTF-8 flag, ISO
+ * names outside Joliet [default: from config, `auto`].
  */
 name_encoding?: NameEncoding, };
 
@@ -616,8 +618,8 @@ archive: string,
 password?: Secret,
 /**
  * How names stored as bytes are read: zip names without the UTF-8 flag, tar names outside
- * pax records, cpio, ar and LHA names, CAB names without the UTF-8 flag [default: from
- * config, `auto`].
+ * pax records, cpio, ar, LHA and squashfs names, CAB names without the UTF-8 flag, ISO
+ * names outside Joliet [default: from config, `auto`].
  */
 name_encoding?: NameEncoding, };
 
@@ -924,8 +926,8 @@ encoding?: TextEncoding,
 password?: Secret,
 /**
  * How names stored as bytes are read: zip names without the UTF-8 flag, tar names outside
- * pax records, cpio, ar and LHA names, CAB names without the UTF-8 flag [default: from
- * config, `auto`].
+ * pax records, cpio, ar, LHA and squashfs names, CAB names without the UTF-8 flag, ISO
+ * names outside Joliet [default: from config, `auto`].
  */
 name_encoding?: NameEncoding, };
 
@@ -1170,7 +1172,7 @@ export type MethodName = "store" | "deflate" | "bzip2" | "zstd" | "xz" | "ppmd" 
 
 /**
  * How names stored as bytes are read (docs/M5.md §6): zip names without the UTF-8 flag, tar
- * names outside pax records, cpio, ar and LHA names, CAB names without the UTF-8 flag. `auto` reads them as UTF-8 when they are valid UTF-8, otherwise in
+ * names outside pax records, cpio, ar, LHA and squashfs names, CAB names without the UTF-8 flag, ISO names outside Joliet. `auto` reads them as UTF-8 when they are valid UTF-8, otherwise in
  * the system's code page (the OEM one for zip, as Explorer reads them). The others are code
  * pages: `cp932` is Japanese (Shift-JIS), `cp936` Simplified Chinese (GBK), `cp949` Korean,
  * `cp950` Traditional Chinese (Big5), `cp866` and `cp1251` Cyrillic, `cp437` and `cp850` DOS.
@@ -1179,7 +1181,8 @@ export type NameEncoding = "auto" | "utf-8" | "cp437" | "cp850" | "cp852" | "cp8
 
 /**
  * How names stored as bytes are read: zip names without the UTF-8 flag, tar names outside pax
- * records, cpio, ar and LHA names, CAB names without the UTF-8 flag (docs/M5.md §6).
+ * records, cpio, ar, LHA and squashfs names, CAB names without the UTF-8 flag, ISO names
+ * outside Joliet (docs/M5.md §6).
  */
 export type NamesConfig = {
 /**
@@ -1650,8 +1653,8 @@ export type CommandMap = {
   "archive.add": { input: ArchiveAddInput; output: EditOutput };
   /**
    * Write an archive's entries to a new archive in another format, or with other options: zip,
-   * 7z, tar, cpio, ar or cab, tar and cpio under a codec too, from any archive BeeZip reads (RAR,
-   * packages and split archives included). The source isn't changed. Entries are copied without decoding when the formats
+   * 7z, tar, cpio, ar, cab, ISO, squashfs or DMG, tar and cpio under a codec too, from any archive
+   * BeeZip reads (RAR, packages, disk images and split archives included). The source isn't changed. Entries are copied without decoding when the formats
    * match and no option asks for something else (`a.tar.gz` → `a.tar.zst` keeps every tar
    * entry, encoding the stream again). An encrypted source needs `new_password` or `decrypt`:
    * encryption is never dropped silently. What the new format can't hold is left out and
@@ -1661,9 +1664,10 @@ export type CommandMap = {
   /**
    * Create an archive from files and folders. Each input is stored under its own name (`src/`
    * becomes `src/…`). The format comes from `format` or the output's extension (`.zip`, `.7z`,
-   * `.tar`, `.tar.zst`, `.tgz`, `.cpio.gz`, `.ar`, `.cab`…); ar and cab hold files only. The
-   * archive is written to a temporary file and renamed into place, so a failed or cancelled
-   * create leaves nothing behind.
+   * `.tar`, `.tar.zst`, `.tgz`, `.cpio.gz`, `.ar`, `.cab`, `.iso`, `.squashfs`, `.dmg`…); ar
+   * and cab hold files only. An ISO has Joliet and Rock Ridge, a DMG is an HFS+ volume in a
+   * zlib-compressed image. The archive is written to a temporary file and renamed into place,
+   * so a failed or cancelled create leaves nothing behind.
    */
   "archive.create": { input: ArchiveCreateInput; output: ArchiveCreateOutput };
   /**

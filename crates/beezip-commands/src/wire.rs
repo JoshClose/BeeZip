@@ -443,7 +443,7 @@ impl EncryptionName {
 }
 
 /// How names stored as bytes are read (docs/M5.md §6): zip names without the UTF-8 flag, tar
-/// names outside pax records, cpio, ar and LHA names, CAB names without the UTF-8 flag. `auto` reads them as UTF-8 when they are valid UTF-8, otherwise in
+/// names outside pax records, cpio, ar, LHA and squashfs names, CAB names without the UTF-8 flag, ISO names outside Joliet. `auto` reads them as UTF-8 when they are valid UTF-8, otherwise in
 /// the system's code page (the OEM one for zip, as Explorer reads them). The others are code
 /// pages: `cp932` is Japanese (Shift-JIS), `cp936` Simplified Chinese (GBK), `cp949` Korean,
 /// `cp950` Traditional Chinese (Big5), `cp866` and `cp1251` Cyrillic, `cp437` and `cp850` DOS.

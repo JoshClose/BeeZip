@@ -18,12 +18,21 @@ const formats: FormatsListOutput = {
     { id: "zip", name: "Zip", extensions: [".zip"], caps, methods: [{ id: "store", levels: null }, { id: "deflate", levels: levels(1, 9, 6) }, { id: "zstd", levels: levels(1, 22, 3) }], encryption: ["aes256", "zipcrypto"] },
     { id: "7z", name: "7z", extensions: [".7z"], caps: { ...caps, encrypt_headers: true, solid: true }, methods: [{ id: "lzma2", levels: levels(0, 9, 5) }, { id: "copy", levels: null }], encryption: ["aes256"] },
     { id: "tar", name: "Tar", extensions: [".tar"], caps: { ...caps, encrypt: false }, methods: [], encryption: [] },
+    { id: "iso", name: "ISO image", extensions: [".iso"], caps: { ...caps, encrypt: false }, methods: [], encryption: [] },
+    {
+      id: "squashfs",
+      name: "squashfs image",
+      extensions: [".squashfs", ".sqfs", ".snap"],
+      caps: { ...caps, encrypt: false },
+      methods: [{ id: "gzip", levels: levels(1, 9, 9) }, { id: "xz", levels: levels(0, 9, 6) }, { id: "lz4", levels: null }],
+      encryption: [],
+    },
   ],
   codecs: [
     { id: "zstd", name: "Zstandard", extensions: [".zst", ".tzst"], levels: levels(1, 22, 3), threads: true, detected: true },
     { id: "gzip", name: "gzip", extensions: [".gz", ".tgz"], levels: levels(0, 9, 6), threads: false, detected: true },
   ],
-  create: ["zip", "7z", "tar", "tar.gz", "tar.zst"],
+  create: ["zip", "7z", "tar", "tar.gz", "tar.zst", "iso", "squashfs"],
 };
 
 const form = (patch: Partial<CreateForm>): CreateForm => ({
@@ -65,6 +74,13 @@ describe("the create dialog's arguments", () => {
     expect(tar).toEqual({ output: String.raw`C:\work\src.zip`, inputs: [String.raw`C:\work\src`], format: "tar.zst", level: 19, threads: 4, volume_size: 1048576 });
 
     expect(createArgs(form({ password: "pw", encryption: "zipcrypto" }), formats)).toMatchObject({ password: "pw", encryption: "zipcrypto" });
+
+    // squashfs takes its method's level and no password; an ISO takes neither, nor threads.
+    const base = { output: String.raw`C:\work\src.zip`, inputs: [String.raw`C:\work\src`] };
+    expect(createArgs(form({ format: "squashfs", method: "xz", level: 9, password: "pw" }), formats)).toEqual({ ...base, format: "squashfs", method: "xz", level: 9 });
+    expect(createArgs(form({ format: "squashfs", level: 9 }), formats)).toEqual({ ...base, format: "squashfs", level: 9 });
+    expect(createArgs(form({ format: "squashfs", method: "lz4", level: 9 }), formats)).toEqual({ ...base, format: "squashfs", method: "lz4" });
+    expect(createArgs(form({ format: "iso", method: "xz", level: 9, threads: 4, password: "pw" }), formats)).toEqual({ ...base, format: "iso" });
   });
 
   it("names the output after the inputs and the format", () => {
@@ -78,6 +94,11 @@ describe("the create dialog's arguments", () => {
     expect(withFormat(String.raw`C:\a\b.tar.Z`, "cpio.lzo")).toBe(String.raw`C:\a\b.cpio.lzo`);
     expect(withFormat(String.raw`C:\a\b.taz`, "ar")).toBe(String.raw`C:\a\b.ar`);
     expect(withFormat(String.raw`C:\a\b.ar`, "cab")).toBe(String.raw`C:\a\b.cab`);
+    // The disk images.
+    expect(withFormat(String.raw`C:\a\b.cab`, "iso")).toBe(String.raw`C:\a\b.iso`);
+    expect(withFormat(String.raw`C:\a\b.iso`, "squashfs")).toBe(String.raw`C:\a\b.squashfs`);
+    expect(withFormat(String.raw`C:\a\b.sqfs`, "dmg")).toBe(String.raw`C:\a\b.dmg`);
+    expect(withFormat(String.raw`C:\a\b.dmg`, "zip")).toBe(String.raw`C:\a\b.zip`);
   });
 
   it("finds the codec of a compressed tar or cpio, whatever the case", () => {

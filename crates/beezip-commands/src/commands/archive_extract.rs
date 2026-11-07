@@ -70,8 +70,8 @@ pub struct ArchiveExtractInput {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub password: Option<Secret>,
     /// How names stored as bytes are read: zip names without the UTF-8 flag, tar names outside
-    /// pax records, cpio, ar and LHA names, CAB names without the UTF-8 flag [default: from
-    /// config, `auto`].
+    /// pax records, cpio, ar, LHA and squashfs names, CAB names without the UTF-8 flag, ISO
+    /// names outside Joliet [default: from config, `auto`].
     #[arg(long, value_enum, value_name = "ENCODING")]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name_encoding: Option<NameEncoding>,
