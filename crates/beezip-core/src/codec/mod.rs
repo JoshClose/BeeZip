@@ -218,12 +218,17 @@ impl EncodeOpts {
 
     /// The thread count to use: `0` becomes the number of cores.
     pub fn resolve_threads(&self) -> u32 {
-        match self.threads {
-            0 => std::thread::available_parallelism()
-                .map(|n| u32::try_from(n.get()).unwrap_or(1))
-                .unwrap_or(1),
-            n => n,
-        }
+        resolve_threads(self.threads)
+    }
+}
+
+/// A thread count as the settings give it: `0` becomes the number of logical cores.
+pub fn resolve_threads(threads: u32) -> u32 {
+    match threads {
+        0 => std::thread::available_parallelism()
+            .map(|n| u32::try_from(n.get()).unwrap_or(1))
+            .unwrap_or(1),
+        n => n,
     }
 }
 

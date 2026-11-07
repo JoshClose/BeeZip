@@ -158,6 +158,9 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
             >
               <ChoiceSetting id="names-encoding" value={s.names.encoding} options={NAME_ENCODINGS} onCommit={(v) => save("names.encoding", v)} />
             </Setting>
+            <Setting label="Threads" htmlFor="extract-threads" hint="For zips and xz. 0 is one per core; 1 uses one." error={errors["extract.threads"]}>
+              <NumberSetting id="extract-threads" value={s.extract.threads} placeholder="0" onCommit={(v) => save("extract.threads", v)} />
+            </Setting>
           </Section>
 
           <Section title="Editing" description="Adding files to an archive, from the add dialog or beezip add.">

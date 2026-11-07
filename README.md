@@ -113,6 +113,7 @@ beezip settings set "mcp.roots=['C:\Users\you\Unpacked']" --reset limits.max_rat
 overwrite = "ask"          # ask | always | never | rename | newer
 links = false
 mark_of_the_web = "all"    # copy the archive's Zone.Identifier to extracted files, as Explorer does
+threads = 0                # extracting zips and decoding xz: 0 = one per core, 1 = one
 
 [edit]
 overwrite = "ask"          # adding over an entry already there (beezip add, the add dialog): ask | always | never | rename | newer

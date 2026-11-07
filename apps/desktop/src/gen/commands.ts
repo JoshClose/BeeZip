@@ -977,7 +977,11 @@ links: boolean,
 /**
  * Whether extracted files keep the archive's "downloaded from the internet" mark.
  */
-mark_of_the_web: MarkOfTheWeb, };
+mark_of_the_web: MarkOfTheWeb,
+/**
+ * Threads for extracting zips and decoding xz. `0` is one per core; `1` uses one.
+ */
+threads: number, };
 
 /**
  * Detect what a file is: its chain of codecs and archive format (`zstd → tar`), whether it is

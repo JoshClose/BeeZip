@@ -12,7 +12,7 @@ vi.mock("@tauri-apps/plugin-opener", () => ({ openPath: vi.fn(async () => {}), r
 vi.mock("@tauri-apps/plugin-dialog", () => ({ ask: vi.fn(async () => true) }));
 
 const settings: Config = {
-  extract: { overwrite: "ask", links: false, mark_of_the_web: "all" },
+  extract: { overwrite: "ask", links: false, mark_of_the_web: "all", threads: 0 },
   edit: { overwrite: "ask" },
   names: { encoding: "auto" },
   create: { threads: 0 },

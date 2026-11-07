@@ -12,7 +12,7 @@ vi.mock("@tauri-apps/api/app", () => ({ setTheme: vi.fn(async () => {}) }));
 vi.mock("@tauri-apps/plugin-opener", () => ({ openPath: vi.fn(async () => {}), revealItemInDir: vi.fn(async () => {}) }));
 
 const settings: Config = {
-  extract: { overwrite: "rename", links: false, mark_of_the_web: "all" },
+  extract: { overwrite: "rename", links: false, mark_of_the_web: "all", threads: 0 },
   edit: { overwrite: "ask" },
   names: { encoding: "auto" },
   create: { threads: 0 },
@@ -104,7 +104,8 @@ describe("the settings page", () => {
     });
     const user = userEvent.setup();
     render(<SettingsDialog onClose={() => {}} />);
-    const threads = await screen.findByLabelText("Threads");
+    // Extracting and creating each have a "Threads" field.
+    const threads = (await screen.findAllByLabelText("Threads")).find((e) => e.id === "create-threads")!;
     await user.clear(threads);
     await user.type(threads, "4");
     await user.tab();
