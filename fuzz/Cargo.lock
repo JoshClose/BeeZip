@@ -126,6 +126,7 @@ dependencies = [
  "walkdir",
  "windows-sys",
  "zip",
+ "zlib-rs",
  "zstd",
 ]
 

@@ -5,7 +5,7 @@
 //!   missing 7-Zip fails instead of skipping.
 //! - Unix: GNU tar lists and extracts BeeZip's tars, and BeeZip reads GNU tar's, including a
 //!   `--sparse` archive of a file with holes. `BEEZIP_REQUIRE_GNU_TAR=1` makes GNU tar required.
-//! - Linux: lzop, uncompress, cpio, ar, xorriso and unsquashfs read what BeeZip writes
+//! - Linux: gzip, lzop, uncompress, cpio, ar, xorriso and unsquashfs read what BeeZip writes
 //!   (`BEEZIP_REQUIRE_LINUX_TOOLS=1`). With `BEEZIP_IMAGES_OUT=<dir>`, the ISO and DMG it wrote
 //!   are left there with their files' hashes, for CI's macOS job to mount (docs/M5.md §10).
 
@@ -95,6 +95,52 @@ fn require(tool: Option<PathBuf>, var: &str, name: &str) -> Option<PathBuf> {
         eprintln!("skipping: {name} not found (set {var}=1 to require it)");
     }
     tool
+}
+
+/// Gzips from parallel deflate (docs/M6.md §6.1): `big.bin`, about 1.5 MB of text and then
+/// random bytes, at levels 0, 1, 6 and 9 on 4 and 32 threads, as a tar.gz, and an empty file.
+/// Returns their names.
+fn parallel_gzips(root: &Path) -> Vec<String> {
+    let mut next = 0x2545_F491_u32;
+    let mut big = b"BeeZip compresses its blocks side by side. ".repeat(18_000);
+    big.extend((0..700_000).map(|_| {
+        next ^= next << 13;
+        next ^= next >> 17;
+        next ^= next << 5;
+        (next >> 24) as u8
+    }));
+    std::fs::write(root.join("big.bin"), &big).unwrap();
+    std::fs::write(root.join("empty.bin"), b"").unwrap();
+    let mut names = Vec::new();
+    for (file, level, threads) in [
+        ("big.bin", "0", "4"),
+        ("big.bin", "1", "4"),
+        ("big.bin", "6", "4"),
+        ("big.bin", "9", "4"),
+        ("big.bin", "1", "32"),
+        ("big.bin", "6", "32"),
+        ("big.bin", "9", "32"),
+        ("empty.bin", "6", "4"),
+    ] {
+        let name = format!("{file}-{level}-{threads}.gz");
+        let args = [
+            "compress",
+            file,
+            "-c",
+            "gzip",
+            "-l",
+            level,
+            "--threads",
+            threads,
+            "-o",
+            &name,
+        ];
+        beezip(&args, root);
+        names.push(name);
+    }
+    beezip(&["create", "big.tar.gz", "big.bin", "--threads", "4"], root);
+    names.push("big.tar.gz".into());
+    names
 }
 
 #[cfg(windows)]
@@ -259,6 +305,16 @@ mod seven_zip {
         }
         // This 7-Zip lacks lzip, lz4, brotli and snappy; one with them tests 44.
         assert!(tested.len() >= 36, "{tested:?}");
+    }
+
+    /// Parallel deflate's gzips pass `7z t` (docs/M6.md §10).
+    #[test]
+    fn parallel_gzips_pass_7z_t() {
+        let Some(exe) = seven_zip() else { return };
+        let root = tempfile::tempdir().unwrap();
+        for name in parallel_gzips(root.path()) {
+            assert!(seven(&exe, &["t", &name], root.path()), "7z t {name}");
+        }
     }
 
     /// cpio, ar, CAB, `.Z` and the disk images from BeeZip extract to the same bytes in 7-Zip,
@@ -929,6 +985,26 @@ mod linux_tools {
             None,
         );
         assert_eq!(got, readme);
+    }
+
+    /// `gzip -t` passes parallel deflate's gzips, and `gzip -dc` gives the input back
+    /// (docs/M6.md §10).
+    #[test]
+    fn gzip_reads_parallel_gzips() {
+        let var = "BEEZIP_REQUIRE_LINUX_TOOLS";
+        let Some(gzip) = require(found("gzip", "--version"), var, "gzip") else {
+            return;
+        };
+        let root = tempfile::tempdir().unwrap();
+        let names = parallel_gzips(root.path());
+        for name in &names {
+            run(&gzip, &["-t", name.as_str()], root.path(), None);
+        }
+        let big = std::fs::read(root.path().join("big.bin")).unwrap();
+        for name in ["big.bin-1-32.gz", "big.bin-9-4.gz"] {
+            let got = run(&gzip, &["-dc", name], root.path(), None);
+            assert!(got == big, "{name}");
+        }
     }
 
     /// xorriso and unsquashfs read BeeZip's ISO and squashfs images: every file listed, and

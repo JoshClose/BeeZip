@@ -1,10 +1,12 @@
 //! Single-stream codecs: gzip, zlib, raw deflate, bzip2, xz, lzma, lzip, zstd, lz4, brotli
-//! and snappy (docs/M1.md §3.2), and Unix `.Z` and lzop (docs/M5.md §5.7, §5.8).
+//! and snappy (docs/M1.md §3.2), and Unix `.Z` and lzop (docs/M5.md §5.7, §5.8). gzip, zlib
+//! and raw deflate compress on several threads with `deflate_par` (docs/M6.md §6.1).
 
 mod brotli;
 mod bzip2;
 mod compress;
 mod deflate;
+pub(crate) mod deflate_par;
 mod gzip;
 mod lz4;
 mod lzip;

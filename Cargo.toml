@@ -55,6 +55,9 @@ zip = { version = "=9.4.1", default-features = false, features = [
 ] }
 tar        = { version = "0.4.46", default-features = false }
 flate2     = { version = "1.1.10", default-features = false, features = ["zlib-rs"] }
+# Adler-32 and its combine for parallel zlib (docs/M6.md §6.1): the zlib-rs that flate2 builds,
+# with no features of its own. Bumped with flate2, or there are two copies.
+zlib-rs    = { version = "0.6.8", default-features = false }
 bzip2      = "0.6.1"
 crc32fast  = "1.5.4"
 lzma-rust2 = "=0.25.0"   # the version zip 9.4.1 and sevenz-rust2 0.25.0 require; another would build a second copy

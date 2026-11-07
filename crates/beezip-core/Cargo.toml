@@ -45,6 +45,7 @@ tempfile.workspace = true
 time.workspace = true
 walkdir.workspace = true
 zip.workspace = true
+zlib-rs.workspace = true
 zstd.workspace = true
 
 # bench.rs reads the process's private bytes (docs/M6.md §7), and safefs/disk.rs asks whether

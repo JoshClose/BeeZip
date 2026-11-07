@@ -21,9 +21,9 @@ Archive formats
 
 Codecs
   ID       NAME               LEVELS       THREADS  EXTENSIONS
-  gzip     gzip               0-9 (6)      -        .gz .tgz
-  zlib     zlib               0-9 (6)      -        .zz .zlib
-  deflate  raw deflate        0-9 (6)      -        (never detected)
+  gzip     gzip               0-9 (6)      yes      .gz .tgz
+  zlib     zlib               0-9 (6)      yes      .zz .zlib
+  deflate  raw deflate        0-9 (6)      yes      (never detected)
   bzip2    bzip2              1-9 (9)      -        .bz2 .tbz .tbz2
   xz       xz                 0-9 (6)      yes      .xz .txz
   lzma     LZMA (lzma-alone)  0-9 (6)      -        .lzma
