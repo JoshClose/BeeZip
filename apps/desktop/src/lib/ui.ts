@@ -15,7 +15,9 @@ export type DialogState =
   | { kind: "encoding"; tab: string }
   | { kind: "form"; command: string }
   | { kind: "report"; title: string; error: CmdError }
-  | { kind: "settings" };
+  | { kind: "settings" }
+  /** The Benchmark dialog, offering `file` as its sample (docs/M6.md §7). */
+  | { kind: "bench"; file?: string };
 
 type UiState = {
   dialog?: DialogState;
