@@ -6,12 +6,20 @@
 //! case `Drop` can't: a front end that has to exit at once (the CLI's second Ctrl+C) calls
 //! [`abandon_all`], which deletes every recorded file before the process ends, even ones that
 //! are still open and being written.
+//!
+//! Parallel extraction creates and renames files on many threads at once (docs/M6.md §6.3), so
+//! no lock is held across file-system work that others have to wait for: the map's lock only
+//! covers inserting and removing, and creating and renaming hold the abandon lock for reading,
+//! which only [`abandon_all`] takes for writing.
 
 use std::{
-    collections::BTreeMap,
+    collections::HashMap,
     fs::{self, File, OpenOptions},
     path::{Path, PathBuf},
-    sync::{Mutex, MutexGuard, PoisonError},
+    sync::{
+        Mutex, MutexGuard, PoisonError, RwLock, RwLockReadGuard,
+        atomic::{AtomicU64, Ordering},
+    },
 };
 
 use crate::{Error, Result};
@@ -19,23 +27,34 @@ use crate::{Error, Result};
 /// The suffix every partial file has.
 pub const SUFFIX: &str = ".beezip-partial";
 
-struct Registry {
-    next: u64,
-    live: BTreeMap<u64, PathBuf>,
-    /// Set by [`abandon_all`]: no new partial file may be made, and none may be persisted.
-    abandoned: bool,
-}
+/// The partial files that exist now, by id.
+static LIVE: Mutex<Option<HashMap<u64, PathBuf>>> = Mutex::new(None);
+static NEXT: AtomicU64 = AtomicU64::new(0);
+/// True once [`abandon_all`] has run: no new partial file may be made, and none may be
+/// persisted. Read-locked while a file is created or renamed, so `abandon_all` waits for those
+/// and every one either finishes before it or sees the flag.
+static ABANDONED: RwLock<bool> = RwLock::new(false);
 
-static REGISTRY: Mutex<Registry> = Mutex::new(Registry {
-    next: 0,
-    live: BTreeMap::new(),
-    abandoned: false,
-});
-
-fn registry() -> MutexGuard<'static, Registry> {
+fn live_map() -> MutexGuard<'static, Option<HashMap<u64, PathBuf>>> {
     // A panic while the lock was held can't leave the map inconsistent: every update is a
     // single insert or remove.
-    REGISTRY.lock().unwrap_or_else(PoisonError::into_inner)
+    LIVE.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+/// The abandon flag, read-locked: hold it across creating or renaming.
+fn abandon_guard() -> RwLockReadGuard<'static, bool> {
+    ABANDONED.read().unwrap_or_else(PoisonError::into_inner)
+}
+
+fn record(path: PathBuf) -> u64 {
+    let id = NEXT.fetch_add(1, Ordering::Relaxed);
+    live_map().get_or_insert_with(HashMap::new).insert(id, path);
+    id
+}
+
+/// Whether `id` was still recorded (and isn't any more).
+fn forget(id: u64) -> bool {
+    live_map().as_mut().is_some_and(|m| m.remove(&id).is_some())
 }
 
 /// A file being written. [`Partial::persist`] renames it into place; dropping it deletes it.
@@ -58,8 +77,8 @@ impl Partial {
     /// not indexed: an edited archive keeps its own, docs/M5.md §3.1). Ignored off Windows.
     pub fn create_with(dir: &Path, name: &str, attributes: u32) -> Result<Self> {
         let short: String = name.chars().take(64).collect();
-        let mut reg = registry();
-        if reg.abandoned {
+        let abandoned = abandon_guard();
+        if *abandoned {
             return Err(Error::cancelled());
         }
         // tempfile only picks the name: the file is opened with std, whose default share mode
@@ -88,9 +107,8 @@ impl Partial {
             .into_parts();
         let path = temp_path.to_path_buf();
         drop(temp_path);
-        let id = reg.next;
-        reg.next += 1;
-        reg.live.insert(id, path.clone());
+        let id = record(path.clone());
+        drop(abandoned);
         Ok(Self {
             file: Some(file),
             path,
@@ -169,9 +187,9 @@ impl Partial {
         Ok(())
     }
 
-    /// Closes the file and renames it to `to`, replacing what is there. It holds the registry's
-    /// lock while it renames, so it either lands before [`abandon_all`] or fails with
-    /// `Cancelled` after it. std's rename is used rather than tempfile's `persist`, which calls
+    /// Closes the file and renames it to `to`, replacing what is there. It holds the abandon
+    /// lock for reading while it renames, so it either lands before [`abandon_all`] or fails
+    /// with `Cancelled` after it; other renames go on at the same time. std's rename is used rather than tempfile's `persist`, which calls
     /// `MoveFileExW` without std's long-path handling.
     pub fn persist(self, to: &Path) -> Result<()> {
         self.persist_retrying(to, std::time::Duration::ZERO)
@@ -191,13 +209,13 @@ impl Partial {
         let deadline = std::time::Instant::now() + wait;
         loop {
             {
-                let mut reg = registry();
-                if reg.abandoned {
+                let abandoned = abandon_guard();
+                if *abandoned {
                     return Err((Error::cancelled().into_io(), false));
                 }
                 match fs::rename(&self.path, to) {
                     Ok(()) => {
-                        reg.live.remove(&self.id);
+                        forget(self.id);
                         self.persisted = true;
                         return Ok(());
                     }
@@ -217,9 +235,8 @@ impl Drop for Partial {
             return;
         }
         drop(self.file.take());
-        let recorded = registry().live.remove(&self.id).is_some();
         // After `abandon_all` the file is already gone.
-        if recorded {
+        if forget(self.id) {
             let _ = fs::remove_file(&self.path);
         }
     }
@@ -235,15 +252,18 @@ fn held_open(e: &std::io::Error) -> bool {
 /// that is about to exit without running destructors. Returns how many it deleted. The jobs
 /// writing them see later writes succeed, and their renames fail with `Cancelled`.
 pub fn abandon_all() -> usize {
-    let mut reg = registry();
-    reg.abandoned = true;
-    let live = std::mem::take(&mut reg.live);
-    live.values().filter(|p| fs::remove_file(p).is_ok()).count()
+    let mut abandoned = ABANDONED.write().unwrap_or_else(PoisonError::into_inner);
+    *abandoned = true;
+    let taken = live_map().take().unwrap_or_default();
+    taken
+        .values()
+        .filter(|p| fs::remove_file(p).is_ok())
+        .count()
 }
 
 /// How many partial files are recorded now.
 pub fn live() -> usize {
-    registry().live.len()
+    live_map().as_ref().map_or(0, HashMap::len)
 }
 
 #[cfg(test)]
