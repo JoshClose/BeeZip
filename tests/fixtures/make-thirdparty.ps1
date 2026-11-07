@@ -288,6 +288,27 @@ foreach ($cp in 'cp932', 'cp936', 'cp866') {
         (Expected-Files $legacy[$cp]) $null $false $null @() $cp
 }
 
+# M5's edit fixtures (docs/M5.md §10): zips whose entries an edit must copy byte for byte.
+# 7-Zip writing to stdout can't seek back, so it writes data descriptors; LZMA with ZipCrypto
+# sets both flag bits the zip crate's raw copy drops (bit 1, bit 0); Python's zipfile with
+# force_zip64 puts every entry's sizes in a Zip64 extra.
+& cmd /c "`"$sevenZip`" a -tzip -so stdout.zip tree > 7z-descriptors.zip"
+if ($LASTEXITCODE -ne 0) { throw "7z -so failed with $LASTEXITCODE" }
+Add-Fixture '7z-descriptors.zip' $z '7z.exe a -tzip -so stdout.zip tree > 7z-descriptors.zip' 'zip' (Expected 'tree')
+$cmd = Run $sevenZip @('a', '-tzip', '-mm=LZMA', '-mem=ZipCrypto', "-p$password", '7z-lzma-zipcrypto.zip', 'tree')
+Add-Fixture '7z-lzma-zipcrypto.zip' $z $cmd 'zip' (Expected 'tree') $password
+$py = "Python $((& python -c 'import sys; print(sys.version.split()[0])').Trim()) zipfile"
+$script = "import zipfile, pathlib; z = zipfile.ZipFile('python-zip64.zip', 'w', zipfile.ZIP_DEFLATED)`n" +
+    "for p in sorted(pathlib.Path('tree').rglob('*')):`n" +
+    "    i = zipfile.ZipInfo(p.as_posix() + ('/' if p.is_dir() else ''), (2026, 1, 1, 0, 0, 0))`n" +
+    "    if p.is_dir(): z.writestr(i, b''); continue`n" +
+    "    i.compress_type = zipfile.ZIP_DEFLATED`n" +
+    "    with z.open(i, 'w', force_zip64=True) as w: w.write(p.read_bytes())`n" +
+    "z.close()"
+& python -I -c $script
+if ($LASTEXITCODE -ne 0) { throw "python zipfile failed with $LASTEXITCODE" }
+Add-Fixture 'python-zip64.zip' $py 'zipfile, each entry written with force_zip64=True' 'zip' (Expected 'tree')
+
 # .NET: Compress-Archive, for its handling of non-ASCII names.
 Compress-Archive -Path tree -DestinationPath dotnet.zip
 Add-Fixture 'dotnet.zip' ".NET $([Environment]::Version) (PowerShell $($PSVersionTable.PSVersion) Compress-Archive)" `

@@ -14,7 +14,8 @@
 
 use std::{
     collections::BTreeSet,
-    io::{self, BufReader, Read, Seek, SeekFrom, Write},
+    fs::File,
+    io::{self, BufReader, BufWriter, Read, Seek, SeekFrom, Write},
 };
 
 use zip::{
@@ -26,8 +27,9 @@ use zip::{
 };
 
 use super::{
-    ArchiveFormat, ArchiveInfo, ArchiveReader, ArchiveWriter, Encryption, Entry, EntryKind,
-    EntrySink, FormatCaps, FormatId, NewEntry, NewKind, Selection,
+    ArchiveFormat, ArchiveInfo, ArchiveReader, ArchiveWriter, Copied, Encryption, Entry, EntryKind,
+    EntrySink, FormatCaps, FormatId, Keep, NewEntry, NewKind, Selection,
+    zip_edit::{self, CentralRecord, OffsetView},
 };
 use crate::{
     Ctx, Error, ErrorKind, Meter, MeteredCtx, Result,
@@ -82,6 +84,9 @@ impl ArchiveFormat for Zip {
             list: true,
             extract: true,
             create: true,
+            append: true,
+            delete: true,
+            rename: true,
             encrypt: true,
             random_access: true,
             ..FormatCaps::default()
@@ -388,6 +393,130 @@ impl ZipReader {
                 end: data_end + u64::from(l.tail),
             }
         })
+    }
+
+    /// The central directory holds two entries with one name. The zip crate keeps one entry per
+    /// name, so an edit would drop the other (docs/M5.md §16, PR 1 item 8).
+    pub fn has_duplicate_names(&self) -> bool {
+        self.archive.has_duplicate_names()
+    }
+
+    /// Entry `id`'s central directory record, as stored.
+    pub fn central_record(&self, id: usize) -> Result<Vec<u8>> {
+        let start = self
+            .archive
+            .by_index_data(id)
+            .map_err(zip_error)?
+            .central_header_start();
+        let mut input = self.source.input()?;
+        let mut fixed = [0u8; 46];
+        input
+            .seek(SeekFrom::Start(start))
+            .and_then(|_| input.read_exact(&mut fixed))
+            .map_err(|e| read_error(&e))?;
+        let len = 46
+            + usize::from(u16_at(&fixed, 28))
+            + usize::from(u16_at(&fixed, 30))
+            + usize::from(u16_at(&fixed, 32));
+        let mut rec = vec![0u8; len];
+        input
+            .seek(SeekFrom::Start(start))
+            .and_then(|_| input.read_exact(&mut rec))
+            .map_err(|e| read_error(&e))?;
+        Ok(rec)
+    }
+
+    /// The bytes of entry `id`'s span (local header, data, descriptor), as stored.
+    pub fn span_bytes(&self, id: usize) -> Result<Option<Vec<u8>>> {
+        let Some(span) = self.span(id) else {
+            return Ok(None);
+        };
+        let mut input = self.source.input()?;
+        let len = usize::try_from(span.end - span.header)
+            .map_err(|_| Error::limit("an entry too large to hold"))?;
+        let mut b = vec![0u8; len];
+        input
+            .seek(SeekFrom::Start(span.header))
+            .and_then(|_| input.read_exact(&mut b))
+            .map_err(|e| read_error(&e))?;
+        Ok(Some(b))
+    }
+
+    /// Copies `keep` byte for byte to `ed`'s file, renaming those whose path changed, and
+    /// keeps their central records for the merged directory (docs/M5.md §3.3). Entries whose
+    /// bytes it can't place (an empty entry without a readable local header) are left over.
+    fn copy_into(&mut self, ed: &mut Editor, keep: &[Keep], cx: &mut dyn Ctx) -> Result<Copied> {
+        let mut input = self.source.input()?;
+        let mut cd_input = self.source.input()?;
+        let mut central = HeaderReader {
+            file: &mut cd_input,
+            buf: Vec::new(),
+            at: 0,
+            filled: 0,
+        };
+        ed.comment = self.archive.comment().to_vec();
+        ed.file
+            .seek(SeekFrom::Start(ed.pos))
+            .map_err(|e| write_error(&e))?;
+        let mut out = BufWriter::with_capacity(BUF_SIZE, &mut ed.file);
+        let mut copied = Copied::default();
+        for k in keep {
+            cx.check()?;
+            let (Some(span), Some(entry)) = (self.span(k.id), self.entries.get(k.id)) else {
+                copied.rest.push(k.id);
+                continue;
+            };
+            let start = self
+                .archive
+                .by_index_data(k.id)
+                .map_err(zip_error)?
+                .central_header_start();
+            let fixed = central.bytes(start, 46).map_err(|e| read_error(&e))?;
+            if fixed.len() < 46 {
+                return Err(Error::corrupt(
+                    "zip: a central directory record is cut short",
+                ));
+            }
+            let len = 46
+                + usize::from(u16_at(fixed, 28))
+                + usize::from(u16_at(fixed, 30))
+                + usize::from(u16_at(fixed, 32));
+            let raw = central.bytes(start, len).map_err(|e| read_error(&e))?;
+            let (mut rec, _) = CentralRecord::parse(raw)?;
+            let at = ed.pos;
+            if k.path == entry.path {
+                let n = span.end - span.header;
+                ed.pos += copy_range(&mut input, span.header, n, &mut out, cx)?;
+            } else {
+                let head_len = usize::try_from(span.data - span.header)
+                    .map_err(|_| Error::corrupt("zip: a local header is too long"))?;
+                let mut head = vec![0u8; head_len];
+                input
+                    .seek(SeekFrom::Start(span.header))
+                    .and_then(|_| input.read_exact(&mut head))
+                    .map_err(|e| read_error(&e))?;
+                let head = zip_edit::renamed_local(&head, &k.path)?;
+                out.write_all(&head).map_err(|e| write_error(&e))?;
+                ed.pos += head.len() as u64;
+                let n = span.end - span.data;
+                ed.pos += copy_range(&mut input, span.data, n, &mut out, cx)?;
+                // A comment in the code page is written in UTF-8, as the flag now says.
+                let comment_at = 46 + usize::from(u16_at(raw, 28)) + usize::from(u16_at(raw, 30));
+                let comment_raw = &raw[comment_at.min(raw.len())..];
+                let utf8 = rec.flags() & UTF8_FLAG != 0;
+                let recode = (!utf8 && std::str::from_utf8(comment_raw).is_err()).then(|| {
+                    self.source
+                        .names
+                        .decode(comment_raw, false, SystemPage::Oem)
+                });
+                rec.rename(&k.path, recode.as_deref())?;
+            }
+            rec.set_offset(at)?;
+            ed.kept.push(rec);
+            copied.copied += 1;
+        }
+        out.flush().map_err(|e| write_error(&e))?;
+        Ok(copied)
     }
 
     /// Finds a password that opens entry `i`: the last one that worked, then whatever the
@@ -757,6 +886,10 @@ impl ArchiveReader for ZipReader {
         FormatId::Zip
     }
 
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
+        self
+    }
+
     fn entries(&mut self, _: &mut dyn Ctx) -> Result<&[Entry]> {
         Ok(&self.entries)
     }
@@ -840,15 +973,141 @@ impl ArchiveReader for ZipReader {
     }
 }
 
+/// Copies `len` bytes at `start` of `input` to `out`, checking for cancellation as it goes.
+fn copy_range(
+    input: &mut Input,
+    start: u64,
+    len: u64,
+    out: &mut dyn Write,
+    cx: &mut dyn Ctx,
+) -> Result<u64> {
+    input
+        .seek(SeekFrom::Start(start))
+        .map_err(|e| read_error(&e))?;
+    let n = copy(&mut input.take(len), out, cx)?;
+    if n != len {
+        return Err(Error::corrupt("zip: an entry is cut short"));
+    }
+    Ok(n)
+}
+
+/// Where a zip writer writes.
+enum Out {
+    /// A new zip: the zip crate writes all of it.
+    Plain(Box<zip::ZipWriter<Box<dyn WriteSeek>>>),
+    /// An edit: kept entries copied first, then the new ones after them (docs/M5.md §3.3).
+    Edit(Box<Editor>),
+}
+
+/// A zip being written from another one's entries and new ones.
+struct Editor {
+    /// The output, which is read back for the new entries' central directory.
+    file: File,
+    /// Where the copied entries end.
+    pos: u64,
+    /// The copied entries' central records, pointing at their new places.
+    kept: Vec<CentralRecord>,
+    /// The archive comment's bytes, as the source had them.
+    comment: Vec<u8>,
+    /// The zip crate, writing the new entries after the copied ones, from their first `add`.
+    zip: Option<zip::ZipWriter<OffsetView<File>>>,
+}
+
+impl Editor {
+    /// The zip crate, writing after the copied entries.
+    fn zip(&mut self) -> Result<&mut zip::ZipWriter<OffsetView<File>>> {
+        if self.zip.is_none() {
+            let file = self
+                .file
+                .try_clone()
+                .map_err(|e| Error::io("opening the zip being written", &e))?;
+            let mut view = OffsetView {
+                inner: file,
+                base: self.pos,
+            };
+            view.seek(SeekFrom::Start(0)).map_err(|e| write_error(&e))?;
+            self.zip = Some(zip::ZipWriter::new(view).set_auto_large_file());
+        }
+        self.zip
+            .as_mut()
+            .ok_or_else(|| Error::new(ErrorKind::Io, "the zip writer is gone"))
+    }
+
+    /// The central directory: the copied entries' records, then the new ones' (read back from
+    /// what the zip crate wrote, and moved by where it started), then the end records.
+    fn finish(mut self) -> Result<()> {
+        let (start, mut recs) = match self.zip.take() {
+            None => (self.pos, Vec::new()),
+            Some(zip) => {
+                let mut view = zip.finish().map_err(write_zip_error)?;
+                view.flush().map_err(|e| write_error(&e))?;
+                let len = view.seek(SeekFrom::End(0)).map_err(|e| write_error(&e))?;
+                let (at, size) = zip_edit::find_directory(&mut view, len)?;
+                let size = usize::try_from(size)
+                    .map_err(|_| Error::limit("the new entries' directory is too large"))?;
+                let mut cd = vec![0u8; size];
+                view.seek(SeekFrom::Start(at))
+                    .and_then(|_| view.read_exact(&mut cd))
+                    .map_err(|e| Error::io("reading the zip being written", &e))?;
+                let mut recs = zip_edit::records(&cd)?;
+                for r in &mut recs {
+                    let offset = r
+                        .offset()
+                        .ok_or_else(|| Error::corrupt("zip: a new entry has no offset"))?;
+                    r.set_offset(offset + self.pos)?;
+                }
+                (self.pos + at, recs)
+            }
+        };
+        let mut all = std::mem::take(&mut self.kept);
+        all.append(&mut recs);
+        self.file
+            .seek(SeekFrom::Start(start))
+            .map_err(|e| write_error(&e))?;
+        let mut out = BufWriter::with_capacity(BUF_SIZE, &mut self.file);
+        let end = zip_edit::write_directory(&mut out, start, &all, &self.comment)?;
+        out.flush().map_err(|e| write_error(&e))?;
+        drop(out);
+        self.file.set_len(end).map_err(|e| write_error(&e))?;
+        Ok(())
+    }
+}
+
 /// Writes a zip to a seekable output: a file, or a volume set.
 pub struct ZipWriter {
-    zip: zip::ZipWriter<Box<dyn WriteSeek>>,
+    out: Out,
     opts: ZipWriteOptions,
     level: Option<i64>,
 }
 
 impl ZipWriter {
     pub fn new(out: Box<dyn WriteSeek>, opts: ZipWriteOptions) -> Result<Self> {
+        let (opts, level) = Self::check(opts)?;
+        Ok(Self {
+            out: Out::Plain(Box::new(zip::ZipWriter::new(out).set_auto_large_file())),
+            opts,
+            level,
+        })
+    }
+
+    /// A zip written to `file` for an edit or a convert: [`ArchiveWriter::copy_from`] copies a
+    /// zip's entries byte for byte, then new ones are added after them.
+    pub fn editing(file: File, opts: ZipWriteOptions) -> Result<Self> {
+        let (opts, level) = Self::check(opts)?;
+        Ok(Self {
+            out: Out::Edit(Box::new(Editor {
+                file,
+                pos: 0,
+                kept: Vec::new(),
+                comment: Vec::new(),
+                zip: None,
+            })),
+            opts,
+            level,
+        })
+    }
+
+    fn check(opts: ZipWriteOptions) -> Result<(ZipWriteOptions, Option<i64>)> {
         let level = match (opts.method.levels(), opts.level) {
             (None, None) => None,
             (None, Some(_)) => {
@@ -868,11 +1127,7 @@ impl ZipWriter {
         if opts.password.as_deref() == Some("") {
             return Err(Error::invalid_args("the password is empty"));
         }
-        Ok(Self {
-            zip: zip::ZipWriter::new(out).set_auto_large_file(),
-            opts,
-            level,
-        })
+        Ok((opts, level))
     }
 }
 
@@ -937,32 +1192,66 @@ fn write_zip_error(e: ZipError) -> Error {
     }
 }
 
+/// Adds one entry through the zip crate.
+fn add_to<W: Write + Seek>(
+    zip: &mut zip::ZipWriter<W>,
+    opts: FullFileOptions<'_, 'static>,
+    entry: &NewEntry,
+    data: &mut dyn Read,
+    cx: &mut dyn Ctx,
+) -> Result<()> {
+    match &entry.kind {
+        NewKind::Dir => zip
+            .add_directory(format!("{}/", entry.path.trim_end_matches('/')), opts)
+            .map_err(write_zip_error),
+        NewKind::Symlink { target } => zip
+            .add_symlink(&entry.path, target, opts)
+            .map_err(write_zip_error),
+        NewKind::File => {
+            zip.start_file(&entry.path, opts).map_err(write_zip_error)?;
+            let mut checked = Checked::new(data, cx);
+            io::copy(&mut checked, zip).map_err(|e| read_error(&e))?;
+            Ok(())
+        }
+    }
+}
+
 impl ArchiveWriter for ZipWriter {
     fn add(&mut self, entry: &NewEntry, data: &mut dyn Read, cx: &mut dyn Ctx) -> Result<()> {
         let opts = entry_options(&self.opts, self.level, entry)?;
-        match &entry.kind {
-            NewKind::Dir => self
-                .zip
-                .add_directory(format!("{}/", entry.path), opts)
-                .map_err(write_zip_error),
-            NewKind::Symlink { target } => self
-                .zip
-                .add_symlink(&entry.path, target, opts)
-                .map_err(write_zip_error),
-            NewKind::File => {
-                self.zip
-                    .start_file(&entry.path, opts)
-                    .map_err(write_zip_error)?;
-                let mut checked = Checked::new(data, cx);
-                io::copy(&mut checked, &mut self.zip).map_err(|e| read_error(&e))?;
-                Ok(())
-            }
+        match &mut self.out {
+            Out::Plain(zip) => add_to(zip, opts, entry, data, cx),
+            Out::Edit(ed) => add_to(ed.zip()?, opts, entry, data, cx),
+        }
+    }
+
+    fn copy_from(
+        &mut self,
+        source: &mut dyn ArchiveReader,
+        keep: &[Keep],
+        cx: &mut dyn Ctx,
+    ) -> Result<Copied> {
+        let Out::Edit(ed) = &mut self.out else {
+            return Ok(Copied::nothing(keep));
+        };
+        // Copies go before the new entries, so the zip crate's view starts after them.
+        if ed.zip.is_some() {
+            return Ok(Copied::nothing(keep));
+        }
+        match source.as_any_mut().downcast_mut::<ZipReader>() {
+            Some(r) => r.copy_into(ed, keep, cx),
+            None => Ok(Copied::nothing(keep)),
         }
     }
 
     fn finish(self: Box<Self>) -> Result<()> {
-        let mut file = self.zip.finish().map_err(write_zip_error)?;
-        file.flush().map_err(|e| write_error(&e))
+        match self.out {
+            Out::Plain(zip) => {
+                let mut file = zip.finish().map_err(write_zip_error)?;
+                file.flush().map_err(|e| write_error(&e))
+            }
+            Out::Edit(ed) => ed.finish(),
+        }
     }
 }
 

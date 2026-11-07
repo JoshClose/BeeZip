@@ -11,13 +11,13 @@
 //!   Unix and 0o644/0o755 on Windows, which has no exec bit.
 
 use std::{
-    io::{self, BufReader, Read, Seek, SeekFrom},
+    io::{self, BufReader, Read, Seek, SeekFrom, Write},
     time::SystemTime,
 };
 
 use super::{
-    ArchiveFormat, ArchiveInfo, ArchiveReader, ArchiveWriter, Encryption, Entry, EntryKind,
-    EntrySink, FormatCaps, FormatId, NewEntry, NewKind, Selection, normalize,
+    ArchiveFormat, ArchiveInfo, ArchiveReader, ArchiveWriter, Copied, Encryption, Entry, EntryKind,
+    EntrySink, FormatCaps, FormatId, Keep, NewEntry, NewKind, Selection, normalize,
 };
 use crate::{
     Ctx, Error, Meter, MeteredCtx, Result,
@@ -59,6 +59,9 @@ impl ArchiveFormat for Tar {
             list: true,
             extract: true,
             create: true,
+            append: true,
+            delete: true,
+            rename: true,
             random_access: true,
             ..FormatCaps::default()
         }
@@ -510,6 +513,10 @@ impl ArchiveReader for TarReader {
         FormatId::Tar
     }
 
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
+        self
+    }
+
     fn entries(&mut self, cx: &mut dyn Ctx) -> Result<&[Entry]> {
         self.index(cx)
     }
@@ -595,16 +602,405 @@ impl ArchiveReader for TarReader {
     }
 }
 
+/// One item of a tar as it is stored (docs/M5.md §3.5): an entry's header blocks with the
+/// extension records before it (pax `x`, GNU `L` and `K`) and any GNU sparse extension blocks
+/// after it, or a global pax header (`g`), which isn't an entry.
+#[derive(Debug, Clone)]
+struct RawItem {
+    /// The extension records before the main header, each with its data: (type, bytes).
+    exts: Vec<(u8, Vec<u8>)>,
+    /// The main header.
+    main: [u8; 512],
+    /// GNU sparse extension blocks after the main header.
+    after: Vec<u8>,
+    /// The pax records that apply to the entry, in order.
+    pax: Vec<(Vec<u8>, Vec<u8>)>,
+    global: bool,
+    /// The data after the headers, padded to 512 bytes.
+    data: u64,
+}
+
+impl RawItem {
+    fn write_headers(&self, out: &mut dyn Write) -> io::Result<()> {
+        for (_, b) in &self.exts {
+            out.write_all(b)?;
+        }
+        // A global header is all in `exts`: a zero block after it would end the archive.
+        if !self.global {
+            out.write_all(&self.main)?;
+            out.write_all(&self.after)?;
+        }
+        Ok(())
+    }
+}
+
+/// The most extension data one entry may have: its pax records and long names.
+const MAX_EXT: u64 = 16 << 20;
+
+fn padded(n: u64) -> Option<u64> {
+    n.checked_add(511).map(|n| n & !511)
+}
+
+/// A header's numeric field: octal, or GNU's base-256 when the high bit is set.
+fn numeric(field: &[u8]) -> Option<u64> {
+    if field.first().is_some_and(|b| b & 0x80 != 0) {
+        let mut v: u64 = u64::from(field[0] & 0x7F);
+        for &b in &field[1..] {
+            v = v.checked_mul(256)?.checked_add(u64::from(b))?;
+        }
+        return Some(v);
+    }
+    let digits: Vec<u8> = field
+        .iter()
+        .copied()
+        .skip_while(|&b| b == b' ' || b == 0)
+        .take_while(|&b| b != 0 && b != b' ')
+        .collect();
+    if digits.is_empty() {
+        return Some(0);
+    }
+    octal(&digits)
+}
+
+/// Parses pax records (`LEN key=value\n`), skipping any it can't read.
+fn pax_records(mut data: &[u8]) -> Vec<(Vec<u8>, Vec<u8>)> {
+    let mut out = Vec::new();
+    while !data.is_empty() {
+        let Some(sp) = data.iter().position(|&b| b == b' ') else {
+            break;
+        };
+        let Some(len) = std::str::from_utf8(&data[..sp])
+            .ok()
+            .and_then(|s| s.parse::<usize>().ok())
+            .filter(|&l| l > sp + 1 && l <= data.len())
+        else {
+            break;
+        };
+        let rec = &data[sp + 1..len];
+        let rec = rec.strip_suffix(b"\n").unwrap_or(rec);
+        if let Some(eq) = rec.iter().position(|&b| b == b'=') {
+            out.push((rec[..eq].to_vec(), rec[eq + 1..].to_vec()));
+        }
+        data = &data[len..];
+    }
+    out
+}
+
+/// One pax record, with its length counting itself.
+fn pax_record(key: &[u8], value: &[u8]) -> Vec<u8> {
+    let base = key.len() + value.len() + 3;
+    let mut len = base + base.to_string().len();
+    if len.to_string().len() + base != len {
+        len = base + len.to_string().len();
+    }
+    let mut r = format!("{len} ").into_bytes();
+    r.extend_from_slice(key);
+    r.push(b'=');
+    r.extend_from_slice(value);
+    r.push(b'\n');
+    r
+}
+
+/// Reads exactly `buf.len()` bytes, or none at the end of the input.
+fn read_block<R: Read + ?Sized>(r: &mut R, buf: &mut [u8]) -> io::Result<bool> {
+    let mut n = 0;
+    while n < buf.len() {
+        match r.read(&mut buf[n..]) {
+            Ok(0) if n == 0 => return Ok(false),
+            Ok(0) => {
+                return Err(io::Error::new(
+                    io::ErrorKind::UnexpectedEof,
+                    "the tar ends inside a header",
+                ));
+            }
+            Ok(k) => n += k,
+            Err(e) if e.kind() == io::ErrorKind::Interrupted => {}
+            Err(e) => return Err(e),
+        }
+    }
+    Ok(true)
+}
+
+/// The next item, or `None` at the end-of-archive block (or the end of the input), as the tar
+/// crate reads them.
+fn next_item<R: Read + ?Sized>(r: &mut R) -> Result<Option<RawItem>> {
+    let mut exts = Vec::new();
+    let mut pax = Vec::new();
+    let mut ext_bytes = 0u64;
+    loop {
+        let mut h = [0u8; 512];
+        if !read_block(r, &mut h).map_err(|e| tar_error(&e))? {
+            return if exts.is_empty() {
+                Ok(None)
+            } else {
+                Err(Error::corrupt(
+                    "tar: extension records with no entry after them",
+                ))
+            };
+        }
+        if h.iter().all(|&b| b == 0) {
+            return Ok(None);
+        }
+        if !checksum_ok(&h) {
+            return Err(Error::corrupt("tar: archive header checksum mismatch"));
+        }
+        let kind = h[156];
+        let mut size = numeric(&h[124..136])
+            .ok_or_else(|| Error::corrupt("tar: a header's size is damaged"))?;
+        if matches!(kind, b'x' | b'g' | b'L' | b'K') {
+            ext_bytes = ext_bytes.saturating_add(size);
+            if ext_bytes > MAX_EXT {
+                return Err(Error::limit(
+                    "tar: an entry's extension records are over 16 MiB",
+                ));
+            }
+            let len = padded(size).ok_or_else(|| Error::corrupt("tar: a size overflows"))?;
+            let mut data = vec![0u8; usize::try_from(len).unwrap_or(0)];
+            if !read_block(r, &mut data).map_err(|e| tar_error(&e))? && len > 0 {
+                return Err(Error::corrupt("tar: an extension record is cut short"));
+            }
+            let body = &data[..usize::try_from(size).unwrap_or(0)];
+            if kind == b'g' {
+                let mut bytes = h.to_vec();
+                bytes.extend_from_slice(&data);
+                return Ok(Some(RawItem {
+                    exts: vec![(kind, bytes)],
+                    main: [0; 512],
+                    after: Vec::new(),
+                    pax: Vec::new(),
+                    global: true,
+                    data: 0,
+                }));
+            }
+            if kind == b'x' {
+                pax.extend(pax_records(body));
+            }
+            let mut bytes = h.to_vec();
+            bytes.extend_from_slice(&data);
+            exts.push((kind, bytes));
+            continue;
+        }
+        if let Some((_, v)) = pax.iter().rev().find(|(k, _)| k == b"size")
+            && let Some(n) = std::str::from_utf8(v).ok().and_then(|s| s.parse().ok())
+        {
+            size = n;
+        }
+        let mut after = Vec::new();
+        // GNU sparse files: extension blocks follow while the header says there are more.
+        if kind == b'S' && h[482] != 0 {
+            loop {
+                let mut ext = [0u8; 512];
+                if !read_block(r, &mut ext).map_err(|e| tar_error(&e))? {
+                    return Err(Error::corrupt("tar: a sparse file's map is cut short"));
+                }
+                after.extend_from_slice(&ext);
+                if after.len() as u64 > MAX_EXT {
+                    return Err(Error::limit("tar: a sparse file's map is over 16 MiB"));
+                }
+                if ext[504] == 0 {
+                    break;
+                }
+            }
+        }
+        return Ok(Some(RawItem {
+            exts,
+            main: h,
+            after,
+            pax,
+            global: false,
+            data: padded(size).ok_or_else(|| Error::corrupt("tar: a size overflows"))?,
+        }));
+    }
+}
+
+/// `s` with every byte outside printable ASCII made `_`, for the name fields of a header whose
+/// real name is in a pax record, and cut to `max` bytes (keeping the end).
+fn ascii_stand_in(s: &str, max: usize) -> Vec<u8> {
+    let b: Vec<u8> = s
+        .chars()
+        .map(|c| {
+            if c.is_ascii_graphic() || c == ' ' {
+                c as u8
+            } else {
+                b'_'
+            }
+        })
+        .collect();
+    b[b.len().saturating_sub(max)..].to_vec()
+}
+
+fn set_checksum(h: &mut [u8; 512]) {
+    h[148..156].fill(b' ');
+    let sum: u32 = h.iter().map(|&b| u32::from(b)).sum();
+    let field = format!("{sum:06o}\0 ");
+    h[148..156].copy_from_slice(field.as_bytes());
+}
+
+/// The headers of `item` under a new name and link target (docs/M5.md §3.5): a pax header of
+/// BeeZip's with `path` and `linkpath` and the entry's other records, its GNU long-name records
+/// dropped, and the main header's name fields set to ASCII stand-ins.
+fn renamed_headers(item: &RawItem, path: Option<&str>, link: Option<&str>) -> Vec<u8> {
+    let mut records: Vec<(Vec<u8>, Vec<u8>)> = item
+        .pax
+        .iter()
+        .filter(|(k, _)| !(path.is_some() && k == b"path") && !(link.is_some() && k == b"linkpath"))
+        .cloned()
+        .collect();
+    if let Some(p) = path {
+        for (k, v) in &mut records {
+            if k == b"GNU.sparse.name" {
+                *v = p.as_bytes().to_vec();
+            }
+        }
+        records.push((b"path".to_vec(), p.as_bytes().to_vec()));
+    }
+    if let Some(l) = link {
+        records.push((b"linkpath".to_vec(), l.as_bytes().to_vec()));
+    }
+    let body: Vec<u8> = records.iter().flat_map(|(k, v)| pax_record(k, v)).collect();
+
+    let mut main = item.main;
+    if let Some(p) = path {
+        main[..100].fill(0);
+        let name = ascii_stand_in(p, 100);
+        main[..name.len()].copy_from_slice(&name);
+        // ustar's prefix field; GNU headers keep other fields there.
+        if &main[257..263] == b"ustar\0" {
+            main[345..500].fill(0);
+        }
+    }
+    if let Some(l) = link {
+        main[157..257].fill(0);
+        let name = ascii_stand_in(l, 100);
+        main[157..157 + name.len()].copy_from_slice(&name);
+    }
+    set_checksum(&mut main);
+
+    let mut x = [0u8; 512];
+    let name = ascii_stand_in(&format!("PaxHeaders/{}", path.unwrap_or_default()), 100);
+    x[..name.len()].copy_from_slice(&name);
+    x[100..108].copy_from_slice(b"0000644\0");
+    x[108..116].copy_from_slice(b"0000000\0");
+    x[116..124].copy_from_slice(b"0000000\0");
+    x[124..136].copy_from_slice(format!("{:011o}\0", body.len()).as_bytes());
+    x[136..148].copy_from_slice(&item.main[136..148]);
+    x[156] = b'x';
+    x[257..263].copy_from_slice(b"ustar\0");
+    x[263..265].copy_from_slice(b"00");
+    set_checksum(&mut x);
+
+    let mut out = x.to_vec();
+    out.extend_from_slice(&body);
+    out.resize(out.len().div_ceil(512) * 512, 0);
+    for (kind, bytes) in &item.exts {
+        let dropped =
+            *kind == b'x' || (path.is_some() && *kind == b'L') || (link.is_some() && *kind == b'K');
+        if !dropped {
+            out.extend_from_slice(bytes);
+        }
+    }
+    out.extend_from_slice(&main);
+    out.extend_from_slice(&item.after);
+    out
+}
+
+impl TarReader {
+    /// Writes `keep` to `out` as they are stored (docs/M5.md §3.5), from one pass over the tar:
+    /// kept entries byte for byte, renamed ones and links whose target moved with new headers,
+    /// global pax headers where they were. The new entries and the end blocks come after.
+    fn copy_into(&mut self, out: &mut dyn Write, keep: &[Keep], cx: &mut dyn Ctx) -> Result<u64> {
+        let index = self.index(cx)?.to_vec();
+        let mut paths: Vec<Option<String>> = vec![None; index.len()];
+        for k in keep {
+            if let Some(p) = paths.get_mut(k.id) {
+                *p = Some(k.path.clone());
+            }
+        }
+        // A hard link names an earlier entry by path; when that one moves, so does the link.
+        let mut links: Vec<Option<String>> = vec![None; index.len()];
+        for (id, e) in index.iter().enumerate() {
+            let (EntryKind::Hardlink { target }, Some(_)) = (&e.kind, &paths[id]) else {
+                continue;
+            };
+            let t = normalize(target);
+            if let Some(to) = index[..id]
+                .iter()
+                .rposition(|x| normalize(&x.path) == t)
+                .and_then(|i| paths[i].as_ref().filter(|p| normalize(p) != t))
+            {
+                links[id] = Some(normalize(to));
+            }
+        }
+        let mut stream: Box<dyn Read> = if self.plain() {
+            Box::new(BufReader::with_capacity(BUF_SIZE, self.source.open_file()?))
+        } else {
+            Box::new(self.source.open_stream()?)
+        };
+        let werr = |e: io::Error| write_error(&e);
+        let mut id = 0usize;
+        let mut copied = 0u64;
+        while let Some(item) = next_item(&mut stream)? {
+            cx.check()?;
+            if item.global {
+                item.write_headers(out).map_err(werr)?;
+                continue;
+            }
+            let entry = index
+                .get(id)
+                .ok_or_else(|| Error::corrupt("tar: more entries than the listing has"))?;
+            let mut data = (&mut stream).take(item.data);
+            match &paths[id] {
+                None => {
+                    crate::io::drain(&mut data, cx)?;
+                }
+                Some(p) => {
+                    let renamed = (*p != entry.path).then_some(p.as_str());
+                    let link = links[id].as_deref();
+                    if renamed.is_none() && link.is_none() {
+                        item.write_headers(out).map_err(werr)?;
+                    } else {
+                        out.write_all(&renamed_headers(&item, renamed, link))
+                            .map_err(werr)?;
+                    }
+                    let n = crate::io::copy(&mut data, out, cx)?;
+                    if n != item.data {
+                        return Err(Error::corrupt("tar: an entry's data is cut short"));
+                    }
+                    copied += 1;
+                }
+            }
+            id += 1;
+        }
+        if id != index.len() {
+            return Err(Error::corrupt("tar: fewer entries than the listing has"));
+        }
+        Ok(copied)
+    }
+}
+
 /// Writes a tar to `out`, which a codec encoder may wrap.
 pub struct TarWriter<'a> {
     builder: tar::Builder<Box<dyn FinishWrite + 'a>>,
+    /// `out` is a codec's encoder, so kept entries are encoded again.
+    compressed: bool,
 }
 
 impl<'a> TarWriter<'a> {
     pub fn new(out: Box<dyn FinishWrite + 'a>) -> Self {
         let mut builder = tar::Builder::new(out);
         builder.mode(tar::HeaderMode::Complete);
-        Self { builder }
+        Self {
+            builder,
+            compressed: false,
+        }
+    }
+
+    /// The same, writing through a codec's encoder.
+    pub fn compressed(out: Box<dyn FinishWrite + 'a>) -> Self {
+        Self {
+            compressed: true,
+            ..Self::new(out)
+        }
     }
 }
 
@@ -661,6 +1057,29 @@ impl ArchiveWriter for TarWriter<'_> {
                     .map_err(err)
             }
         }
+    }
+
+    fn copy_from(
+        &mut self,
+        source: &mut dyn ArchiveReader,
+        keep: &[Keep],
+        cx: &mut dyn Ctx,
+    ) -> Result<Copied> {
+        let Some(r) = source.as_any_mut().downcast_mut::<TarReader>() else {
+            return Ok(Copied::nothing(keep));
+        };
+        let n = r.copy_into(self.builder.get_mut(), keep, cx)?;
+        Ok(if self.compressed {
+            Copied {
+                recompressed: n,
+                ..Copied::default()
+            }
+        } else {
+            Copied {
+                copied: n,
+                ..Copied::default()
+            }
+        })
     }
 
     fn finish(self: Box<Self>) -> Result<()> {

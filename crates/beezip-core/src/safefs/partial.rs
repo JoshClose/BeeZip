@@ -51,6 +51,12 @@ impl Partial {
     /// Creates `<name>.<random>.beezip-partial` in `dir` and records it. `name` is cut to 64
     /// characters. Fails with `Cancelled` once [`abandon_all`] has run.
     pub fn create(dir: &Path, name: &str) -> Result<Self> {
+        Self::create_with(dir, name, 0)
+    }
+
+    /// [`Partial::create`], with Windows file attributes set as it is created (hidden, system,
+    /// not indexed: an edited archive keeps its own, docs/M5.md §3.1). Ignored off Windows.
+    pub fn create_with(dir: &Path, name: &str, attributes: u32) -> Result<Self> {
         let short: String = name.chars().take(64).collect();
         let mut reg = registry();
         if reg.abandoned {
@@ -67,11 +73,16 @@ impl Partial {
             .rand_bytes(6)
             .disable_cleanup(true)
             .make_in(dir, |path| {
-                OpenOptions::new()
-                    .read(true)
-                    .write(true)
-                    .create_new(true)
-                    .open(path)
+                let mut o = OpenOptions::new();
+                o.read(true).write(true).create_new(true);
+                #[cfg(windows)]
+                if attributes != 0 {
+                    use std::os::windows::fs::OpenOptionsExt;
+                    o.attributes(attributes);
+                }
+                #[cfg(not(windows))]
+                let _ = attributes;
+                o.open(path)
             })
             .map_err(|e| Error::io(format!("creating a file in {}", dir.display()), &e))?
             .into_parts();
@@ -143,21 +154,60 @@ impl Partial {
             .map_err(|e| Error::io(format!("opening {}", self.path.display()), &e))
     }
 
+    /// Sets the file's creation time (Windows; elsewhere nothing happens).
+    pub fn set_created(&self, created: std::time::SystemTime) -> Result<()> {
+        #[cfg(windows)]
+        {
+            use std::os::windows::fs::FileTimesExt;
+            let times = fs::FileTimes::new().set_created(created);
+            self.file()
+                .set_times(times)
+                .map_err(|e| Error::io(format!("writing {}", self.path.display()), &e))?;
+        }
+        #[cfg(not(windows))]
+        let _ = created;
+        Ok(())
+    }
+
     /// Closes the file and renames it to `to`, replacing what is there. It holds the registry's
     /// lock while it renames, so it either lands before [`abandon_all`] or fails with
     /// `Cancelled` after it. std's rename is used rather than tempfile's `persist`, which calls
     /// `MoveFileExW` without std's long-path handling.
-    pub fn persist(mut self, to: &Path) -> Result<()> {
+    pub fn persist(self, to: &Path) -> Result<()> {
+        self.persist_retrying(to, std::time::Duration::ZERO)
+            .map_err(|(e, _)| Error::io(format!("writing {}", to.display()), &e))
+    }
+
+    /// [`Partial::persist`], trying again for up to `wait` while the rename is refused because
+    /// another program holds `to` open without letting it be deleted (`ERROR_ACCESS_DENIED`,
+    /// `ERROR_SHARING_VIOLATION`): virus scanners and indexers let go quickly. The error that
+    /// comes back says whether that was why it failed. The partial file is deleted on failure.
+    pub fn persist_retrying(
+        mut self,
+        to: &Path,
+        wait: std::time::Duration,
+    ) -> std::result::Result<(), (std::io::Error, bool)> {
         drop(self.file.take());
-        let mut reg = registry();
-        if reg.abandoned {
-            return Err(Error::cancelled());
+        let deadline = std::time::Instant::now() + wait;
+        loop {
+            {
+                let mut reg = registry();
+                if reg.abandoned {
+                    return Err((Error::cancelled().into_io(), false));
+                }
+                match fs::rename(&self.path, to) {
+                    Ok(()) => {
+                        reg.live.remove(&self.id);
+                        self.persisted = true;
+                        return Ok(());
+                    }
+                    Err(e) if !held_open(&e) => return Err((e, false)),
+                    Err(e) if std::time::Instant::now() >= deadline => return Err((e, true)),
+                    Err(_) => {}
+                }
+            }
+            std::thread::sleep(std::time::Duration::from_millis(100));
         }
-        fs::rename(&self.path, to)
-            .map_err(|e| Error::io(format!("writing {}", to.display()), &e))?;
-        reg.live.remove(&self.id);
-        self.persisted = true;
-        Ok(())
     }
 }
 
@@ -173,6 +223,12 @@ impl Drop for Partial {
             let _ = fs::remove_file(&self.path);
         }
     }
+}
+
+/// A rename refused because another handle holds the target without `FILE_SHARE_DELETE`.
+fn held_open(e: &std::io::Error) -> bool {
+    // ERROR_ACCESS_DENIED, ERROR_SHARING_VIOLATION, ERROR_LOCK_VIOLATION.
+    cfg!(windows) && matches!(e.raw_os_error(), Some(5 | 32 | 33))
 }
 
 /// Deletes every partial file this process has open and refuses new ones, for a front end

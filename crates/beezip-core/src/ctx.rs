@@ -54,6 +54,13 @@ pub trait Ctx {
     /// What to do about an existing file. Only called for the `ask` overwrite policy.
     fn overwrite(&mut self, existing: &Path) -> Result<OverwriteChoice>;
 
+    /// What to do about an entry already in `archive` at `entry`, when adding a file of the
+    /// same name with the `ask` policy (docs/M5.md §7.1). The default asks as for a file.
+    fn overwrite_entry(&mut self, archive: &Path, entry: &str) -> Result<OverwriteChoice> {
+        let _ = archive;
+        self.overwrite(Path::new(entry))
+    }
+
     /// Called by copy loops between buffers: fails once the job is cancelled. Wrappers such as
     /// [`MeteredCtx`] also report progress here.
     fn check(&mut self) -> Result<()> {
@@ -222,6 +229,10 @@ impl Ctx for MeteredCtx<'_> {
 
     fn overwrite(&mut self, existing: &Path) -> Result<OverwriteChoice> {
         self.inner.overwrite(existing)
+    }
+
+    fn overwrite_entry(&mut self, archive: &Path, entry: &str) -> Result<OverwriteChoice> {
+        self.inner.overwrite_entry(archive, entry)
     }
 
     fn check(&mut self) -> Result<()> {

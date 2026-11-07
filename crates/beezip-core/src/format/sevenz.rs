@@ -35,8 +35,8 @@ use sevenz_rust2::{
 };
 
 use super::{
-    ArchiveFormat, ArchiveInfo, ArchiveReader, ArchiveWriter, Encryption, Entry, EntryKind,
-    EntrySink, FormatCaps, FormatId, NewEntry, NewKind, Selection,
+    ArchiveFormat, ArchiveInfo, ArchiveReader, ArchiveWriter, Copied, Encryption, Entry, EntryKind,
+    EntrySink, FormatCaps, FormatId, Keep, NewEntry, NewKind, Selection,
     sevenz_header::{self, HeaderInfo, SIGNATURE},
 };
 use crate::{
@@ -79,13 +79,15 @@ impl ArchiveFormat for SevenZ {
             list: true,
             extract: true,
             create: true,
+            append: true,
+            delete: true,
+            rename: true,
             encrypt: true,
             encrypt_headers: true,
             solid: true,
             volumes: true,
             // A solid block decodes from its start.
             random_access: false,
-            ..FormatCaps::default()
         }
     }
 }
@@ -776,6 +778,10 @@ impl ArchiveReader for SevenZReader {
         FormatId::SevenZ
     }
 
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
+        self
+    }
+
     fn entries(&mut self, _: &mut dyn Ctx) -> Result<&[Entry]> {
         Ok(&self.entries)
     }
@@ -1012,6 +1018,10 @@ fn decode_one(
 pub struct SevenZWriter {
     w: sevenz_rust2::ArchiveWriter<Box<dyn WriteSeek>>,
     block_limit: Option<u64>,
+    /// The content methods new blocks get: AES first when there is a password.
+    methods: Vec<EncoderConfiguration>,
+    /// The compression method alone, for blocks encoded again with their own password.
+    method: EncoderConfiguration,
 }
 
 fn sz_write_error(e: sevenz_rust2::Error) -> Error {
@@ -1061,14 +1071,345 @@ impl SevenZWriter {
             }
             methods.push(AesEncoderOptions::new(Password::new(pw)).into());
         }
-        methods.push(method);
+        methods.push(method.clone());
         let mut w = sevenz_rust2::ArchiveWriter::new(out).map_err(sz_write_error)?;
-        w.set_content_methods(methods);
+        w.set_content_methods(methods.clone());
         w.set_encrypt_header(opts.encrypt_headers && opts.password.is_some());
         Ok(Self {
             w,
             block_limit: opts.solid.then(|| opts.block_limit()),
+            methods,
+            method,
         })
+    }
+
+    /// Encodes `entries` (a block's kept entries, renamed, with their metadata) as one block,
+    /// reading their data from `feed` in order. An encrypted block is encrypted again with the
+    /// password that decoded it; the others get the method alone.
+    fn push_reencoded(
+        &mut self,
+        entries: Vec<ArchiveEntry>,
+        feed: BlockFeed,
+        password: Option<&str>,
+        cx: &mut dyn Ctx,
+    ) -> Result<()> {
+        let mut methods = Vec::new();
+        if let Some(pw) = password {
+            methods.push(AesEncoderOptions::new(Password::new(pw)).into());
+        }
+        methods.push(self.method.clone());
+        self.w.set_content_methods(methods);
+        let shared = RefCell::new(FeedShared {
+            first: Some(feed.first),
+            rx: feed.rx,
+            cx,
+        });
+        let shared = &shared;
+        let readers: Vec<SourceReader<FeedRead<'_, '_>>> = (0..entries.len())
+            .map(|_| SourceReader::new(FeedRead { shared, cur: None }))
+            .collect();
+        let pushed = self
+            .w
+            .push_archive_entries(entries, readers)
+            .map(|_| ())
+            .map_err(sz_write_error);
+        self.w.set_content_methods(self.methods.clone());
+        pushed
+    }
+}
+
+/// A block being decoded on a helper thread for [`SevenZWriter::push_reencoded`]: the first
+/// kept entry's data, already started, then the others' as the thread reaches them.
+struct BlockFeed {
+    first: crate::io::PipeReader,
+    rx: std::sync::mpsc::Receiver<Result<crate::io::PipeReader>>,
+}
+
+struct FeedShared<'c> {
+    first: Option<crate::io::PipeReader>,
+    rx: std::sync::mpsc::Receiver<Result<crate::io::PipeReader>>,
+    cx: &'c mut dyn Ctx,
+}
+
+/// One kept entry's data from a [`BlockFeed`], taken on its first read. Checks for
+/// cancellation (which reports progress) before every read.
+struct FeedRead<'s, 'c> {
+    shared: &'s RefCell<FeedShared<'c>>,
+    cur: Option<crate::io::PipeReader>,
+}
+
+impl Read for FeedRead<'_, '_> {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        if self.cur.is_none() {
+            let mut shared = self.shared.borrow_mut();
+            shared.cx.check().map_err(Error::into_io)?;
+            let next = match shared.first.take() {
+                Some(r) => r,
+                None => match shared.rx.recv() {
+                    Ok(Ok(r)) => r,
+                    Ok(Err(e)) => return Err(e.into_io()),
+                    Err(_) => {
+                        return Err(Error::corrupt("the 7z decoder stopped early").into_io());
+                    }
+                },
+            };
+            self.cur = Some(next);
+        } else {
+            self.shared
+                .borrow_mut()
+                .cx
+                .check()
+                .map_err(Error::into_io)?;
+        }
+        match self.cur.as_mut() {
+            Some(r) => r.read(buf),
+            None => Ok(0),
+        }
+    }
+}
+
+/// The archive input for `push_raw_block`, checking for cancellation (and reporting progress)
+/// before every read.
+struct CheckedInput<'a> {
+    inner: &'a mut Input,
+    cx: &'a mut dyn Ctx,
+}
+
+impl Read for CheckedInput<'_> {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        self.cx.check().map_err(Error::into_io)?;
+        self.inner.read(buf)
+    }
+}
+
+impl io::Seek for CheckedInput<'_> {
+    fn seek(&mut self, pos: io::SeekFrom) -> io::Result<u64> {
+        self.inner.seek(pos)
+    }
+}
+
+impl SevenZReader {
+    /// The password that opened the archive or decoded a block, which the header and new blocks
+    /// of an edit are encrypted with when the archive's header was (docs/M5.md §3.7).
+    pub fn password(&self) -> Option<&str> {
+        self.password.as_deref()
+    }
+
+    /// The names are encrypted.
+    pub fn encrypted_header(&self) -> bool {
+        self.header.encrypted
+    }
+
+    /// Writes `keep` into `w` (docs/M5.md §3.4): blocks whose entries all stay are copied as they
+    /// are, renamed through `push_raw_block`; entries without data are written again with their
+    /// metadata; a block that loses an entry is decoded, and the entries it keeps are encoded
+    /// again into one block.
+    fn copy_into(
+        &mut self,
+        w: &mut SevenZWriter,
+        keep: &[Keep],
+        cx: &mut dyn Ctx,
+    ) -> Result<Copied> {
+        let archive = Arc::clone(&self.archive);
+        let files = &archive.files;
+        let map = &archive.stream_map.file_block_index;
+        // The name each kept file is written under: its own bytes when unchanged.
+        let mut names: Vec<Option<String>> = vec![None; files.len()];
+        for k in keep {
+            if let (Some(&f), Some(e)) = (self.file_of.get(k.id), self.entries.get(k.id)) {
+                names[f] = Some(if k.path == e.path {
+                    files[f].name.clone()
+                } else {
+                    k.path.clone()
+                });
+            }
+        }
+        let mut copied = Copied::default();
+        let mut input = self.source.input()?;
+        let mut done = vec![false; archive.blocks.len()];
+        for f in 0..files.len() {
+            cx.check()?;
+            let file = &files[f];
+            if file.is_anti_item {
+                continue;
+            }
+            match map[f] {
+                Some(b) if file.has_stream => {
+                    if done.get(b).copied().unwrap_or(true) {
+                        continue;
+                    }
+                    done[b] = true;
+                    let members: Vec<usize> = self.blocks[b]
+                        .files
+                        .clone()
+                        .filter(|&i| files[i].has_stream && map[i] == Some(b))
+                        .collect();
+                    let kept = members.iter().filter(|&&i| names[i].is_some()).count();
+                    if kept == 0 {
+                        continue;
+                    }
+                    if kept == members.len() {
+                        let mut order = members
+                            .iter()
+                            .map(|&i| names[i].clone().unwrap_or_default())
+                            .collect::<Vec<_>>()
+                            .into_iter();
+                        let mut src = CheckedInput {
+                            inner: &mut input,
+                            cx,
+                        };
+                        w.w.push_raw_block(&archive, b, &mut src, |_| {
+                            order.next().unwrap_or_default()
+                        })
+                        .map_err(sz_write_error)?;
+                        copied.copied += kept as u64;
+                    } else {
+                        self.reencode(w, b, &names, cx)?;
+                        copied.recompressed += kept as u64;
+                    }
+                }
+                _ => {
+                    if let Some(name) = &names[f] {
+                        let mut e = file.clone();
+                        e.name = name.clone();
+                        w.w.push_archive_entry::<&[u8]>(e, None)
+                            .map_err(sz_write_error)?;
+                        copied.copied += 1;
+                    }
+                }
+            }
+        }
+        Ok(copied)
+    }
+
+    /// Decodes block `b` and encodes the entries `names` keeps again, as one block. A wrong
+    /// password shows before anything is written, so it is asked again.
+    fn reencode(
+        &mut self,
+        w: &mut SevenZWriter,
+        b: usize,
+        names: &[Option<String>],
+        cx: &mut dyn Ctx,
+    ) -> Result<()> {
+        self.check_memory(b)?;
+        let archive = Arc::clone(&self.archive);
+        let range = self.blocks[b].files.clone();
+        let keep: Vec<bool> = range
+            .clone()
+            .map(|i| {
+                archive.files[i].has_stream
+                    && archive.stream_map.file_block_index[i] == Some(b)
+                    && names[i].is_some()
+            })
+            .collect();
+        let entries: Vec<ArchiveEntry> = range
+            .clone()
+            .zip(&keep)
+            .filter(|(_, k)| **k)
+            .map(|(i, _)| {
+                let mut e = archive.files[i].clone();
+                e.name = names[i].clone().unwrap_or_default();
+                e
+            })
+            .collect();
+        let first = range
+            .clone()
+            .zip(&keep)
+            .find(|(_, k)| **k)
+            .and_then(|(i, _)| self.entry_of[i])
+            .map(|id| self.entries[id].path.clone())
+            .unwrap_or_default();
+        let encrypted = self.blocks[b].encrypted;
+        let mut failed = 0u32;
+        loop {
+            cx.check()?;
+            let pw = if encrypted {
+                Some(self.block_password(&first, failed, cx)?)
+            } else {
+                None
+            };
+            let rx = self.spawn_block_copy(b, keep.clone(), pw.clone())?;
+            let started = match rx.recv() {
+                Ok(Ok(mut r)) => match r.first_error() {
+                    Some(e) => Err(e),
+                    None => Ok(r),
+                },
+                Ok(Err(e)) => Err(e),
+                Err(_) => Err(Error::corrupt("the 7z decoder stopped early")),
+            };
+            match started {
+                Err(e) if encrypted && e.kind == ErrorKind::WrongPassword => {
+                    failed += 1;
+                    self.password = None;
+                }
+                Err(e) => return Err(e),
+                Ok(first) => {
+                    if pw.is_some() {
+                        self.password.clone_from(&pw);
+                    }
+                    let feed = BlockFeed { first, rx };
+                    return w.push_reencoded(entries, feed, pw.as_deref(), cx);
+                }
+            }
+        }
+    }
+
+    /// Decodes block `b` on a helper thread with its own input. Each file of the block's range
+    /// that `keep` marks gets a pipe, sent before its data is written to it; the others are
+    /// read and dropped. A failure outside an entry's data comes through the channel.
+    fn spawn_block_copy(
+        &self,
+        b: usize,
+        keep: Vec<bool>,
+        password: Option<String>,
+    ) -> Result<std::sync::mpsc::Receiver<Result<crate::io::PipeReader>>> {
+        let archive = Arc::clone(&self.archive);
+        let mut input = self.source.open_file()?;
+        let threads = self.threads(b);
+        let encrypted = self.blocks[b].encrypted;
+        let last = keep.iter().rposition(|&k| k).unwrap_or(0);
+        let (tx, rx) = std::sync::mpsc::sync_channel(1);
+        std::thread::Builder::new()
+            .name("beezip-7z-edit".into())
+            .spawn(move || {
+                let password = password
+                    .as_deref()
+                    .map_or_else(Password::empty, Password::new);
+                let decoder = BlockDecoder::new(threads, b, &archive, &password, &mut input);
+                let mut slot: Option<Error> = None;
+                let mut k = 0usize;
+                let result = decoder.for_each_entries(&mut |_, data: &mut dyn Read| {
+                    let at = k;
+                    k += 1;
+                    let mut tagged = DecodeTag::new(data, encrypted);
+                    if keep.get(at).copied().unwrap_or(false) {
+                        let (mut out, reader) = pipe(4, BUF_SIZE);
+                        if tx.send(Ok(reader)).is_err() {
+                            slot = Some(Error::cancelled());
+                            return Err(sevenz_rust2::Error::Other("stopped".into()));
+                        }
+                        match io::copy(&mut tagged, &mut out) {
+                            Ok(_) => out.finish(Ok(())),
+                            Err(e) => {
+                                let err = read_error(&e);
+                                out.finish(Err(err.clone()));
+                                slot = Some(err);
+                                return Err(sevenz_rust2::Error::Other("decode".into()));
+                            }
+                        }
+                    } else if let Err(e) = io::copy(&mut tagged, &mut io::sink()) {
+                        slot = Some(read_error(&e));
+                        return Err(sevenz_rust2::Error::Other("decode".into()));
+                    }
+                    Ok(at < last)
+                });
+                if let Err(e) = result {
+                    let err = slot.take().unwrap_or_else(|| sz_error(e, encrypted));
+                    let _ = tx.send(Err(err));
+                }
+            })
+            .map_err(|e| Error::io("starting the 7z decoder", &e))?;
+        Ok(rx)
     }
 }
 
@@ -1161,6 +1502,18 @@ impl ArchiveWriter for SevenZWriter {
 
     fn solid_block_limit(&self) -> Option<u64> {
         self.block_limit
+    }
+
+    fn copy_from(
+        &mut self,
+        source: &mut dyn ArchiveReader,
+        keep: &[Keep],
+        cx: &mut dyn Ctx,
+    ) -> Result<Copied> {
+        match source.as_any_mut().downcast_mut::<SevenZReader>() {
+            Some(r) => r.copy_into(self, keep, cx),
+            None => Ok(Copied::nothing(keep)),
+        }
     }
 
     fn add_solid(

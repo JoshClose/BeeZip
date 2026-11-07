@@ -7,8 +7,9 @@ pub mod sevenz_header;
 pub mod stream;
 pub mod tar;
 pub mod zip;
+pub mod zip_edit;
 
-use std::{collections::BTreeSet, fmt, io::Read, time::SystemTime};
+use std::{any::Any, collections::BTreeSet, fmt, io::Read, time::SystemTime};
 
 use globset::{GlobBuilder, GlobSet, GlobSetBuilder};
 
@@ -351,6 +352,10 @@ pub trait EntrySink {
 pub trait ArchiveReader: Send {
     fn format(&self) -> FormatId;
 
+    /// The reader itself, so a writer of the same format can find its own reader behind the
+    /// trait object and copy entries without decoding them ([`ArchiveWriter::copy_from`]).
+    fn as_any_mut(&mut self) -> &mut dyn Any;
+
     /// The entry index. Zip reads it from the central directory when it opens; tar, behind a
     /// codec, has to decode the whole stream once, so it builds it on first use.
     fn entries(&mut self, cx: &mut dyn Ctx) -> Result<&[Entry]>;
@@ -391,9 +396,52 @@ pub enum NewKind {
     Symlink { target: String },
 }
 
+/// An entry of the source archive to keep in the one being written, under `path`: its own, or
+/// a new name (docs/M5.md §3.2).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Keep {
+    pub id: usize,
+    pub path: String,
+}
+
+/// What [`ArchiveWriter::copy_from`] did with the entries it was given.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Copied {
+    /// The ids it didn't copy, in the order given: the caller decodes them and adds them.
+    pub rest: Vec<usize>,
+    /// Entries copied as they were, without decoding.
+    pub copied: u64,
+    /// Entries the writer decoded and encoded again itself: the kept entries of a 7z block that
+    /// lost one, or a compressed tar's.
+    pub recompressed: u64,
+}
+
+impl Copied {
+    /// Nothing copied: every entry is left to the caller.
+    pub fn nothing(keep: &[Keep]) -> Self {
+        Self {
+            rest: keep.iter().map(|k| k.id).collect(),
+            ..Self::default()
+        }
+    }
+}
+
 /// Writes a new archive. `finish` must be called; until it succeeds the output is incomplete.
 pub trait ArchiveWriter {
     fn add(&mut self, entry: &NewEntry, data: &mut dyn Read, cx: &mut dyn Ctx) -> Result<()>;
+
+    /// Copies whichever of `keep` it can without decoding them, from `source` when that is a
+    /// reader of its own format, in the order given and before anything is added. The rest are
+    /// returned for the caller to decode and add. The default copies nothing.
+    fn copy_from(
+        &mut self,
+        source: &mut dyn ArchiveReader,
+        keep: &[Keep],
+        cx: &mut dyn Ctx,
+    ) -> Result<Copied> {
+        let _ = (source, cx);
+        Ok(Copied::nothing(keep))
+    }
 
     /// For a writer that packs files into solid blocks: the most bytes one block holds.
     /// `ops::create` then hands it files in groups through [`ArchiveWriter::add_solid`].
