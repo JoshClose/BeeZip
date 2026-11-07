@@ -775,6 +775,7 @@ fn partition_entries(image: &udif::Image, limits: &Limits) -> Result<(Vec<Entry>
     for (i, p) in image.partitions.iter().enumerate() {
         let mut e = Entry::new(i, partition_name(i, count, &p.name), EntryKind::File);
         e.size = Some(p.bytes());
+        e.packed_size = Some(p.runs.iter().map(|r| r.len).sum());
         e.crc32 = p.data_crc();
         entries.push(e);
         items.push(Item::Partition(i));
@@ -1573,6 +1574,52 @@ mod tests {
             read(&mut r, "forked").unwrap_err().kind,
             ErrorKind::UnsupportedOperation
         );
+    }
+
+    #[test]
+    #[ignore = "a timing, run by hand"]
+    fn fstool_writer_timing() {
+        let n = 10_000u32;
+        let mut opts = FormatOpts::default();
+        let mut plan = HfsPlusSizePlan::new(&opts);
+        for d in 0..100 {
+            plan.add_dir(&format!("/d{d}"));
+        }
+        for i in 0..n {
+            plan.add_file(&format!("/d{}/f{i}.txt", i % 100), 1000);
+        }
+        plan.apply_to(&mut opts);
+        let size = (plan.total_size() + (4 << 20)).div_ceil(4096) * 4096;
+        let dir = tempfile::tempdir().unwrap();
+        let file = File::options()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .open(dir.path().join("v.hfs"))
+            .unwrap();
+        file.set_len(size).unwrap();
+        let mut dev = FileDevice { file, size };
+        let t = std::time::Instant::now();
+        let mut vol = HfsPlus::format(&mut dev, &opts).unwrap();
+        println!("format {:?}", t.elapsed());
+        for d in 0..100 {
+            vol.create_dir(&mut dev, &format!("/d{d}"), 0o755, UID, GID, 1)
+                .unwrap();
+        }
+        let body = vec![7u8; 1000];
+        let t = std::time::Instant::now();
+        for i in 0..n {
+            let path = format!("/d{}/f{i}.txt", i % 100);
+            vol.create_file(&mut dev, &path, &mut &body[..], 1000, 0o644, UID, GID, 1)
+                .unwrap();
+            if i % 2500 == 2499 {
+                println!("{} files {:?}", i + 1, t.elapsed());
+            }
+        }
+        let t = std::time::Instant::now();
+        vol.flush(&mut dev).unwrap();
+        println!("flush {:?}", t.elapsed());
     }
 
     #[test]

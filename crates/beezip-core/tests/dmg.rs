@@ -456,6 +456,8 @@ fn partitions_are_listed_without_a_volume() {
     assert_eq!(entries[0].path, "0.hfs");
     assert_eq!(entries[0].size, Some(sectors.len() as u64));
     assert_eq!(entries[0].crc32, Some(crc32fast::hash(&sectors)));
+    // Noise doesn't compress: its chunks are stored raw.
+    assert_eq!(entries[0].packed_size, Some(sectors.len() as u64));
     let mut data = Vec::new();
     opened
         .reader

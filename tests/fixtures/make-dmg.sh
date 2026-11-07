@@ -192,7 +192,8 @@ done
 # The records: each image attached read-only and walked.
 for img in "$out"/dmg/*.dmg; do
     name="$(basename "$img")"
-    attach -readonly "$img"
+    # With owners on, files show the owners the volume gives them, not the user mounting it.
+    attach -readonly -owners on "$img"
     # sudo: .fseventsd and .Trashes are root's.
     sudo python3 -I -B - "$mnt" "$work/walk-$name.json" <<'PY'
 import ctypes, hashlib, json, os, stat, sys, unicodedata
