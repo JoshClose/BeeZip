@@ -483,6 +483,247 @@ fn encrypted_images_are_refused() {
     }
 }
 
+/// Images from elsewhere, named in `BEEZIP_DMG_SAMPLES` (separated by `;`): every partition
+/// decodes to the CRC32 its table gives, and every entry reads to its size. For checking real
+/// images by hand: `cargo test -p beezip-core --test dmg -- --ignored --nocapture`.
+#[test]
+#[ignore = "needs images named in BEEZIP_DMG_SAMPLES"]
+fn sample_images_decode() {
+    let Ok(list) = std::env::var("BEEZIP_DMG_SAMPLES") else {
+        return;
+    };
+    for path in list.split(';').filter(|p| !p.is_empty()) {
+        let path = Path::new(path);
+        let mut f = fs::File::open(path).unwrap();
+        let len = f.metadata().unwrap().len();
+        let image = match udif::read_image(&mut f, len) {
+            Ok(i) => i,
+            Err(e) => {
+                println!("{}: {e}", path.display());
+                continue;
+            }
+        };
+        println!("{}: {:?}", path.display(), image.methods());
+        let mut disk = udif::Disk::new(f, &image, &beezip_core::Limits::default()).unwrap();
+        for p in &image.partitions {
+            disk.set_window(p.first_sector * udif::SECTOR, p.bytes())
+                .unwrap();
+            let mut data = Vec::new();
+            disk.read_to_end(&mut data).unwrap();
+            if let Ok(dir) = std::env::var("BEEZIP_DMG_DUMP") {
+                let name = format!(
+                    "{}.{}",
+                    path.file_name().unwrap().to_string_lossy(),
+                    p.first_sector
+                );
+                fs::write(Path::new(&dir).join(name), &data).unwrap();
+            }
+            // hdiutil's checksum leaves out the ignored (type 2) runs.
+            let mut h = crc32fast::Hasher::new();
+            let base = p.first_sector * udif::SECTOR;
+            for r in p.runs.iter().filter(|r| r.kind != udif::IGNORE) {
+                let at = (r.sector * udif::SECTOR - base) as usize;
+                h.update(&data[at..at + (r.sectors * udif::SECTOR) as usize]);
+            }
+            let crc = h.finalize();
+            println!("  {:50} {:>12} bytes, CRC {crc:08X}", p.name, p.bytes());
+            if let Some(want) = p.crc {
+                assert_eq!(crc, want, "{}: {}", path.display(), p.name);
+            }
+            if let Some(want) = p.data_crc() {
+                assert_eq!(
+                    crc32fast::hash(&data),
+                    want,
+                    "{}: {}",
+                    path.display(),
+                    p.name
+                );
+            }
+        }
+        let mut cx = SimpleCtx::new();
+        let mut opened = open(path, &OpenOptions::default(), &mut cx).unwrap();
+        let entries = opened.reader.entries(&mut cx).unwrap().to_vec();
+        let mut bytes = 0u64;
+        for e in &entries {
+            let mut data = Vec::new();
+            opened
+                .reader
+                .open_entry(e.id, &mut cx)
+                .unwrap()
+                .read_to_end(&mut data)
+                .unwrap_or_else(|err| panic!("{}: {}: {err}", path.display(), e.path));
+            if e.kind == EntryKind::File {
+                assert_eq!(Some(data.len() as u64), e.size, "{}", e.path);
+            }
+            bytes += data.len() as u64;
+        }
+        println!(
+            "  {} entries, {bytes} bytes; warnings {:?}",
+            entries.len(),
+            cx.warnings
+        );
+    }
+}
+
+fn rng(seed: u64) -> impl FnMut() -> u64 {
+    let mut s = seed | 1;
+    move || {
+        s ^= s >> 12;
+        s ^= s << 25;
+        s ^= s >> 27;
+        s.wrapping_mul(0x2545_F491_4F6C_DD1D)
+    }
+}
+
+/// Opens `image`, lists it, extracts it and reads its entries, under tight limits: any error is
+/// fine, a panic isn't.
+fn exercise(image: &[u8], dir: &Path) {
+    let path = dir.join("m.dmg");
+    fs::write(&path, image).unwrap();
+    let limits = beezip_core::Limits {
+        max_ratio: Some(200),
+        ratio_grace: 1 << 20,
+        max_total_bytes: Some(32 << 20),
+        max_entries: Some(10_000),
+        max_layers: 4,
+        decoder_memory: 64 << 20,
+    };
+    let opts = OpenOptions::new(limits);
+    let Ok(source) = beezip_core::source::Source::new(&path, Vec::new(), &opts) else {
+        return;
+    };
+    let mut cx = SimpleCtx::new();
+    let Ok(mut r) = beezip_core::format::dmg::DmgReader::open(source, &mut cx) else {
+        return;
+    };
+    use beezip_core::ArchiveReader;
+    let n = r.entries(&mut cx).map(<[_]>::len).unwrap_or(0);
+    let _ = r.info(&mut cx);
+    let _ = r.extract(
+        &Selection::all(),
+        &mut beezip_core::NullSink::default(),
+        &mut cx,
+    );
+    for id in 0..n.min(8) {
+        if let Ok(mut e) = r.open_entry(id, &mut cx) {
+            let _ = std::io::copy(&mut e.by_ref().take(1 << 20), &mut std::io::sink());
+        }
+    }
+}
+
+/// A stand-in for the `dmg` fuzz target that runs with `cargo test`: BeeZip's own image (and any
+/// named in `BEEZIP_DMG_SAMPLES`), with bytes of the file flipped, cut or set, and with the
+/// volume inside damaged and compressed again, so fstool reads broken catalogs and headers.
+/// `BEEZIP_MUTATIONS` sets the copies of each (default 32).
+#[test]
+fn mutated_images_never_panic() {
+    let count: u64 = std::env::var("BEEZIP_MUTATIONS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(32);
+    let root = tempfile::tempdir().unwrap();
+    let own = root.path().join("own.dmg");
+    let entries = [
+        (file("a/b.txt", 3), b"abc".to_vec()),
+        (
+            entry(
+                "a/link",
+                NewKind::Symlink {
+                    target: "b.txt".into(),
+                },
+                0,
+            ),
+            Vec::new(),
+        ),
+        (file("c.bin", 4000), noise(4000, 2)),
+    ];
+    write(&own, &entries).unwrap();
+    let mut images = vec![fs::read(&own).unwrap()];
+    if let Ok(list) = std::env::var("BEEZIP_DMG_SAMPLES") {
+        images.extend(
+            list.split(';')
+                .filter(|p| !p.is_empty())
+                .map(|p| fs::read(p).unwrap()),
+        );
+    }
+    let mut next = rng(0x5EED);
+    let mut failures = Vec::new();
+    for (k, image) in images.iter().enumerate() {
+        // The volume: the largest partition, decoded.
+        let mut c = std::io::Cursor::new(&image[..]);
+        let parsed = udif::read_image(&mut c, image.len() as u64).ok();
+        let volume = parsed.as_ref().and_then(|p| {
+            let part = p.partitions.iter().max_by_key(|p| p.sectors)?;
+            let mut disk = udif::Disk::new(c, p, &beezip_core::Limits::default()).ok()?;
+            disk.set_window(part.first_sector * udif::SECTOR, part.bytes())
+                .ok()?;
+            let mut v = Vec::new();
+            disk.read_to_end(&mut v).ok()?;
+            Some((part.name.clone(), v))
+        });
+        for i in 0..count {
+            let mut m = image.clone();
+            let mut n = |max: usize| (next() % max.max(1) as u64) as usize;
+            let case = if i % 2 == 0 || volume.is_none() {
+                match n(3) {
+                    0 => {
+                        for _ in 0..1 + n(8) {
+                            let at = n(m.len());
+                            m[at] ^= 1 << n(8);
+                        }
+                    }
+                    1 => m.truncate(n(m.len() + 1)),
+                    _ => {
+                        // The trailer and the plist, where the tables are.
+                        let at = m.len().saturating_sub(1 + n(4096.min(m.len())));
+                        m[at] = [0, 0xFF, 0x7F, 0x80][n(4)];
+                    }
+                }
+                format!("image {k}, file mutation {i}")
+            } else if let Some((name, v)) = &volume {
+                let mut v = v.clone();
+                // The volume's metadata is near its start (and its end, for the copy of its
+                // header).
+                let span = v.len().min(1 << 20);
+                for _ in 0..1 + n(16) {
+                    let at = if n(8) == 0 {
+                        v.len() - 1 - n(1024.min(v.len()))
+                    } else {
+                        n(span)
+                    };
+                    v[at] = match n(3) {
+                        0 => v[at] ^ (1 << n(8)),
+                        1 => 0xFF,
+                        _ => 0,
+                    };
+                }
+                m.clear();
+                udif::write_udzo(
+                    &mut &v[..],
+                    v.len() as u64,
+                    name,
+                    &mut m,
+                    &mut SimpleCtx::new(),
+                )
+                .unwrap();
+                format!("image {k}, volume mutation {i}")
+            } else {
+                unreachable!()
+            };
+            let dir = root.path().join("m");
+            fs::create_dir_all(&dir).unwrap();
+            let done =
+                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| exercise(&m, &dir)));
+            if done.is_err() {
+                let keep = root.path().join(format!("panic-{k}-{i}.dmg"));
+                fs::write(&keep, &m).unwrap();
+                failures.push(case);
+            }
+        }
+    }
+    assert!(failures.is_empty(), "panics: {failures:?}");
+}
+
 #[cfg(windows)]
 mod windows {
     use std::process::Command;

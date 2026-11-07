@@ -178,7 +178,8 @@ pub struct Partition {
     /// Where the partition starts on the disk, in sectors.
     pub first_sector: u64,
     pub sectors: u64,
-    /// The CRC32 of its decoded sectors, when that's the checksum it has.
+    /// The CRC32 hdiutil gives it, when that's its checksum: of the decoded sectors of every
+    /// chunk but the ignored ones (type 2), so a free partition's is 0, the CRC of nothing.
     pub crc: Option<u32>,
     pub runs: Vec<Run>,
 }
@@ -186,6 +187,12 @@ pub struct Partition {
 impl Partition {
     pub fn bytes(&self) -> u64 {
         self.sectors * SECTOR
+    }
+
+    /// The CRC32 of all its sectors, when its checksum is that: when nothing is ignored.
+    pub fn data_crc(&self) -> Option<u32> {
+        self.crc
+            .filter(|_| self.runs.iter().all(|r| r.kind != IGNORE))
     }
 }
 

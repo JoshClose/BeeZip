@@ -138,3 +138,10 @@ path = "fuzz_targets/squashfs.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "dmg"
+path = "fuzz_targets/dmg.rs"
+test = false
+doc = false
+bench = false

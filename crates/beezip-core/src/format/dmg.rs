@@ -538,6 +538,38 @@ fn find_volume(dev: &mut Device, image: &udif::Image, cx: &mut dyn Ctx) -> Optio
     None
 }
 
+/// A resource fork held in memory.
+struct MemFork<'a>(&'a [u8]);
+
+impl decmpfs::Fork for MemFork<'_> {
+    fn len(&self) -> u64 {
+        self.0.len() as u64
+    }
+
+    fn read_at(&mut self, offset: u64, buf: &mut [u8]) -> Result<()> {
+        let src = usize::try_from(offset)
+            .ok()
+            .and_then(|at| self.0.get(at..at.checked_add(buf.len())?))
+            .ok_or_else(|| bad("a read past the end of a resource fork"))?;
+        buf.copy_from_slice(src);
+        Ok(())
+    }
+}
+
+/// Decodes up to `max` bytes of the Apple-compressed file whose `com.apple.decmpfs` attribute
+/// is `attr` and whose resource fork is `fork`, as a volume's files are decoded. For the fuzz
+/// target.
+#[doc(hidden)]
+pub fn decode_decmpfs(attr: &[u8], fork: Option<&[u8]>, max: u64) -> Result<Vec<u8>> {
+    let fork = fork.map(|f| Box::new(MemFork(f)) as Box<dyn decmpfs::Fork + '_>);
+    let mut out = Vec::new();
+    decmpfs::open(attr, fork, "input")?
+        .take(max)
+        .read_to_end(&mut out)
+        .map_err(|e| read_error(&e))?;
+    Ok(out)
+}
+
 /// A name as stored: HFS+'s decomposed names composed again.
 fn shown_name(name: &str, hfs: bool) -> String {
     if hfs {
@@ -743,7 +775,7 @@ fn partition_entries(image: &udif::Image, limits: &Limits) -> Result<(Vec<Entry>
     for (i, p) in image.partitions.iter().enumerate() {
         let mut e = Entry::new(i, partition_name(i, count, &p.name), EntryKind::File);
         e.size = Some(p.bytes());
-        e.crc32 = p.crc;
+        e.crc32 = p.data_crc();
         entries.push(e);
         items.push(Item::Partition(i));
     }
@@ -1347,6 +1379,200 @@ mod tests {
         // A diaeresis and an acute after a letter with no composite stay as they are.
         let name = "q\u{308}\u{301}";
         assert_eq!(shown_name(&hfs(name), true), name);
+    }
+
+    use fstool::{block::MemoryBackend, fs::Filesystem as _};
+
+    use crate::{OpenOptions, SimpleCtx};
+
+    /// `volume` as the one partition of a UDZO image, opened.
+    fn open_image(volume: &[u8], name: &str) -> (tempfile::TempDir, DmgReader) {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("t.dmg");
+        let mut out = Vec::new();
+        udif::write_udzo(
+            &mut &volume[..],
+            volume.len() as u64,
+            name,
+            &mut out,
+            &mut SimpleCtx::new(),
+        )
+        .unwrap();
+        std::fs::write(&path, out).unwrap();
+        let source = Source::new(&path, Vec::new(), &OpenOptions::default()).unwrap();
+        let reader = DmgReader::open(source, &mut SimpleCtx::new()).unwrap();
+        (dir, reader)
+    }
+
+    fn read(r: &mut DmgReader, path: &str) -> Result<Vec<u8>> {
+        let id = r
+            .entries
+            .iter()
+            .find(|e| e.path == path)
+            .unwrap_or_else(|| panic!("{path}: {:#?}", r.entries))
+            .id;
+        let mut data = Vec::new();
+        r.open_entry(id, &mut SimpleCtx::new())?
+            .read_to_end(&mut data)
+            .map_err(Error::from)?;
+        Ok(data)
+    }
+
+    fn decmpfs_header(kind: u32, size: u64) -> Vec<u8> {
+        let mut x = b"fpmc".to_vec();
+        x.extend_from_slice(&kind.to_le_bytes());
+        x.extend_from_slice(&size.to_le_bytes());
+        x
+    }
+
+    fn zlib(data: &[u8]) -> Vec<u8> {
+        let mut z = flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::default());
+        z.write_all(data).unwrap();
+        z.finish().unwrap()
+    }
+
+    /// A type-4 resource fork: the resource header, the resource's length, then the count, the
+    /// `(offset, length)` pairs and the blocks.
+    fn fork4(blocks: &[Vec<u8>]) -> Vec<u8> {
+        let mut f = vec![0u8; 256];
+        f[..4].copy_from_slice(&256u32.to_be_bytes());
+        f.extend_from_slice(&0u32.to_be_bytes());
+        f.extend_from_slice(&(blocks.len() as u32).to_le_bytes());
+        let mut off = 4 + blocks.len() * 8;
+        for b in blocks {
+            f.extend_from_slice(&(off as u32).to_le_bytes());
+            f.extend_from_slice(&(b.len() as u32).to_le_bytes());
+            off += b.len();
+        }
+        for b in blocks {
+            f.extend_from_slice(b);
+        }
+        f
+    }
+
+    #[test]
+    fn hfs_hard_links_and_compressed_files() {
+        let mut dev = MemoryBackend::new(8 << 20);
+        let mut opts = FormatOpts::default();
+        opts.volume_name = "Links".into();
+        let mut vol = HfsPlus::format(&mut dev, &opts).unwrap();
+        let t = 1_750_000_000;
+        vol.create_dir(&mut dev, "/d", 0o755, UID, GID, t).unwrap();
+        let body = b"shared by two names".to_vec();
+        vol.create_file(
+            &mut dev,
+            "/d/a.txt",
+            &mut &body[..],
+            body.len() as u64,
+            0o644,
+            UID,
+            GID,
+            t,
+        )
+        .unwrap();
+        vol.create_hardlink(&mut dev, "/d/a.txt", "/b.txt").unwrap();
+        // Inline zlib.
+        let small = b"inline and compressed ".repeat(50);
+        vol.create_file(&mut dev, "/inline", &mut &[][..], 0, 0o644, UID, GID, t)
+            .unwrap();
+        let mut x = decmpfs_header(3, small.len() as u64);
+        x.extend_from_slice(&zlib(&small));
+        vol.set_xattr(&mut dev, "/inline", decmpfs::XATTR, &x)
+            .unwrap();
+        // zlib in the resource fork, two blocks.
+        let big: Vec<u8> = (0..100_000u32).map(|i| (i % 251) as u8).collect();
+        let fork = fork4(&big.chunks(64 * 1024).map(zlib).collect::<Vec<_>>());
+        vol.create_file(&mut dev, "/forked", &mut &[][..], 0, 0o644, UID, GID, t)
+            .unwrap();
+        vol.write_resource_fork(&mut dev, "/forked", &mut &fork[..], fork.len() as u64)
+            .unwrap();
+        vol.set_xattr(
+            &mut dev,
+            "/forked",
+            decmpfs::XATTR,
+            &decmpfs_header(4, big.len() as u64),
+        )
+        .unwrap();
+        // A type BeeZip doesn't read.
+        vol.create_file(&mut dev, "/odd", &mut &[][..], 0, 0o644, UID, GID, t)
+            .unwrap();
+        vol.set_xattr(&mut dev, "/odd", decmpfs::XATTR, &decmpfs_header(5, 10))
+            .unwrap();
+        vol.flush(&mut dev).unwrap();
+
+        let (_dir, mut r) = open_image(dev.as_slice(), "whole disk (Apple_HFS : 0)");
+        let paths: Vec<&str> = r.entries.iter().map(|e| e.path.as_str()).collect();
+        assert!(paths.contains(&PRIVATE_DATA_SHOWN), "{paths:?}");
+        assert_eq!(read(&mut r, "d/a.txt").unwrap(), body);
+        assert_eq!(read(&mut r, "b.txt").unwrap(), body);
+        let size = |r: &DmgReader, p: &str| r.entries.iter().find(|e| e.path == p).unwrap().size;
+        assert_eq!(size(&r, "b.txt"), Some(body.len() as u64));
+        assert_eq!(size(&r, "inline"), Some(small.len() as u64));
+        assert_eq!(size(&r, "forked"), Some(big.len() as u64));
+        assert_eq!(read(&mut r, "inline").unwrap(), small);
+        assert_eq!(read(&mut r, "forked").unwrap(), big);
+        let method = r
+            .entries
+            .iter()
+            .find(|e| e.path == "forked")
+            .unwrap()
+            .method;
+        assert_eq!(method, Some("decmpfs zlib"));
+        assert_eq!(
+            read(&mut r, "odd").unwrap_err().kind,
+            ErrorKind::UnsupportedOperation
+        );
+    }
+
+    #[test]
+    fn apfs_volumes() {
+        let mut dev = MemoryBackend::new(16 << 20);
+        let mut fs = fstool::fs::apfs::Apfs::format(&mut dev, 4096, 4096, "APFS Test").unwrap();
+        fs.flush(&mut dev).unwrap();
+        let mut fs = fstool::fs::apfs::Apfs::open_writable(&mut dev).unwrap();
+        let ns = 1_750_000_000u64 * 1_000_000_000;
+        fs.create_dir_at(&mut dev, "/dir", 0o755, ns).unwrap();
+        fs.create_file_at(&mut dev, "/dir/a.txt", b"apfs data", 0o640, ns)
+            .unwrap();
+        fs.create_symlink_at(&mut dev, "/link", "dir/a.txt", 0o755, ns)
+            .unwrap();
+        let small = b"compressed on apfs ".repeat(40);
+        fs.create_file_at(&mut dev, "/inline", b"", 0o644, ns)
+            .unwrap();
+        let mut x = decmpfs_header(3, small.len() as u64);
+        x.extend_from_slice(&zlib(&small));
+        fs.set_xattr(&mut dev, "/inline", decmpfs::XATTR, &x)
+            .unwrap();
+        fs.create_file_at(&mut dev, "/forked", b"", 0o644, ns)
+            .unwrap();
+        fs.set_xattr(
+            &mut dev,
+            "/forked",
+            decmpfs::XATTR,
+            &decmpfs_header(4, 70_000),
+        )
+        .unwrap();
+        fs.flush(&mut dev).unwrap();
+
+        let (_dir, mut r) = open_image(dev.as_slice(), "disk image (Apple_APFS : 0)");
+        let e = |r: &DmgReader, p: &str| r.entries.iter().find(|e| e.path == p).cloned().unwrap();
+        assert_eq!(e(&r, "dir").kind, EntryKind::Dir);
+        assert_eq!(e(&r, "dir/a.txt").unix_mode, Some(0o100_640));
+        assert_eq!(e(&r, "dir/a.txt").modified, from_unix(1_750_000_000, 0));
+        assert_eq!(
+            e(&r, "link").kind,
+            EntryKind::Symlink {
+                target: "dir/a.txt".into()
+            }
+        );
+        assert_eq!(read(&mut r, "dir/a.txt").unwrap(), b"apfs data");
+        assert_eq!(e(&r, "inline").size, Some(small.len() as u64));
+        assert_eq!(read(&mut r, "inline").unwrap(), small);
+        // fstool doesn't reach APFS resource forks.
+        assert_eq!(
+            read(&mut r, "forked").unwrap_err().kind,
+            ErrorKind::UnsupportedOperation
+        );
     }
 
     #[test]

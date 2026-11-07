@@ -288,6 +288,7 @@ fn m5_traversal_is_refused() {
             "traversal.squashfs",
             vec!["etc", "etc/beezip-abs.txt", "safe.txt"],
         ),
+        ("traversal.dmg", vec!["safe.txt"]),
     ] {
         let (r, inside) = extract(name, FsOptions::default());
         let r = r.unwrap_or_else(|e| panic!("{name}: {e}"));
@@ -301,7 +302,7 @@ fn m5_traversal_is_refused() {
         );
         assert_eq!(inside, safe, "{name}");
     }
-    for name in ["traversal.cpio", "traversal.squashfs"] {
+    for name in ["traversal.cpio", "traversal.squashfs", "traversal.dmg"] {
         let (r, _) = extract(
             name,
             FsOptions {
@@ -334,6 +335,24 @@ fn a_squashfs_block_count_past_its_table_is_corrupt() {
         "{err}"
     );
     let (r, inside) = extract("squashfs-blocks.squashfs", FsOptions::default());
+    assert_eq!(r.unwrap_err().kind, ErrorKind::Corrupt);
+    assert!(inside.is_empty(), "{inside:?}");
+}
+
+/// A DMG chunk claiming a terabyte of sectors, stored in a terabyte, from four bytes: `Corrupt`
+/// when the image opens, before anything is allocated for it.
+#[test]
+fn a_dmg_chunk_that_claims_a_terabyte_is_corrupt() {
+    let err = open(
+        &corpus("bomb.dmg"),
+        &OpenOptions::default(),
+        &mut SimpleCtx::new(),
+    )
+    .err()
+    .unwrap();
+    assert_eq!(err.kind, ErrorKind::Corrupt, "{err}");
+    assert!(err.message.contains("chunk of"), "{err}");
+    let (r, inside) = extract("bomb.dmg", FsOptions::default());
     assert_eq!(r.unwrap_err().kind, ErrorKind::Corrupt);
     assert!(inside.is_empty(), "{inside:?}");
 }

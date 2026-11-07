@@ -189,6 +189,10 @@ fn corpus() -> anyhow::Result<Vec<(&'static str, Vec<u8>)>> {
         ("cyclic.iso", iso_cyclic()?),
         ("bomb.Z", compress_bomb()),
         ("bomb.lzo", lzop_bomb()),
+        // DMG (docs/M5.md §5.11): BeeZip's own image with a name patched in, and a chunk
+        // table claiming a terabyte.
+        ("traversal.dmg", dmg_traversal()?),
+        ("bomb.dmg", dmg_bomb()),
         // M5 PR 5: squashfs (docs/M5.md §5.10). Names are bytes, so a name can hold `/` and `\`.
         (
             "traversal.squashfs",
@@ -1313,5 +1317,158 @@ fn squashfs(nodes: &[Sq]) -> Vec<u8> {
         sb.extend_from_slice(&v.to_le_bytes());
     }
     out[..96].copy_from_slice(&sb);
+    out
+}
+
+/// An HFS+ image in UDZO, written by BeeZip, holding `..\evil.txt` (one name with a backslash,
+/// which extraction reads as a path out), a symlink `up` to `..`, and `safe.txt`. The writer takes
+/// `\` as a separator, so the name goes in as `..~evil.txt` and the decoded volume is patched
+/// before it's compressed again: `~` and `\` sort alike against the other names.
+fn dmg_traversal() -> anyhow::Result<Vec<u8>> {
+    use beezip_core::{
+        NewEntry, NewKind, SimpleCtx,
+        format::{
+            ArchiveWriter,
+            dmg::{DmgWriteOptions, DmgWriter},
+            udif,
+        },
+    };
+    let dir = std::env::temp_dir().join(format!("beezip-gen-fixtures-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).with_context(|| format!("creating {}", dir.display()))?;
+    let output = dir.join("traversal.dmg");
+    let entry = |path: &str, kind: NewKind, data: &[u8]| NewEntry {
+        path: path.into(),
+        kind,
+        size: data.len() as u64,
+        modified: Some(std::time::UNIX_EPOCH + std::time::Duration::from_secs(MTIME.into())),
+        unix_mode: None,
+        dos_attrs: None,
+        source: None,
+    };
+    let link = NewKind::Symlink {
+        target: "..".into(),
+    };
+    let files: [(NewEntry, &[u8]); 3] = [
+        (entry("..~evil.txt", NewKind::File, b"escaped"), b"escaped"),
+        (entry("up", link, b""), b""),
+        (entry("safe.txt", NewKind::File, b"safe"), b"safe"),
+    ];
+    let written = (|| -> beezip_core::Result<()> {
+        let out = std::fs::File::create(&output)
+            .map_err(|e| beezip_core::Error::io("creating the image", &e))?;
+        let mut w = DmgWriter::new(Box::new(out), DmgWriteOptions::default(), &output)?;
+        let mut cx = SimpleCtx::new();
+        w.expect(&files.iter().map(|(e, _)| e.clone()).collect::<Vec<_>>())?;
+        for (e, data) in &files {
+            w.add(e, &mut &data[..], &mut cx)?;
+        }
+        Box::new(w).finish(&mut cx)
+    })();
+    let image = std::fs::read(&output);
+    let _ = std::fs::remove_dir_all(&dir);
+    written.map_err(|e| anyhow::anyhow!("writing traversal.dmg: {e}"))?;
+    let image = image.context("reading traversal.dmg")?;
+
+    let mut cursor = std::io::Cursor::new(&image[..]);
+    let parsed = udif::read_image(&mut cursor, image.len() as u64)
+        .map_err(|e| anyhow::anyhow!("reading traversal.dmg back: {e}"))?;
+    let name = parsed.partitions[0].name.clone();
+    let mut disk = udif::Disk::new(cursor, &parsed, &beezip_core::Limits::default())
+        .map_err(|e| anyhow::anyhow!("reading traversal.dmg back: {e}"))?;
+    let mut volume = Vec::new();
+    std::io::Read::read_to_end(&mut disk, &mut volume)?;
+    let utf16 = |s: &str| -> Vec<u8> { s.encode_utf16().flat_map(u16::to_be_bytes).collect() };
+    let (from, to) = (utf16("..~evil.txt"), utf16("..\\evil.txt"));
+    let mut patched = 0;
+    let mut at = 0;
+    while let Some(i) = volume[at..].windows(from.len()).position(|w| w == from) {
+        volume[at + i..at + i + to.len()].copy_from_slice(&to);
+        at += i + to.len();
+        patched += 1;
+    }
+    if patched == 0 {
+        bail!("traversal.dmg: the placeholder name isn't in the volume");
+    }
+    let mut out = Vec::new();
+    udif::write_udzo(
+        &mut &volume[..],
+        volume.len() as u64,
+        &name,
+        &mut out,
+        &mut SimpleCtx::new(),
+    )
+    .map_err(|e| anyhow::anyhow!("writing traversal.dmg: {e}"))?;
+    Ok(out)
+}
+
+fn base64(data: &[u8]) -> String {
+    const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::new();
+    for c in data.chunks(3) {
+        let n = (u32::from(c[0]) << 16)
+            | (u32::from(c.get(1).copied().unwrap_or(0)) << 8)
+            | u32::from(c.get(2).copied().unwrap_or(0));
+        for i in 0..4 {
+            out.push(if i <= c.len() {
+                char::from(ALPHABET[(n >> (18 - 6 * i)) as usize & 63])
+            } else {
+                '='
+            });
+        }
+    }
+    out
+}
+
+/// A UDIF image whose one partition is a single zlib chunk claiming a terabyte of sectors, stored
+/// in a terabyte, from four bytes: a reader that sizes its buffers from the table allocates until
+/// the process aborts.
+fn dmg_bomb() -> Vec<u8> {
+    let mut z = flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::default());
+    let _ = z.write_all(b"tiny");
+    let data = z.finish().unwrap_or_default();
+    let sectors: u64 = 1 << 31;
+    let mut mish = vec![0u8; 204];
+    mish[..4].copy_from_slice(b"mish");
+    mish[4..8].copy_from_slice(&1u32.to_be_bytes());
+    mish[16..24].copy_from_slice(&sectors.to_be_bytes());
+    mish[32..36].copy_from_slice(&2056u32.to_be_bytes());
+    mish[64..68].copy_from_slice(&2u32.to_be_bytes()); // CRC32
+    mish[68..72].copy_from_slice(&32u32.to_be_bytes());
+    mish[200..204].copy_from_slice(&2u32.to_be_bytes());
+    for (kind, sector, count, offset, len) in [
+        (0x8000_0005u32, 0u64, sectors, 0u64, 1u64 << 40),
+        (0xFFFF_FFFF, sectors, 0, data.len() as u64, 0),
+    ] {
+        mish.extend_from_slice(&kind.to_be_bytes());
+        mish.extend_from_slice(&0u32.to_be_bytes());
+        mish.extend_from_slice(&sector.to_be_bytes());
+        mish.extend_from_slice(&count.to_be_bytes());
+        mish.extend_from_slice(&offset.to_be_bytes());
+        mish.extend_from_slice(&len.to_be_bytes());
+    }
+    let name = "disk image (Apple_HFS : 0)";
+    let plist = format!(
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<plist version=\"1.0\">\n<dict>\n\
+         <key>resource-fork</key>\n<dict>\n<key>blkx</key>\n<array>\n<dict>\n\
+         <key>CFName</key><string>{name}</string>\n<key>Data</key><data>{}</data>\n\
+         <key>ID</key><string>0</string>\n<key>Name</key><string>{name}</string>\n\
+         </dict>\n</array>\n</dict>\n</dict>\n</plist>\n",
+        base64(&mish)
+    );
+    let mut out = data.clone();
+    out.extend_from_slice(plist.as_bytes());
+    let mut koly = [0u8; 512];
+    koly[..4].copy_from_slice(b"koly");
+    koly[4..8].copy_from_slice(&4u32.to_be_bytes());
+    koly[8..12].copy_from_slice(&512u32.to_be_bytes());
+    koly[12..16].copy_from_slice(&1u32.to_be_bytes());
+    koly[32..40].copy_from_slice(&(data.len() as u64).to_be_bytes());
+    koly[56..60].copy_from_slice(&1u32.to_be_bytes());
+    koly[60..64].copy_from_slice(&1u32.to_be_bytes());
+    koly[216..224].copy_from_slice(&(data.len() as u64).to_be_bytes());
+    koly[224..232].copy_from_slice(&(plist.len() as u64).to_be_bytes());
+    koly[488..492].copy_from_slice(&1u32.to_be_bytes());
+    koly[492..500].copy_from_slice(&sectors.to_be_bytes());
+    out.extend_from_slice(&koly);
     out
 }
