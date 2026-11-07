@@ -14,6 +14,7 @@ mod lzma;
 mod lzop;
 mod snappy;
 mod xz;
+mod xz_mt;
 mod zlib;
 mod zstd;
 
@@ -156,6 +157,8 @@ impl fmt::Display for CodecId {
 pub use gzip::{header_name as gzip_header_name, trailer_size as gzip_trailer_size};
 /// The file name in an lzop header, which the stream view names its entry after.
 pub use lzop::header_name as lzop_header_name;
+/// xz on several threads, for a file BeeZip can seek (docs/M6.md §6.4).
+pub use xz_mt::decoder as xz_decoder_mt;
 
 /// Every codec, in [`CodecId::ALL`] order.
 pub fn codecs() -> impl Iterator<Item = &'static dyn Codec> {

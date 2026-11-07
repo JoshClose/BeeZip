@@ -37,6 +37,8 @@ lzokay.workspace = true
 lzxd.workspace = true
 lzma-rust2.workspace = true
 sevenz-rust2.workspace = true
+# xz blocks checked with SHA-256 (docs/M6.md §6.4); already built for lzma-rust2's xz.
+sha2.workspace = true
 memchr.workspace = true
 oem_cp.workspace = true
 snap.workspace = true
@@ -59,7 +61,6 @@ windows-sys = { workspace = true, features = [
 [dev-dependencies]
 proptest.workspace = true
 serde_json.workspace = true
-sha2.workspace = true
 
 [lints]
 workspace = true

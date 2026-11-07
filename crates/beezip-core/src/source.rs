@@ -263,11 +263,27 @@ impl Source {
         Ok(CountingReader::new(input, self.counter.clone()))
     }
 
-    /// The decoded stream, from the start.
+    /// The decoded stream, from the start. An outermost xz layer is decoded on several
+    /// threads when `threads` allows and the file has the blocks for it (docs/M6.md §6.4).
     pub fn open_stream(&self) -> Result<Box<dyn Read + Send>> {
-        let mut r: Box<dyn Read + Send> =
-            Box::new(BufReader::with_capacity(BUF_SIZE, self.open_file()?));
-        for c in &self.codecs {
+        let mt = match self.codecs.split_first() {
+            Some((CodecId::Xz, rest)) if self.threads != 1 => crate::codec::xz_decoder_mt(
+                self.input()?,
+                &self.limits,
+                self.threads,
+                &self.counter,
+            )
+            .map(|r| (r, rest)),
+            _ => None,
+        };
+        let (mut r, rest) = match mt {
+            Some(mt) => mt,
+            None => {
+                let file = BufReader::with_capacity(BUF_SIZE, self.open_file()?);
+                (Box::new(file) as Box<dyn Read + Send>, &self.codecs[..])
+            }
+        };
+        for c in rest {
             r = c.decoder(r, &self.limits)?;
         }
         Ok(r)

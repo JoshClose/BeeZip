@@ -119,6 +119,7 @@ dependencies = [
  "memchr",
  "oem_cp",
  "sevenz-rust2",
+ "sha2",
  "snap",
  "tar",
  "tempfile",
