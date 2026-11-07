@@ -124,6 +124,7 @@ dependencies = [
  "tempfile",
  "time",
  "walkdir",
+ "windows-sys",
  "zip",
  "zstd",
 ]

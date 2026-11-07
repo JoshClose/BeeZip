@@ -103,6 +103,8 @@ windows-core     = "=0.62.2"
 windows-registry = "0.6.1"
 windows-result   = "0.4.1"   # windows-registry's error type, which it doesn't re-export
 windows-future   = "0.3.2"   # the deployment operations' type and blocking join(), as windows 0.62.2 uses
+# M6 bench.run's memory figure (private bytes). Already in the lock through tempfile and others.
+windows-sys      = "0.61.2"
 indicatif  = "0.18.6"
 
 # M3 formats (docs/M3.md §1). Churny, so pinned exactly.
