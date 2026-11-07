@@ -46,7 +46,8 @@ for img in "$dir"/*.iso "$dir"/*.dmg; do
         # whole disk for an image without a partition map (BeeZip's), whose line names nothing.
         out="$(hdiutil attach -readonly -nobrowse -nomount "$img")"
         echo "$out"
-        disk="$(echo "$out" | awk 'NR == 1 { print $1 }')"
+        # attach checks the image's checksums first, and says so before the devices.
+        disk="$(echo "$out" | awk '/^\/dev\// { print $1; exit }')"
         dev="$(echo "$out" | awk '/Apple_HFS/ { print $1; exit }')"
         dev="${dev:-$disk}"
         [ -n "$dev" ] || { echo "hdiutil attached no disk for $img" >&2; exit 1; }
