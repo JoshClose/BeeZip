@@ -152,6 +152,41 @@ fn corpus() -> anyhow::Result<Vec<(&'static str, Vec<u8>)>> {
                 RarFile::new("safe.txt", b"safe"),
             ]),
         ),
+        // M5: cpio, ar, deb, RPM, CAB, LHA, .Z and lzop (docs/M5.md §10). A path traversal in
+        // each archive format, sizes past the end, and bombs: each must be refused with the
+        // right error and without a large allocation.
+        (
+            "traversal.cpio",
+            cpio(&[
+                ("../evil.txt", 0o100_644, b"escaped"),
+                ("/etc/beezip-abs.txt", 0o100_644, b"abs"),
+                ("up", 0o120_777, b".."),
+                ("safe.txt", 0o100_644, b"safe"),
+            ]),
+        ),
+        ("past-end.cpio", cpio_past_end()),
+        (
+            "traversal.ar",
+            ar(&[("../evil.txt", b"escaped"), ("safe.txt", b"safe")]),
+        ),
+        ("past-end.ar", ar_past_end()),
+        ("traversal.deb", deb_traversal()),
+        ("traversal.rpm", rpm_traversal(false)),
+        ("past-end.rpm", rpm_traversal(true)),
+        (
+            "traversal.cab",
+            cab(&[("..\\evil.txt", b"escaped"), ("safe.txt", b"safe")], None),
+        ),
+        (
+            "folder-bomb.cab",
+            cab(&[("big.bin", b"tiny")], Some(u32::MAX)),
+        ),
+        (
+            "traversal.lzh",
+            lzh(&[("..\\evil.txt", b"escaped"), ("safe.txt", b"safe")]),
+        ),
+        ("bomb.Z", compress_bomb()),
+        ("bomb.lzo", lzop_bomb()),
         // Edge cases.
         ("empty.zip", zip(&[])),
         // Not malicious, just damaged: a stored entry whose CRC doesn't match its data.
@@ -634,4 +669,351 @@ fn len16<T>(v: &[T]) -> u16 {
 
 fn len32<T>(v: &[T]) -> u32 {
     u32::try_from(v.len()).unwrap_or(u32::MAX)
+}
+
+// ---------------------------------------------------------------------------------------------
+// M5's formats, by hand (docs/M5.md §10).
+
+/// A newc cpio of (name, mode, data), with its trailer.
+fn cpio(members: &[(&str, u32, &[u8])]) -> Vec<u8> {
+    fn member(out: &mut Vec<u8>, name: &str, mode: u32, data: &[u8], ino: usize) {
+        let fields = [
+            ino,
+            mode as usize,
+            0,
+            0,
+            1,
+            MTIME as usize,
+            data.len(),
+            0,
+            0,
+            0,
+            0,
+            name.len() + 1,
+            0,
+        ];
+        out.extend_from_slice(b"070701");
+        for f in fields {
+            out.extend_from_slice(format!("{f:08X}").as_bytes());
+        }
+        out.extend_from_slice(name.as_bytes());
+        out.push(0);
+        out.resize(out.len().div_ceil(4) * 4, 0);
+        out.extend_from_slice(data);
+        out.resize(out.len().div_ceil(4) * 4, 0);
+    }
+    let mut out = Vec::new();
+    for (i, (name, mode, data)) in members.iter().enumerate() {
+        member(&mut out, name, *mode, data, i + 1);
+    }
+    member(&mut out, "TRAILER!!!", 0, b"", 0);
+    out
+}
+
+/// A cpio whose member claims 4 GiB of data that isn't there.
+fn cpio_past_end() -> Vec<u8> {
+    let mut out = cpio(&[("big.bin", 0o100_644, b"tiny")]);
+    // The first header's filesize field.
+    out[54..62].copy_from_slice(b"FFFFFFFF");
+    out
+}
+
+fn ar_header(name: &str, size: u64) -> Vec<u8> {
+    format!(
+        "{name:<16}{MTIME:<12}{:<6}{:<6}{:<8}{size:<10}`\n",
+        0, 0, 100_644
+    )
+    .into_bytes()
+}
+
+/// A GNU ar whose names all go through its `//` table, so any name can be stored.
+fn ar(members: &[(&str, &[u8])]) -> Vec<u8> {
+    let mut table = Vec::new();
+    let mut offsets = Vec::new();
+    for (name, _) in members {
+        offsets.push(table.len());
+        table.extend_from_slice(name.as_bytes());
+        table.extend_from_slice(b"/\n");
+    }
+    let mut out = b"!<arch>\n".to_vec();
+    out.extend(ar_header("//", table.len() as u64));
+    out.extend_from_slice(&table);
+    if table.len() % 2 == 1 {
+        out.push(b'\n');
+    }
+    for ((_, data), off) in members.iter().zip(offsets) {
+        out.extend(ar_header(&format!("/{off}"), data.len() as u64));
+        out.extend_from_slice(data);
+        if data.len() % 2 == 1 {
+            out.push(b'\n');
+        }
+    }
+    out
+}
+
+/// An ar whose member claims 9 GB.
+fn ar_past_end() -> Vec<u8> {
+    let mut out = b"!<arch>\n".to_vec();
+    out.extend(ar_header("big.bin/", 9_000_000_000));
+    out.extend_from_slice(b"tiny");
+    out
+}
+
+/// A Debian package (plain tars) whose data has a `../` path.
+fn deb_traversal() -> Vec<u8> {
+    let control = tar(&[TarEntry::file("./control", b"Package: evil\n")]);
+    let data = tar(&[
+        TarEntry::file("./../evil.txt", b"escaped"),
+        TarEntry::file("./safe.txt", b"safe"),
+    ]);
+    let mut out = b"!<arch>\n".to_vec();
+    for (name, body) in [
+        ("debian-binary", b"2.0\n".as_slice()),
+        ("control.tar", &control),
+        ("data.tar", &data),
+    ] {
+        out.extend(ar_header(name, body.len() as u64));
+        out.extend_from_slice(body);
+        if body.len() % 2 == 1 {
+            out.push(b'\n');
+        }
+    }
+    out
+}
+
+/// One RPM header structure from (tag, type, count, data).
+fn rpm_header(tags: &[(u32, u32, u32, Vec<u8>)]) -> Vec<u8> {
+    let mut index = Vec::new();
+    let mut store = Vec::new();
+    for (tag, ty, count, data) in tags {
+        // Integers are aligned to their size, as rpm writes them.
+        let align = match ty {
+            3 => 2,
+            4 => 4,
+            _ => 1,
+        };
+        store.resize(store.len().div_ceil(align) * align, 0);
+        for v in [*tag, *ty, len32(&store), *count] {
+            index.extend_from_slice(&v.to_be_bytes());
+        }
+        store.extend_from_slice(data);
+    }
+    let mut out = vec![0x8E, 0xAD, 0xE8, 0x01, 0, 0, 0, 0];
+    out.extend_from_slice(&len32(tags).to_be_bytes());
+    out.extend_from_slice(&len32(&store).to_be_bytes());
+    out.extend(index);
+    out.extend(store);
+    out
+}
+
+/// An RPM (uncompressed cpio payload) listing `../evil.txt` and `safe.txt`; `past_end` makes
+/// its header claim more data than the file holds.
+fn rpm_traversal(past_end: bool) -> Vec<u8> {
+    let mut out = vec![0u8; 96];
+    out[..4].copy_from_slice(&[0xED, 0xAB, 0xEE, 0xDB]);
+    out[4] = 3;
+    out[10..14].copy_from_slice(b"evil");
+    out[78..80].copy_from_slice(&5u16.to_be_bytes());
+    let sig = rpm_header(&[(1000, 4, 1, 0u32.to_be_bytes().to_vec())]);
+    let pad = (8 - sig.len() % 8) % 8;
+    out.extend(sig);
+    out.resize(out.len() + pad, 0);
+    let strings = |s: &[&str]| -> Vec<u8> {
+        s.iter()
+            .flat_map(|x| [x.as_bytes(), b"\0"].concat())
+            .collect()
+    };
+    let u32s = |v: &[u32]| -> Vec<u8> { v.iter().flat_map(|x| x.to_be_bytes()).collect() };
+    let u16s = |v: &[u16]| -> Vec<u8> { v.iter().flat_map(|x| x.to_be_bytes()).collect() };
+    let mut main = rpm_header(&[
+        (1000, 6, 1, b"evil\0".to_vec()),
+        (1028, 4, 2, u32s(&[7, 4])),
+        (1030, 3, 2, u16s(&[0o100_644, 0o100_644])),
+        (1116, 4, 2, u32s(&[0, 1])),
+        (1117, 8, 2, strings(&["evil.txt", "safe.txt"])),
+        (1118, 8, 2, strings(&["/../", "/"])),
+        (1124, 6, 1, b"cpio\0".to_vec()),
+    ]);
+    if past_end {
+        main[12..16].copy_from_slice(&(200u32 << 20).to_be_bytes());
+    }
+    out.extend(main);
+    out.extend(cpio(&[
+        ("./../evil.txt", 0o100_644, b"escaped"),
+        ("./safe.txt", 0o100_644, b"safe"),
+    ]));
+    out
+}
+
+/// A cabinet of stored files in one folder, with no checksums. `claim` makes the first file
+/// claim that many bytes, more than the folder's one block can hold.
+fn cab(files: &[(&str, &[u8])], claim: Option<u32>) -> Vec<u8> {
+    let data: Vec<u8> = files.iter().flat_map(|(_, d)| d.to_vec()).collect();
+    let mut table = Vec::new();
+    let mut offset = 0u32;
+    for (i, (name, d)) in files.iter().enumerate() {
+        let size = match (i, claim) {
+            (0, Some(c)) => c,
+            _ => len32(d),
+        };
+        table.extend_from_slice(&size.to_le_bytes());
+        table.extend_from_slice(&offset.to_le_bytes());
+        table.extend_from_slice(&0u16.to_le_bytes()); // folder 0
+        table.extend_from_slice(&DOS_DATE.to_le_bytes());
+        table.extend_from_slice(&DOS_TIME.to_le_bytes());
+        table.extend_from_slice(&0x20u16.to_le_bytes()); // archive
+        table.extend_from_slice(name.as_bytes());
+        table.push(0);
+        offset += len32(d);
+    }
+    // CFHEADER is 36 bytes, CFFOLDER 8, then the files, then the block.
+    let coff_files = 36 + 8;
+    let coff_data = coff_files + len32(&table);
+    let total = coff_data + 8 + len32(&data);
+    let mut out = Vec::new();
+    out.extend_from_slice(b"MSCF");
+    out.extend_from_slice(&0u32.to_le_bytes());
+    out.extend_from_slice(&total.to_le_bytes());
+    out.extend_from_slice(&0u32.to_le_bytes());
+    out.extend_from_slice(&coff_files.to_le_bytes());
+    out.extend_from_slice(&0u32.to_le_bytes());
+    out.extend_from_slice(&[3, 1]); // version 1.3
+    out.extend_from_slice(&1u16.to_le_bytes()); // folders
+    out.extend_from_slice(&len16(files).to_le_bytes());
+    out.extend_from_slice(&0u16.to_le_bytes()); // flags
+    out.extend_from_slice(&0x1234u16.to_le_bytes()); // set id
+    out.extend_from_slice(&0u16.to_le_bytes()); // cabinet 0
+    out.extend_from_slice(&coff_data.to_le_bytes());
+    out.extend_from_slice(&1u16.to_le_bytes()); // one block
+    out.extend_from_slice(&0u16.to_le_bytes()); // stored
+    out.extend(table);
+    out.extend_from_slice(&0u32.to_le_bytes()); // no checksum
+    out.extend_from_slice(&len16(&data).to_le_bytes());
+    out.extend_from_slice(&len16(&data).to_le_bytes());
+    out.extend(data);
+    out
+}
+
+/// The LHA CRC-16 (polynomial 0xA001).
+fn crc16(data: &[u8]) -> u16 {
+    let mut crc = 0u16;
+    for &b in data {
+        crc ^= u16::from(b);
+        for _ in 0..8 {
+            crc = if crc & 1 != 0 {
+                (crc >> 1) ^ 0xA001
+            } else {
+                crc >> 1
+            };
+        }
+    }
+    crc
+}
+
+/// An LHA archive of stored (`-lh0-`) files with level-0 headers, and its end byte.
+fn lzh(files: &[(&str, &[u8])]) -> Vec<u8> {
+    let mut out = Vec::new();
+    for (name, data) in files {
+        let mut h = Vec::new();
+        h.extend_from_slice(b"-lh0-");
+        h.extend_from_slice(&len32(data).to_le_bytes());
+        h.extend_from_slice(&len32(data).to_le_bytes());
+        h.extend_from_slice(&DOS_TIME.to_le_bytes());
+        h.extend_from_slice(&DOS_DATE.to_le_bytes());
+        h.push(0x20);
+        h.push(0); // level 0
+        h.push(u8::try_from(name.len()).unwrap_or(u8::MAX));
+        h.extend_from_slice(name.as_bytes());
+        h.extend_from_slice(&crc16(data).to_le_bytes());
+        let sum = h.iter().fold(0u8, |a, &b| a.wrapping_add(b));
+        out.push(u8::try_from(h.len()).unwrap_or(u8::MAX));
+        out.push(sum);
+        out.extend(h);
+        out.extend_from_slice(data);
+    }
+    out.push(0);
+    out
+}
+
+/// A `.Z` of LZW codes that each define the string before them plus a zero: 0, 257, 258…, then
+/// the longest string over and over. About 130 KiB that decode to over 3 GiB.
+fn compress_bomb() -> Vec<u8> {
+    struct Bits {
+        out: Vec<u8>,
+        bits: u64,
+        count: u32,
+    }
+    impl Bits {
+        fn put(&mut self, code: u32, n: u32) {
+            self.bits |= u64::from(code) << self.count;
+            self.count += n;
+            while self.count >= 8 {
+                self.out.push(self.bits as u8);
+                self.bits >>= 8;
+                self.count -= 8;
+            }
+        }
+    }
+    let mut w = Bits {
+        out: vec![0x1F, 0x9D, 0x90],
+        bits: 0,
+        count: 0,
+    };
+    let (mut n_bits, mut in_group) = (9u32, 0u32);
+    let mut maxcode = (1u32 << 9) - 1;
+    let mut free_ent = 257u32;
+    let codes = std::iter::once(0)
+        .chain(257..65_536)
+        .chain(std::iter::repeat_n(65_535, 20_000));
+    for (i, code) in codes.enumerate() {
+        if free_ent > maxcode {
+            // Pad the group of eight codes, as compress does when the width grows.
+            while in_group != 0 {
+                w.put(0, n_bits);
+                in_group = (in_group + 1) % 8;
+            }
+            n_bits += 1;
+            maxcode = if n_bits == 16 {
+                1 << 16
+            } else {
+                (1 << n_bits) - 1
+            };
+        }
+        w.put(code, n_bits);
+        in_group = (in_group + 1) % 8;
+        if i > 0 && free_ent < 1 << 16 {
+            free_ent += 1;
+        }
+    }
+    if w.count > 0 {
+        w.out.push(w.bits as u8);
+    }
+    w.out
+}
+
+/// An lzop file whose one block claims 64 MiB from 16 bytes.
+fn lzop_bomb() -> Vec<u8> {
+    let mut h = Vec::new();
+    h.extend_from_slice(&0x1040u16.to_be_bytes());
+    h.extend_from_slice(&0x20a0u16.to_be_bytes());
+    h.extend_from_slice(&0x0940u16.to_be_bytes());
+    h.extend_from_slice(&[3, 9]);
+    h.extend_from_slice(&0x0300_0000u32.to_be_bytes()); // flags: Unix, no checksums
+    h.extend_from_slice(&0o100_644u32.to_be_bytes());
+    h.extend_from_slice(&MTIME.to_be_bytes());
+    h.extend_from_slice(&0u32.to_be_bytes());
+    h.push(0); // no name
+    let (mut a, mut b) = (1u32, 0u32);
+    for &x in &h {
+        a = (a + u32::from(x)) % 65_521;
+        b = (b + a) % 65_521;
+    }
+    let mut out = vec![0x89, 0x4C, 0x5A, 0x4F, 0x00, 0x0D, 0x0A, 0x1A, 0x0A];
+    out.extend_from_slice(&h);
+    out.extend_from_slice(&(b << 16 | a).to_be_bytes());
+    out.extend_from_slice(&(64u32 << 20).to_be_bytes());
+    out.extend_from_slice(&16u32.to_be_bytes());
+    out.extend_from_slice(&[0x11; 16]);
+    out.extend_from_slice(&0u32.to_be_bytes());
+    out
 }

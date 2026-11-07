@@ -261,3 +261,103 @@ fn sevenz_memory_bombs_are_refused_before_decoding() {
     assert!(err.message.contains("decoder_memory"), "{err}");
     assert!(inside.is_empty());
 }
+
+// ---- M5's formats (docs/M5.md §10). ----
+
+/// `../` in every new archive format: refused, the rest extracted. The cpio also has an
+/// absolute path, which lands inside, and a symlink to `..`, refused.
+#[test]
+fn m5_traversal_is_refused() {
+    for (name, safe) in [
+        (
+            "traversal.cpio",
+            vec!["etc", "etc/beezip-abs.txt", "safe.txt"],
+        ),
+        ("traversal.ar", vec!["safe.txt"]),
+        (
+            "traversal.deb",
+            vec!["DEBIAN", "DEBIAN/control", "safe.txt"],
+        ),
+        ("traversal.rpm", vec!["safe.txt"]),
+        ("traversal.cab", vec!["safe.txt"]),
+        ("traversal.lzh", vec!["safe.txt"]),
+    ] {
+        let (r, inside) = extract(name, FsOptions::default());
+        let r = r.unwrap_or_else(|e| panic!("{name}: {e}"));
+        assert!(r.is_unsafe(), "{name}");
+        let why = reasons(&r);
+        assert!(why.contains(&SkipReason::Traversal), "{name}: {why:?}");
+        assert!(
+            why.iter()
+                .all(|s| matches!(s, SkipReason::Traversal | SkipReason::LinksDisabled)),
+            "{name}: {why:?}"
+        );
+        assert_eq!(inside, safe, "{name}");
+    }
+    let (r, _) = extract(
+        "traversal.cpio",
+        FsOptions {
+            links: true,
+            ..FsOptions::default()
+        },
+    );
+    assert!(reasons(&r.unwrap()).contains(&SkipReason::LinkOutside));
+}
+
+/// A size past the end of the file is `Corrupt` when the archive opens or lists, before
+/// anything is allocated for it.
+#[test]
+fn m5_sizes_past_the_end_are_corrupt() {
+    for name in ["past-end.cpio", "past-end.ar", "past-end.rpm"] {
+        let mut cx = SimpleCtx::new();
+        let err = open(&corpus(name), &OpenOptions::default(), &mut cx)
+            .and_then(|mut o| o.reader.entries(&mut cx).map(|_| ()))
+            .unwrap_err();
+        assert_eq!(err.kind, ErrorKind::Corrupt, "{name}: {err}");
+        let (r, inside) = extract(name, FsOptions::default());
+        assert_eq!(r.unwrap_err().kind, ErrorKind::Corrupt, "{name}");
+        assert!(inside.is_empty(), "{name}: {inside:?}");
+    }
+}
+
+/// A cabinet whose file claims 4 GiB from a folder of one block.
+#[test]
+fn a_cab_folder_that_claims_too_much_is_corrupt() {
+    let (r, inside) = extract("folder-bomb.cab", FsOptions::default());
+    assert_eq!(r.unwrap_err().kind, ErrorKind::Corrupt);
+    assert!(inside.is_empty(), "{inside:?}");
+}
+
+/// `bomb.Z` decodes 163 KiB to over 3 GiB, with fixed memory. The default limits stop it
+/// around 700 MB in (10 000:1 after the 64 MiB grace), which takes a while in a debug build, so
+/// this checks with tighter ones.
+#[test]
+fn a_compress_bomb_hits_the_limit() {
+    let opts = OpenOptions::new(Limits {
+        max_ratio: Some(200),
+        ratio_grace: 1024 * 1024,
+        ..Limits::default()
+    });
+    let root = tempfile::tempdir().unwrap();
+    let err = ops::extract(
+        &corpus("bomb.Z"),
+        root.path(),
+        &Selection::all(),
+        &opts,
+        FsOptions::default(),
+        &mut SimpleCtx::new(),
+    )
+    .unwrap_err();
+    assert_eq!(err.kind, ErrorKind::LimitExceeded, "{err}");
+    assert!(listing(root.path()).is_empty());
+}
+
+/// An lzop block claiming 64 MiB from 16 bytes is refused before anything is allocated for it.
+#[test]
+fn an_lzop_bomb_is_corrupt() {
+    let (r, inside) = extract("bomb.lzo", FsOptions::default());
+    let err = r.unwrap_err();
+    assert_eq!(err.kind, ErrorKind::Corrupt, "{err}");
+    assert!(err.message.contains("a block of 16 bytes"), "{err}");
+    assert!(inside.is_empty());
+}

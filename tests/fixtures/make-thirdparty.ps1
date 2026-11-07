@@ -13,6 +13,7 @@ Tools (as on the development machine, 2026-11-02):
   GNU tar 1.35        Git for Windows, C:\Program Files\Git\usr\bin\tar.exe
   bsdtar 3.8.9        C:\Windows\System32\tar.exe (liblzma, bzip2 and zstd built in)
   .NET                Compress-Archive in PowerShell 7
+  makecab, expand     C:\Windows\System32 (Windows 11)
 
 The GNU tar archives hold a symlink, so this needs Developer Mode (or an elevated shell).
 
@@ -23,13 +24,21 @@ M5 added names in legacy code pages (docs/M5.md §6): zips from .NET's ZipArchiv
 entry name encoding, which writes the names in that code page with no UTF-8 flag (as Explorer
 on a Japanese or Russian Windows does), one from 7-Zip's -mcp, which adds Info-ZIP's Unicode
 Path extra, and a tar with Latin-1 names written by Python's tarfile (`python` on the PATH).
+It also added cabinets from makecab (docs/M5.md §10). The other M5 fixtures, in
+thirdparty/libarchive/<fmt>, delharc, packages and linux, come from fetch-libarchive.ps1 and
+make-linux.sh.
 
 .PARAMETER Keep
 Leave archives that are already in thirdparty/ as they are, and copy only new ones. Their
 contents are fixed, so the manifest still describes them; their bytes (atime and ctime fields,
 AES salts) would otherwise change on every run.
+
+.PARAMETER Only
+Copy only the fixtures whose names match this wildcard (with their parts), and replace only their
+records; every other file in thirdparty/ and every other record is left as it is. Everything is
+still made in the temporary folder. `-Only 'makecab-*'` makes the cabinets alone.
 #>
-param([switch]$Keep)
+param([switch]$Keep, [string]$Only)
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
@@ -314,25 +323,86 @@ Compress-Archive -Path tree -DestinationPath dotnet.zip
 Add-Fixture 'dotnet.zip' ".NET $([Environment]::Version) (PowerShell $($PSVersionTable.PSVersion) Compress-Archive)" `
     'Compress-Archive -Path tree -DestinationPath dotnet.zip' 'zip' (Expected 'tree')
 
-Pop-Location
-New-Item -ItemType Directory -Force $out | Out-Null
-# Only this script's files: the RAR fixtures live in subfolders, from fetch-rar.ps1.
-if (-not $Keep) { Get-ChildItem $out -File | Remove-Item -Force }
-foreach ($f in $fixtures) {
-    $names = @($f.file) + @(if ($f.Contains('parts')) { $f.parts })
-    foreach ($n in $names) {
-        if ($Keep -and (Test-Path (Join-Path $out $n))) { continue }
-        Copy-Item (Join-Path $work $n) $out
+# makecab (docs/M5.md §10): stored, MSZIP and LZX:21 cabinets of the ASCII tree, which has a
+# subfolder, an empty file and a path past 100 bytes, and an MSZIP set split at 2 KiB, which
+# splits random.bin across cabinets. makecab reads its directive file in the ANSI code page, so
+# it can't name the tree's non-ASCII files. CAB times are local, as zip's are. Microsoft's
+# expand.exe must give the tree back from each single cabinet (it doesn't follow sets), and
+# `7z t` must pass every one.
+$mc = "makecab (Windows $([Environment]::OSVersion.Version))"
+$cabbed = @(Get-ChildItem -Recurse -File ascii | Sort-Object FullName | ForEach-Object { [IO.Path]::GetRelativePath($work, $_.FullName) })
+function New-Cab([string]$template, [string[]]$settings) {
+    $ddf = @('.OPTION EXPLICIT', ".Set CabinetNameTemplate=$template", '.Set DiskDirectoryTemplate=.',
+        '.Set RptFileName=nul', '.Set InfFileName=nul') + $settings + @($cabbed | ForEach-Object { "`"$_`" `"$_`"" })
+    [IO.File]::WriteAllLines((Join-Path $work 'cab.ddf'), $ddf, [Text.Encoding]::ASCII)
+    & makecab.exe /F cab.ddf | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "makecab $template failed with $LASTEXITCODE" }
+    "makecab.exe /F cab.ddf, the directives: $(($settings | ForEach-Object { $_ -replace '^\.Set ', '' }) -join ', '), then each file of ascii/"
+}
+function Assert-Cab([string]$file, [switch]$set) {
+    & $sevenZip t $file | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "7z t $file failed" }
+    if ($set) { return }
+    $x = Join-Path $work "expand-$file"
+    New-Item -ItemType Directory $x | Out-Null
+    & expand.exe "-F:*" $file $x | Out-Null
+    foreach ($e in (Expected 'ascii')) {
+        $got = Join-Path $x $e.path
+        if (-not (Test-Path $got) -or (Sha256 ([IO.File]::ReadAllBytes($got))) -ne $e.sha256) { throw "expand.exe gives the wrong $($e.path) from $file" }
     }
 }
-# fetch-rar.ps1's entries (files in subfolders) are kept as they are.
+$cabs = [ordered]@{
+    'makecab-none.cab'  = @('.Set Compress=off', '.Set MaxDiskSize=0')
+    'makecab-mszip.cab' = @('.Set CompressionType=MSZIP', '.Set MaxDiskSize=0')
+    'makecab-lzx21.cab' = @('.Set CompressionType=LZX', '.Set CompressionMemory=21', '.Set MaxDiskSize=0')
+}
+foreach ($c in $cabs.GetEnumerator()) {
+    $cmd = New-Cab $c.Key $c.Value
+    Assert-Cab $c.Key
+    Add-Fixture $c.Key $mc $cmd 'cab' (Expected 'ascii')
+}
+$cmd = New-Cab 'makecab-set*.cab' @('.Set CompressionType=MSZIP', '.Set MaxDiskSize=2048')
+$setParts = @(Get-ChildItem 'makecab-set*.cab' | Sort-Object Name | ForEach-Object Name)
+if ($setParts.Count -lt 2 -or $setParts[0] -ne 'makecab-set1.cab') { throw "makecab made $($setParts -join ', ')" }
+Assert-Cab 'makecab-set1.cab' -set
+Add-Fixture 'makecab-set1.cab' $mc $cmd 'cab' (Expected 'ascii') $null $false $null @($setParts | Select-Object -Skip 1)
+
+Pop-Location
+New-Item -ItemType Directory -Force $out | Out-Null
+$selected = @($fixtures | Where-Object { -not $Only -or $_.file -like $Only })
+if ($Only -and -not $selected) { throw "-Only $Only matches none of the fixtures" }
+$copied = @($selected | ForEach-Object { @($_.file) + @(if ($_.Contains('parts')) { $_.parts }) })
+# Only this script's files: the other scripts' live in subfolders.
+if ($Only) { Get-ChildItem $out -File | Where-Object { $_.Name -like $Only -or $_.Name -in $copied } | Remove-Item -Force }
+elseif (-not $Keep) { Get-ChildItem $out -File | Remove-Item -Force }
+foreach ($n in $copied) {
+    if ($Keep -and (Test-Path (Join-Path $out $n))) { continue }
+    Copy-Item (Join-Path $work $n) $out
+}
+# The other scripts' entries (files in subfolders) are kept as they are; with -Only, so is every
+# record it doesn't match, and new ones go after the last of this script's.
 $manifestPath = Join-Path $PSScriptRoot 'manifest.json'
-if (Test-Path $manifestPath) {
-    $old = Get-Content -Raw $manifestPath | ConvertFrom-Json -AsHashtable
-    foreach ($f in $old.fixtures) { if ($f.file -like '*/*') { $fixtures.Add($f) } }
+$old = @(if (Test-Path $manifestPath) { (Get-Content -Raw $manifestPath | ConvertFrom-Json -AsHashtable).fixtures })
+if ($Only) {
+    $list = [Collections.Generic.List[object]]::new()
+    $new = [Collections.Generic.List[object]]::new($selected)
+    foreach ($f in $old) {
+        if ($f.file -notlike '*/*' -and $f.file -like $Only) {
+            $r = $new | Where-Object { $_.file -eq $f.file } | Select-Object -First 1
+            if ($r) { $list.Add($r); [void]$new.Remove($r) }
+            continue
+        }
+        $list.Add($f)
+    }
+    $at = 0
+    for ($i = 0; $i -lt $list.Count; $i++) { if ($list[$i].file -notlike '*/*') { $at = $i + 1 } }
+    $list.InsertRange($at, $new)
+    $fixtures = $list
+} else {
+    foreach ($f in $old) { if ($f.file -like '*/*') { $fixtures.Add($f) } }
 }
 $manifest = [ordered]@{
-    note = 'Generated by make-thirdparty.ps1 and fetch-rar.ps1. Paths in entries are as extracted, /-separated; "*" is the one entry of a compressed file.'
+    note = 'Generated by make-thirdparty.ps1, fetch-rar.ps1, fetch-libarchive.ps1 and make-linux.sh, each of which replaces only its own records. Paths in entries are as extracted, /-separated; "*" is the one entry of a compressed file. A `note` says where expected values came from when 7-Zip 26.00 couldn''t give them; `7z_test` is what `7z t` said of the file.'
     fixtures = $fixtures
 }
 ($manifest | ConvertTo-Json -Depth 6) -replace "`r`n", "`n" | Set-Content -NoNewline $manifestPath
