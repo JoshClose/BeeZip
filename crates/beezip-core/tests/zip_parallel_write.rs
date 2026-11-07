@@ -16,8 +16,9 @@ use std::{
 };
 
 use beezip_core::{
-    ArchiveWriter, CreateOptions, Ctx, ErrorKind, FsOptions, NewEntry, NewKind, OpenOptions,
-    OverwriteChoice, Progress, Result, Selection, SimpleCtx, WriteSpec,
+    AddOptions, ArchiveWriter, CreateOptions, Ctx, EditOp, EditOptions, ErrorKind, FsOptions,
+    NewEntry, NewKind, OpenOptions, OverwriteChoice, Progress, Result, Selection, SimpleCtx,
+    WriteSpec,
     format::zip::{ZipEncryption, ZipMethod, ZipWriteOptions, ZipWriter},
     ops,
 };
@@ -59,6 +60,13 @@ fn tree(dir: &Path, files: usize, big: bool) {
         let t = UNIX_EPOCH + Duration::from_secs(1_700_000_000 + i as u64 * 3);
         filetime::set_file_mtime(&p, filetime::FileTime::from_system_time(t)).unwrap();
     }
+}
+
+/// Writes a file with a time in whole seconds, as a zip keeps it.
+fn write_at(path: &Path, data: &[u8]) {
+    fs::write(path, data).unwrap();
+    let t = filetime::FileTime::from_unix_time(1_700_000_000, 0);
+    filetime::set_file_mtime(path, t).unwrap();
 }
 
 fn spec(method: ZipMethod, threads: u32, password: Option<ZipEncryption>) -> WriteSpec {
@@ -122,10 +130,92 @@ fn workers_write_the_bytes_one_thread_writes() {
         let many = root.path().join(format!("{}-{tag}-4.zip", method.name()));
         create(&one, input, &spec(method, 1, None));
         create(&many, input, &spec(method, 4, None));
+        if method == ZipMethod::Deflate && tag == "big" {
+            // Its 70 MiB entry is deflated by every worker at once, so that entry's bytes are
+            // parallel deflate's (docs/M6.md §6.2); the zip reads back as the files.
+            assert_reads_back(&many, &[input]);
+            continue;
+        }
         assert!(
             fs::read(&one).unwrap() == fs::read(&many).unwrap(),
             "{}: the zips differ",
             method.name()
+        );
+    }
+}
+
+/// `zip` tests clean, and extracts to the files of each of `inputs`.
+fn assert_reads_back(zip: &Path, inputs: &[&Path]) {
+    let tested = ops::test(
+        zip,
+        &Selection::all(),
+        &OpenOptions::default(),
+        &mut SimpleCtx::new(),
+    )
+    .unwrap();
+    assert!(tested.ok(), "{}: {:?}", zip.display(), tested.errors);
+    let dest = tempfile::tempdir_in(zip.parent().unwrap()).unwrap();
+    let dest = dest.path();
+    ops::extract(
+        zip,
+        dest,
+        &Selection::all(),
+        &OpenOptions::default(),
+        FsOptions::default(),
+        &mut SimpleCtx::new(),
+    )
+    .unwrap();
+    for input in inputs {
+        let name = input.file_name().unwrap();
+        assert!(files(&dest.join(name)) == files(input), "{}", zip.display());
+    }
+}
+
+/// A big entry among small ones, and then in an edit: parallel deflate inside it, the rest
+/// whole.
+#[test]
+fn big_entries_are_deflated_by_every_worker() {
+    let root = tempfile::tempdir().unwrap();
+    let input = root.path().join("in");
+    tree(&input, 30, false);
+    write_at(&input.join("big.bin"), &body(7, 20 << 20));
+    let zip = root.path().join("big.zip");
+    create(&zip, &input, &spec(ZipMethod::Deflate, 4, None));
+    assert_reads_back(&zip, &[&input]);
+
+    // Files added by an edit go the same way, after the entries it copies.
+    let more = root.path().join("more");
+    fs::create_dir_all(&more).unwrap();
+    for i in 0..10 {
+        write_at(&more.join(format!("m{i}.txt")), &body(100 + i, 5000));
+    }
+    write_at(&more.join("big2.bin"), &body(8, 18 << 20));
+    let op = EditOp::Add(AddOptions {
+        inputs: vec![more.clone()],
+        ..AddOptions::default()
+    });
+    let r = ops::edit(
+        &zip,
+        &op,
+        &mut |_| Ok(spec(ZipMethod::Deflate, 4, None)),
+        &EditOptions::default(),
+        &mut SimpleCtx::new(),
+    )
+    .unwrap();
+    assert_eq!(r.added, 12, "{r:?}");
+    assert_reads_back(&zip, &[&input, &more]);
+    // 7-Zip reads it too, where it's installed (the Windows runners have it).
+    let seven = Path::new(r"C:\Program Files\7-Zip\7z.exe");
+    if seven.is_file() {
+        let out = std::process::Command::new(seven)
+            .args(["t", "-bd"])
+            .arg(&zip)
+            .output()
+            .unwrap();
+        assert!(
+            out.status.success(),
+            "{}",
+            String::from_utf8_lossy(&out.stdout)
         );
     }
 }

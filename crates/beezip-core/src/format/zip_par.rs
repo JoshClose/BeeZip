@@ -29,15 +29,17 @@ use std::{
 };
 
 use super::{
-    ZipReader, ZipSpan, ZipWriteOptions, ZipWriter, add_to, entry_options, write_zip_error,
+    ZipMethod, ZipReader, ZipSpan, ZipWriteOptions, ZipWriter, add_to, entry_options,
+    write_zip_error,
 };
 use crate::{
     CodecId, Ctx, Error, ErrorKind, Meter, MeteredCtx, OverwriteChoice, Progress, Result,
+    codec::deflate_par::ParDeflate,
     format::{
         EntryKind, NewEntry, NewKind, Opener, Selection,
         zip_edit::{self, CentralRecord},
     },
-    io::{BUF_SIZE, Counter, drain, read_error, write_error},
+    io::{BUF_SIZE, Counter, WriteSeek, copy, drain, read_error, write_error},
     limits::{Guarded, RatioGuard},
     safefs::{FileJob, FsSink, Partial},
 };
@@ -400,6 +402,108 @@ impl Ctx for WorkerCtx<'_> {
 
 /// An entry bigger than this is made in a temporary file rather than in memory.
 const MEM_CAP: u64 = 64 << 20;
+/// Unencrypted Deflate entries at least this big are compressed by every worker at once, with
+/// parallel deflate, rather than whole by one: a big file would otherwise finish alone.
+const BIG: u64 = 16 << 20;
+/// Bigger ones would need Zip64 sizes in a header the zip crate wrote without them, so they
+/// stay on one worker.
+const BIG_MAX: u64 = 0xF000_0000;
+
+/// Whether `entry` is written with parallel deflate inside it.
+fn big(opts: &ZipWriteOptions, entry: &NewEntry) -> bool {
+    opts.method == ZipMethod::Deflate
+        && opts.password.is_none()
+        && entry.kind == NewKind::File
+        && (BIG..BIG_MAX).contains(&entry.size)
+}
+
+/// The local header and central record the zip crate writes for `entry` with no data: the
+/// parts that go around a parallel deflate stream, once its CRC and sizes are put in.
+fn big_parts(
+    opts: &ZipWriteOptions,
+    level: Option<i64>,
+    entry: &NewEntry,
+) -> Result<(Vec<u8>, CentralRecord)> {
+    let o = entry_options(opts, level, entry)?;
+    let mut zip = zip::ZipWriter::new(io::Cursor::new(Vec::new())).set_auto_large_file();
+    zip.start_file(&entry.path, o).map_err(write_zip_error)?;
+    let mut c = zip.finish().map_err(write_zip_error)?;
+    let (_, rec) = split(&mut c)?;
+    let v = c.into_inner();
+    let field = |at: usize| u16::from_le_bytes([v[at], v[at + 1]]);
+    let len = 30 + usize::from(field(26)) + usize::from(field(28));
+    // Deflate, sizes in the header (no data descriptor), and no Zip64 fields.
+    if v.len() < len || field(8) != 8 || field(6) & 8 != 0 || len < 30 {
+        return Err(Error::corrupt(
+            "zip: an unexpected local header for a big entry",
+        ));
+    }
+    Ok((v[..len].to_vec(), rec))
+}
+
+/// Writes `entry` at `pos` of `out`: the zip crate's header, then parallel deflate on `threads`
+/// workers, then the CRC and sizes put in. Returns where it ends, and its central record.
+#[allow(clippy::too_many_arguments)]
+fn write_big(
+    out: &mut dyn WriteSeek,
+    pos: u64,
+    opts: &ZipWriteOptions,
+    level: Option<i64>,
+    entry: &NewEntry,
+    data: &mut dyn Read,
+    threads: u32,
+    cx: &mut dyn Ctx,
+) -> Result<(u64, CentralRecord)> {
+    let (head, mut rec) = big_parts(opts, level, entry)?;
+    out.seek(SeekFrom::Start(pos))
+        .and_then(|_| out.write_all(&head))
+        .map_err(|e| write_error(&e))?;
+    let level = level.and_then(|l| u32::try_from(l).ok()).unwrap_or(6);
+    let mut enc = ParDeflate::new(&mut *out, level, threads);
+    copy(data, &mut enc, cx)?;
+    let (_, sum) = enc.finish().map_err(|e| write_error(&e))?;
+    let (Ok(packed), Ok(size)) = (u32::try_from(sum.bytes_out), u32::try_from(sum.bytes_in)) else {
+        return Err(Error::new(
+            ErrorKind::Io,
+            format!("`{}` grew past 4 GiB while it was being added", entry.path),
+        ));
+    };
+    // CRC, compressed size, size: at 14 in the local header, at 16 in the central record.
+    let mut fields = Vec::with_capacity(12);
+    fields.extend_from_slice(&sum.crc32.to_le_bytes());
+    fields.extend_from_slice(&packed.to_le_bytes());
+    fields.extend_from_slice(&size.to_le_bytes());
+    rec.0[16..28].copy_from_slice(&fields);
+    let end = pos + head.len() as u64 + sum.bytes_out;
+    out.seek(SeekFrom::Start(pos + 14))
+        .and_then(|_| out.write_all(&fields))
+        .and_then(|_| out.seek(SeekFrom::Start(end)))
+        .map_err(|e| write_error(&e))?;
+    Ok((end, rec))
+}
+
+/// [`write_big`] at the end of what `w` has written.
+fn append_big(
+    w: &mut ZipWriter,
+    entry: &NewEntry,
+    data: &mut dyn Read,
+    threads: u32,
+    cx: &mut dyn Ctx,
+) -> Result<()> {
+    let opts = w.opts.clone();
+    let level = w.level;
+    let (out, pos, recs): (&mut dyn WriteSeek, &mut u64, &mut Vec<CentralRecord>) = match &mut w.out
+    {
+        super::Out::Spans(s) => (&mut s.out, &mut s.pos, &mut s.recs),
+        super::Out::Edit(ed) => (&mut ed.file, &mut ed.pos, &mut ed.kept),
+        _ => return Err(Error::new(ErrorKind::Io, "zip: no place for a big entry")),
+    };
+    let (end, mut rec) = write_big(out, *pos, &opts, level, entry, data, threads, cx)?;
+    rec.set_offset(*pos)?;
+    *pos = end;
+    recs.push(rec);
+    Ok(())
+}
 /// Input bytes in flight at most; an entry bigger than this goes alone.
 const IN_FLIGHT: u64 = 512 << 20;
 
@@ -505,7 +609,8 @@ struct Window {
 }
 
 /// Adds `entries` to `w` on `workers` workers, written in order. At most 8 entries per worker
-/// and [`IN_FLIGHT`] bytes of input are in flight. A worker's failure stops the job when the
+/// and [`IN_FLIGHT`] bytes of input are in flight. Big entries ([`BIG`]) are the job thread's,
+/// with every worker on them through parallel deflate. A worker's failure stops the job when the
 /// job's thread reaches that entry, so the error is the first one in order, as on one thread.
 pub(super) fn write(
     w: &mut ZipWriter,
@@ -517,8 +622,10 @@ pub(super) fn write(
     let opts = w.opts.clone();
     let level = w.level;
     let spool = w.spool.clone();
+    // Big entries are the job thread's: workers skip them, and their size isn't in flight.
+    let is_big = |k: usize| big(&opts, &entries[k]);
     let size = |k: usize| match entries[k].kind {
-        NewKind::File => entries[k].size,
+        NewKind::File if !is_big(k) => entries[k].size,
         _ => 0,
     };
     let ahead = 8 * workers;
@@ -541,6 +648,9 @@ pub(super) fn write(
                     let k = {
                         let mut st = lock(&window);
                         loop {
+                            while st.next < entries.len() && is_big(st.next) {
+                                st.next += 1;
+                            }
                             if stop.load(Ordering::Relaxed) || st.next >= entries.len() {
                                 return;
                             }
@@ -568,7 +678,15 @@ pub(super) fn write(
             });
         }
         let result = (|| -> Result<()> {
-            for k in 0..entries.len() {
+            for (k, entry) in entries.iter().enumerate() {
+                if is_big(k) {
+                    let mut data = open(k)?;
+                    let threads = u32::try_from(workers).unwrap_or(u32::MAX);
+                    append_big(w, entry, &mut data, threads, cx)?;
+                    lock(&window).written += 1;
+                    changed.notify_all();
+                    continue;
+                }
                 let made = loop {
                     let mut st = lock(&window);
                     if let Some(made) = st.done.remove(&k) {
