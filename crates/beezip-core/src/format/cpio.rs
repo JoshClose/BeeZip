@@ -48,17 +48,23 @@ impl ArchiveFormat for Cpio {
         &[".cpio"]
     }
 
-    /// A first header that parses is certain; the ASCII magic alone is likely.
+    /// A first header that parses is certain; the ASCII magic alone is likely. The old binary
+    /// format's magic is two bytes and its fields any numbers, so its header must also end its
+    /// name with the NUL its name size counts, and give a file type.
     fn sniff(&self, probe: &Probe<'_>) -> Option<Confidence> {
         let kind = magic(probe.head)?;
         if kind == Kind::Stripped {
+            return None;
+        }
+        let binary = matches!(kind, Kind::BinLe | Kind::BinBe);
+        if binary && !binary_plausible(probe.head, kind) {
             return None;
         }
         let mut r = probe.head;
         let mut m = Members::new(&mut r);
         match m.next(&|_| None) {
             Ok(Some(_)) => Some(Confidence::Certain),
-            _ if matches!(kind, Kind::BinLe | Kind::BinBe) => None,
+            _ if binary => None,
             _ => Some(Confidence::Likely),
         }
     }
@@ -121,6 +127,34 @@ fn magic(head: &[u8]) -> Option<Kind> {
 
 fn corrupt(msg: impl Into<String>) -> Error {
     Error::corrupt(format!("cpio: {}", msg.into()))
+}
+
+/// An old binary header at the start of `head` that looks like one: a name of at least one byte
+/// ending with the NUL its size counts, and no NUL before it, and a mode with a file type.
+fn binary_plausible(head: &[u8], kind: Kind) -> bool {
+    let w = |i: usize| -> Option<usize> {
+        let b = [*head.get(i)?, *head.get(i + 1)?];
+        Some(usize::from(if kind == Kind::BinLe {
+            u16::from_le_bytes(b)
+        } else {
+            u16::from_be_bytes(b)
+        }))
+    };
+    let (Some(mode), Some(namesize)) = (w(6), w(20)) else {
+        return false;
+    };
+    let typed = matches!(
+        mode as u32 & S_IFMT,
+        0o010_000 | 0o020_000 | S_IFDIR | 0o060_000 | S_IFREG | S_IFLNK | 0o140_000
+    );
+    match head.get(BIN_LEN..BIN_LEN + namesize) {
+        Some([name @ .., 0]) => {
+            (typed || name == TRAILER) && !name.is_empty() && !name.contains(&0)
+        }
+        // A name past what the probe holds: the header alone decides.
+        None => typed,
+        _ => false,
+    }
 }
 
 fn hex(field: &[u8]) -> Option<u64> {
@@ -1249,6 +1283,22 @@ mod tests {
         };
         let mut b = bin(b"y", 0o100_644, b"hello");
         b.extend(bin(b"TRAILER!!!", 0, b""));
+        let probe = |head: &[u8]| {
+            Cpio.sniff(&Probe {
+                head,
+                len: Some(head.len() as u64),
+                ..Probe::default()
+            })
+        };
+        assert_eq!(probe(&b), Some(Confidence::Certain));
+        assert_eq!(probe(&bin(b"TRAILER!!!", 0, b"")), Some(Confidence::Certain));
+        // The binary magic and numbers alone aren't a cpio: the name must end at its size.
+        let mut fake = b.clone();
+        fake[20] = 9;
+        assert_eq!(probe(&fake), None);
+        let mut typeless = b.clone();
+        typeless[6..8].copy_from_slice(&0o000_644u16.to_le_bytes());
+        assert_eq!(probe(&typeless), None);
         let (_d, mut r) = reader(&b);
         assert_eq!(r.entries(&mut SimpleCtx::new()).unwrap()[0].path, "y");
         assert_eq!(read(&mut r, 0), b"hello");
