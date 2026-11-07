@@ -8,6 +8,7 @@ use std::fmt;
 use beezip_core::{
     CodecId, Entry, EntryKind,
     format::{
+        cab::CabMethod,
         sevenz::SevenZMethod,
         zip::{ZipEncryption, ZipMethod},
     },
@@ -99,11 +100,60 @@ pub enum ArchiveFormatName {
     #[serde(rename = "tar.sz")]
     #[value(name = "tar.sz")]
     TarSz,
+    #[serde(rename = "tar.Z")]
+    #[value(name = "tar.Z")]
+    TarZ,
+    #[serde(rename = "tar.lzo")]
+    #[value(name = "tar.lzo")]
+    TarLzo,
+    #[serde(rename = "cpio")]
+    #[value(name = "cpio")]
+    Cpio,
+    #[serde(rename = "cpio.gz")]
+    #[value(name = "cpio.gz")]
+    CpioGz,
+    #[serde(rename = "cpio.bz2")]
+    #[value(name = "cpio.bz2")]
+    CpioBz2,
+    #[serde(rename = "cpio.xz")]
+    #[value(name = "cpio.xz")]
+    CpioXz,
+    #[serde(rename = "cpio.lzma")]
+    #[value(name = "cpio.lzma")]
+    CpioLzma,
+    #[serde(rename = "cpio.lz")]
+    #[value(name = "cpio.lz")]
+    CpioLz,
+    #[serde(rename = "cpio.zst")]
+    #[value(name = "cpio.zst")]
+    CpioZst,
+    #[serde(rename = "cpio.lz4")]
+    #[value(name = "cpio.lz4")]
+    CpioLz4,
+    #[serde(rename = "cpio.br")]
+    #[value(name = "cpio.br")]
+    CpioBr,
+    #[serde(rename = "cpio.sz")]
+    #[value(name = "cpio.sz")]
+    CpioSz,
+    #[serde(rename = "cpio.Z")]
+    #[value(name = "cpio.Z")]
+    CpioZ,
+    #[serde(rename = "cpio.lzo")]
+    #[value(name = "cpio.lzo")]
+    CpioLzo,
+    #[serde(rename = "ar")]
+    #[value(name = "ar")]
+    Ar,
+    #[serde(rename = "cab")]
+    #[value(name = "cab")]
+    Cab,
 }
 
 impl ArchiveFormatName {
     pub fn kind(self) -> ArchiveKind {
         let tar = |c| ArchiveKind::Tar(Some(c));
+        let cpio = |c| ArchiveKind::Cpio(Some(c));
         match self {
             Self::Zip => ArchiveKind::Zip,
             Self::SevenZ => ArchiveKind::SevenZ,
@@ -117,6 +167,22 @@ impl ArchiveFormatName {
             Self::TarLz4 => tar(CodecId::Lz4),
             Self::TarBr => tar(CodecId::Brotli),
             Self::TarSz => tar(CodecId::Snappy),
+            Self::TarZ => tar(CodecId::Compress),
+            Self::TarLzo => tar(CodecId::Lzop),
+            Self::Cpio => ArchiveKind::Cpio(None),
+            Self::CpioGz => cpio(CodecId::Gzip),
+            Self::CpioBz2 => cpio(CodecId::Bzip2),
+            Self::CpioXz => cpio(CodecId::Xz),
+            Self::CpioLzma => cpio(CodecId::Lzma),
+            Self::CpioLz => cpio(CodecId::Lzip),
+            Self::CpioZst => cpio(CodecId::Zstd),
+            Self::CpioLz4 => cpio(CodecId::Lz4),
+            Self::CpioBr => cpio(CodecId::Brotli),
+            Self::CpioSz => cpio(CodecId::Snappy),
+            Self::CpioZ => cpio(CodecId::Compress),
+            Self::CpioLzo => cpio(CodecId::Lzop),
+            Self::Ar => ArchiveKind::Ar,
+            Self::Cab => ArchiveKind::Cab,
         }
     }
 
@@ -151,6 +217,9 @@ pub enum CodecName {
     Lz4,
     Brotli,
     Snappy,
+    /// Unix `compress` (`.Z`).
+    Compress,
+    Lzop,
 }
 
 impl CodecName {
@@ -167,6 +236,8 @@ impl CodecName {
             Self::Lz4 => CodecId::Lz4,
             Self::Brotli => CodecId::Brotli,
             Self::Snappy => CodecId::Snappy,
+            Self::Compress => CodecId::Compress,
+            Self::Lzop => CodecId::Lzop,
         }
     }
 
@@ -236,9 +307,9 @@ impl SevenZMethodName {
 }
 
 /// A compression method for `archive.create`: zip's (`store`, `deflate`, `bzip2`, `zstd`,
-/// `xz`, `ppmd`) or 7z's (`lzma2`, `lzma`, `ppmd`, `bzip2`, `deflate`, `copy`). One flag takes
-/// both; [`MethodName::zip`] and [`MethodName::sevenz`] say which a format accepts, so `store`
-/// can't reach a 7z.
+/// `xz`, `ppmd`), 7z's (`lzma2`, `lzma`, `ppmd`, `bzip2`, `deflate`, `copy`) or a cabinet's
+/// (`store`, `mszip`). One flag takes them all; [`MethodName::zip`], [`MethodName::sevenz`] and
+/// [`MethodName::cab`] say which a format accepts, so `store` can't reach a 7z.
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS, clap::ValueEnum,
 )]
@@ -254,6 +325,7 @@ pub enum MethodName {
     Lzma2,
     Lzma,
     Copy,
+    Mszip,
 }
 
 impl MethodName {
@@ -265,7 +337,7 @@ impl MethodName {
             Self::Zstd => ZipMethodName::Zstd,
             Self::Xz => ZipMethodName::Xz,
             Self::Ppmd => ZipMethodName::Ppmd,
-            Self::Lzma2 | Self::Lzma | Self::Copy => return None,
+            Self::Lzma2 | Self::Lzma | Self::Copy | Self::Mszip => return None,
         })
     }
 
@@ -277,8 +349,16 @@ impl MethodName {
             Self::Bzip2 => SevenZMethodName::Bzip2,
             Self::Deflate => SevenZMethodName::Deflate,
             Self::Copy => SevenZMethodName::Copy,
-            Self::Store | Self::Zstd | Self::Xz => return None,
+            Self::Store | Self::Zstd | Self::Xz | Self::Mszip => return None,
         })
+    }
+
+    pub fn cab(self) -> Option<CabMethod> {
+        match self {
+            Self::Store => Some(CabMethod::Store),
+            Self::Mszip => Some(CabMethod::Mszip),
+            _ => None,
+        }
     }
 
     pub fn name(self) -> &'static str {
@@ -292,6 +372,7 @@ impl MethodName {
             Self::Lzma2 => "lzma2",
             Self::Lzma => "lzma",
             Self::Copy => "copy",
+            Self::Mszip => "mszip",
         }
     }
 }
@@ -319,7 +400,7 @@ impl EncryptionName {
 }
 
 /// How names stored as bytes are read (docs/M5.md §6): zip names without the UTF-8 flag, tar
-/// names outside pax records. `auto` reads them as UTF-8 when they are valid UTF-8, otherwise in
+/// names outside pax records, cpio, ar and LHA names, CAB names without the UTF-8 flag. `auto` reads them as UTF-8 when they are valid UTF-8, otherwise in
 /// the system's code page (the OEM one for zip, as Explorer reads them). The others are code
 /// pages: `cp932` is Japanese (Shift-JIS), `cp936` Simplified Chinese (GBK), `cp949` Korean,
 /// `cp950` Traditional Chinese (Big5), `cp866` and `cp1251` Cyrillic, `cp437` and `cp850` DOS.
@@ -749,8 +830,9 @@ pub(crate) mod tests {
             assert_eq!(serde_json::to_value(m).unwrap(), m.name());
             let zip = m.zip().map(|z| serde_json::to_value(z).unwrap());
             let sz = m.sevenz().map(|s| serde_json::to_value(s).unwrap());
-            assert!(zip.is_some() || sz.is_some());
-            for v in zip.into_iter().chain(sz) {
+            let cab = m.cab().map(|c| serde_json::Value::from(c.name()));
+            assert!(zip.is_some() || sz.is_some() || cab.is_some());
+            for v in zip.into_iter().chain(sz).chain(cab) {
                 assert_eq!(v, m.name());
             }
         }

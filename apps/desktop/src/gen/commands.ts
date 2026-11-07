@@ -30,8 +30,9 @@ platform: string,
 profile: string, };
 
 /**
- * Add files and folders to an archive (zip, 7z, tar and tar under any codec). Each input is
- * stored under its own name, as `archive.create` stores them, in `dir` if given. The archive
+ * Add files and folders to an archive (zip, 7z, tar, cpio and ar, and tar and cpio under any
+ * codec). Each input is stored under its own name, as `archive.create` stores them, in `dir` if
+ * given; an ar holds files only. The archive
  * isn't written in place: a new one is written beside it and swapped in, so a failed or
  * cancelled add leaves it as it was. Entries that stay are copied without decoding. An archive
  * whose entries are encrypted needs a password for the new files, unless `unencrypted`.
@@ -106,8 +107,8 @@ dry_run?: boolean, };
 
 /**
  * Write an archive's entries to a new archive in another format, or with other options: zip,
- * 7z, tar, or tar under a codec, from any archive BeeZip reads (RAR and split archives
- * included). The source isn't changed. Entries are copied without decoding when the formats
+ * 7z, tar, cpio, ar or cab, tar and cpio under a codec too, from any archive BeeZip reads (RAR,
+ * packages and split archives included). The source isn't changed. Entries are copied without decoding when the formats
  * match and no option asks for something else (`a.tar.gz` → `a.tar.zst` keeps every tar
  * entry, encoding the stream again). An encrypted source needs `new_password` or `decrypt`:
  * encryption is never dropped silently. What the new format can't hold is left out and
@@ -223,9 +224,10 @@ volumes: Array<string> | null, };
 
 /**
  * Create an archive from files and folders. Each input is stored under its own name (`src/`
- * becomes `src/…`). The format comes from `format` or the output's extension (`.zip`, `.tar`,
- * `.tar.zst`, `.tgz`…). The archive is written to a temporary file and renamed into place, so a
- * failed or cancelled create leaves nothing behind.
+ * becomes `src/…`). The format comes from `format` or the output's extension (`.zip`, `.7z`,
+ * `.tar`, `.tar.zst`, `.tgz`, `.cpio.gz`, `.ar`, `.cab`…); ar and cab hold files only. The
+ * archive is written to a temporary file and renamed into place, so a failed or cancelled
+ * create leaves nothing behind.
  */
 export type ArchiveCreateInput = {
 /**
@@ -242,8 +244,8 @@ inputs: Array<string>,
 format?: ArchiveFormatName,
 /**
  * The compression method: for zip `store`, `deflate` (the default), `bzip2`, `zstd`, `xz`
- * or `ppmd`; for 7z `lzma2` (the default), `lzma`, `ppmd`, `bzip2`, `deflate` or `copy`.
- * A tar's codec comes from `format`.
+ * or `ppmd`; for 7z `lzma2` (the default), `lzma`, `ppmd`, `bzip2`, `deflate` or `copy`; for
+ * cab `mszip` (the default) or `store`. A tar's or cpio's codec comes from `format`.
  */
 method?: MethodName,
 /**
@@ -361,7 +363,8 @@ links?: boolean,
 password?: Secret,
 /**
  * How names stored as bytes are read: zip names without the UTF-8 flag, tar names outside
- * pax records [default: from config, `auto`].
+ * pax records, cpio, ar and LHA names, CAB names without the UTF-8 flag [default: from
+ * config, `auto`].
  */
 name_encoding?: NameEncoding,
 /**
@@ -386,7 +389,7 @@ plan: Array<PlannedEntry> | null, };
 /**
  * The archive kinds `archive.create` writes.
  */
-export type ArchiveFormatName = "zip" | "7z" | "tar" | "tar.gz" | "tar.bz2" | "tar.xz" | "tar.lzma" | "tar.lz" | "tar.zst" | "tar.lz4" | "tar.br" | "tar.sz";
+export type ArchiveFormatName = "zip" | "7z" | "tar" | "tar.gz" | "tar.bz2" | "tar.xz" | "tar.lzma" | "tar.lz" | "tar.zst" | "tar.lz4" | "tar.br" | "tar.sz" | "tar.Z" | "tar.lzo" | "cpio" | "cpio.gz" | "cpio.bz2" | "cpio.xz" | "cpio.lzma" | "cpio.lz" | "cpio.zst" | "cpio.lz4" | "cpio.br" | "cpio.sz" | "cpio.Z" | "cpio.lzo" | "ar" | "cab";
 
 /**
  * Summarise an archive: its format chain, entry counts, sizes and compression ratio, methods,
@@ -403,7 +406,8 @@ archive: string,
 password?: Secret,
 /**
  * How names stored as bytes are read: zip names without the UTF-8 flag, tar names outside
- * pax records [default: from config, `auto`].
+ * pax records, cpio, ar and LHA names, CAB names without the UTF-8 flag [default: from
+ * config, `auto`].
  */
 name_encoding?: NameEncoding, };
 
@@ -510,7 +514,8 @@ kind?: KindFilter,
 password?: Secret,
 /**
  * How names stored as bytes are read: zip names without the UTF-8 flag, tar names outside
- * pax records [default: from config, `auto`].
+ * pax records, cpio, ar and LHA names, CAB names without the UTF-8 flag [default: from
+ * config, `auto`].
  */
 name_encoding?: NameEncoding, };
 
@@ -521,7 +526,8 @@ export type ArchiveListOutput = { entries: Array<EntryInfo>,
 total: number, offset: number, has_more: boolean, };
 
 /**
- * Remove entries from an archive (zip, 7z, tar and tar under any codec). A folder takes
+ * Remove entries from an archive (zip, 7z, tar, cpio and ar, and tar and cpio under any
+ * codec). A folder takes
  * everything under it. A new archive is written beside the old one and swapped in, so a failed
  * or cancelled removal leaves it as it was; the entries that stay are copied without decoding,
  * except the rest of a 7z solid block that loses one, which is encoded again. Fails with
@@ -561,8 +567,8 @@ name_encoding?: NameEncoding,
 dry_run?: boolean, };
 
 /**
- * Rename an entry of an archive, or a folder and everything under it (zip, 7z, tar and tar
- * under any codec). `to` is the new full path, so a rename can also move an entry. The new
+ * Rename an entry of an archive, or a folder and everything under it (zip, 7z, tar, cpio and
+ * ar, and tar and cpio under any codec). `to` is the new full path, so a rename can also move an entry. The new
  * name mustn't be taken, unless only its case differs. Entries are copied without decoding,
  * encrypted ones included; renamed names are stored in UTF-8. A new archive is written beside
  * the old one and swapped in.
@@ -610,7 +616,8 @@ archive: string,
 password?: Secret,
 /**
  * How names stored as bytes are read: zip names without the UTF-8 flag, tar names outside
- * pax records [default: from config, `auto`].
+ * pax records, cpio, ar and LHA names, CAB names without the UTF-8 flag [default: from
+ * config, `auto`].
  */
 name_encoding?: NameEncoding, };
 
@@ -725,7 +732,7 @@ detected: boolean, };
 /**
  * A single-stream codec.
  */
-export type CodecName = "gzip" | "zlib" | "deflate" | "bzip2" | "xz" | "lzma" | "lzip" | "zstd" | "lz4" | "brotli" | "snappy";
+export type CodecName = "gzip" | "zlib" | "deflate" | "bzip2" | "xz" | "lzma" | "lzip" | "zstd" | "lz4" | "brotli" | "snappy" | "compress" | "lzop";
 
 /**
  * A command as the front ends list it.
@@ -917,7 +924,8 @@ encoding?: TextEncoding,
 password?: Secret,
 /**
  * How names stored as bytes are read: zip names without the UTF-8 flag, tar names outside
- * pax records [default: from config, `auto`].
+ * pax records, cpio, ar and LHA names, CAB names without the UTF-8 flag [default: from
+ * config, `auto`].
  */
 name_encoding?: NameEncoding, };
 
@@ -1153,15 +1161,15 @@ export type MethodInfo = { id: string, levels: LevelRange | null, };
 
 /**
  * A compression method for `archive.create`: zip's (`store`, `deflate`, `bzip2`, `zstd`,
- * `xz`, `ppmd`) or 7z's (`lzma2`, `lzma`, `ppmd`, `bzip2`, `deflate`, `copy`). One flag takes
- * both; [`MethodName::zip`] and [`MethodName::sevenz`] say which a format accepts, so `store`
- * can't reach a 7z.
+ * `xz`, `ppmd`), 7z's (`lzma2`, `lzma`, `ppmd`, `bzip2`, `deflate`, `copy`) or a cabinet's
+ * (`store`, `mszip`). One flag takes them all; [`MethodName::zip`], [`MethodName::sevenz`] and
+ * [`MethodName::cab`] say which a format accepts, so `store` can't reach a 7z.
  */
-export type MethodName = "store" | "deflate" | "bzip2" | "zstd" | "xz" | "ppmd" | "lzma2" | "lzma" | "copy";
+export type MethodName = "store" | "deflate" | "bzip2" | "zstd" | "xz" | "ppmd" | "lzma2" | "lzma" | "copy" | "mszip";
 
 /**
  * How names stored as bytes are read (docs/M5.md §6): zip names without the UTF-8 flag, tar
- * names outside pax records. `auto` reads them as UTF-8 when they are valid UTF-8, otherwise in
+ * names outside pax records, cpio, ar and LHA names, CAB names without the UTF-8 flag. `auto` reads them as UTF-8 when they are valid UTF-8, otherwise in
  * the system's code page (the OEM one for zip, as Explorer reads them). The others are code
  * pages: `cp932` is Japanese (Shift-JIS), `cp936` Simplified Chinese (GBK), `cp949` Korean,
  * `cp950` Traditional Chinese (Big5), `cp866` and `cp1251` Cyrillic, `cp437` and `cp850` DOS.
@@ -1170,7 +1178,7 @@ export type NameEncoding = "auto" | "utf-8" | "cp437" | "cp850" | "cp852" | "cp8
 
 /**
  * How names stored as bytes are read: zip names without the UTF-8 flag, tar names outside pax
- * records (docs/M5.md §6).
+ * records, cpio, ar and LHA names, CAB names without the UTF-8 flag (docs/M5.md §6).
  */
 export type NamesConfig = {
 /**
@@ -1631,8 +1639,9 @@ export type CommandMap = {
   /** Show the BeeZip version and build information. */
   "app.version": { input: AppVersionInput; output: AppVersionOutput };
   /**
-   * Add files and folders to an archive (zip, 7z, tar and tar under any codec). Each input is
-   * stored under its own name, as `archive.create` stores them, in `dir` if given. The archive
+   * Add files and folders to an archive (zip, 7z, tar, cpio and ar, and tar and cpio under any
+   * codec). Each input is stored under its own name, as `archive.create` stores them, in `dir` if
+   * given; an ar holds files only. The archive
    * isn't written in place: a new one is written beside it and swapped in, so a failed or
    * cancelled add leaves it as it was. Entries that stay are copied without decoding. An archive
    * whose entries are encrypted needs a password for the new files, unless `unencrypted`.
@@ -1640,8 +1649,8 @@ export type CommandMap = {
   "archive.add": { input: ArchiveAddInput; output: EditOutput };
   /**
    * Write an archive's entries to a new archive in another format, or with other options: zip,
-   * 7z, tar, or tar under a codec, from any archive BeeZip reads (RAR and split archives
-   * included). The source isn't changed. Entries are copied without decoding when the formats
+   * 7z, tar, cpio, ar or cab, tar and cpio under a codec too, from any archive BeeZip reads (RAR,
+   * packages and split archives included). The source isn't changed. Entries are copied without decoding when the formats
    * match and no option asks for something else (`a.tar.gz` → `a.tar.zst` keeps every tar
    * entry, encoding the stream again). An encrypted source needs `new_password` or `decrypt`:
    * encryption is never dropped silently. What the new format can't hold is left out and
@@ -1650,9 +1659,10 @@ export type CommandMap = {
   "archive.convert": { input: ArchiveConvertInput; output: ArchiveConvertOutput };
   /**
    * Create an archive from files and folders. Each input is stored under its own name (`src/`
-   * becomes `src/…`). The format comes from `format` or the output's extension (`.zip`, `.tar`,
-   * `.tar.zst`, `.tgz`…). The archive is written to a temporary file and renamed into place, so a
-   * failed or cancelled create leaves nothing behind.
+   * becomes `src/…`). The format comes from `format` or the output's extension (`.zip`, `.7z`,
+   * `.tar`, `.tar.zst`, `.tgz`, `.cpio.gz`, `.ar`, `.cab`…); ar and cab hold files only. The
+   * archive is written to a temporary file and renamed into place, so a failed or cancelled
+   * create leaves nothing behind.
    */
   "archive.create": { input: ArchiveCreateInput; output: ArchiveCreateOutput };
   /**
@@ -1673,7 +1683,8 @@ export type CommandMap = {
    */
   "archive.list": { input: ArchiveListInput; output: ArchiveListOutput };
   /**
-   * Remove entries from an archive (zip, 7z, tar and tar under any codec). A folder takes
+   * Remove entries from an archive (zip, 7z, tar, cpio and ar, and tar and cpio under any
+   * codec). A folder takes
    * everything under it. A new archive is written beside the old one and swapped in, so a failed
    * or cancelled removal leaves it as it was; the entries that stay are copied without decoding,
    * except the rest of a 7z solid block that loses one, which is encoded again. Fails with
@@ -1681,8 +1692,8 @@ export type CommandMap = {
    */
   "archive.remove": { input: ArchiveRemoveInput; output: EditOutput };
   /**
-   * Rename an entry of an archive, or a folder and everything under it (zip, 7z, tar and tar
-   * under any codec). `to` is the new full path, so a rename can also move an entry. The new
+   * Rename an entry of an archive, or a folder and everything under it (zip, 7z, tar, cpio and
+   * ar, and tar and cpio under any codec). `to` is the new full path, so a rename can also move an entry. The new
    * name mustn't be taken, unless only its case differs. Entries are copied without decoding,
    * encrypted ones included; renamed names are stored in UTF-8. A new archive is written beside
    * the old one and swapped in.

@@ -4,9 +4,16 @@ Archive formats
   tar      TAR              yes   yes     yes    -        yes     .tar
   7z       7z               yes   yes     yes    yes      -       .7z .cb7
   rar      RAR              yes   yes     -      -        -       .rar .cbr .r00
+  cpio     cpio             yes   yes     yes    -        yes     .cpio
+  deb      Debian package   yes   yes     -      -        -       .deb .udeb
+  ar       ar               yes   yes     yes    -        yes     .ar
+  rpm      RPM package      yes   yes     -      -        -       .rpm
+  cab      Cabinet          yes   yes     yes    -        -       .cab
+  lzh      LHA              yes   yes     -      -        yes     .lzh .lha
   stream   compressed file  yes   yes     -      -        -       
   zip methods: store, deflate (1-9, 6), bzip2 (1-9, 9), zstd (1-22, 3), xz (0-9, 6), ppmd (1-9, 7)
   7z methods: lzma2 (0-9, 5), lzma (0-9, 5), ppmd (1-9, 6), bzip2 (1-9, 9), deflate (1-9, 6), copy
+  cab methods: store, mszip
 
 Codecs
   ID       NAME               LEVELS       THREADS  EXTENSIONS
@@ -21,5 +28,7 @@ Codecs
   lz4      LZ4 frame          -            -        .lz4
   brotli   Brotli             0-11 (9)     -        .br
   snappy   Snappy (framed)    -            -        .sz
+  compress Unix compress (.Z) -            -        .z .taz
+  lzop     lzop               -            -        .lzo .tzo
 
-Create as: zip, 7z, tar, tar.gz, tar.bz2, tar.xz, tar.lzma, tar.lz, tar.zst, tar.lz4, tar.br, tar.sz
+Create as: zip, 7z, tar, tar.gz, tar.bz2, tar.xz, tar.lzma, tar.lz, tar.zst, tar.lz4, tar.br, tar.sz, tar.Z, tar.lzo, cpio, cpio.gz, cpio.bz2, cpio.xz, cpio.lzma, cpio.lz, cpio.zst, cpio.lz4, cpio.br, cpio.sz, cpio.Z, cpio.lzo, ar, cab

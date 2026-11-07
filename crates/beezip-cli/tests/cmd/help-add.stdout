@@ -1,5 +1,6 @@
-Add files and folders to an archive (zip, 7z, tar and tar under any codec). Each input is
-stored under its own name, as `archive.create` stores them, in `dir` if given. The archive
+Add files and folders to an archive (zip, 7z, tar, cpio and ar, and tar and cpio under any
+codec). Each input is stored under its own name, as `archive.create` stores them, in `dir` if
+given; an ar holds files only. The archive
 isn't written in place: a new one is written beside it and swapped in, so a failed or
 cancelled add leaves it as it was. Entries that stay are copied without decoding. An archive
 whose entries are encrypted needs a password for the new files, unless `unencrypted`.
@@ -34,7 +35,7 @@ Options:
           `deflate` (the default), `bzip2`, `zstd`, `xz` or `ppmd`; for 7z `lzma2` (the default),
           `lzma`, `ppmd`, `bzip2`, `deflate` or `copy`. A tar keeps its codec
           
-          [possible values: store, deflate, bzip2, zstd, xz, ppmd, lzma2, lzma, copy]
+          [possible values: store, deflate, bzip2, zstd, xz, ppmd, lzma2, lzma, copy, mszip]
 
   -l, --level <LEVEL>
           The compression level, for the new files, or a compressed tar's stream

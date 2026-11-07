@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 use beezip_core::{
     Action, ArchiveKind, EditOp, EditOptions, EditReport, EncodeOpts, WriteSpec,
     format::{
+        cab::{CabMethod, CabWriteOptions},
         sevenz::{SevenZMethod, SevenZWriteOptions},
         zip::{ZipMethod, ZipWriteOptions},
     },
@@ -115,16 +116,21 @@ pub fn spec_for(
             opts.check()?;
             Ok(WriteSpec::Zip(opts))
         }
-        ArchiveKind::Tar(codec) => {
+        ArchiveKind::Tar(codec) | ArchiveKind::Cpio(codec) => {
+            let what = if matches!(kind, ArchiveKind::Tar(_)) {
+                "tar"
+            } else {
+                "cpio"
+            };
             if args.method.is_some() {
-                return Err(CmdError::invalid_args(
-                    "`method` is for zip and 7z; a tar's codec comes from its name or `format`",
-                ));
+                return Err(CmdError::invalid_args(format!(
+                    "`method` is for zip, 7z and cab; a {what}'s codec comes from its name or `format`"
+                )));
             }
             if args.password.is_some() || args.encryption.is_some() {
-                return Err(CmdError::invalid_args(
-                    "tar can't be encrypted; use zip or 7z",
-                ));
+                return Err(CmdError::invalid_args(format!(
+                    "{what} can't be encrypted; use zip or 7z"
+                )));
             }
             let level = match codec {
                 Some(c) => {
@@ -137,20 +143,54 @@ pub fn spec_for(
                     l
                 }
                 None if args.level.is_some() => {
-                    return Err(CmdError::invalid_args(
-                        "a plain tar isn't compressed, so it has no level",
-                    ));
+                    return Err(CmdError::invalid_args(format!(
+                        "a plain {what} isn't compressed, so it has no level"
+                    )));
                 }
                 None => None,
             };
-            Ok(WriteSpec::Tar {
-                codec,
-                opts: EncodeOpts {
-                    level,
-                    threads,
-                    ..EncodeOpts::default()
-                },
+            let opts = EncodeOpts {
+                level,
+                threads,
+                ..EncodeOpts::default()
+            };
+            Ok(match kind {
+                ArchiveKind::Tar(_) => WriteSpec::Tar { codec, opts },
+                _ => WriteSpec::Cpio { codec, opts },
             })
+        }
+        ArchiveKind::Ar => {
+            if args.method.is_some() || args.level.is_some() {
+                return Err(CmdError::invalid_args(
+                    "an ar isn't compressed, so it has no `method` or `level`",
+                ));
+            }
+            if args.password.is_some() || args.encryption.is_some() {
+                return Err(CmdError::invalid_args(
+                    "ar can't be encrypted; use zip or 7z",
+                ));
+            }
+            Ok(WriteSpec::Ar)
+        }
+        ArchiveKind::Cab => {
+            let method = match args.method {
+                None => CabMethod::Mszip,
+                Some(m) => m.cab().ok_or_else(|| {
+                    CmdError::invalid_args(format!(
+                        "`{}` isn't a cab method; use mszip or store",
+                        m.name()
+                    ))
+                })?,
+            };
+            if args.level.is_some() {
+                return Err(CmdError::invalid_args("a cab has no compression levels"));
+            }
+            if args.password.is_some() || args.encryption.is_some() {
+                return Err(CmdError::invalid_args(
+                    "a cab can't be encrypted; use zip or 7z",
+                ));
+            }
+            Ok(WriteSpec::Cab(CabWriteOptions { method }))
         }
     }
 }

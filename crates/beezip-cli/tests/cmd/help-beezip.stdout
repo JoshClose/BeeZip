@@ -8,24 +8,25 @@ Commands:
   schema      Print a command's input and output JSON schemas
   mcp         Serve BeeZip's tools over MCP on stdin/stdout
   version     Show the BeeZip version and build information.
-  add         Add files and folders to an archive (zip, 7z, tar and tar under any codec). Each input
-              is stored under its own name, as `archive.create` stores them, in `dir` if given. The
-              archive isn't written in place: a new one is written beside it and swapped in, so a
-              failed or cancelled add leaves it as it was. Entries that stay are copied without
-              decoding. An archive whose entries are encrypted needs a password for the new files,
-              unless `unencrypted`. [alias: a]
+  add         Add files and folders to an archive (zip, 7z, tar, cpio and ar, and tar and cpio under
+              any codec). Each input is stored under its own name, as `archive.create` stores them,
+              in `dir` if given; an ar holds files only. The archive isn't written in place: a new
+              one is written beside it and swapped in, so a failed or cancelled add leaves it as it
+              was. Entries that stay are copied without decoding. An archive whose entries are
+              encrypted needs a password for the new files, unless `unencrypted`. [alias: a]
   convert     Write an archive's entries to a new archive in another format, or with other options:
-              zip, 7z, tar, or tar under a codec, from any archive BeeZip reads (RAR and split
-              archives included). The source isn't changed. Entries are copied without decoding when
-              the formats match and no option asks for something else (`a.tar.gz` → `a.tar.zst`
-              keeps every tar entry, encoding the stream again). An encrypted source needs
-              `new_password` or `decrypt`: encryption is never dropped silently. What the new format
-              can't hold is left out and reported in `skipped`; hard links become files where the
-              format has none.
+              zip, 7z, tar, cpio, ar or cab, tar and cpio under a codec too, from any archive BeeZip
+              reads (RAR, packages and split archives included). The source isn't changed. Entries
+              are copied without decoding when the formats match and no option asks for something
+              else (`a.tar.gz` → `a.tar.zst` keeps every tar entry, encoding the stream again). An
+              encrypted source needs `new_password` or `decrypt`: encryption is never dropped
+              silently. What the new format can't hold is left out and reported in `skipped`; hard
+              links become files where the format has none.
   create      Create an archive from files and folders. Each input is stored under its own name
               (`src/` becomes `src/…`). The format comes from `format` or the output's extension
-              (`.zip`, `.tar`, `.tar.zst`, `.tgz`…). The archive is written to a temporary file and
-              renamed into place, so a failed or cancelled create leaves nothing behind. [alias: c]
+              (`.zip`, `.7z`, `.tar`, `.tar.zst`, `.tgz`, `.cpio.gz`, `.ar`, `.cab`…); ar and cab
+              hold files only. The archive is written to a temporary file and renamed into place, so
+              a failed or cancelled create leaves nothing behind. [alias: c]
   extract     Extract an archive, or the selected entries. Unsafe entries (paths climbing out with
               `..`, links leading out) are skipped and the rest extracted; the command then fails
               with `Unsafe` and the report in `details`. Without `dest`, files go into the current
@@ -36,16 +37,16 @@ Commands:
               `dir`), with folders that only exist as parts of paths shown too; with `flat` or a
               `glob`, every entry under `dir`. Results come in pages with `offset` and `limit`.
               [alias: l]
-  remove      Remove entries from an archive (zip, 7z, tar and tar under any codec). A folder takes
-              everything under it. A new archive is written beside the old one and swapped in, so a
-              failed or cancelled removal leaves it as it was; the entries that stay are copied
-              without decoding, except the rest of a 7z solid block that loses one, which is encoded
-              again. Fails with `NotFound` when nothing matches. [alias: d]
-  rename      Rename an entry of an archive, or a folder and everything under it (zip, 7z, tar and
-              tar under any codec). `to` is the new full path, so a rename can also move an entry.
-              The new name mustn't be taken, unless only its case differs. Entries are copied
-              without decoding, encrypted ones included; renamed names are stored in UTF-8. A new
-              archive is written beside the old one and swapped in. [alias: rn]
+  remove      Remove entries from an archive (zip, 7z, tar, cpio and ar, and tar and cpio under any
+              codec). A folder takes everything under it. A new archive is written beside the old
+              one and swapped in, so a failed or cancelled removal leaves it as it was; the entries
+              that stay are copied without decoding, except the rest of a 7z solid block that loses
+              one, which is encoded again. Fails with `NotFound` when nothing matches. [alias: d]
+  rename      Rename an entry of an archive, or a folder and everything under it (zip, 7z, tar, cpio
+              and ar, and tar and cpio under any codec). `to` is the new full path, so a rename can
+              also move an entry. The new name mustn't be taken, unless only its case differs.
+              Entries are copied without decoding, encrypted ones included; renamed names are stored
+              in UTF-8. A new archive is written beside the old one and swapped in. [alias: rn]
   test        Test an archive's integrity: read every entry to the end, checking CRCs and codec
               checksums. Fails with `Corrupt`, listing the damaged entries in `details`. [alias: t]
   open        Open an archive's file with its default app (Windows' "Open with" dialog when there is

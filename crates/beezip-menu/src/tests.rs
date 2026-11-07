@@ -200,6 +200,20 @@ fn archives_by_name() {
         "a.epub",
         "a.cbz",
         "a.lz4",
+        // M5: the new formats and codecs, `.cab` included (Windows keeps the association; the
+        // menu still offers BeeZip's items).
+        "a.cab",
+        "a.rpm",
+        "python3-six_1.17.0-1_all.deb",
+        "a.udeb",
+        "initrd.cpio.gz",
+        "a.ar",
+        "a.lzh",
+        "A.LHA",
+        "a.tar.Z",
+        "a.taz",
+        "a.tzo",
+        "notes.txt.lzo",
     ] {
         assert!(is_archive(yes), "{yes}");
     }
@@ -212,6 +226,9 @@ fn archives_by_name() {
         "a.exe",
         "a.zipx",
         "README",
+        // Build files ar reads by content, but BeeZip doesn't claim.
+        "libfoo.a",
+        "kernel32.lib",
         "",
     ] {
         assert!(!is_archive(no), "{no}");
@@ -237,6 +254,11 @@ fn stems() {
         ("a.r57", "a"),
         ("a.rar", "a"),
         ("photos.cb7", "photos"),
+        ("initrd.cpio.gz", "initrd"),
+        ("a.tar.Z", "a"),
+        ("a.taz", "a"),
+        ("pkg.deb", "pkg"),
+        ("drivers.cab", "drivers"),
         ("x.tar.gz.zip", "x"),
         ("", "archive"),
     ] {

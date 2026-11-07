@@ -49,12 +49,16 @@ export const EDIT_OVERWRITE: { id: OverwritePolicy; label: string }[] = [
 ];
 
 /** The archive's format as the create dialog names them, for its methods and levels: `zip`,
- * `7z`, `tar`, `tar.zst`… */
+ * `7z`, `tar`, `tar.zst`, `cpio.gz`… The name is `formats.list`'s, whose case may differ from the
+ * codec's extension (`tar.Z`). */
 export function editFormat(info: ArchiveInfoOutput | undefined, formats?: FormatsListOutput): ArchiveFormatName {
   if (!info) return "zip";
-  if (info.format !== "tar" || info.codecs.length === 0) return info.format as ArchiveFormatName;
+  const streams = info.format === "tar" || info.format === "cpio";
+  if (!streams || info.codecs.length === 0) return info.format as ArchiveFormatName;
   const ext = formats?.codecs.find((c) => c.id === info.codecs[0])?.extensions[0]?.replace(/^\./, "");
-  return (ext ? `tar.${ext}` : "tar") as ArchiveFormatName;
+  const want = `${info.format}.${ext}`;
+  const name = ext ? formats?.create.find((c) => c.toLowerCase() === want.toLowerCase()) : undefined;
+  return (name ?? info.format) as ArchiveFormatName;
 }
 
 /** How the archive's own encryption shapes the new files'. */
