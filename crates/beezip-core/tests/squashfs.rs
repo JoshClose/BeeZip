@@ -278,6 +278,30 @@ fn converting_spools_and_cleans_up() {
     assert_eq!(files(&dest.join("tree")), files(&input));
 }
 
+/// backhand writes the superblock last, seeking back to the start: a split image is written
+/// across its parts all the same, and reads back from them joined.
+#[test]
+fn a_split_image_reads_back() {
+    let root = tempfile::tempdir().unwrap();
+    let input = tree(root.path());
+    let image = root.path().join("split.squashfs");
+    let report = ops::create(
+        &image,
+        std::slice::from_ref(&input),
+        &spec(SquashfsMethod::Lz4),
+        &CreateOptions {
+            volume_size: Some(64 * 1024),
+            ..CreateOptions::default()
+        },
+        &mut SimpleCtx::new(),
+    )
+    .unwrap();
+    assert!(report.volumes.len() > 2, "{:?}", report.volumes);
+    let dest = root.path().join("x");
+    extract_all(&beezip_core::volume::part_path(&image, 1), &dest);
+    assert_eq!(files(&dest.join("tree")), files(&input));
+}
+
 fn entry(path: &str, kind: NewKind) -> NewEntry {
     NewEntry {
         path: path.into(),
