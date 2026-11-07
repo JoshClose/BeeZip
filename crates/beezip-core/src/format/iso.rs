@@ -1005,7 +1005,7 @@ mod tests {
     #[test]
     fn labels_are_d_characters() {
         assert_eq!(volume_label(Path::new("C:/x/my disc.iso")), "MY_DISC");
-        assert_eq!(volume_label(Path::new("ünï.iso")), "___");
+        assert_eq!(volume_label(Path::new("ünï.iso")), "_N_");
         assert_eq!(volume_label(Path::new("....iso")), "CDROM");
         assert_eq!(
             volume_label(Path::new(&format!("{}.iso", "a".repeat(40)))).len(),

@@ -246,7 +246,9 @@ fn stems() {
         ("d.e.zip", "d.e"),
         (".zip", ".zip"),
         ("e.tar.zst.002", "e"),
-        ("big.iso.001", "big.iso"),
+        // A split ISO is an image's set; a split file of anything else keeps its name.
+        ("big.iso.001", "big"),
+        ("big.img.001", "big.img"),
         ("a.7z.001", "a"),
         ("a.part1.rar", "a"),
         ("a.part01.rar", "a"),
