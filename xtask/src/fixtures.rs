@@ -189,6 +189,36 @@ fn corpus() -> anyhow::Result<Vec<(&'static str, Vec<u8>)>> {
         ("cyclic.iso", iso_cyclic()?),
         ("bomb.Z", compress_bomb()),
         ("bomb.lzo", lzop_bomb()),
+        // M5 PR 5: squashfs (docs/M5.md §5.10). Names are bytes, so a name can hold `/` and `\`.
+        (
+            "traversal.squashfs",
+            squashfs(&[
+                Sq::Dir(&[
+                    (b"..", 1),
+                    (b"../evil.txt", 2),
+                    (b"..\\evil2.txt", 3),
+                    (b"/etc/beezip-abs.txt", 4),
+                    (b"safe.txt", 5),
+                    (b"up", 6),
+                ]),
+                Sq::Dir(&[(b"evil3.txt", 7)]),
+                Sq::File(b"escaped"),
+                Sq::File(b"escaped"),
+                Sq::File(b"abs"),
+                Sq::File(b"safe"),
+                Sq::Symlink(b".."),
+                Sq::File(b"escaped"),
+            ]),
+        ),
+        (
+            "squashfs-blocks.squashfs",
+            squashfs(&[
+                Sq::Dir(&[(b"huge.bin", 1), (b"safe.txt", 2)]),
+                // 4 TiB in 4 KiB blocks: a list of 2³⁰ blocks, 4 GiB, from a 16-byte inode.
+                Sq::Huge(1 << 42),
+                Sq::File(b"safe"),
+            ]),
+        ),
         // Edge cases.
         ("empty.zip", zip(&[])),
         // Not malicious, just damaged: a stored entry whose CRC doesn't match its data.
@@ -1131,4 +1161,155 @@ fn iso_cyclic() -> anyhow::Result<Vec<u8>> {
     }
     img[b + 2..b + 18].copy_from_slice(&field);
     Ok(img)
+/// A squashfs node; the first is the root.
+enum Sq {
+    /// Its entries: a name (bytes, any bytes) and the node it names.
+    Dir(&'static [(&'static [u8], usize)]),
+    /// At most one 4 KiB block, stored uncompressed.
+    File(&'static [u8]),
+    /// An extended file inode claiming this size, with no block list behind it.
+    Huge(u64),
+    Symlink(&'static [u8]),
+}
+
+/// A squashfs 4.0 image by hand: every block stored uncompressed, 4 KiB data blocks, one folder
+/// header per entry, no fragments.
+fn squashfs(nodes: &[Sq]) -> Vec<u8> {
+    const META: usize = 8192;
+    let le16 = |v: usize| u16::try_from(v).unwrap_or(u16::MAX).to_le_bytes();
+    let le32 = |v: usize| u32::try_from(v).unwrap_or(u32::MAX).to_le_bytes();
+    // A position in a table's decoded bytes as a reference: its block's offset in the stored
+    // table (blocks of 8 KiB, each with a 2-byte header), and the offset in it.
+    let reference = |pos: usize| ((pos / META) * (META + 2), pos % META);
+    let kind = |n: &Sq| -> u16 {
+        match n {
+            Sq::Dir(_) => 1,
+            Sq::File(_) => 2,
+            Sq::Huge(_) => 9,
+            Sq::Symlink(_) => 3,
+        }
+    };
+    let mut out = vec![0u8; 96];
+    let mut data_at = Vec::new();
+    for n in nodes {
+        data_at.push(out.len());
+        if let Sq::File(d) = n {
+            out.extend_from_slice(d);
+        }
+    }
+    let mut inode_at = Vec::new();
+    let mut at = 0;
+    for n in nodes {
+        inode_at.push(at);
+        at += 16
+            + match n {
+                Sq::Dir(_) => 16,
+                Sq::File(d) => 16 + if d.is_empty() { 0 } else { 4 },
+                Sq::Huge(_) => 40,
+                Sq::Symlink(t) => 8 + t.len(),
+            };
+    }
+    let mut inodes = Vec::new();
+    let mut dirs = Vec::new();
+    for (i, n) in nodes.iter().enumerate() {
+        inodes.extend_from_slice(&kind(n).to_le_bytes());
+        inodes.extend_from_slice(&0o755u16.to_le_bytes());
+        inodes.extend_from_slice(&[0; 4]); // uid and gid: the first id
+        inodes.extend_from_slice(&MTIME.to_le_bytes());
+        inodes.extend_from_slice(&le32(i + 1));
+        match n {
+            Sq::Dir(entries) => {
+                let listing = dirs.len();
+                for (name, child) in *entries {
+                    let (block, offset) = reference(inode_at[*child]);
+                    dirs.extend_from_slice(&0u32.to_le_bytes()); // one entry
+                    dirs.extend_from_slice(&le32(block));
+                    dirs.extend_from_slice(&le32(child + 1));
+                    dirs.extend_from_slice(&le16(offset));
+                    dirs.extend_from_slice(&0u16.to_le_bytes());
+                    let basic = match nodes[*child] {
+                        Sq::Huge(_) => 2,
+                        ref c => kind(c),
+                    };
+                    dirs.extend_from_slice(&basic.to_le_bytes());
+                    dirs.extend_from_slice(&le16(name.len().saturating_sub(1)));
+                    dirs.extend_from_slice(name);
+                }
+                let (block, offset) = reference(listing);
+                inodes.extend_from_slice(&le32(block));
+                inodes.extend_from_slice(&2u32.to_le_bytes());
+                inodes.extend_from_slice(&le16(dirs.len() - listing + 3));
+                inodes.extend_from_slice(&le16(offset));
+                inodes.extend_from_slice(&1u32.to_le_bytes());
+            }
+            Sq::File(d) => {
+                inodes.extend_from_slice(&le32(data_at[i]));
+                inodes.extend_from_slice(&u32::MAX.to_le_bytes()); // no fragment
+                inodes.extend_from_slice(&0u32.to_le_bytes());
+                inodes.extend_from_slice(&le32(d.len()));
+                if !d.is_empty() {
+                    inodes.extend_from_slice(&(len32(d) | 1 << 24).to_le_bytes());
+                }
+            }
+            Sq::Huge(size) => {
+                inodes.extend_from_slice(&96u64.to_le_bytes());
+                inodes.extend_from_slice(&size.to_le_bytes());
+                inodes.extend_from_slice(&0u64.to_le_bytes()); // sparse
+                inodes.extend_from_slice(&1u32.to_le_bytes());
+                inodes.extend_from_slice(&u32::MAX.to_le_bytes()); // no fragment
+                inodes.extend_from_slice(&0u32.to_le_bytes());
+                inodes.extend_from_slice(&u32::MAX.to_le_bytes()); // no xattrs
+            }
+            Sq::Symlink(t) => {
+                inodes.extend_from_slice(&1u32.to_le_bytes());
+                inodes.extend_from_slice(&le32(t.len()));
+                inodes.extend_from_slice(t);
+            }
+        }
+    }
+    let table = |out: &mut Vec<u8>, bytes: &[u8]| {
+        for chunk in bytes.chunks(META) {
+            out.extend_from_slice(&(0x8000 | len16(chunk)).to_le_bytes());
+            out.extend_from_slice(chunk);
+        }
+    };
+    let inode_table = out.len();
+    table(&mut out, &inodes);
+    let dir_table = out.len();
+    table(&mut out, &dirs);
+    let ids = out.len();
+    table(&mut out, &0u32.to_le_bytes());
+    let id_table = out.len();
+    out.extend_from_slice(&(ids as u64).to_le_bytes());
+
+    let (block, offset) = reference(inode_at[0]);
+    let mut sb = Vec::with_capacity(96);
+    sb.extend_from_slice(b"hsqs");
+    sb.extend_from_slice(&le32(nodes.len()));
+    sb.extend_from_slice(&MTIME.to_le_bytes());
+    sb.extend_from_slice(&4096u32.to_le_bytes());
+    sb.extend_from_slice(&0u32.to_le_bytes()); // no fragments
+    sb.extend_from_slice(&1u16.to_le_bytes()); // gzip
+    sb.extend_from_slice(&12u16.to_le_bytes());
+    sb.extend_from_slice(&0x001Bu16.to_le_bytes()); // stored uncompressed, no fragments
+    sb.extend_from_slice(&1u16.to_le_bytes()); // one id
+    sb.extend_from_slice(&4u16.to_le_bytes());
+    sb.extend_from_slice(&0u16.to_le_bytes());
+    let root = ((block as u64) << 16) | offset as u64;
+    let not_set = u64::MAX;
+    let len = out.len() as u64;
+    for v in [
+        root,
+        len,
+        id_table as u64,
+        not_set,
+        inode_table as u64,
+        dir_table as u64,
+        not_set,
+        not_set,
+    ] {
+        sb.extend_from_slice(&v.to_le_bytes());
+    }
+    out[..96].copy_from_slice(&sb);
+    out
 }

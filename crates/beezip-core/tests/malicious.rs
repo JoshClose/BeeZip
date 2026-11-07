@@ -282,6 +282,12 @@ fn m5_traversal_is_refused() {
         ("traversal.cab", vec!["safe.txt"]),
         ("traversal.lzh", vec!["safe.txt"]),
         ("traversal.iso", vec!["safe.txt"]),
+        // A folder named `..`, names holding `../` and `..\`, one holding `/etc/…`, and a
+        // symlink to `..`.
+        (
+            "traversal.squashfs",
+            vec!["etc", "etc/beezip-abs.txt", "safe.txt"],
+        ),
     ] {
         let (r, inside) = extract(name, FsOptions::default());
         let r = r.unwrap_or_else(|e| panic!("{name}: {e}"));
@@ -295,14 +301,41 @@ fn m5_traversal_is_refused() {
         );
         assert_eq!(inside, safe, "{name}");
     }
-    let (r, _) = extract(
-        "traversal.cpio",
-        FsOptions {
-            links: true,
-            ..FsOptions::default()
-        },
+    for name in ["traversal.cpio", "traversal.squashfs"] {
+        let (r, _) = extract(
+            name,
+            FsOptions {
+                links: true,
+                ..FsOptions::default()
+            },
+        );
+        assert!(
+            reasons(&r.unwrap()).contains(&SkipReason::LinkOutside),
+            "{name}"
+        );
+    }
+}
+
+/// A squashfs file whose inode claims 4 TiB in 4 KiB blocks: its list of 2³⁰ blocks (4 GiB)
+/// can't be in the image's inode table, so the image is `Corrupt` when it opens, before anything
+/// is read or allocated for the file.
+#[test]
+fn a_squashfs_block_count_past_its_table_is_corrupt() {
+    let err = open(
+        &corpus("squashfs-blocks.squashfs"),
+        &OpenOptions::default(),
+        &mut SimpleCtx::new(),
+    )
+    .err()
+    .unwrap();
+    assert_eq!(err.kind, ErrorKind::Corrupt, "{err}");
+    assert!(
+        err.message.contains("more than the inode table can hold"),
+        "{err}"
     );
-    assert!(reasons(&r.unwrap()).contains(&SkipReason::LinkOutside));
+    let (r, inside) = extract("squashfs-blocks.squashfs", FsOptions::default());
+    assert_eq!(r.unwrap_err().kind, ErrorKind::Corrupt);
+    assert!(inside.is_empty(), "{inside:?}");
 }
 
 /// An ISO folder whose record points back at the top: listed once, with a warning, and the

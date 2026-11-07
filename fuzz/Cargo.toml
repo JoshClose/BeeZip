@@ -131,3 +131,10 @@ path = "fuzz_targets/iso.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "squashfs"
+path = "fuzz_targets/squashfs.rs"
+test = false
+doc = false
+bench = false

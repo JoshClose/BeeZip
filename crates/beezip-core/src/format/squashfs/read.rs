@@ -158,11 +158,14 @@ impl Superblock {
             export_table: le64(b, 88),
         };
         let bs = sb.block_size;
-        if !bs.is_power_of_two()
-            || !(4096..=1 << 20).contains(&bs)
-            || u32::from(le16(b, 22)) != bs.trailing_zeros()
-        {
+        if !bs.is_power_of_two() || !(4096..=1 << 20).contains(&bs) {
             return Err(bad(format!("a block size of {bs} bytes isn't valid")));
+        }
+        let log = le16(b, 22);
+        if u32::from(log) != bs.trailing_zeros() {
+            return Err(bad(format!(
+                "the block size ({bs} bytes) and its log ({log}) disagree"
+            )));
         }
         if sb.bytes_used > file_len {
             return Err(bad(format!(
@@ -286,6 +289,8 @@ struct Lru<V> {
     slots: Vec<Slot<V>>,
     cap: usize,
     clock: u64,
+    /// The slot found last: reads go through a block in many small steps.
+    last: usize,
 }
 
 struct Slot<V> {
@@ -300,13 +305,18 @@ impl<V: Default> Lru<V> {
             slots: Vec::with_capacity(cap),
             cap,
             clock: 0,
+            last: 0,
         }
     }
 
     fn find(&mut self, key: u64) -> Option<usize> {
-        let i = self.slots.iter().position(|s| s.key == Some(key))?;
+        let i = match self.slots.get(self.last) {
+            Some(s) if s.key == Some(key) => self.last,
+            _ => self.slots.iter().position(|s| s.key == Some(key))?,
+        };
         self.clock += 1;
         self.slots[i].used = self.clock;
+        self.last = i;
         Some(i)
     }
 

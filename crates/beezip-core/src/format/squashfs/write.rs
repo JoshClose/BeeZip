@@ -17,7 +17,9 @@
 //! - **Entries:** folders, files and symlinks, owned by root, with their modes (0644 and 0755
 //!   when unknown) and times. Folders an entry needs but wasn't given are made, as is the root,
 //!   whose time backhand leaves at 1970. The image's time is its newest entry's, so the same
-//!   files make the same image.
+//!   files make the same image. Left out, with a warning: paths with `..`, names Windows paths
+//!   can't carry (backhand takes paths as the system's), and links whose target is 256 bytes or
+//!   more, which backhand panics on.
 //! - **Progress and cancelling:** `finish` reports the files' bytes read against their total,
 //!   and every read and write checks for cancellation.
 
@@ -26,6 +28,7 @@ use std::{
     collections::HashMap,
     fs::File,
     io::{self, BufWriter, Read, Seek, SeekFrom, Write},
+    panic::{AssertUnwindSafe, catch_unwind},
     path::{Path, PathBuf},
     time::SystemTime,
 };
@@ -50,6 +53,9 @@ use crate::{
 
 /// squashfs names are at most 256 bytes.
 const MAX_NAME: usize = 256;
+/// backhand writes a link's target in a basic inode, whose target it asserts is under 256 bytes:
+/// one that isn't panics (`Inode::to_bytes` unwraps the assertion), so they're left out.
+const MAX_TARGET: usize = 256;
 
 /// One method at one level, as backhand's compression hook.
 #[derive(Debug, Clone, Copy)]
@@ -396,6 +402,14 @@ impl ArchiveWriter for SquashfsWriter {
         let perms = |default: u32| (entry.unix_mode.unwrap_or(default) & 0o7777) as u16;
         let (kind, mode) = match &entry.kind {
             NewKind::Dir => (ItemKind::Dir, perms(0o755)),
+            // backhand 0.25.5 panics writing one (the upstream list).
+            NewKind::Symlink { target } if target.len() >= MAX_TARGET => {
+                cx.warn(format!(
+                    "left out `{}`: BeeZip writes squashfs links to targets of up to 255 bytes",
+                    entry.path
+                ));
+                return Ok(());
+            }
             NewKind::Symlink { target } => (ItemKind::Symlink(target.clone()), perms(0o777)),
             NewKind::File => {
                 let data = match &entry.source {
@@ -493,12 +507,26 @@ impl ArchiveWriter for SquashfsWriter {
             };
             pushed.map_err(|e| backhand_error(e, &item.names.join("/")))?;
         }
-        let written = fs.write(Out {
+        let out = Out {
             inner: BufWriter::with_capacity(BUF_SIZE, out),
             pos: 0,
             shared: &shared,
-        });
+        };
+        // backhand unwraps some of its own results while writing inodes; a panic there is an
+        // error of this image's, not the process's.
+        let written = catch_unwind(AssertUnwindSafe(|| fs.write(out)));
         drop(fs);
+        let written = written.map_err(|panic| {
+            let why = panic
+                .downcast_ref::<&str>()
+                .map(|s| (*s).to_owned())
+                .or_else(|| panic.downcast_ref::<String>().cloned())
+                .unwrap_or_default();
+            Error::new(
+                ErrorKind::Io,
+                format!("squashfs: the image couldn't be written ({why})"),
+            )
+        })?;
         if let Err(e) = written {
             // backhand writes some headers through deku, which keeps only an I/O error's kind, so
             // the first error a reader or the output gave is the one to report.
@@ -697,5 +725,78 @@ impl Seek for Out<'_, '_> {
             .seek(to)
             .map_err(|e| self.shared.fail(e, || "writing the image".into()))?;
         Ok(self.pos)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::SimpleCtx;
+
+    fn shared(cx: &mut SimpleCtx) -> Shared<'_> {
+        Shared {
+            cx: RefCell::new(cx),
+            meter: RefCell::new(Meter::default()),
+            spool: RefCell::new(None),
+            failed: RefCell::new(None),
+        }
+    }
+
+    /// A file is opened on its first read and closed at its end, so backhand, which holds every
+    /// file's reader until it writes them one by one, has one open at a time.
+    #[test]
+    fn files_open_late_and_close_early() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("f.bin");
+        std::fs::write(&path, vec![5u8; 300_000]).unwrap();
+        let mut cx = SimpleCtx::new();
+        let shared = shared(&mut cx);
+        let mut r = Deferred {
+            shared: &shared,
+            path: "f.bin".into(),
+            data: Data::Source {
+                path: path.clone(),
+                size: 300_000,
+            },
+            file: None,
+            read: 0,
+            done: false,
+        };
+        assert!(r.file.is_none());
+        let mut buf = vec![0u8; 131_072];
+        assert_eq!(r.read(&mut buf).unwrap(), 131_072);
+        assert!(r.file.is_some());
+        let mut rest = Vec::new();
+        r.read_to_end(&mut rest).unwrap();
+        assert_eq!(rest.len(), 300_000 - 131_072);
+        assert!(r.file.is_none() && r.done);
+        assert_eq!(shared.meter.borrow().bytes.get(), 300_000);
+        assert_eq!(shared.meter.borrow().entries_done, 1);
+    }
+
+    #[test]
+    fn paths_squashfs_cant_hold_are_named() {
+        assert_eq!(names("a/./b//c").unwrap(), ["a", "b", "c"]);
+        assert!(names("").unwrap().is_empty());
+        assert!(names("a/../b").is_err());
+        assert!(names(&"n".repeat(257)).is_err());
+        assert_eq!(names(&"n".repeat(256)).unwrap().len(), 1);
+        assert_eq!(names("a\\b").is_err(), cfg!(windows));
+        assert_eq!(names("x/C:").is_err(), cfg!(windows));
+    }
+
+    #[test]
+    fn every_level_has_its_codec() {
+        for method in SquashfsMethod::ALL {
+            match method.levels() {
+                Some(l) => {
+                    for level in l.min..=l.max {
+                        assert_eq!(codec(method, Some(level)).unwrap().level, Some(level));
+                    }
+                    assert!(codec(method, Some(l.max + 1)).is_err());
+                }
+                None => assert_eq!(codec(method, None).unwrap().method, method),
+            }
+        }
     }
 }

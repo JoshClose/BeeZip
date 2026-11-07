@@ -137,7 +137,7 @@ impl Decoder {
                 match lzokay::decompress::decompress(packed, out) {
                     Ok(n) => out.truncate(n),
                     Err(lzokay::Error::OutputOverrun) => return Err(too_big(max)),
-                    Err(e) => return Err(bad(name, format!("{e:?}"))),
+                    Err(e) => return Err(bad(name, e)),
                 }
             }
             Compressor::Lz4 => {
@@ -202,7 +202,7 @@ pub(super) fn encode(
         SquashfsMethod::Lzo => LZO.with(|dict| {
             let mut dict = dict.borrow_mut();
             lzokay::compress::compress_with_dict(bytes, &mut dict)
-                .map_err(|e| io::Error::other(format!("lzo: {e:?}")))
+                .map_err(|e| io::Error::other(format!("lzo: {e}")))
         })?,
         SquashfsMethod::Lz4 => lz4_flex::block::compress(bytes),
         SquashfsMethod::Zstd => {

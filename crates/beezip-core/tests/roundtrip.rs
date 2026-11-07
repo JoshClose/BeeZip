@@ -17,6 +17,7 @@ use beezip_core::{
     format::{
         cab::{CabMethod, CabWriteOptions},
         sevenz::{SevenZMethod, SevenZWriteOptions},
+        squashfs::{SquashfsMethod, SquashfsWriteOptions},
         zip::{ZipEncryption, ZipMethod, ZipWriteOptions},
     },
     ops,
@@ -328,6 +329,19 @@ combos! {
     cpio_z: "cpio.Z", cpio(Some(CodecId::Compress)), None;
     cpio_lzo: "cpio.lzo", cpio(Some(CodecId::Lzop)), None;
     iso: "iso", WriteSpec::Iso(Default::default()), None;
+    squashfs_gzip: "squashfs", squashfs(SquashfsMethod::Gzip), None;
+    squashfs_xz: "squashfs", squashfs(SquashfsMethod::Xz), None;
+    squashfs_zstd: "squashfs", squashfs(SquashfsMethod::Zstd), None;
+    squashfs_lz4: "squashfs", squashfs(SquashfsMethod::Lz4), None;
+    squashfs_lzo: "squashfs", squashfs(SquashfsMethod::Lzo), None;
+}
+
+/// squashfs holds folders, files and their times in seconds, so the whole tree comes back.
+fn squashfs(method: SquashfsMethod) -> WriteSpec {
+    WriteSpec::Squashfs(SquashfsWriteOptions {
+        method,
+        level: method.resolve_level(None).unwrap(),
+    })
 }
 
 fn cpio(codec: Option<CodecId>) -> WriteSpec {
