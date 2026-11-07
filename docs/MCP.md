@@ -54,7 +54,7 @@ The rest of the config (default levels, the overwrite policy, limits) applies to
 |---|---|---|
 | `formats_list` | | The formats and codecs BeeZip reads and writes: zip, 7z, RAR (read only), tar under any codec, and bare compressed files. |
 | `file_detect` | | What a file is: `zstd → tar`, a 7z, a RAR or zip SFX, a volume set (`a.7z.001`…, `a.part1.rar`…), or not an archive. |
-| `archive_info` | | Counts, sizes, ratio, methods, encryption, solid blocks, and the volumes of a split archive. |
+| `archive_info` | | Counts, sizes, ratio, methods, encryption, solid blocks, the volumes of a split archive, and why the edit tools would refuse it (`not_editable`). |
 | `archive_list` | | Entries, one folder level at a time or `flat`, with `glob` filters, `kind`, and `sort` (folders first). |
 | `archive_test` | | Reads everything back and checks CRCs. |
 | `entry_read` | | Part of one entry, as text, hex or base64. |

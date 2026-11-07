@@ -493,7 +493,7 @@ impl SevenZReader {
         let decoder = BlockDecoder::new(self.threads(b), b, &self.archive, password, input);
         let mut slot: Option<Error> = None;
         let mut k = 0usize;
-        let result = decoder.for_each_entries(&mut |_, data: &mut dyn Read| {
+        let result = decoder.for_each_entries(&mut |file, data: &mut dyn Read| {
             let at = k;
             k += 1;
             let Some(id) = self.entry_of[range.start + at] else {
@@ -507,7 +507,7 @@ impl SevenZReader {
             meter.current = Some(entry.path.clone());
             let mut mcx = MeteredCtx::new(cx, meter);
             mcx.report();
-            let mut tagged = DecodeTag::new(data, encrypted);
+            let mut tagged = DecodeTag::new(data, encrypted, file);
             let sent = match &entry.kind {
                 EntryKind::Symlink { .. } => link_entry(entry, &mut tagged)
                     .and_then(|(entry, mut body)| sink.entry(&entry, &mut body, &mut mcx)),
@@ -662,20 +662,43 @@ fn make_entry(
 /// again, as [`crate::io::LatchReader`] does for the codecs: sevenz-rust2 builds its own, and
 /// libbz2-rs-sys 0.2.6 aborts when read after an error. An entry's CRC mismatch is kept out of
 /// that: it comes after the entry's last byte and leaves the decoder sound.
+///
+/// It also counts the entry's bytes. sevenz-rust2 0.24.2 checks a CRC only once the entry's
+/// size has been read, and ends the entry without an error when the block's stream ends first.
+/// A wrong password does that about once in 256 tries, when the garbage it decrypts to starts
+/// with LZMA2's end marker; so an entry that ends early is a decode error here (docs/M5.md §16,
+/// PR 3).
 struct DecodeTag<'a> {
     inner: &'a mut dyn Read,
     encrypted: bool,
     /// The block's decoder failed, with this error.
     failed: Option<Error>,
+    /// The bytes the entry has, and those read so far.
+    size: u64,
+    read: u64,
 }
 
 impl<'a> DecodeTag<'a> {
-    fn new(inner: &'a mut dyn Read, encrypted: bool) -> Self {
+    /// `file` is the entry sevenz-rust2 passes with `inner`: it has data when it has a stream
+    /// and a size.
+    fn new(inner: &'a mut dyn Read, encrypted: bool, file: &ArchiveEntry) -> Self {
         Self {
             inner,
             encrypted,
             failed: None,
+            size: if file.has_stream { file.size } else { 0 },
+            read: 0,
         }
+    }
+
+    fn fail(&mut self, mut err: Error, latch: bool) -> io::Error {
+        if self.encrypted && err.kind == ErrorKind::Corrupt {
+            err = wrong_password();
+        }
+        if latch {
+            self.failed = Some(err.clone());
+        }
+        err.into_io()
     }
 }
 
@@ -685,22 +708,27 @@ impl Read for DecodeTag<'_> {
             return Err(err.clone().into_io());
         }
         let e = match self.inner.read(buf) {
+            Ok(0) if !buf.is_empty() && self.read < self.size => {
+                let short = Error::corrupt(format!(
+                    "7z: an entry's data ended after {} of its {} bytes",
+                    self.read, self.size
+                ));
+                return Err(self.fail(short, true));
+            }
+            Ok(n) => {
+                self.read += n as u64;
+                return Ok(n);
+            }
             Err(e) if e.kind() != io::ErrorKind::Interrupted => e,
             other => return other,
         };
         let crc = crc_mismatch(&e);
-        let mut err = if crc {
+        let err = if crc {
             Error::corrupt("7z: CRC mismatch")
         } else {
             read_error(&e)
         };
-        if self.encrypted && err.kind == ErrorKind::Corrupt {
-            err = wrong_password();
-        }
-        if !crc {
-            self.failed = Some(err.clone());
-        }
-        Err(err.into_io())
+        Err(self.fail(err, !crc))
     }
 }
 
@@ -981,10 +1009,10 @@ fn decode_one(
     let decoder = BlockDecoder::new(threads, b, archive, &password, input);
     let mut slot: Option<Error> = None;
     let mut k = 0usize;
-    let result = decoder.for_each_entries(&mut |_, data: &mut dyn Read| {
+    let result = decoder.for_each_entries(&mut |entry, data: &mut dyn Read| {
         let file = start + k;
         k += 1;
-        let mut tagged = DecodeTag::new(data, encrypted);
+        let mut tagged = DecodeTag::new(data, encrypted, entry);
         let mut buf = vec![0u8; BUF_SIZE];
         loop {
             if out.stopped() {
@@ -1378,10 +1406,10 @@ impl SevenZReader {
                 let decoder = BlockDecoder::new(threads, b, &archive, &password, &mut input);
                 let mut slot: Option<Error> = None;
                 let mut k = 0usize;
-                let result = decoder.for_each_entries(&mut |_, data: &mut dyn Read| {
+                let result = decoder.for_each_entries(&mut |file, data: &mut dyn Read| {
                     let at = k;
                     k += 1;
-                    let mut tagged = DecodeTag::new(data, encrypted);
+                    let mut tagged = DecodeTag::new(data, encrypted, file);
                     if keep.get(at).copied().unwrap_or(false) {
                         let (mut out, reader) = pipe(4, BUF_SIZE);
                         if tx.send(Ok(reader)).is_err() {
@@ -1549,6 +1577,31 @@ impl ArchiveWriter for SevenZWriter {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// What reading a whole entry through `DecodeTag` gives.
+    fn read_tagged(data: &[u8], size: u64, encrypted: bool) -> std::result::Result<Vec<u8>, Error> {
+        let mut file = ArchiveEntry::new_file("a.txt");
+        file.has_stream = size > 0;
+        file.size = size;
+        let mut inner: &[u8] = data;
+        let mut tagged = DecodeTag::new(&mut inner, encrypted, &file);
+        let mut out = Vec::new();
+        tagged.read_to_end(&mut out).map_err(|e| read_error(&e))?;
+        Ok(out)
+    }
+
+    #[test]
+    fn an_entry_that_ends_early_is_a_decode_error() {
+        // sevenz-rust2 0.24.2 ends a short entry without an error; a wrong password's garbage
+        // that starts with LZMA2's end marker does that.
+        assert_eq!(read_tagged(b"abc", 3, false).unwrap(), b"abc");
+        assert_eq!(read_tagged(b"", 0, false).unwrap(), b"");
+        let e = read_tagged(b"ab", 3, false).unwrap_err();
+        assert_eq!(e.kind, ErrorKind::Corrupt, "{e}");
+        assert!(e.message.contains("2 of its 3 bytes"), "{e}");
+        let e = read_tagged(b"", 3, true).unwrap_err();
+        assert_eq!(e.kind, ErrorKind::WrongPassword, "{e}");
+    }
 
     #[test]
     fn reparse_buffers() {

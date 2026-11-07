@@ -3,7 +3,14 @@
 import { ChevronDown, ChevronUp, CircleAlert, CircleCheck, CircleSlash, LoaderCircle } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "../../components/ui/button";
-import type { ArchiveCreateOutput, ArchiveExtractOutput, ArchiveTestOutput, StreamCompressOutput } from "../../gen/commands";
+import type {
+  ArchiveConvertOutput,
+  ArchiveCreateOutput,
+  ArchiveExtractOutput,
+  ArchiveTestOutput,
+  EditOutput,
+  StreamCompressOutput,
+} from "../../gen/commands";
 import { cn } from "../../lib/cn";
 import { baseName, formatRate, formatSize } from "../../lib/format";
 import { type JobRecord, orderedJobs, useJobs } from "../../lib/jobs";
@@ -16,6 +23,34 @@ function plural(n: number, one: string, many = `${one}s`): string {
 /** One line saying what a finished job did. */
 export function summary(job: JobRecord): string {
   return outputSummary(job.command, job.output);
+}
+
+/** An edit's line, as the CLI says it (docs/M5.md §7.4): "Added 3 files to a.zip (12 entries
+ * copied as they were); 1.2 MiB → 1.4 MiB". */
+export function editSummary(o: EditOutput): string {
+  const name = baseName(o.path);
+  if (o.dry_run) return `Would change ${plural(o.plan?.length ?? 0, "entry", "entries")} in ${name}`;
+  // The last part's preposition goes before the name.
+  const parts: [string, string][] = [];
+  if (o.added) parts.push([`added ${plural(o.added, "file")}`, "to"]);
+  if (o.replaced) parts.push([`replaced ${plural(o.replaced, "entry", "entries")}`, "in"]);
+  if (o.removed) parts.push([`removed ${plural(o.removed, "entry", "entries")}`, "from"]);
+  if (o.renamed) parts.push([`renamed ${plural(o.renamed, "entry", "entries")}`, "in"]);
+  let s = "";
+  if (parts.length === 0) s = `Nothing changed in ${name}`;
+  else {
+    const said = `${parts.map((p) => p[0]).join(", ")} ${parts[parts.length - 1][1]} ${name}`;
+    s = said[0].toUpperCase() + said.slice(1);
+  }
+  const notes = [
+    o.copied === 1 ? "1 entry copied as it was" : o.copied > 1 ? `${o.copied.toLocaleString()} entries copied as they were` : "",
+    o.recompressed ? `${plural(o.recompressed, "entry", "entries")} recompressed` : "",
+    o.skipped ? `${plural(o.skipped, "file")} skipped` : "",
+    o.unencrypted ? `${plural(o.unencrypted, "new file")} not encrypted` : "",
+  ].filter(Boolean);
+  if (notes.length) s += ` (${notes.join(", ")})`;
+  if (parts.length) s += `; ${formatSize(o.bytes_before)} → ${formatSize(o.bytes_after)}`;
+  return s;
 }
 
 /** One line saying what a command's output says it did. */
@@ -37,6 +72,19 @@ export function outputSummary(command: string, out: unknown): string {
       const o = out as ArchiveTestOutput;
       return `All ${plural(o.entries, "entry", "entries")} are OK (${formatSize(o.bytes)} read)`;
     }
+    case "archive.add":
+    case "archive.remove":
+    case "archive.rename":
+      return editSummary(out as EditOutput);
+    case "archive.convert": {
+      const o = out as ArchiveConvertOutput;
+      if (o.dry_run) return `Would write ${o.plan?.length ?? 0} entries`;
+      const parts = o.volumes ? `${o.volumes.length} volumes` : baseName(o.path);
+      const skipped = o.skipped.length ? `; ${plural(o.skipped.length, "entry", "entries")} it can't hold left out` : "";
+      return `Wrote ${parts}: ${plural(o.files, "file")}, ${formatSize(o.bytes_in)} to ${formatSize(o.bytes_out)}${skipped}`;
+    }
+    case "entry.open":
+      return `Opened ${(out as { path: string }).path}`;
     case "stream.compress":
     case "stream.decompress": {
       const o = out as StreamCompressOutput;

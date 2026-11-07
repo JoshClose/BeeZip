@@ -5,11 +5,15 @@ import { open as pickFiles } from "@tauri-apps/plugin-dialog";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Toasts } from "./components/ui/toasts";
 import { About } from "./features/about/About";
-import { Browser, testArchive } from "./features/browser/Browser";
+import { Browser, pickAndAdd, testArchive } from "./features/browser/Browser";
 import { EncodingDialog } from "./features/browser/EncodingSelect";
 import { InfoDialog } from "./features/browser/InfoDialog";
 import { TabStrip } from "./features/browser/TabStrip";
 import { CreateDialog } from "./features/create/CreateDialog";
+import { AddDialog } from "./features/edit/AddDialog";
+import { ChangedPrompt } from "./features/edit/ChangedPrompt";
+import { RunPrompt } from "./features/edit/RunPrompt";
+
 import { ExtractDialog } from "./features/extract/ExtractDialog";
 import { JobsPanel } from "./features/jobs/JobsPanel";
 import { ReportDialog } from "./features/jobs/ReportDialog";
@@ -20,20 +24,17 @@ import { SettingsDialog } from "./features/settings/Settings";
 import { Welcome } from "./features/welcome/Welcome";
 import { activeTab, archiveArgs, useArchives } from "./lib/archives";
 import { useCloseGuard } from "./lib/closeGuard";
-import { type GuiCommand, run } from "./lib/engine";
+import { browserOf, editBlocked } from "./lib/edit";
+import type { GuiCommand } from "./lib/engine";
 import { baseName } from "./lib/format";
 import { loadFormats, readableExtensions } from "./lib/formats";
 import { useJobs } from "./lib/jobs";
+import { type EntryChanged, entryChanged } from "./lib/opened";
+import { type DropZone, dropPaths, dropZone, isArchive } from "./lib/drop";
 import { themeActions, useTheme } from "./lib/settings";
 import { type OpenDialog, startup } from "./lib/startup";
 import { toastError, toastInfo, useToasts } from "./lib/toasts";
 import { useUi } from "./lib/ui";
-
-/** Whether BeeZip reads `path` as an archive (a compressed single file counts). */
-async function isArchive(path: string): Promise<boolean> {
-  const d = await run("file.detect", { path });
-  return d.format !== null;
-}
 
 /** Paths from the command line, a second instance, or the Open dialog: each archive in a tab. */
 export async function openPaths(paths: string[]) {
@@ -68,27 +69,6 @@ export async function openDialog(d: OpenDialog) {
   }
 }
 
-/** Dropped paths: one archive opens; anything else, or several, goes into a new archive. */
-async function dropPaths(paths: string[]) {
-  if (paths.length === 0) return;
-  const ui = useUi.getState();
-  if (ui.dialog?.kind === "create") {
-    ui.show({ kind: "create", inputs: paths });
-    return;
-  }
-  if (paths.length === 1) {
-    try {
-      if (await isArchive(paths[0])) {
-        useArchives.getState().open(paths[0]);
-        return;
-      }
-    } catch {
-      // Not readable as an archive: offer to pack it.
-    }
-  }
-  ui.show({ kind: "create", inputs: paths });
-}
-
 async function chooseArchives() {
   let extensions = ["zip", "7z", "rar", "tar", "gz", "tgz", "zst", "xz", "bz2", "001"];
   try {
@@ -119,7 +99,8 @@ export default function App() {
   const show = useUi((s) => s.show);
   const closeDialog = useUi((s) => s.closeDialog);
   const setPalette = useUi((s) => s.setPalette);
-  const [dragging, setDragging] = useState(false);
+  // Where a drag is, while one is over the window.
+  const [dragging, setDragging] = useState<DropZone | false>(false);
   const [commands, setCommands] = useState<GuiCommand[]>([]);
   const theme = useTheme((s) => s.theme);
   const tabRef = useRef(tab);
@@ -151,20 +132,25 @@ export default function App() {
   useEffect(() => {
     const paths = listen<string[]>("open-paths", (e) => void openPaths(e.payload));
     const dialogs = listen<OpenDialog>("open-dialog", (e) => void openDialog(e.payload));
+    // An entry opened in its app changed (docs/M5.md §8.3).
+    const changed = listen<EntryChanged>("entry-changed", (e) => entryChanged(e.payload));
     return () => {
       void paths.then((f) => f());
       void dialogs.then((f) => f());
+      void changed.then((f) => f());
     };
   }, []);
 
   useEffect(() => {
+    // Positions come in physical pixels.
+    const zoneAt = (p: { x: number; y: number }) => dropZone(p.x / window.devicePixelRatio, p.y / window.devicePixelRatio);
     const unlisten = getCurrentWebview().onDragDropEvent((e) => {
       const p = e.payload;
-      if (p.type === "enter" || p.type === "over") setDragging(true);
+      if (p.type === "enter" || p.type === "over") setDragging(zoneAt(p.position));
       else if (p.type === "leave") setDragging(false);
       else if (p.type === "drop") {
         setDragging(false);
-        void dropPaths(p.paths);
+        void dropPaths(p.paths, zoneAt(p.position));
       }
     });
     return () => void unlisten.then((f) => f());
@@ -191,6 +177,7 @@ export default function App() {
     return () => window.removeEventListener("keydown", onKey);
   }, [extract, newArchive, openSettings, setPalette]);
 
+  const blocked = tab ? editBlocked(tab) : undefined;
   const actions: PaletteAction[] = [
     { id: "open", label: "Open archive…", hint: "Ctrl+O", run: () => void chooseArchives() },
     { id: "new", label: "New archive…", hint: "Ctrl+N", run: newArchive },
@@ -198,6 +185,11 @@ export default function App() {
       ? [
           { id: "extract", label: `Extract ${tab.name}…`, hint: "Ctrl+E", run: extract },
           { id: "test", label: `Test ${tab.name}`, run: () => testArchive(tab) },
+          { id: "add-files", label: `Add files to ${tab.name}…`, disabled: blocked, run: () => void pickAndAdd(tab, false) },
+          { id: "add-folder", label: `Add a folder to ${tab.name}…`, disabled: blocked, run: () => void pickAndAdd(tab, true) },
+          { id: "rename", label: `Rename in ${tab.name}`, hint: "F2", disabled: blocked, run: () => browserOf(tab.id)?.rename() },
+          { id: "delete", label: `Delete selected from ${tab.name}`, hint: "Del", disabled: blocked, run: () => browserOf(tab.id)?.remove() },
+          { id: "convert", label: `Convert ${tab.name}…`, run: () => show({ kind: "convert", tab: tab.id }) },
           { id: "info", label: `Info on ${tab.name}`, run: () => show({ kind: "info", tab: tab.id }) },
           { id: "encoding", label: `Name encoding for ${tab.name}…`, run: () => show({ kind: "encoding", tab: tab.id }) },
           { id: "close", label: `Close ${tab.name}`, hint: "Ctrl+W", run: () => useArchives.getState().close(tab.id) },
@@ -211,6 +203,8 @@ export default function App() {
   const onCommand = (c: GuiCommand) => {
     if (c.name === "archive.extract" && tab) return extract();
     if (c.name === "archive.create") return newArchive();
+    if (c.name === "archive.add" && tab && !blocked) return show({ kind: "add", tab: tab.id, inputs: [], dir: tab.dir });
+    if (c.name === "archive.convert" && tab) return show({ kind: "convert", tab: tab.id });
     if (c.name === "archive.test" && tab) return testArchive(tab);
     if (c.name === "archive.info" && tab) return show({ kind: "info", tab: tab.id });
     if (takesOnlyArchive(c) && tab) {
@@ -232,20 +226,26 @@ export default function App() {
       {tab ? (
         <Browser key={tab.id} tab={tab} />
       ) : (
-        <Welcome dragging={dragging} onOpen={() => void chooseArchives()} onNew={newArchive} onSettings={openSettings} />
+        <Welcome dragging={dragging !== false} onOpen={() => void chooseArchives()} onNew={newArchive} onSettings={openSettings} />
       )}
       <JobsPanel />
 
       {tab && dragging && (
         <div className="pointer-events-none fixed inset-0 z-30 flex items-center justify-center bg-amber-wash/60">
           <p className="rounded-[8px] border border-amber-fill bg-panel px-5 py-3 text-[15px] font-semibold">
-            Drop an archive to open it, or files to pack them
+            {dragging === "entries"
+              ? blocked
+                ? `${tab.name} can't be edited: drop to pack the files into a new archive`
+                : `Drop to add to ${tab.name}`
+              : "Drop an archive to open it, or files to pack them"}
           </p>
         </div>
       )}
 
       {dialog?.kind === "extract" && dialogTab && <ExtractDialog tab={dialogTab} entries={dialog.entries} onClose={closeDialog} />}
-      {dialog?.kind === "create" && <CreateDialog inputs={dialog.inputs} onClose={closeDialog} />}
+      {dialog?.kind === "create" && <CreateDialog inputs={dialog.inputs} note={dialog.note} onClose={closeDialog} />}
+      {dialog?.kind === "add" && dialogTab && <AddDialog tab={dialogTab} inputs={dialog.inputs} dir={dialog.dir} onClose={closeDialog} />}
+      {dialog?.kind === "convert" && dialogTab && <CreateDialog inputs={[]} source={dialogTab} onClose={closeDialog} />}
       {dialog?.kind === "info" && dialogTab && <InfoDialog tab={dialogTab} onClose={closeDialog} />}
       {dialog?.kind === "encoding" && dialogTab && <EncodingDialog tab={dialogTab} onClose={closeDialog} />}
       {dialog?.kind === "about" && <About onClose={closeDialog} />}
@@ -261,6 +261,8 @@ export default function App() {
 
       <Palette open={palette} onOpenChange={setPalette} actions={actions} onCommand={onCommand} />
       <Prompts />
+      <ChangedPrompt />
+      <RunPrompt />
       <Toasts />
     </div>
   );

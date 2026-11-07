@@ -7,7 +7,7 @@ use ts_rs::TS;
 
 use crate::{
     Access, CliSpec, CmdError, Command, Effect, JobCtx,
-    commands::util::{as_given, with_archive},
+    commands::util::{absolute, as_given, with_archive},
     wire::{NameEncoding, Secret, human_size, ratio},
 };
 
@@ -75,6 +75,10 @@ pub struct ArchiveInfoOutput {
     pub locked: bool,
     /// RAR: has a recovery record, for repairing damage.
     pub recovery_record: bool,
+    /// Why `archive.add`, `archive.remove` and `archive.rename` would refuse the archive: its
+    /// format, a volume set, a self-extracting archive, a read-only file. `null` when they
+    /// wouldn't.
+    pub not_editable: Option<String>,
 }
 
 pub struct ArchiveInfo;
@@ -119,6 +123,8 @@ impl Command for ArchiveInfo {
                     .filter_map(|e| e.size)
                     .sum();
                 let entries_total = entries.len() as u64;
+                let not_editable = beezip_core::edit::refusal(&absolute(&given), opened, cx)
+                    .unwrap_or_else(|e| Some(e.message));
                 let out = ArchiveInfoOutput {
                     format: info.format.name().into(),
                     chain: opened.detection.chain(),
@@ -143,6 +149,7 @@ impl Command for ArchiveInfo {
                     encrypted_headers: info.encrypted_headers,
                     locked: info.locked,
                     recovery_record: info.recovery_record,
+                    not_editable,
                     comment: info.comment,
                     archive: input.archive,
                 };

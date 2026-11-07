@@ -5,7 +5,14 @@ import { Search } from "lucide-react";
 import { useEffect, useState } from "react";
 import { type GuiCommand, listCommands } from "../../lib/engine";
 
-export type PaletteAction = { id: string; label: string; hint?: string; run: () => void };
+export type PaletteAction = {
+  id: string;
+  label: string;
+  hint?: string;
+  /** Why it can't run now; the item is shown, greyed, with the reason. */
+  disabled?: string;
+  run: () => void;
+};
 
 let commandsCache: Promise<GuiCommand[]> | undefined;
 
@@ -78,13 +85,19 @@ export function Palette({
               key={a.id}
               value={a.label}
               className={item}
+              disabled={a.disabled !== undefined}
+              title={a.disabled}
               onSelect={() => {
                 onOpenChange(false);
                 a.run();
               }}
             >
-              <span className="flex-1">{a.label}</span>
-              {a.hint && <kbd className="text-[12px] text-muted">{a.hint}</kbd>}
+              <span className="min-w-0 flex-1 truncate">{a.label}</span>
+              {a.disabled ? (
+                <span className="max-w-[50%] truncate text-[12px] text-muted">{a.disabled}</span>
+              ) : (
+                a.hint && <kbd className="text-[12px] text-muted">{a.hint}</kbd>
+              )}
             </Command.Item>
           ))}
         </Command.Group>

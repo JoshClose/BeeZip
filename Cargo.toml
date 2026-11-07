@@ -92,9 +92,10 @@ sevenz-rust2 = { version = "=0.24.2", default-features = false, features = [
 
 # M2 (docs/M2.md §1). Both already come in through rmcp and Tauri.
 uuid = { version = "1.29.0", features = ["v4"] }
-# M5: entry.open launches the default app (ShellExecuteW). Already in the lock through
-# tauri-plugin-opener.
-open = "5.4.5"
+# M5: entry.open launches the default app. `shellexecute-on-windows` makes that ShellExecuteExW
+# in-process; without it, open spawns a hidden Windows PowerShell for each file (docs/M5.md §16,
+# PR 3). Already in the lock through tauri-plugin-opener, as is the feature's dunce.
+open = { version = "5.4.5", features = ["shellexecute-on-windows"] }
 url  = "2.5.8"
 tokio-util = "0.7.20"   # rmcp's RequestContext::ct is a tokio_util CancellationToken
 dialoguer  = { version = "0.12.0", default-features = false, features = ["password"] }

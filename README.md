@@ -28,8 +28,10 @@ pnpm tauri dev      # the desktop app, reloading as you edit
 
 `BeeZip.exe` opens archives in tabs: a folder tree, the entries (a million is fine; click a column to sort), and a preview of text, hex or images.
 
-- **Opening:** Open (Ctrl+O), drag an archive onto the window, or double-click one once BeeZip is installed. Launching BeeZip again opens the archive in the running window.
-- **Extract** (Ctrl+E) everything or the selected entries. **New archive** (Ctrl+N) packs files and folders, or files dropped on the window, as zip, 7z or tar, encrypted and split as you choose. **Test** checks every CRC.
+- **Opening:** Open (Ctrl+O), drag an archive onto the welcome screen or the tabs, or double-click one once BeeZip is installed. Launching BeeZip again opens the archive in the running window.
+- **Extract** (Ctrl+E) everything or the selected entries. **New archive** (Ctrl+N) packs files and folders, or files dropped on the welcome screen or the tabs, as zip, 7z or tar, encrypted and split as you choose. **Test** checks every CRC. **Convert** writes the archive again in another format, or with other options.
+- **Editing** a zip, 7z or tar: **Add files** and **Add folder** (or drop files on the entries) open the add dialog, with the folder they go into and what to do about entries already there. **Delete** (Del) asks first; **Rename** (F2) edits the name in place. Afterwards the tab lists again with the same selection. An archive that can't be edited (RAR, a split or self-extracting archive, a read-only file) says why, and files dropped on it go into a new archive.
+- **Opening an entry** (double-click or Enter) opens it in its app; an archive inside opens in a tab, and a program asks first. Change the file, come back to BeeZip, and it offers to update the archive.
 - **Progress:** the jobs panel shows each job's progress, with Cancel, its log and its result. Cancelling removes any partly written files.
 - **Passwords and overwrites** are asked as they come up. A password stays in memory for its tab, until you close it, and is never saved.
 - **Commands:** Ctrl+K lists every action and every BeeZip command; a command without a dialog of its own gets a form.
@@ -40,7 +42,7 @@ pnpm tauri dev      # the desktop app, reloading as you edit
 **The installer** works per user, with no admin rights:
 - **Files:** it puts `BeeZip.exe` in `%LOCALAPPDATA%\BeeZip`, and adds its `bin` folder (holding `beezip.exe`) to your PATH.
 - **File types:** it registers BeeZip for zip, 7z, rar, tar and the compressed and split formats, but not for zip-based documents such as `.docx` or `.jar`. Windows asks which app to use the first time you open each kind of file, with BeeZip offered. An app you've already chosen for a type (Windows sets Explorer's zip folder for `.zip` on many machines) stays until you pick BeeZip under *Open with → Choose another app*.
-- **Explorer's menu:** a "BeeZip" submenu on files and folders, with Extract here, Extract to "a\", Test archive, Add to "a.zip" and the rest. A click opens a small window for the job, or BeeZip's own dialogs for Extract to… and Compress to…. Settings → Explorer menu chooses the items and removes or repairs the menu; so do `beezip shell status`, `beezip shell install` and `beezip shell uninstall`.
+- **Explorer's menu:** a "BeeZip" submenu on files and folders, with Extract here, Extract to "a\", Test archive, Add to "a.zip" and the rest. A click opens a small window for the job, or BeeZip's own dialogs for Extract to… and Compress to…. When `a.zip` is already there, the window offers to add to it, replace it, keep both or skip. Settings → Explorer menu chooses the items and removes or repairs the menu; so do `beezip shell status`, `beezip shell install` and `beezip shell uninstall`.
 - **On Windows 11** the menu needs BeeZip's signed package to be in Windows 11's own menu. Until releases are signed, the installer puts it under *Show more options*. With Developer Mode on, `beezip shell install --mode modern --dev` moves it into the Windows 11 menu, and `beezip shell install --mode classic` moves it back. Only one of the two is registered at a time.
 - **Uninstalling** removes the PATH entry, the menu and the registrations, and leaves your file types as they were. An upgrade keeps the file types you had before BeeZip, too.
 
@@ -107,7 +109,7 @@ links = false
 mark_of_the_web = "all"    # copy the archive's Zone.Identifier to extracted files, as Explorer does
 
 [edit]
-overwrite = "ask"          # `beezip add` over an entry already there: ask | always | never | rename | newer
+overwrite = "ask"          # adding over an entry already there (beezip add, the add dialog): ask | always | never | rename | newer
 
 [create]
 threads = 0                # 0 = one per core

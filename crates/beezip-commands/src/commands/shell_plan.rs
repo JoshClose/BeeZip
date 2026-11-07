@@ -9,7 +9,11 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use ts_rs::TS;
 
-use crate::{Access, CliSpec, CmdError, Command, Effect, JobCtx, Surfaces};
+use beezip_core::{ErrorKind, SimpleCtx};
+
+use crate::{
+    Access, CliSpec, CmdError, Command, Effect, JobCtx, Surfaces, commands::util::open_options,
+};
 
 /// One thing a click does.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
@@ -21,8 +25,8 @@ pub enum Step {
         title: String,
         command: String,
         args: Value,
-        /// The archive an add item would write is there already. The window asks whether to
-        /// replace it (`overwrite`) or keep both.
+        /// The archive an add item would write is there already. The window asks whether to add
+        /// to it (`archive.add`, when `can_add`), replace it (`overwrite`) or keep both.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         #[ts(optional)]
         existing: Option<Existing>,
@@ -44,6 +48,9 @@ pub struct Existing {
     pub path: PathBuf,
     /// A free name beside it, for keeping both: `a (1).zip`.
     pub keep_both: PathBuf,
+    /// `archive.add` can add to it: it's an archive BeeZip edits, not a volume set, a
+    /// self-extracting archive or a read-only file (docs/M5.md §9).
+    pub can_add: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
@@ -71,7 +78,7 @@ impl Command for ShellPlan {
         input.paths.iter().cloned().map(Access::Read).collect()
     }
 
-    fn run(input: JobRequest, _: &mut JobCtx) -> Result<ShellPlanOutput, CmdError> {
+    fn run(input: JobRequest, cx: &mut JobCtx) -> Result<ShellPlanOutput, CmdError> {
         if input.version != REQUEST_VERSION {
             return Err(CmdError::invalid_args(format!(
                 "a job request of version {} can't be read; this BeeZip reads version {REQUEST_VERSION}",
@@ -90,7 +97,7 @@ impl Command for ShellPlan {
             )));
         }
         Ok(ShellPlanOutput {
-            steps: plan(&input)?,
+            steps: plan(&input, cx)?,
         })
     }
 }
@@ -171,7 +178,7 @@ fn keep_both(dir: &Path, name: &str, ext: &str) -> PathBuf {
     }
 }
 
-fn plan(req: &JobRequest) -> Result<Vec<Step>, CmdError> {
+fn plan(req: &JobRequest, cx: &JobCtx) -> Result<Vec<Step>, CmdError> {
     let mut steps = Vec::new();
     match req.item {
         Item::ExtractHere | Item::ExtractFolder | Item::Test => {
@@ -233,15 +240,31 @@ fn plan(req: &JobRequest) -> Result<Vec<Step>, CmdError> {
             steps.push(match req.item {
                 Item::Open => Step::Open { paths: present },
                 Item::CompressTo => Step::CreateDialog { inputs: present },
-                _ => add(req.item, present),
+                _ => add(req.item, present, cx),
             });
         }
     }
     Ok(steps)
 }
 
+/// Whether `archive.add` could add to `archive`, by the rules it applies (docs/M5.md §9). A
+/// password needed to read it (a 7z with encrypted names) is asked for when adding, so it
+/// doesn't count against it; nobody is asked here.
+fn can_add(archive: &Path, cx: &JobCtx) -> bool {
+    let opts = open_options(None, cx);
+    let mut quiet = SimpleCtx::new();
+    let needs_password = |e: &beezip_core::Error| e.kind == ErrorKind::PasswordRequired;
+    match beezip_core::open(archive, &opts, &mut quiet) {
+        Ok(mut opened) => match beezip_core::edit::refusal(archive, &mut opened, &mut quiet) {
+            Ok(why) => why.is_none(),
+            Err(e) => needs_password(&e),
+        },
+        Err(e) => needs_password(&e),
+    }
+}
+
 /// "Add to "a.zip"": the archive beside the first input, named as the menu's title says.
-fn add(item: Item, inputs: Vec<PathBuf>) -> Step {
+fn add(item: Item, inputs: Vec<PathBuf>, cx: &JobCtx) -> Step {
     let selection: Vec<Selected> = inputs
         .iter()
         .map(|p| Selected {
@@ -256,6 +279,7 @@ fn add(item: Item, inputs: Vec<PathBuf>) -> Step {
     let existing = exists(&output).then(|| Existing {
         path: output.clone(),
         keep_both: keep_both(&dir, &name, ext),
+        can_add: can_add(&output, cx),
     });
     Step::Run {
         title: format!("Creating {name}{ext}"),

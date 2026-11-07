@@ -49,7 +49,7 @@ const create: RunStep = {
   title: "Creating work.zip",
   command: "archive.create",
   args: { output: String.raw`C:\w\work.zip`, inputs: [String.raw`C:\w\a.txt`] },
-  existing: { path: String.raw`C:\w\work.zip`, keep_both: String.raw`C:\w\work (1).zip` },
+  existing: { path: String.raw`C:\w\work.zip`, keep_both: String.raw`C:\w\work (1).zip`, can_add: false },
 };
 
 function deferred<T>() {
@@ -192,6 +192,42 @@ describe("the job window", () => {
     await userEvent.setup().click(screen.getByRole("button", { name: label }));
     expect(await screen.findByRole("heading", { name: "Done" })).toBeInTheDocument();
     expect(fake.calls[0].args).toMatchObject(args);
+  });
+
+  it("adds to an archive that's there, asking about entries already in it", async () => {
+    // docs/M5.md §9: Add to it comes first when the archive can be added to.
+    const addable: RunStep = { ...create, existing: { ...create.existing!, can_add: true } };
+    fake.handlers.set("archive.add", async (_args, emit) => {
+      emit({ type: "Prompt", id: 1, prompt: { kind: "Overwrite", path: "a.txt", archive: String.raw`C:\w\work.zip` } });
+      await waitFor(() => expect(fake.replies).toHaveLength(1));
+      return { path: String.raw`C:\w\work.zip`, format: "zip", added: 0, replaced: 1, removed: 0, renamed: 0, skipped: 0, entries: 3, copied: 2, recompressed: 0, bytes_before: 100, bytes_after: 150, unencrypted: 0, dry_run: false, plan: null };
+    });
+    show([addable], false);
+    const user = userEvent.setup();
+    expect(await screen.findByText("work.zip is already there")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Add to it" })).toHaveFocus();
+    await user.click(screen.getByRole("button", { name: "Add to it" }));
+
+    // The entry already there is asked about in the window, naming the archive.
+    expect(await screen.findByText("a.txt is already in work.zip")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Replace" }));
+    expect(fake.replies[0].reply).toEqual({ kind: "Overwrite", choice: "Replace" });
+    expect(await screen.findByRole("heading", { name: "Done" })).toBeInTheDocument();
+    expect(fake.calls).toEqual([
+      { name: "archive.add", args: { archive: String.raw`C:\w\work.zip`, inputs: [String.raw`C:\w\a.txt`], overwrite: "ask" } },
+    ]);
+    expect(win.setTitle).toHaveBeenCalledWith("Adding to work.zip");
+    expect(screen.getByText("Adding to work.zip")).toBeInTheDocument();
+    expect(screen.getByText("Replaced 1 entry in work.zip (2 entries copied as they were); 100 B → 150 B")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /Open folder/ }));
+    expect(revealItemInDir).toHaveBeenCalledWith(String.raw`C:\w\work.zip`);
+  });
+
+  it("doesn't offer to add to an archive that can't be added to", async () => {
+    show([create], false);
+    expect(await screen.findByText("work.zip is already there")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Add to it" })).toBeNull();
+    expect(screen.queryByText(/Add to it/)).toBeNull();
   });
 
   it("skips an archive that's there when asked to", async () => {

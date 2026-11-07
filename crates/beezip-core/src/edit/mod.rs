@@ -315,6 +315,21 @@ pub fn editable(name: &str, opened: &mut Opened, cx: &mut dyn Ctx) -> Result<Arc
     Ok(kind)
 }
 
+/// Why `archive`, opened as `opened`, can't be edited, or `None` when it can: the checks
+/// [`edit`] makes before it writes anything ([`editable`], then a read-only file), for front ends
+/// that disable their edit commands up front (docs/M5.md §8.1, §9). Errors other than these
+/// refusals, such as a password nobody could give, are returned as they are.
+pub fn refusal(archive: &Path, opened: &mut Opened, cx: &mut dyn Ctx) -> Result<Option<String>> {
+    let name = shown(archive);
+    match editable(&name, opened, cx) {
+        Ok(_) => {}
+        Err(e) if e.kind == ErrorKind::UnsupportedOperation => return Ok(Some(e.message)),
+        Err(e) => return Err(e),
+    }
+    let read_only = fs::metadata(archive).is_ok_and(|m| m.permissions().readonly());
+    Ok(read_only.then(|| format!("{name} is read-only")))
+}
+
 /// The items and changes of an edit.
 struct Plan {
     items: Vec<Item>,

@@ -3,6 +3,7 @@
 mod ipc;
 mod job;
 mod open;
+mod opened;
 mod prompts;
 
 use std::{
@@ -12,9 +13,13 @@ use std::{
 };
 
 use beezip_commands::{Engine, EngineOptions, Policy, Theme, config, registry};
-use tauri::{Manager, RunEvent};
+use tauri::{Emitter, Listener, Manager, RunEvent, WindowEvent};
 
-use crate::{open::Warnings, prompts::GuiInteractor};
+use crate::{
+    open::{MAIN, Warnings},
+    opened::{ENTRY_CHANGED, Forget, OPENED_FORGET, Opened},
+    prompts::GuiInteractor,
+};
 
 /// How long quitting waits for cancelled jobs to remove their partial files, as `beezip mcp`
 /// does on disconnect.
@@ -52,7 +57,23 @@ pub fn run() {
         .manage(engine)
         .manage(gui)
         .manage(Warnings(Mutex::new(warnings)))
+        .manage(Arc::new(Opened::default()))
+        // Back from an editor: entries opened from the tabs that changed (docs/M5.md §8.3).
+        .on_window_event(|window, event| {
+            if window.label() == MAIN && matches!(event, WindowEvent::Focused(true)) {
+                let app = window.app_handle();
+                for changed in app.state::<Arc<Opened>>().changed() {
+                    let _ = app.emit_to(MAIN, ENTRY_CHANGED, changed);
+                }
+            }
+        })
         .setup(move |app| {
+            let handle = app.handle().clone();
+            app.listen_any(OPENED_FORGET, move |event| {
+                if let Ok(forget) = serde_json::from_str::<Forget>(event.payload()) {
+                    handle.state::<Arc<Opened>>().forget(&forget.paths);
+                }
+            });
             // App-wide, before any window exists, so each opens in the right theme and later
             // windows and changes follow it (docs/M4.md §7.5). On this, the main thread, the
             // call takes effect at once.
