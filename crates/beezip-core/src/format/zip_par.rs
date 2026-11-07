@@ -129,9 +129,15 @@ pub(super) fn extract(
         let Some(file) = planned else {
             continue;
         };
-        // The sink already folds case for collisions, so its targets differ in more than case,
-        // or are the same file.
-        if let Some(prev) = at.insert(file.target.to_string_lossy().to_lowercase(), jobs.len()) {
+        // Two jobs for one file: the later one wins. Where names ignore case (Windows, macOS),
+        // `a.txt` and `A.TXT` are one file; elsewhere they're two.
+        let key = file.target.to_string_lossy();
+        let key = if cfg!(any(windows, target_os = "macos")) {
+            key.to_lowercase()
+        } else {
+            key.into_owned()
+        };
+        if let Some(prev) = at.insert(key, jobs.len()) {
             jobs[prev].superseded = true;
         }
         let work = if entry.encrypted {
