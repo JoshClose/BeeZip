@@ -23,7 +23,7 @@ BeeZip is a Windows-first desktop archive manager (Tauri 2 + React) that opens, 
 | MCP server | `beezip mcp` (server name `beezip`) |
 | Tauri identifier | `app.beezip.desktop` |
 | Config | `%APPDATA%\BeeZip\config.toml` |
-| Explorer menu | "BeeZip ▸", registry verb key `BeeZip`, `beezip_shell_<ver>.dll`, `beezip-sparse.msix` (package identity `BeeZip`; publisher `CN=BeeZip Dev` until M6's certificate) |
+| Explorer menu | "BeeZip ▸", registry verb key `BeeZip`, `beezip_shell_<ver>.dll`, `beezip-sparse.msix` (package identity `BeeZip`; publisher `CN=BeeZip Dev` until a production certificate exists, then that certificate's subject) |
 
 - **Why two folders:** Windows file names are case-insensitive, so `BeeZip.exe` and `beezip.exe` can't share a folder. The CLI therefore lives in `bin\`, which is the only folder added to PATH.
 - **The same clash exists in `target/`.** Tauri 2 names the GUI binary after the Cargo bin (`beezip-desktop.exe`), not after `productName`. The only override is `mainBinaryName`, which `tauri build` applies as an `fs::rename` inside `target/<profile>/`. That folder also holds the CLI's `beezip.exe`. On NTFS the rename replaces the CLI, and a later `cargo build -p beezip-cli` overwrites the GUI. So:
@@ -85,6 +85,7 @@ tests/fixtures/               # reference archives + manifest.json (entries + ha
   - `copy_from(reader, keep) -> ids not copied`, which copies entries without recompressing them: zip entries byte for byte (BeeZip's own copy, not the zip crate's `raw_copy_file`, whose copies are corrupt for ZipCrypto and LZMA), whole 7z blocks, tar, cpio and ar members. It takes a list rather than one id because 7z copies whole blocks (docs/M5.md §3.2).
   - `finish()`.
 - **`Backend`** groups formats: `Native`, `SevenZipCli` and `Libarchive`. The registry picks a backend for each format and operation using capabilities and priority.
+  - The 7-Zip backend (M6) is one `ArchiveReader` for the formats in docs/M6.md §3.2. It reads `7z l -slt` and streams `7z x -so` into FsSink; only NSIS installers go through a staging folder. It needs 7-Zip 25.01 or newer.
 - **No serialization in core:** core doesn't depend on serde, schemars or ts-rs. `beezip-commands` owns every wire type and converts, so core types can change without changing the API the front ends see.
 - **`Source`** is one of:
   - a file (Read+Seek);
@@ -111,7 +112,7 @@ tests/fixtures/               # reference archives + manifest.json (entries + ha
   - **Mark of the Web:** on Windows, the archive's `Zone.Identifier` stream is copied to every extracted file, as Explorer does, so SmartScreen and Office Protected View still apply. It is on by default, and config can turn it off.
   - **Filename encoding:** names stored as bytes (zip without the UTF-8 flag, tar, cpio, LHA…) are read as UTF-8 when marked or valid, otherwise in the system's OEM code page for zip and its ANSI code page for the others; an encoding can be chosen for every format that stores names as bytes (`encoding_rs`/`oem_cp`, docs/M5.md §6).
 - **Progress** comes from a `CountingReader` on the compressed input, so it is reliable, and is throttled to about 10 Hz. **Cancellation** is a shared `CancelToken` that is checked between buffers.
-- **Threading:** core is synchronous. The engine runs each job on its own thread rather than a worker pool, because jobs are few and long-running. Parallelism inside a job comes from the codecs (zstdmt, xz MT, and in M6 the zip rayon writer and parallel extraction of non-solid zips).
+- **Threading:** core is synchronous. The engine runs each job on its own thread rather than a worker pool, because jobs are few and long-running. Parallelism inside a job comes from the codecs (zstdmt, xz and lzip compression, 7z's LZMA2 decoding) and, from M6, from BeeZip's own workers, scoped threads per job: parallel deflate, the zip writer, xz decoding and the extraction of zips (docs/M6.md §6). The zip crate has no parallel writer, and its `rayon` feature isn't used.
 
 ### Command engine (`beezip-commands`): the single source of truth
 ```rust
@@ -150,7 +151,7 @@ pub trait Command: Send + Sync + 'static {
 |---|---|---|
 | `formats.list` | RO | capability matrix (the format/backend table) |
 | `file.detect` | RO | format chain + confidence, e.g. `zstd → tar` |
-| `archive.info` | RO | totals, method, solid, encrypted, volumes, comment |
+| `archive.info` | RO | totals, method, solid, encrypted, volumes, comment; from M6 `backend` ("7-Zip 26.00") and `levels` (`vhdx > gpt > ntfs`) |
 | `archive.list` | RO | `dir` (folder inside the archive), `glob`, `flat`, `offset/limit` paging |
 | `archive.test` | RO | CRC/integrity check |
 | `entry.read` | RO | `offset/max_bytes`; text, hex or base64 (for preview and MCP) |
@@ -160,7 +161,7 @@ pub trait Command: Send + Sync + 'static {
 | `archive.convert` | W | streams reader to writer, no temp extraction where possible. Never drops encryption silently: an encrypted source needs `new_password` or `decrypt` |
 | `stream.compress` / `stream.decompress` | W | single-file codecs (`a.txt → a.txt.zst`) |
 | `entry.open` | W | extract to temp cache + open with the default app (GUI/CLI only, hidden from MCP). CLI: `beezip open` |
-| `bench.run` | RO | codecs × levels on a sample, giving ratio/speed table (M6) |
+| `bench.run` | RO | codecs × levels × threads on a file or the built-in sample, in memory: ratio, MB/s each way, peak memory, each round trip checked; cells arrive as job events, and a cancelled run returns those it finished (M6, docs/M6.md §7). CLI: `beezip bench` |
 | `settings.get` / `settings.set` | RO / W | config.toml, edited in place. Hidden from MCP: an assistant that could set `[mcp] roots` could widen its own sandbox. CLI: `beezip settings get`, `beezip settings set KEY=VALUE… [--reset KEY]` |
 | `shell.status` | RO | which Explorer registration is in place, and why (docs/M4.md §5.5) |
 | `shell.install` / `shell.uninstall` | System | Explorer menus (`--mode classic\|modern\|auto`). Windows only; GUI/CLI only, hidden from MCP. CLI: `beezip shell …` |
@@ -203,7 +204,8 @@ Every archive command names the archive file `archive`. The M1 inputs and output
     - `bundle.fileAssociations` for the archive extensions BeeZip reads, not the zip-based document formats (docx, jar, epub…). The NSIS installer makes BeeZip their default handler, and uninstall restores the previous one;
     - `tauri-plugin-single-instance` forwards files to the running window;
     - `tauri-plugin-dialog` and `tauri-plugin-opener`;
-    - NSIS installer that installs `BeeZip.exe` and `bin\beezip.exe` (the CLI is staged separately; see Naming), and adds `bin\` to PATH;
+    - NSIS installer that installs `BeeZip.exe` and `bin\beezip.exe` (the CLI is staged separately; see Naming), and adds `bin\` to PATH. NSIS only, no MSI (docs/M6.md §9.3);
+    - from M6, `tauri-plugin-updater`: it checks GitHub Releases at most once a day, and installs only on a click (docs/M6.md §9.4);
     - a **job mode**, `BeeZip.exe --job <request.json>`: Explorer writes a job request, and `shell.plan` expands it into steps. Each request gets one compact job window; dialogs ("Extract to…", "Compress to…") open in the main window. A second `BeeZip.exe` hands its request to the running one, and the process exits when its last window closes (docs/M4.md §6).
 
 ### Explorer context-menu integration (Windows 11 modern menu + classic menu)
@@ -243,7 +245,7 @@ Every archive command names the archive file `archive`. The M1 inputs and output
 - **Signing.** Windows only installs the sparse package if it is signed by a certificate the machine trusts, and that certificate's subject must equal `Publisher` in the manifest.
   - An unsigned `.msix` can't be installed without admin, and a certificate trusted only in `CurrentUser\TrustedPeople` isn't enough (docs/M4.md §16).
   - Development: the unsigned manifest is registered under Developer Mode, with no admin and no certificate. `xtask dev-cert` (a self-signed certificate in `LocalMachine\TrustedPeople`, admin once) is only for trying the signed installer path. CI runs as administrator and covers it.
-  - Release: a real code-signing certificate or Azure Trusted Signing, used to sign the exe, the DLL, `beezip-sparse.msix` and the installer.
+  - Release: a real code-signing certificate, used to sign the exe, the DLL, `beezip-sparse.msix` and the installer. The options (Azure Artifact Signing, Certum's open-source certificate, others) are in docs/M6.md §9.2. The package's Publisher is the certificate's subject.
 
 ---
 
@@ -252,15 +254,15 @@ Crate versions were checked on 2026-11-01. Churny crates are pinned exactly behi
 
 | Format | R | W | Implementation | Milestone |
 |---|---|---|---|---|
-| ZIP: deflate, bzip2, zstd, xz, ppmd, AES/ZipCrypto, Zip64 | ✓ | ✓ | `zip` =9.2.2: deflate through zlib-rs (levels 1–9, no zopfli); PPMd read and write; ZipCrypto writing through zip's `unstable` API; deflate64/lzma/legacy are read-only | M1 |
+| ZIP: deflate, bzip2, zstd, xz, ppmd, AES/ZipCrypto, Zip64 | ✓ | ✓ | `zip` =9.4.1 (from M6): deflate through zlib-rs (levels 1–9, no zopfli); PPMd read and write; ZipCrypto writing through zip's `unstable` API; deflate64/lzma/legacy are read-only | M1 |
 | TAR (ustar/pax/gnu) | ✓ | ✓ | `tar` 0.4.46 | M1 |
-| gzip / zlib / raw deflate | ✓ | ✓ | `flate2` + zlib-rs. Raw deflate has no magic or extension, so it is never detected (`--codec deflate` only). Parallel gzip (`gzp`) moves to M6: its defaults build C zlib-ng/libdeflate, and its `deflate_rust` feature uses miniz_oxide rather than zlib-rs | M1 |
+| gzip / zlib / raw deflate | ✓ | ✓ | `flate2` + zlib-rs. Raw deflate has no magic or extension, so it is never detected (`--codec deflate` only). Parallel compression is BeeZip's own (docs/M6.md §6.1), not gzp | M1 |
 | bzip2 | ✓ | ✓ | `bzip2` 0.6 (pure-Rust libbz2-rs-sys) | M1 |
-| xz / lzma / lzip | ✓ | ✓ | `lzma-rust2` =0.23.0 (pure Rust; multithreaded compression, single-threaded decoding in M1; the version zip 9.2.2 requires, so only one copy is built) | M1 |
+| xz / lzma / lzip | ✓ | ✓ | `lzma-rust2` =0.25.0 (pure Rust; multithreaded compression; multithreaded xz decoding from M6, docs/M6.md §6.4; the version zip 9.4.1 and sevenz-rust2 0.25.0 require, so only one copy is built) | M1 |
 | zstd | ✓ | ✓ | `zstd` 0.14 (bundled C, zstdmt) | M1 |
 | lz4 / brotli / snappy | ✓ | ✓ | `lz4_flex` / `brotli` / `snap` | M1 |
 | tar.{gz,bz2,xz,zst,lz4,br,lz} | ✓ | ✓ | codec chain composition | M1 |
-| 7z: LZMA/2, PPMd, BCJ*, AES-256, solid | ✓ | ✓ | `sevenz-rust2` `=0.24.2` + our `VolumeSet` for `.7z.001`. It reads everything listed plus Deflate, BZip2, LZ4, Brotli and ARM64, but not zstd. It writes LZMA2, LZMA, PPMd, BZip2, Deflate and Copy, with encrypted headers on by default when there is a password and solid blocks capped at 1 GiB. BeeZip checks decoder memory itself, because the crate has no limit | M3 |
+| 7z: LZMA/2, PPMd, BCJ*, AES-256, solid | ✓ | ✓ | `sevenz-rust2` `=0.25.0` (from M6) + our `VolumeSet` for `.7z.001`. It reads everything listed plus Deflate, BZip2, LZ4, Brotli and ARM64, but not zstd. It writes LZMA2, LZMA, PPMd, BZip2, Deflate and Copy, with encrypted headers on by default when there is a password and solid blocks capped at 1 GiB. BeeZip checks decoder memory itself (the crate's own limit, new in 0.25, isn't used), and checks entry CRCs itself, so a bad entry in a solid block fails only that entry (docs/M6.md §1) | M3 |
 | RAR 1.5–7 incl. multipart and passwords | ✓ | ✗ | UnRAR through `unrar_sys` in a new `beezip-unrar` crate, not the `unrar` crate, which can only buffer whole entries. BeeZip declares UnRAR's packed structs itself, links advapi32, and takes one lock for every call into UnRAR (cargo feature `rar`, on by default; UnRAR license notice shipped). `rars` (pure Rust) stays the tracked alternative. RAR creation is never offered | M3 |
 | Split files (.001…) | ✓ | ✓ | in-house `VolumeSet` reader/writer | M3 |
 | CAB | ✓ | ✓ (none, MSZIP) | in-house; LZX read through `lzxd` 0.2.7; cabinet sets read (docs/M5.md §5.5) | M5 |
@@ -274,9 +276,9 @@ Crate versions were checked on 2026-11-01. Churny crates are pinned exactly behi
 | lzop | ✓ | ✓ | in-house container, `lzokay` 2.0.1 blocks | M5 |
 | squashfs | ✓ | ✓ | in-house reader; `backhand` 0.25.5 writer with BeeZip's codecs | M5 |
 | DMG (UDIF) | ✓ (HFS+, HFSX, APFS) | ✓ (HFS+, UDZO) | in-house UDIF; `fstool` 0.5.2 for the volumes | M5 |
-| ARJ, ACE, ARC, ZOO, HA, UC2, Amiga LZX… | ✓ | ✗ | `unarc-rs` (**license to be checked before adopting**) | M6 |
-| WIM, CHM, MSI, NSIS, VHD(X), VMDK, QCOW2, bare HFS/APFS, NTFS/FAT/EXT images, CramFS… | ✓ | ✗ | `SevenZipCli` backend: finds an installed `7z.exe` (configurable path) and parses `7z l -slt`. Extraction goes to a staging dir, then through `FsSink` safety | M6 |
-| XAR/pkg | ✓ | ? | evaluate `zar` (MIT) first; apple-xar (MPL-2.0) is acceptable with a per-crate cargo-deny exception if needed | M6 |
+| ARJ, ACE, ZOO, ARC | ✓ | ✗ | in-house, from unarc-rs's ARJ, ACE and ZOO modules (MIT) and acefile (BSD-2); ARC BeeZip's own. HA, UC2, JAR, HYP and SQZ aren't read (license; docs/M6.md §4) | M6 |
+| WIM/ESD, CHM, MSI, NSIS, VHD(X), VMDK, QCOW2, VDI, MBR/GPT disks, FAT, NTFS, ext2/3/4, HFS+, APFS, CramFS | ✓ | ✗ | `SevenZipCli` backend: finds an installed 7-Zip 25.01 or newer (configurable path), parses `7z l -slt` and streams `7z x -so` into `FsSink`; staging only for NSIS. MSI names are 7-Zip's cab keys (docs/M6.md §3) | M6 |
+| XAR/pkg | ✓ | ✗ | in-house reader; pkg listed expanded, as `pkgutil --expand-full`; quick-xml (docs/M6.md §5) | M6 |
 | libarchive (everything it reads or writes) | ✓ | some | `libarchive2` behind cargo feature `libarchive`, **off** by default (needs vcpkg/CMake on MSVC) | optional |
 
 Formats that are known not to be supported (or only partly): split/spanned ZIP (.z01) in v1 (not supported by `zip`; reading them may come later via `VolumeSet` + offset fix-up), writing LZMA/Deflate64 inside ZIP, and BCJ2 is read-only.
@@ -289,7 +291,7 @@ Formats that are known not to be supported (or only partly): split/spanned ZIP (
 - These crates get per-crate exceptions and are listed in `THIRD_PARTY_NOTICES`. MPL is file-level copyleft, so using them unmodified in an MIT/Apache app is fine. Any new MPL crate still fails the check until it gets its own exception.
 - **BSL-1.0** has one per-crate exception, `xxhash-rust`, which backhand needs to write squashfs (M5). The Boost license is permissive; the exception keeps any other BSL crate visible.
 - The UnRAR license (`unrar_sys`) gets a cargo-deny clarification as well as an exception (M3). `unrar_sys` declares MIT OR Apache-2.0, but it compiles UnRAR's own C++, so the clarification makes it `(MIT OR Apache-2.0) AND LicenseRef-UnRAR`.
-- **Third-party notices** ship in the installer and on the About page from M3. A complete generated list stays an M6 task.
+- **Third-party notices** ship in the installer and on the About page from M3. From M6, `cargo xtask notices` generates `THIRD_PARTY_NOTICES.md` from the Rust crates and the bundled npm packages, and CI checks it (docs/M6.md §9.1).
 - On the Windows runner, cargo-deny runs as an installed binary, because `cargo-deny-action` is a Docker action and only runs on Linux.
 
 ---
@@ -321,10 +323,12 @@ After approval I implement **M0 + M1** and then stop for your review before goin
 - **M5 — Editing + breadth.**
   - `archive.add/remove/rename/convert`, `entry.open`, and the M5 formats in §2 (CAB, ISO, cpio/ar/deb, RPM, LHA, .Z, lzop, squashfs, DMG).
   - Filename codepage override.
-- **M6 — Long tail + ship.**
-  - `SevenZipCli` backend, `unarc-rs`, XAR, `bench.run` with a UI chart.
-  - NSIS/MSI installer, production signing, `tauri-plugin-updater`, a winget manifest (`BeeZip.BeeZip`).
-  - Turn on the macOS/Linux bundle jobs.
+- **M6 — Long tail + ship.** Detailed plan: [`docs/M6.md`](M6.md).
+  - The `SevenZipCli` backend; ARJ, ACE, ZOO and ARC; XAR and pkg.
+  - Parallel gzip, zip writing, zip extraction and xz decoding; `bench.run` with a chart in the desktop.
+  - Generated notices, a signing pipeline for a production certificate, NSIS installer fixes, `tauri-plugin-updater`, draft releases, a winget manifest (`BeeZip.BeeZip`), Linux and macOS bundles on CI.
+  - The early-launch fix, a tauri-driver E2E test, and drag-out to Explorer as a stretch goal.
+  - The first public release comes after the look-and-feel pass.
 
 ---
 
@@ -347,7 +351,7 @@ After approval I implement **M0 + M1** and then stop for your review before goin
   - manual checks with `npx @modelcontextprotocol/inspector beezip mcp --root C:\tmp\sbx` and `claude mcp add beezip -- beezip mcp --root C:\tmp\sbx`.
 - **Desktop:**
   - `pnpm tauri dev`: open a fixture by dialog, drag-drop and double-click (association + single-instance), browse a 1M-entry zip smoothly, preview, extract with cancel mid-way (no partial files left), create a password-protected 7z, check "Copy as CLI" output runs unchanged in a terminal;
-  - vitest for components; a tauri-driver smoke E2E in M6.
+  - vitest for components; a tauri-driver smoke E2E from M6, on Windows and Linux CI (tauri-driver has no macOS driver).
 - **Explorer integration:**
   - Unit tests for the pure `selection → menu items` function (`beezip-menu`), kept separate from the COM glue.
   - A Windows CI harness that loads the DLL directly (`LoadLibrary` + `DllGetClassObject`, nothing registered), builds an `IShellItemArray` from fixture paths, and checks the title, state, subcommands and that `Invoke` writes the job file.
@@ -361,6 +365,8 @@ After approval I implement **M0 + M1** and then stop for your review before goin
 - **The zip crate's raw copy** (`raw_copy_file`, `new_append`, 9.2.2–9.4.1) rebuilds the flags it copies, so ZipCrypto and LZMA entries come out corrupt. Worked around: BeeZip copies zip entries itself, byte for byte (docs/M5.md §3.3).
 - **UnRAR license:** keep it behind a feature, ship the notice in `THIRD_PARTY_NOTICES`, never offer RAR creation, and track `rars` as a pure-Rust replacement.
 - **libarchive on Windows:** optional feature, off by default. Most of the long tail comes from the 7-Zip external backend, which carries no license coupling because it runs as a separate process.
+- **The 7-Zip backend's names:** FsSink checks every name 7-Zip lists, as for any format; BeeZip never relies on 7-Zip's own renaming, since 7-Zip never writes to the destination (docs/M6.md §3.4).
+- **Installers and a running BeeZip:** Tauri's installer closes a running BeeZip without asking in silent and passive mode (winget, the updater). The updater cancels running jobs first (docs/M6.md §9.3, §9.4).
 - **Solid archives and random access:** previews use the index cache plus a temp extraction cache, and `FormatCaps.random_access` tells the UI when a preview will be slow.
 - **Native drag-out to Explorer from the webview:** stretch goal (M6). The fallback is "Extract to…" plus dragging out a temp extraction.
 - **The Win11 menu needs package identity and a trusted signature.** Development registers the unsigned manifest under Developer Mode; an installer without a trusted certificate gives Windows 11 the classic menu. Releases need a real certificate (M6).

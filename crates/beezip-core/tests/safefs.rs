@@ -335,6 +335,90 @@ fn duplicates_last_wins_but_case_clashes_ask() {
     assert_eq!(fs::read(d.dest.join(&r.renamed[0].to)).unwrap(), b"3");
 }
 
+/// The same name written two ways (`./`, `\`) is still the same name: the last one wins.
+#[test]
+fn duplicates_are_compared_as_archive_names() {
+    let d = dest();
+    let r = extract(
+        &d,
+        FsOptions {
+            overwrite: OverwritePolicy::Never,
+            ..FsOptions::default()
+        },
+        &[(file("./d/f.txt"), b"1"), (file("d\\f.txt"), b"2")],
+    );
+    assert_eq!(fs::read(d.dest.join("d/f.txt")).unwrap(), b"2");
+    assert_eq!((r.files, r.skipped_total), (2, 0));
+}
+
+/// `trail.` and `trail ` both become `trail_`, and `a:b` becomes `a_b`: different names that
+/// only meet once made safe are a clash, not the same path twice (docs/M6.md §3.4).
+#[test]
+fn names_that_meet_once_made_safe_go_to_the_policy() {
+    let d = dest();
+    let entries: &[(Entry, &[u8])] = &[
+        (file("trail."), b"1"),
+        (file("trail "), b"2"),
+        (file("a_b"), b"3"),
+        (file("a:b"), b"4"),
+        (
+            with_kind(
+                "link",
+                EntryKind::Hardlink {
+                    target: "trail ".into(),
+                },
+            ),
+            b"",
+        ),
+    ];
+
+    // Asked, and with nobody to answer, the job stops at the second name.
+    let mut sink = FsSink::new(&d.dest, FsOptions::default()).unwrap();
+    let mut cx = SimpleCtx::new();
+    sink.entry(&entries[0].0, &mut &entries[0].1[..], &mut cx)
+        .unwrap();
+    let err = sink
+        .entry(&entries[1].0, &mut &entries[1].1[..], &mut cx)
+        .unwrap_err();
+    assert_eq!(err.kind, ErrorKind::Conflict);
+    assert_eq!(fs::read(d.dest.join("trail_")).unwrap(), b"1");
+    drop(sink);
+
+    let d = dest();
+    let r = extract(
+        &d,
+        FsOptions {
+            overwrite: OverwritePolicy::Rename,
+            ..FsOptions::default()
+        },
+        entries,
+    );
+    assert_eq!(fs::read(d.dest.join("trail_")).unwrap(), b"1");
+    assert_eq!(fs::read(d.dest.join("trail_ (1)")).unwrap(), b"2");
+    assert_eq!(fs::read(d.dest.join("a_b")).unwrap(), b"3");
+    assert_eq!(fs::read(d.dest.join("a_b (1)")).unwrap(), b"4");
+    // A hardlink names the archive's entry, not whatever took its place.
+    assert_eq!(fs::read(d.dest.join("link")).unwrap(), b"2");
+    assert_eq!(r.files, 5);
+}
+
+/// Two names that meet once `strip_components` has gone are a clash too.
+#[test]
+fn names_that_meet_once_stripped_go_to_the_policy() {
+    let d = dest();
+    let r = extract(
+        &d,
+        FsOptions {
+            strip_components: 1,
+            overwrite: OverwritePolicy::Never,
+            ..FsOptions::default()
+        },
+        &[(file("x/f.txt"), b"1"), (file("y/f.txt"), b"2")],
+    );
+    assert_eq!(fs::read(d.dest.join("f.txt")).unwrap(), b"1");
+    assert_eq!(reasons(&r), [("y/f.txt".into(), SkipReason::Exists)]);
+}
+
 #[test]
 fn hardlinks_are_copies_and_stay_inside() {
     let d = dest();

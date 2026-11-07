@@ -31,8 +31,11 @@ pub struct FsSink {
     opts: FsOptions,
     /// Directories already verified to be inside `dest`.
     checked: HashSet<PathBuf>,
-    /// Files written by this job, by case-folded relative path: the exact path and the file.
-    written: HashMap<String, (String, PathBuf)>,
+    /// Files written by this job, by case-folded relative path.
+    written: HashMap<String, Written>,
+    /// The file written for each archive name ([`name_key`]), last one kept: what a hardlink's
+    /// target means.
+    by_name: HashMap<String, PathBuf>,
     links: Vec<PendingLink>,
     dir_times: Vec<(PathBuf, SystemTime)>,
     replace_all: bool,
@@ -42,6 +45,12 @@ pub struct FsSink {
     /// ratio limit against the whole job's input.
     link_guard: Option<RatioGuard>,
     report: ExtractReport,
+}
+
+struct Written {
+    /// The archive name it came from ([`name_key`]).
+    name: String,
+    path: PathBuf,
 }
 
 struct PendingLink {
@@ -69,6 +78,7 @@ impl FsSink {
             opts,
             checked: HashSet::from([abs]),
             written: HashMap::new(),
+            by_name: HashMap::new(),
             links: Vec::new(),
             dir_times: Vec::new(),
             replace_all: false,
@@ -159,8 +169,10 @@ impl FsSink {
         Ok(Ok(()))
     }
 
+    /// `name` is the entry's archive name ([`name_key`]); `rel` is where it goes, made safe.
     fn decide(
         &mut self,
+        name: &str,
         rel: &str,
         target: PathBuf,
         entry: &Entry,
@@ -174,15 +186,14 @@ impl FsSink {
         if existing.as_ref().is_some_and(fs::Metadata::is_dir) {
             return Ok(Decision::Skip(SkipReason::Blocked));
         }
-        let earlier = self
-            .written
-            .get(&fold(rel))
-            .map(|(exact, _)| exact.as_str());
+        let earlier = self.written.get(&fold(rel));
         if existing.is_none() && earlier.is_none() {
             return Ok(Decision::Write(target));
         }
-        // The same path twice in one archive (common in appended tars): the last one wins.
-        if earlier == Some(rel) {
+        // The same name twice in one archive (common in appended tars): the last one wins. Two
+        // names that only meet once made safe (`a.` and `a `, `a:b` and `a_b`), or once
+        // `strip_components` has gone, are a clash like a case-only one, so the policy decides.
+        if earlier.is_some_and(|w| w.name == name) {
             return Ok(Decision::Write(target));
         }
         let choice = match self.opts.overwrite {
@@ -227,7 +238,7 @@ impl FsSink {
             Some(i) if i > 0 => (&name[..i], &name[i..]),
             _ => (name.as_str(), ""),
         };
-        let taken: HashSet<&Path> = self.written.values().map(|(_, p)| p.as_path()).collect();
+        let taken: HashSet<&Path> = self.written.values().map(|w| w.path.as_path()).collect();
         (1..)
             .map(|n| parent.join(format!("{stem} ({n}){ext}")))
             .find(|p| !taken.contains(p.as_path()) && fs::symlink_metadata(p).is_err())
@@ -253,7 +264,8 @@ impl FsSink {
             }
         };
         let rel = safe.joined();
-        let target = match self.decide(&rel, parent.join(name), entry, cx)? {
+        let key = name_key(&entry.path);
+        let target = match self.decide(&key, &rel, parent.join(name), entry, cx)? {
             Decision::Write(t) => t,
             Decision::Skip(reason) => {
                 self.report.skip(&entry.path, reason);
@@ -270,7 +282,14 @@ impl FsSink {
         self.apply_metadata(&target, entry, cx);
         self.report.files += 1;
         self.report.bytes += bytes;
-        self.written.insert(fold(&rel), (rel, target));
+        self.by_name.insert(key.clone(), target.clone());
+        self.written.insert(
+            fold(&rel),
+            Written {
+                name: key,
+                path: target,
+            },
+        );
         Ok(())
     }
 
@@ -379,16 +398,10 @@ impl FsSink {
             self.report.skip(&entry.path, SkipReason::LinkOutside);
             return Ok(());
         }
+        // The target is an archive name: the file written for that name, not whichever file
+        // took the same place once made safe.
         let source = match sanitize::sanitize(target) {
-            Ok(mut t) => {
-                let strip = self.opts.strip_components;
-                if t.components.len() > strip {
-                    t.components.drain(..strip);
-                    self.written.get(&fold(&t.joined())).map(|(_, p)| p.clone())
-                } else {
-                    None
-                }
-            }
+            Ok(_) => self.by_name.get(&name_key(target)).cloned(),
             Err(Refusal::Traversal) => {
                 self.report.skip(&entry.path, SkipReason::LinkOutside);
                 return Ok(());
@@ -504,6 +517,15 @@ fn make_symlink(target: &Path, path: &Path, dir: bool) -> io::Result<()> {
 /// The key for case-insensitive collisions.
 fn fold(rel: &str) -> String {
     rel.to_lowercase()
+}
+
+/// An archive name as a key: `\` as `/`, without `.` or empty components, otherwise as the
+/// archive has it (before `strip_components` and before it's made safe).
+fn name_key(path: &str) -> String {
+    path.split(['/', '\\'])
+        .filter(|c| !c.is_empty() && *c != ".")
+        .collect::<Vec<_>>()
+        .join("/")
 }
 
 impl EntrySink for FsSink {

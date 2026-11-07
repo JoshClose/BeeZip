@@ -49,7 +49,7 @@ assert_cmd = "2.2.2"
 predicates = "3.1.4"
 
 # M1 formats and codecs (docs/M1.md §1). Only beezip-core uses these.
-zip = { version = "=9.2.2", default-features = false, features = [
+zip = { version = "=9.4.1", default-features = false, features = [
     "aes-crypto", "deflate-flate2-zlib-rs", "deflate64", "bzip2", "zstd", "xz", "lzma", "ppmd",
     "legacy-zip", "time",
 ] }
@@ -57,7 +57,7 @@ tar        = { version = "0.4.46", default-features = false }
 flate2     = { version = "1.1.10", default-features = false, features = ["zlib-rs"] }
 bzip2      = "0.6.1"
 crc32fast  = "1.5.4"
-lzma-rust2 = "=0.23.0"   # the version zip 9.2.2 requires; a newer one would build a second copy
+lzma-rust2 = "=0.25.0"   # the version zip 9.4.1 and sevenz-rust2 0.25.0 require; another would build a second copy
 zstd       = { version = "0.14.3", default-features = false, features = ["zstdmt"] }
 lz4_flex   = "0.14.0"
 brotli     = "9.1.1"
@@ -107,7 +107,7 @@ indicatif  = "0.18.6"
 
 # M3 formats (docs/M3.md §1). Churny, so pinned exactly.
 unrar_sys = "=0.5.8"   # UnRAR 7.1.0, compiled with cc; only beezip-unrar uses it (§3.4)
-sevenz-rust2 = { version = "=0.24.2", default-features = false, features = [
+sevenz-rust2 = { version = "=0.25.0", default-features = false, features = [
     "aes256", "bzip2", "compress", "ppmd", "deflate", "lz4", "brotli",
 ] }
 
