@@ -1,0 +1,42 @@
+Benchmark the codecs: compress and decompress a sample in memory with each codec at the
+levels and thread counts of a grid, and report the size, the speed and the memory each way.
+Every round trip is checked against the sample; one that doesn't match fails its cell, not
+the run. Each cell is also sent as a `Partial` job event as it finishes, and a cancelled
+run returns the cells it finished. Nothing is written.
+
+Usage: beezip bench [OPTIONS] [FILE]
+
+Arguments:
+  [FILE]
+          The file to take the sample from, read as 16 slices spread across it [default: BeeZip's
+          built-in sample: seeded text, JSON, code, binary tables and 10 % random bytes]
+
+Options:
+  -g, --grid <GRID>
+          The cells to run: `default` (gzip 1/6/9, bzip2 9, xz 1/6/9, zstd 1/3/9/19, lz4, brotli
+          5/9, snappy and lzop, one thread each), `full` (every codec at every level), `threads`
+          (zstd 3 and 9, xz 1 and 6, at 1, 4 and all threads), or a list of cells. On the command
+          line a list is `codec[:level[:threads]]`, comma-separated: `zstd:3,zstd:19:0,lz4`, where
+          threads 0 is one per core [default: default]
+
+      --bytes <SIZE>
+          The sample's size: bytes, or a size such as `64m`, at most 1 GiB [default: 8 MiB; 64 MiB
+          for `threads`]
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+Global options:
+      --output <FORMAT>
+          How to print results; ndjson streams every job event
+
+          Possible values:
+          - human:  Text for people
+          - json:   One JSON document on stdout: the output, or `{"error": {...}}`
+          - ndjson: Every job event as a JSON line on stdout, ending with `Finished`, `Failed` or
+            `Cancelled`
+          
+          [default: human]
+
+  -q, --quiet
+          No progress bars or info messages; warnings still print

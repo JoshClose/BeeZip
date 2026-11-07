@@ -1,0 +1,7 @@
+Sample: built-in, 64.0 KiB. [..] logical CPUs.
+
+codec     level  threads    size  compress MB/s  decompress MB/s  compress mem  decompress mem       ms
+lz4           -        1   57.4%  [..]
+zstd          1        1   37.4%  [..]
+
+2 cells in [..] s.

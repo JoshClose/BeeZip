@@ -73,8 +73,10 @@ pub enum OverwriteChoice {
     Rename,
 }
 
-/// Everything a job reports, in order: `Started`, then any `Progress`, `Log` or `Prompt`, then
-/// exactly one of `Finished`, `Failed` or `Cancelled`.
+/// Everything a job reports, in order: `Started`, then any `Progress`, `Log`, `Prompt` or
+/// `Partial`, then exactly one of `Finished`, `Failed` or `Cancelled`. A `Partial` is a piece
+/// of the output ready before the job ends (`bench.run` sends each cell as it finishes);
+/// `Finished` still carries the whole output.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
 #[serde(tag = "type")]
 pub enum JobEvent {
@@ -82,6 +84,7 @@ pub enum JobEvent {
     Progress(Progress),
     Log { level: LogLevel, message: String },
     Prompt { id: u64, prompt: Prompt },
+    Partial { output: serde_json::Value },
     Finished { output: serde_json::Value },
     Failed { error: CmdError },
     Cancelled,
@@ -324,6 +327,11 @@ impl JobCtx {
             level,
             message: message.into(),
         });
+    }
+
+    /// Sends a piece of the output before the job ends, as a `Partial` event.
+    pub fn partial(&self, output: serde_json::Value) {
+        (self.sink)(JobEvent::Partial { output });
     }
 
     /// Emits a `Prompt` event, then blocks until the front end answers.

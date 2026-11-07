@@ -51,6 +51,11 @@ Commands:
               in UTF-8. A new archive is written beside the old one and swapped in. [alias: rn]
   test        Test an archive's integrity: read every entry to the end, checking CRCs and codec
               checksums. Fails with `Corrupt`, listing the damaged entries in `details`. [alias: t]
+  bench       Benchmark the codecs: compress and decompress a sample in memory with each codec at
+              the levels and thread counts of a grid, and report the size, the speed and the memory
+              each way. Every round trip is checked against the sample; one that doesn't match fails
+              its cell, not the run. Each cell is also sent as a `Partial` job event as it finishes,
+              and a cancelled run returns the cells it finished. Nothing is written.
   open        Open an archive's file with its default app (Windows' "Open with" dialog when there is
               none). The entry is extracted, with the archive's Mark of the Web, into a folder of
               its own under `%TEMP%/BeeZip/open`, so two entries of one name don't collide; folders

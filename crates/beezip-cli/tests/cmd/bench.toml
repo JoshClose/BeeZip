@@ -1,0 +1,2 @@
+bin.name = "beezip"
+args = ["bench", "--grid", "lz4,zstd:1", "--bytes", "64k", "-q"]

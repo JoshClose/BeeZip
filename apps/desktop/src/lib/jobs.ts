@@ -43,7 +43,13 @@ export type JobRecord = {
   sample?: { at: number; bytes: number };
 };
 
-export type JobMeta = { title: string; quiet?: boolean; tab?: string };
+export type JobMeta = {
+  title: string;
+  quiet?: boolean;
+  tab?: string;
+  /** Sees every event of the job as it comes, the `Partial` pieces of its output included. */
+  onEvent?: (event: JobEvent) => void;
+};
 
 /** A new record, as the `Started` event makes it. */
 export function newJob(id: JobId, command: string, args: unknown, meta: JobMeta, now: number): JobRecord {
@@ -80,6 +86,9 @@ export function applyEvent(job: JobRecord, event: JobEvent, now: number): JobRec
       return { ...job, logs: [...job.logs, { level: event.level, message: event.message }] };
     case "Prompt":
       return { ...job, prompts: [...job.prompts, { id: event.id, prompt: event.prompt }] };
+    case "Partial":
+      // Only the job's own listener (`JobMeta.onEvent`) wants these.
+      return job;
     case "Finished":
       return { ...job, status: "finished", output: event.output, prompts: [], ended: now };
     case "Failed":
@@ -120,6 +129,7 @@ export const useJobs = create<JobsState>((set, get) => ({
   track(name, args, meta) {
     let id: JobId | undefined;
     return run(name, args, (event) => {
+      meta.onEvent?.(event);
       const now = Date.now();
       if (event.type === "Started") {
         id = event.job;
@@ -134,7 +144,8 @@ export const useJobs = create<JobsState>((set, get) => ({
         if (!job) return s;
         const jobs = { ...s.jobs, [key]: applyEvent(job, event, now) };
         // Quiet jobs leave no trace once they end.
-        if (job.quiet && event.type !== "Progress" && event.type !== "Log" && event.type !== "Prompt") {
+        const ended = event.type === "Finished" || event.type === "Failed" || event.type === "Cancelled";
+        if (job.quiet && ended) {
           delete jobs[key];
           return { jobs, order: s.order.filter((j) => j !== key) };
         }
