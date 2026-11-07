@@ -187,6 +187,13 @@ pub struct ZipWriteOptions {
     pub encryption: ZipEncryption,
 }
 
+impl ZipWriteOptions {
+    /// Checks the level against the method's range and the password, as the writer would.
+    pub fn check(&self) -> Result<()> {
+        ZipWriter::check(self.clone()).map(|_| ())
+    }
+}
+
 fn method_name(m: CompressionMethod) -> &'static str {
     #[allow(deprecated)]
     match m {
@@ -460,6 +467,9 @@ impl ZipReader {
             .map_err(|e| write_error(&e))?;
         let mut out = BufWriter::with_capacity(BUF_SIZE, &mut ed.file);
         let mut copied = Copied::default();
+        // Kept entries next to each other in the source are copied as one run: a million small
+        // entries are one copy, not a million seeks.
+        let mut run: Option<(u64, u64)> = None;
         for k in keep {
             cx.check()?;
             let (Some(span), Some(entry)) = (self.span(k.id), self.entries.get(k.id)) else {
@@ -486,8 +496,20 @@ impl ZipReader {
             let at = ed.pos;
             if k.path == entry.path {
                 let n = span.end - span.header;
-                ed.pos += copy_range(&mut input, span.header, n, &mut out, cx)?;
+                run = match run {
+                    Some((s, len)) if s + len == span.header => Some((s, len + n)),
+                    other => {
+                        if let Some((s, len)) = other {
+                            copy_range(&mut input, s, len, &mut out, cx)?;
+                        }
+                        Some((span.header, n))
+                    }
+                };
+                ed.pos += n;
             } else {
+                if let Some((s, len)) = run.take() {
+                    copy_range(&mut input, s, len, &mut out, cx)?;
+                }
                 let head_len = usize::try_from(span.data - span.header)
                     .map_err(|_| Error::corrupt("zip: a local header is too long"))?;
                 let mut head = vec![0u8; head_len];
@@ -514,6 +536,9 @@ impl ZipReader {
             rec.set_offset(at)?;
             ed.kept.push(rec);
             copied.copied += 1;
+        }
+        if let Some((s, len)) = run.take() {
+            copy_range(&mut input, s, len, &mut out, cx)?;
         }
         out.flush().map_err(|e| write_error(&e))?;
         Ok(copied)

@@ -14,6 +14,7 @@ beezip-menu = { workspace = true, features = ["wire"] }
 clap.workspace = true
 dirs.workspace = true
 filetime.workspace = true
+open.workspace = true
 schemars.workspace = true
 serde.workspace = true
 serde_json.workspace = true

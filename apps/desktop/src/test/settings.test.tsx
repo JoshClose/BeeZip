@@ -13,6 +13,7 @@ vi.mock("@tauri-apps/plugin-opener", () => ({ openPath: vi.fn(async () => {}), r
 
 const settings: Config = {
   extract: { overwrite: "rename", links: false, mark_of_the_web: "all" },
+  edit: { overwrite: "ask" },
   names: { encoding: "auto" },
   create: { threads: 0 },
   levels: { zstd: 19 },

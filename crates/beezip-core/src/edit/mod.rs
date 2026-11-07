@@ -654,6 +654,8 @@ pub fn edit(
     let name = target.name.clone();
     let mut opened = open(&target.path, &opts.open, cx)?;
     let kind = editable(&name, &mut opened, cx)?;
+    // The write options are checked before anything else, dry runs included.
+    let mut spec = spec(kind)?;
     let entries = opened.reader.entries(cx)?.to_vec();
     let plan = match op {
         EditOp::Add(add) => plan_add(&target.path, &entries, add, cx)?,
@@ -692,7 +694,6 @@ pub fn edit(
         .filter(|i| matches!(i, Item::New(p) if p.entry.kind == NewKind::File))
         .count() as u64;
     let unencrypted = matches!(op, EditOp::Add(a) if a.unencrypted);
-    let mut spec = spec(kind)?;
     let info = opened.reader.info(cx)?;
     let encrypted = info.encryption != Encryption::None;
     match &mut spec {

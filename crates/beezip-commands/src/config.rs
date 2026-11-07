@@ -8,6 +8,9 @@
 //! links = false
 //! mark_of_the_web = "all"    # all | none
 //!
+//! [edit]                     # archive.add (docs/M5.md §7.1)
+//! overwrite = "ask"          # an entry already there: ask | always | never | rename | newer
+//!
 //! [names]                    # names stored as bytes (docs/M5.md §6)
 //! encoding = "auto"          # auto | utf-8 | cp437 | cp932 | …
 //!
@@ -65,6 +68,7 @@ use crate::{
 #[serde(default)]
 pub struct Config {
     pub extract: ExtractConfig,
+    pub edit: EditConfig,
     pub names: NamesConfig,
     pub create: CreateConfig,
     /// Default levels by codec name (`zstd`, `gzip`…) or zip and 7z method (`deflate`,
@@ -96,6 +100,14 @@ pub struct ExtractConfig {
     pub links: bool,
     /// Whether extracted files keep the archive's "downloaded from the internet" mark.
     pub mark_of_the_web: MarkOfTheWeb,
+}
+
+/// Changing archives in place (docs/M5.md §7).
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(default)]
+pub struct EditConfig {
+    /// What to do when a file being added has the path of an entry already in the archive.
+    pub overwrite: OverwritePolicy,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema, TS)]

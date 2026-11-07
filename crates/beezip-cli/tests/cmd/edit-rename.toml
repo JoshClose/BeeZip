@@ -1,0 +1,4 @@
+bin.name = "beezip"
+args = ["rn", "7z-deflate.zip", "tree/hello.txt", "tree/greeting.txt"]
+fs.base = "../../../../tests/fixtures/thirdparty"
+fs.sandbox = true

@@ -144,6 +144,15 @@ fn seven_zip() -> Option<PathBuf> {
     if p.is_file() {
         return Some(p);
     }
+    // Off Windows a `7z` on the PATH is often an old p7zip; the CLI's interop tests cover it.
+    let on_path = cfg!(windows)
+        && std::process::Command::new("7z")
+            .arg("i")
+            .output()
+            .is_ok_and(|o| o.status.success());
+    if on_path {
+        return Some(PathBuf::from("7z"));
+    }
     assert!(
         std::env::var("BEEZIP_REQUIRE_7Z").as_deref() != Ok("1"),
         "7-Zip is required (BEEZIP_REQUIRE_7Z=1) but wasn't found"
@@ -158,8 +167,47 @@ fn tests_clean(archive: &Path, cx: &mut SimpleCtx) {
     seven_t(archive, cx.password.as_deref());
 }
 
+/// The formats `7z i` lists, lowercased.
+fn seven_formats(exe: &Path) -> &'static std::collections::HashSet<String> {
+    static FORMATS: std::sync::OnceLock<std::collections::HashSet<String>> =
+        std::sync::OnceLock::new();
+    FORMATS.get_or_init(|| {
+        let out = std::process::Command::new(exe).arg("i").output().unwrap();
+        let text = String::from_utf8_lossy(&out.stdout).into_owned();
+        let mut found = std::collections::HashSet::new();
+        let mut on = false;
+        for line in text.lines() {
+            if line.starts_with("Formats:") {
+                on = true;
+                continue;
+            }
+            if on && line.trim().is_empty() {
+                break;
+            }
+            if on && let Some(n) = line.split_whitespace().skip(1).find(|t| !t.contains('.')) {
+                found.insert(n.to_lowercase());
+            }
+        }
+        found
+    })
+}
+
 fn seven_t(archive: &Path, password: Option<&str>) {
     let Some(exe) = seven_zip() else { return };
+    let ext = archive
+        .extension()
+        .map(|e| e.to_string_lossy().to_lowercase())
+        .unwrap_or_default();
+    let needs = match ext.as_str() {
+        "gz" => "gzip",
+        "zst" => "zstd",
+        "bz2" => "bzip2",
+        other => other,
+    };
+    if !seven_formats(&exe).contains(needs) {
+        eprintln!("7-Zip doesn't read {}; not tested", archive.display());
+        return;
+    }
     let mut cmd = std::process::Command::new(exe);
     cmd.arg("t").arg(archive);
     cmd.arg(format!("-p{}", password.unwrap_or("")));

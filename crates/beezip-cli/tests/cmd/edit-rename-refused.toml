@@ -1,0 +1,5 @@
+bin.name = "beezip"
+args = ["rename", "7z-deflate.zip", "tree/hello.txt", "tree/empty.txt"]
+status.code = 10
+fs.base = "../../../../tests/fixtures/thirdparty"
+fs.sandbox = true

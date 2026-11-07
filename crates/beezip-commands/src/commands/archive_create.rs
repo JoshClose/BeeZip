@@ -1,11 +1,7 @@
 use std::path::PathBuf;
 
 use beezip_core::{
-    CreateOptions, EncodeOpts, WriteSpec,
-    format::{
-        sevenz::{SevenZMethod, SevenZWriteOptions},
-        zip::{ZipMethod, ZipWriteOptions},
-    },
+    CreateOptions, WriteSpec,
     ops::{self, ArchiveKind},
 };
 use schemars::JsonSchema;
@@ -14,11 +10,11 @@ use ts_rs::TS;
 
 use crate::{
     Access, CliSpec, CmdError, Command, Effect, JobCtx,
-    commands::util::{absolute, level},
-    wire::{
-        ArchiveFormatName, ByteSize, EncryptionName, MethodName, Secret, SevenZMethodName,
-        ZipMethodName, human_size, ratio,
+    commands::{
+        edit::{SpecArgs, spec_for},
+        util::absolute,
     },
+    wire::{ArchiveFormatName, ByteSize, EncryptionName, MethodName, Secret, human_size, ratio},
 };
 
 /// Create an archive from files and folders. Each input is stored under its own name (`src/`
@@ -121,111 +117,16 @@ impl ArchiveCreate {
         kind: ArchiveKind,
         cx: &JobCtx,
     ) -> Result<WriteSpec, CmdError> {
-        let config = cx.config()?;
-        let threads = input.threads.unwrap_or(config.create.threads);
-        let only_7z = |what: &str, set: bool| -> Result<(), CmdError> {
-            if set && kind != ArchiveKind::SevenZ {
-                return Err(CmdError::invalid_args(format!("`{what}` is for 7z")));
-            }
-            Ok(())
+        let args = SpecArgs {
+            method: input.method,
+            level: input.level,
+            threads: input.threads,
+            password: input.password.as_ref().map(|p| p.expose().to_owned()),
+            encryption: input.encryption,
+            encrypt_headers: input.encrypt_headers,
+            solid: input.solid,
         };
-        only_7z("solid", input.solid.is_some())?;
-        only_7z("encrypt_headers", input.encrypt_headers.is_some())?;
-        match kind {
-            ArchiveKind::SevenZ => {
-                let method = match input.method {
-                    None => SevenZMethod::Lzma2,
-                    Some(m) => m.sevenz().map(SevenZMethodName::method).ok_or_else(|| {
-                        CmdError::invalid_args(format!(
-                            "`{}` isn't a 7z method; use lzma2, lzma, ppmd, bzip2, deflate or copy",
-                            m.name()
-                        ))
-                    })?,
-                };
-                if input.encryption.is_some() {
-                    return Err(CmdError::invalid_args(
-                        "`encryption` is for zip; a 7z with a password is always AES-256",
-                    ));
-                }
-                if input.encrypt_headers == Some(true) && input.password.is_none() {
-                    return Err(CmdError::invalid_args(
-                        "`encrypt_headers` needs a `password`",
-                    ));
-                }
-                let opts = SevenZWriteOptions {
-                    method,
-                    level: level(input.level, method.name(), cx)?,
-                    threads,
-                    password: input.password.as_ref().map(|p| p.expose().to_owned()),
-                    encrypt_headers: input.encrypt_headers.unwrap_or(true),
-                    solid: input.solid.unwrap_or(true),
-                };
-                // Check the level now, before any file is touched.
-                opts.resolve_level()?;
-                Ok(WriteSpec::SevenZ(opts))
-            }
-            ArchiveKind::Zip => {
-                let method = match input.method {
-                    None => ZipMethod::Deflate,
-                    Some(m) => m.zip().map(ZipMethodName::method).ok_or_else(|| {
-                        CmdError::invalid_args(format!(
-                            "`{}` isn't a zip method; use store, deflate, bzip2, zstd, xz or ppmd",
-                            m.name()
-                        ))
-                    })?,
-                };
-                if input.encryption.is_some() && input.password.is_none() {
-                    return Err(CmdError::invalid_args("`encryption` needs a `password`"));
-                }
-                Ok(WriteSpec::Zip(ZipWriteOptions {
-                    method,
-                    level: level(input.level, method.name(), cx)?,
-                    password: input.password.as_ref().map(|p| p.expose().to_owned()),
-                    encryption: input
-                        .encryption
-                        .map(EncryptionName::encryption)
-                        .unwrap_or_default(),
-                }))
-            }
-            ArchiveKind::Tar(codec) => {
-                if input.method.is_some() {
-                    return Err(CmdError::invalid_args(
-                        "`method` is for zip and 7z; a tar's codec comes from `format`",
-                    ));
-                }
-                if input.password.is_some() || input.encryption.is_some() {
-                    return Err(CmdError::invalid_args(
-                        "tar can't be encrypted; use zip or 7z",
-                    ));
-                }
-                let level = match codec {
-                    Some(c) => {
-                        let l = level(input.level, c.name(), cx)?;
-                        // Check the range now, before any file is touched.
-                        EncodeOpts {
-                            level: l,
-                            ..EncodeOpts::default()
-                        }
-                        .resolve_level(c, c.codec().levels())?;
-                        l
-                    }
-                    None if input.level.is_some() => {
-                        return Err(CmdError::invalid_args(
-                            "a plain tar isn't compressed, so it has no level",
-                        ));
-                    }
-                    None => None,
-                };
-                Ok(WriteSpec::Tar {
-                    codec,
-                    opts: EncodeOpts {
-                        level,
-                        threads,
-                        ..EncodeOpts::default()
-                    },
-                })
-            }
-        }
+        spec_for(kind, &args, cx.config()?)
     }
 }
 

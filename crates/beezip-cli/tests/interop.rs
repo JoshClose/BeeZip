@@ -154,6 +154,7 @@ mod seven_zip {
     /// The 7-Zip format a BeeZip archive kind needs, by its outer layer.
     fn needs(kind: &str) -> &str {
         match kind.rsplit('.').next().unwrap_or(kind) {
+            "7z" => "7z",
             "gz" => "gzip",
             "bz2" => "bzip2",
             "zst" => "zstd",
@@ -268,6 +269,110 @@ mod seven_zip {
                 "{name}"
             );
         }
+    }
+
+    /// Every archive an edit writes passes `7z t` (docs/M5.md §10): BeeZip's own in each
+    /// format and method, plain and encrypted, and 7-Zip's (LZMA, ZipCrypto, AES, solid 7z),
+    /// after an add, a rename of a folder and a removal; and a convert between formats.
+    #[test]
+    fn every_beezip_edit_passes_7z_t() {
+        let Some(exe) = seven_zip() else { return };
+        let have = formats(&exe);
+        let root = tempfile::tempdir().unwrap();
+        make_tree(root.path());
+        std::fs::write(
+            root.path().join("added.txt"),
+            "added by beezip
+"
+            .repeat(50),
+        )
+        .unwrap();
+        let fixtures =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/thirdparty");
+        let mut cases: Vec<(String, Option<&str>)> = Vec::new();
+        for (name, args, pw) in [
+            ("deflate.zip", vec![], None),
+            ("lzma2.7z", vec![], None),
+            (
+                "ppmd-nonsolid.7z",
+                vec!["-m", "ppmd", "--solid=false"],
+                None,
+            ),
+            ("aes.zip", vec!["-p", "pw"], Some("pw")),
+            (
+                "zipcrypto.zip",
+                vec!["-p", "pw", "--encryption", "zipcrypto"],
+                Some("pw"),
+            ),
+            ("aes.7z", vec!["-p", "pw"], Some("pw")),
+            (
+                "aes-names.7z",
+                vec!["-p", "pw", "--encrypt-headers=false"],
+                Some("pw"),
+            ),
+            ("t.tar", vec![], None),
+            ("t.tar.gz", vec![], None),
+            ("t.tar.zst", vec![], None),
+            ("t.tar.xz", vec![], None),
+        ] {
+            let mut a = vec!["create", name, "tree"];
+            a.extend(args.iter().copied());
+            beezip(&a, root.path());
+            cases.push((name.to_owned(), pw));
+        }
+        for (name, pw) in [
+            ("7z-lzma.zip", None),
+            ("7z-lzma-zipcrypto.zip", Some("beezip")),
+            ("7z-aes256.zip", Some("beezip")),
+            ("7z-descriptors.zip", None),
+            ("7z-lzma.7z", None),
+            ("7z-bcj2.7z", None),
+            ("7z-aes-mhe.7z", Some("beezip")),
+        ] {
+            std::fs::copy(fixtures.join(name), root.path().join(name)).unwrap();
+            cases.push((name.to_owned(), pw));
+        }
+        let mut tested = 0;
+        for (name, pw) in &cases {
+            if !have.contains(needs(name)) {
+                eprintln!("7-Zip doesn't read {name}; not tested");
+                continue;
+            }
+            let pw_args: Vec<String> = pw
+                .map(|p| vec!["-p".to_owned(), p.to_owned()])
+                .unwrap_or_default();
+            let with_pw = |mut a: Vec<String>| {
+                a.extend(pw_args.iter().cloned());
+                a
+            };
+            let s = |v: &[&str]| v.iter().map(|x| (*x).to_owned()).collect::<Vec<_>>();
+            let steps = [
+                with_pw(s(&["add", name, "added.txt", "--dir", "tree/docs"])),
+                with_pw(s(&["rename", name, "tree/docs", "tree/papers"])),
+                with_pw(s(&["remove", name, "tree/hello.txt"])),
+            ];
+            for step in steps {
+                let args: Vec<&str> = step.iter().map(String::as_str).collect();
+                beezip(&args, root.path());
+                let p = format!("-p{}", pw.unwrap_or(""));
+                assert!(
+                    seven(&exe, &["t", name, &p], root.path()),
+                    "7z t {name} after {args:?}"
+                );
+            }
+            tested += 1;
+        }
+        // Converts: a raw copy, a re-encoded stream, and across formats.
+        for (from, to) in [
+            ("deflate.zip", "copy.zip"),
+            ("t.tar.gz", "t2.tar.zst"),
+            ("t.tar", "c.7z"),
+            ("lzma2.7z", "c.zip"),
+        ] {
+            beezip(&["convert", from, to], root.path());
+            assert!(seven(&exe, &["t", to], root.path()), "7z t {to}");
+        }
+        assert!(tested >= 15, "{tested}");
     }
 
     /// Every 7z BeeZip writes passes `7z t` (docs/M3.md §6): each method, solid and not, with
