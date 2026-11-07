@@ -1,5 +1,6 @@
 //! SafeFs: the only code that writes extracted files (docs/M1.md §3.5).
 
+pub mod disk;
 pub mod motw;
 pub mod partial;
 pub mod sanitize;

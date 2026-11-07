@@ -47,10 +47,12 @@ walkdir.workspace = true
 zip.workspace = true
 zstd.workspace = true
 
-# bench.rs reads the process's private bytes (docs/M6.md §7).
+# bench.rs reads the process's private bytes (docs/M6.md §7), and safefs/disk.rs asks whether
+# a destination's disk pays for seeks (§6.3).
 [target.'cfg(windows)'.dependencies]
 windows-sys = { workspace = true, features = [
-    "Win32_Foundation", "Win32_System_ProcessStatus", "Win32_System_Threading",
+    "Win32_Foundation", "Win32_Security", "Win32_Storage_FileSystem", "Win32_System_IO",
+    "Win32_System_Ioctl", "Win32_System_ProcessStatus", "Win32_System_Threading",
 ] }
 
 [dev-dependencies]

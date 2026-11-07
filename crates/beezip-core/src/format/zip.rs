@@ -979,7 +979,14 @@ impl ArchiveReader for ZipReader {
         cx: &mut dyn Ctx,
     ) -> Result<()> {
         if let Some(fs) = sink.as_fs_sink() {
-            let workers = par::workers(self, sel);
+            let mut workers = par::workers(self, sel);
+            // Left to BeeZip, a spinning disk gets one worker; a count that was set is kept.
+            if workers > 1
+                && self.source.threads == 0
+                && crate::safefs::disk::seek_penalty(fs.dest()) == Some(true)
+            {
+                workers = 1;
+            }
             if workers > 1 {
                 return par::extract(self, sel, fs, cx, workers);
             }
