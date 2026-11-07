@@ -113,6 +113,7 @@ pub fn spec_for(
                     .encryption
                     .map(EncryptionName::encryption)
                     .unwrap_or_default(),
+                threads,
             };
             opts.check()?;
             Ok(WriteSpec::Zip(opts))

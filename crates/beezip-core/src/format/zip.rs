@@ -16,6 +16,7 @@ use std::{
     collections::BTreeSet,
     fs::File,
     io::{self, BufReader, BufWriter, Read, Seek, SeekFrom, Write},
+    path::{Path, PathBuf},
 };
 
 use zip::{
@@ -40,6 +41,14 @@ use crate::{
     source::{Input, Source},
     time::{DosClock, DosTime, from_ntfs, from_unix, to_dos, to_unix},
 };
+
+#[path = "zip_par.rs"]
+mod par;
+
+/// How many extractions this process has run on workers: lets tests see the parallel path ran.
+pub fn parallel_extractions() -> usize {
+    par::RUNS.load(std::sync::atomic::Ordering::Relaxed)
+}
 
 pub struct Zip;
 
@@ -185,6 +194,9 @@ pub struct ZipWriteOptions {
     pub level: Option<i32>,
     pub password: Option<String>,
     pub encryption: ZipEncryption,
+    /// Workers that compress entries side by side (docs/M6.md §6.2): `0` is one per logical
+    /// core, `1` writes on the job's thread, through the zip crate alone.
+    pub threads: u32,
 }
 
 impl ZipWriteOptions {
@@ -966,6 +978,12 @@ impl ArchiveReader for ZipReader {
         sink: &mut dyn EntrySink,
         cx: &mut dyn Ctx,
     ) -> Result<()> {
+        if let Some(fs) = sink.as_fs_sink() {
+            let workers = par::workers(self, sel);
+            if workers > 1 {
+                return par::extract(self, sel, fs, cx, workers);
+            }
+        }
         let mut meter = Meter::new(self.source.counter.clone(), Some(self.source.size));
         meter.entries_total = Some(self.entries.len() as u64);
         for i in 0..self.entries.len() {
@@ -1026,10 +1044,40 @@ fn copy_range(
 
 /// Where a zip writer writes.
 enum Out {
+    /// A new zip, nothing in it yet: the first `add` hands it to the zip crate, the first
+    /// `add_all` with workers to [`Spans`].
+    Fresh(Box<dyn WriteSeek>),
     /// A new zip: the zip crate writes all of it.
     Plain(Box<zip::ZipWriter<Box<dyn WriteSeek>>>),
+    /// A new zip of entries made on workers (docs/M6.md §6.2).
+    Spans(Box<Spans>),
     /// An edit: kept entries copied first, then the new ones after them (docs/M5.md §3.3).
     Edit(Box<Editor>),
+    /// Only while changing from one to another.
+    Gone,
+}
+
+/// A new zip written from one-entry zips the workers make ([`par::Blob`]): each one's local
+/// part copied here, its central record moved to where it landed.
+struct Spans {
+    out: Box<dyn WriteSeek>,
+    pos: u64,
+    recs: Vec<CentralRecord>,
+}
+
+impl Spans {
+    fn append(&mut self, blob: par::Blob) -> Result<()> {
+        let par::Blob { span, mut rec } = blob;
+        rec.set_offset(self.pos)?;
+        self.pos += span.write_to(&mut self.out)?;
+        self.recs.push(rec);
+        Ok(())
+    }
+
+    fn finish(mut self) -> Result<()> {
+        zip_edit::write_directory(&mut self.out, self.pos, &self.recs, b"")?;
+        self.out.flush().map_err(|e| write_error(&e))
+    }
 }
 
 /// A zip being written from another one's entries and new ones.
@@ -1047,6 +1095,19 @@ struct Editor {
 }
 
 impl Editor {
+    /// Writes a one-entry zip's local part after the copied entries, before the zip crate
+    /// writes anything ([`ZipWriter::add_all`] checks).
+    fn append(&mut self, blob: par::Blob) -> Result<()> {
+        let par::Blob { span, mut rec } = blob;
+        rec.set_offset(self.pos)?;
+        self.file
+            .seek(SeekFrom::Start(self.pos))
+            .map_err(|e| write_error(&e))?;
+        self.pos += span.write_to(&mut self.file)?;
+        self.kept.push(rec);
+        Ok(())
+    }
+
     /// The zip crate, writing after the copied entries.
     fn zip(&mut self) -> Result<&mut zip::ZipWriter<OffsetView<File>>> {
         if self.zip.is_none() {
@@ -1111,16 +1172,48 @@ pub struct ZipWriter {
     out: Out,
     opts: ZipWriteOptions,
     level: Option<i64>,
+    /// Where workers make entries too big to hold in memory: beside the archive.
+    spool: PathBuf,
 }
 
 impl ZipWriter {
     pub fn new(out: Box<dyn WriteSeek>, opts: ZipWriteOptions) -> Result<Self> {
         let (opts, level) = Self::check(opts)?;
         Ok(Self {
-            out: Out::Plain(Box::new(zip::ZipWriter::new(out).set_auto_large_file())),
+            out: Out::Fresh(out),
             opts,
             level,
+            spool: std::env::temp_dir(),
         })
+    }
+
+    /// Big entries made on workers go into temporary files in `dir`, the archive's folder,
+    /// rather than the system's temp folder.
+    #[must_use]
+    pub fn spool_in(mut self, dir: &Path) -> Self {
+        self.spool = dir.to_path_buf();
+        self
+    }
+
+    /// The zip crate, from the first entry added one at a time.
+    fn plain(&mut self) {
+        if matches!(self.out, Out::Fresh(_))
+            && let Out::Fresh(out) = std::mem::replace(&mut self.out, Out::Gone)
+        {
+            self.out = Out::Plain(Box::new(zip::ZipWriter::new(out).set_auto_large_file()));
+        }
+    }
+
+    /// Adds a one-entry zip a worker made.
+    fn append(&mut self, blob: par::Blob) -> Result<()> {
+        match &mut self.out {
+            Out::Spans(s) => s.append(blob),
+            Out::Edit(ed) => ed.append(blob),
+            _ => Err(Error::new(
+                ErrorKind::Io,
+                "zip: no place for a worker's entry",
+            )),
+        }
     }
 
     /// A zip written to `file` for an edit or a convert: [`ArchiveWriter::copy_from`] copies a
@@ -1137,6 +1230,7 @@ impl ZipWriter {
             })),
             opts,
             level,
+            spool: std::env::temp_dir(),
         })
     }
 
@@ -1251,11 +1345,62 @@ fn add_to<W: Write + Seek>(
 
 impl ArchiveWriter for ZipWriter {
     fn add(&mut self, entry: &NewEntry, data: &mut dyn Read, cx: &mut dyn Ctx) -> Result<()> {
+        self.plain();
+        if matches!(self.out, Out::Spans(_)) {
+            // After entries from workers, one more the same way, on this thread.
+            let blob = par::one_entry(&self.opts, self.level, entry, data, cx, &self.spool)?;
+            return self.append(blob);
+        }
         let opts = entry_options(&self.opts, self.level, entry)?;
         match &mut self.out {
             Out::Plain(zip) => add_to(zip, opts, entry, data, cx),
             Out::Edit(ed) => add_to(ed.zip()?, opts, entry, data, cx),
+            _ => Err(Error::new(ErrorKind::Io, "zip: the writer is gone")),
         }
+    }
+
+    fn workers(&self) -> usize {
+        crate::codec::resolve_threads(self.opts.threads) as usize
+    }
+
+    /// On workers when there are two or more files with data and nothing has gone through
+    /// the zip crate yet (an edit's copies may have); otherwise one by one.
+    fn add_all(
+        &mut self,
+        entries: &[NewEntry],
+        open: &super::Opener<'_>,
+        cx: &mut dyn Ctx,
+    ) -> Result<()> {
+        let workers = self.workers();
+        let files = entries
+            .iter()
+            .filter(|e| e.kind == NewKind::File && e.size > 0)
+            .count();
+        let ready = match &self.out {
+            Out::Fresh(_) | Out::Spans(_) => true,
+            Out::Edit(ed) => ed.zip.is_none(),
+            Out::Plain(_) | Out::Gone => false,
+        };
+        if workers < 2 || files < 2 || !ready {
+            for (k, e) in entries.iter().enumerate() {
+                let mut data: Box<dyn Read + Send> = match e.kind {
+                    NewKind::File => open(k)?,
+                    _ => Box::new(io::empty()),
+                };
+                self.add(e, &mut data, cx)?;
+            }
+            return Ok(());
+        }
+        if matches!(self.out, Out::Fresh(_))
+            && let Out::Fresh(out) = std::mem::replace(&mut self.out, Out::Gone)
+        {
+            self.out = Out::Spans(Box::new(Spans {
+                out,
+                pos: 0,
+                recs: Vec::new(),
+            }));
+        }
+        par::write(self, entries, open, cx, workers)
     }
 
     fn copy_from(
@@ -1277,13 +1422,17 @@ impl ArchiveWriter for ZipWriter {
         }
     }
 
-    fn finish(self: Box<Self>, _: &mut dyn Ctx) -> Result<()> {
+    fn finish(mut self: Box<Self>, _: &mut dyn Ctx) -> Result<()> {
+        // An empty zip is the zip crate's.
+        self.plain();
         match self.out {
             Out::Plain(zip) => {
                 let mut file = zip.finish().map_err(write_zip_error)?;
                 file.flush().map_err(|e| write_error(&e))
             }
+            Out::Spans(s) => s.finish(),
             Out::Edit(ed) => ed.finish(),
+            Out::Fresh(_) | Out::Gone => Err(Error::new(ErrorKind::Io, "zip: the writer is gone")),
         }
     }
 }

@@ -412,6 +412,12 @@ fn globs(patterns: &[String]) -> Result<Option<GlobSet>> {
 /// is empty for directories and links.
 pub trait EntrySink {
     fn entry(&mut self, entry: &Entry, data: &mut dyn Read, cx: &mut dyn Ctx) -> Result<()>;
+
+    /// The sink, when it writes files to disk: a reader that can extract on several threads
+    /// then plans and writes through it (zip, docs/M6.md §6.3).
+    fn as_fs_sink(&mut self) -> Option<&mut crate::FsSink> {
+        None
+    }
 }
 
 /// An open archive.
@@ -574,10 +580,32 @@ pub trait ArchiveWriter {
         Ok(())
     }
 
+    /// How many entries the writer compresses at once. Above one, `ops` hands it every entry
+    /// through [`ArchiveWriter::add_all`] (zip, docs/M6.md §6.2).
+    fn workers(&self) -> usize {
+        1
+    }
+
+    /// Adds `entries`, in order. `open(k)` opens entry `k`'s data (a file's), from any
+    /// thread. The default adds them one by one.
+    fn add_all(&mut self, entries: &[NewEntry], open: &Opener<'_>, cx: &mut dyn Ctx) -> Result<()> {
+        for (k, e) in entries.iter().enumerate() {
+            let mut data: Box<dyn Read + Send> = match e.kind {
+                NewKind::File => open(k)?,
+                _ => Box::new(std::io::empty()),
+            };
+            self.add(e, &mut data, cx)?;
+        }
+        Ok(())
+    }
+
     /// Completes the archive. The disk images do most of their work here, reporting progress
     /// and checking for cancellation through `cx`.
     fn finish(self: Box<Self>, cx: &mut dyn Ctx) -> Result<()>;
 }
+
+/// Opens entry `k`'s data for [`ArchiveWriter::add_all`], on whichever thread asks.
+pub type Opener<'a> = dyn Fn(usize) -> Result<Box<dyn Read + Send + 'a>> + Sync + 'a;
 
 #[cfg(test)]
 mod tests {

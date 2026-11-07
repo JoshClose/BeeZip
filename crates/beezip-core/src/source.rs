@@ -37,6 +37,9 @@ pub struct OpenOptions {
     /// Workers for reading: extracting a zip to disk and decoding xz (docs/M6.md §6.3, §6.4).
     /// `0` is one per logical core; `1`, the default here, reads on the job's thread only.
     pub threads: u32,
+    /// A zip with fewer files than this to extract is extracted on the job's thread: workers
+    /// cost more than they save on a few files. 64; tests lower it.
+    pub min_parallel_files: usize,
 }
 
 impl Default for OpenOptions {
@@ -46,6 +49,7 @@ impl Default for OpenOptions {
             budget: Budget::default(),
             names: NameDecoding::default(),
             threads: 1,
+            min_parallel_files: 64,
         }
     }
 }
@@ -174,6 +178,7 @@ pub struct Source {
     pub names: NameDecoding,
     /// Workers for reading, as [`OpenOptions::threads`] gives them.
     pub threads: u32,
+    pub min_parallel_files: usize,
     /// Bytes of the input read so far in the current pass: progress and the ratio limit.
     pub counter: Counter,
     /// The input's size: the whole set's for a volume set.
@@ -218,6 +223,7 @@ impl Source {
             budget: opts.budget.clone(),
             names: opts.names,
             threads: opts.threads,
+            min_parallel_files: opts.min_parallel_files,
             counter: Counter::new(),
             size,
             modified: meta.modified().ok(),

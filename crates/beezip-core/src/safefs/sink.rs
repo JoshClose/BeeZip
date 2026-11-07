@@ -51,6 +51,18 @@ struct Written {
     /// The archive name it came from ([`name_key`]).
     name: String,
     path: PathBuf,
+    /// The entry's time, which the file gets: what the `newer` policy compares a later entry
+    /// with while the file may not be written yet (parallel extraction plans first).
+    modified: Option<SystemTime>,
+}
+
+/// A file [`FsSink::plan`] has placed and recorded, for [`FsSink::write_job`] to write, on any
+/// thread (docs/M6.md §6.3).
+#[derive(Debug, Clone)]
+pub(crate) struct FileJob {
+    /// Its folder, made and checked.
+    pub(crate) dir: PathBuf,
+    pub(crate) target: PathBuf,
 }
 
 struct PendingLink {
@@ -186,14 +198,17 @@ impl FsSink {
         if existing.as_ref().is_some_and(fs::Metadata::is_dir) {
             return Ok(Decision::Skip(SkipReason::Blocked));
         }
-        let earlier = self.written.get(&fold(rel));
+        let earlier = self
+            .written
+            .get(&fold(rel))
+            .map(|w| (w.name == name, w.modified));
         if existing.is_none() && earlier.is_none() {
             return Ok(Decision::Write(target));
         }
         // The same name twice in one archive (common in appended tars): the last one wins. Two
         // names that only meet once made safe (`a.` and `a `, `a:b` and `a_b`), or once
         // `strip_components` has gone, are a clash like a case-only one, so the policy decides.
-        if earlier.is_some_and(|w| w.name == name) {
+        if earlier.is_some_and(|(same, _)| same) {
             return Ok(Decision::Write(target));
         }
         let choice = match self.opts.overwrite {
@@ -201,7 +216,12 @@ impl FsSink {
             OverwritePolicy::Never => OverwriteChoice::Skip,
             OverwritePolicy::Rename => OverwriteChoice::Rename,
             OverwritePolicy::Newer => {
-                let theirs = existing.as_ref().and_then(|m| m.modified().ok());
+                // An earlier entry's file has that entry's time, or the time it was written,
+                // whether or not it's on disk yet.
+                let theirs = match earlier {
+                    Some((_, t)) => Some(t.unwrap_or_else(SystemTime::now)),
+                    None => existing.as_ref().and_then(|m| m.modified().ok()),
+                };
                 return Ok(match (entry.modified, theirs) {
                     (Some(ours), Some(theirs)) if ours > theirs => Decision::Write(target),
                     (Some(_), None) => Decision::Write(target),
@@ -252,6 +272,23 @@ impl FsSink {
         data: &mut dyn Read,
         cx: &mut dyn Ctx,
     ) -> Result<()> {
+        let Some(job) = self.place(entry, safe, cx)? else {
+            return Ok(());
+        };
+        let bytes = self.write_job(&job, entry, data, cx)?;
+        self.wrote(bytes);
+        Ok(())
+    }
+
+    /// Decides where a file goes and records it as written there, before any data is read:
+    /// folders, the overwrite policy (prompts included), the report's skips and renames.
+    /// `None`: it's skipped, and the report says why.
+    fn place(
+        &mut self,
+        entry: &Entry,
+        safe: &SafePath,
+        cx: &mut dyn Ctx,
+    ) -> Result<Option<FileJob>> {
         let (name, parents) = safe
             .components
             .split_last()
@@ -260,7 +297,7 @@ impl FsSink {
             Ok(p) => p,
             Err(reason) => {
                 self.report.skip(&entry.path, reason);
-                return Ok(());
+                return Ok(None);
             }
         };
         let rel = safe.joined();
@@ -269,7 +306,7 @@ impl FsSink {
             Decision::Write(t) => t,
             Decision::Skip(reason) => {
                 self.report.skip(&entry.path, reason);
-                return Ok(());
+                return Ok(None);
             }
         };
         // One record per entry, whether the sanitiser or the `rename` policy changed the name.
@@ -277,20 +314,63 @@ impl FsSink {
         if safe.renamed || rel != safe.joined() {
             self.report.rename(&entry.path, rel.clone());
         }
-
-        let bytes = self.write_atomically(&parent, &target, data, cx)?;
-        self.apply_metadata(&target, entry, cx);
-        self.report.files += 1;
-        self.report.bytes += bytes;
         self.by_name.insert(key.clone(), target.clone());
         self.written.insert(
             fold(&rel),
             Written {
                 name: key,
-                path: target,
+                path: target.clone(),
+                modified: entry.modified,
             },
         );
-        Ok(())
+        Ok(Some(FileJob {
+            dir: parent,
+            target,
+        }))
+    }
+
+    /// Plans one entry for parallel extraction, in archive order on the job's thread: a file is
+    /// placed ([`FsSink::place`]) and handed back for [`FsSink::write_job`]; everything else is
+    /// done here, as [`EntrySink::entry`] does it. Hard links aren't planned: their data is a
+    /// file this job writes, which may not exist yet (zips have none).
+    pub(crate) fn plan(&mut self, entry: &Entry, cx: &mut dyn Ctx) -> Result<Option<FileJob>> {
+        match entry.kind {
+            EntryKind::File => {}
+            EntryKind::Hardlink { .. } => {
+                return Err(Error::unsupported("a hard link in a parallel extraction"));
+            }
+            _ => {
+                self.entry(entry, &mut io::empty(), cx)?;
+                return Ok(None);
+            }
+        }
+        cx.check()?;
+        self.entries += 1;
+        self.opts.limits.check_entries(self.entries)?;
+        let Some(safe) = self.safe_path(entry) else {
+            return Ok(None);
+        };
+        self.place(entry, &safe, cx)
+    }
+
+    /// Writes a placed file: the partial file, the rename, then its time, attributes and mark.
+    /// It changes nothing in the sink, so workers can share it. Returns the bytes written.
+    pub(crate) fn write_job(
+        &self,
+        job: &FileJob,
+        entry: &Entry,
+        data: &mut dyn Read,
+        cx: &mut dyn Ctx,
+    ) -> Result<u64> {
+        let bytes = self.write_atomically(&job.dir, &job.target, data, cx)?;
+        self.apply_metadata(&job.target, entry, cx);
+        Ok(bytes)
+    }
+
+    /// Counts a file [`FsSink::write_job`] wrote, or one a later entry replaced.
+    pub(crate) fn wrote(&mut self, bytes: u64) {
+        self.report.files += 1;
+        self.report.bytes += bytes;
     }
 
     /// Writes `<name>.<random>.beezip-partial` next to the target, then renames it over the
@@ -529,6 +609,10 @@ fn name_key(path: &str) -> String {
 }
 
 impl EntrySink for FsSink {
+    fn as_fs_sink(&mut self) -> Option<&mut FsSink> {
+        Some(self)
+    }
+
     fn entry(&mut self, entry: &Entry, data: &mut dyn Read, cx: &mut dyn Ctx) -> Result<()> {
         cx.check()?;
         self.entries += 1;

@@ -6,6 +6,7 @@ pub mod sanitize;
 mod sink;
 
 pub use partial::Partial;
+pub(crate) use sink::FileJob;
 pub use sink::FsSink;
 
 use crate::{Limits, io::Counter, limits::Budget};
