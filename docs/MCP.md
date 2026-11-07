@@ -66,6 +66,7 @@ The rest of the config (default levels, the overwrite policy, limits) applies to
 | `archive_convert` | ✓ | A zip, 7z, tar, cpio, ar, CAB, ISO, squashfs or DMG written from any archive BeeZip reads, RAR, packages, disk images and split archives included, all of it or `entries`/`glob`. The source isn't changed. |
 | `stream_compress` | ✓ | One file through one codec: `a.txt` → `a.txt.zst`. |
 | `stream_decompress` | ✓ | One codec layer off: `a.tar.zst` → `a.tar`. |
+| `bench_run` | | The codecs compared in memory on a sample (a file's, read as 16 slices across it, or BeeZip's own): size, speed and memory each way, at the levels and threads of `grid` (`default`, `full`, `threads`, or a list of `{codec, level, threads}`). Every round trip is checked. |
 | `app_version` | | BeeZip's version. |
 
 Each tool has an output schema, and its results come back as structured content plus the same JSON as text. The tools that read an archive take `name_encoding` for names it stores as bytes (zips and CABs without the UTF-8 flag, tars, cpio, ar, LHA, squashfs, and ISO names outside Joliet): `auto`, the default, reads UTF-8 and otherwise Windows' code page; `cp932`, `cp936`, `cp866` and the rest read the names that system wrote. The archive tools read zip, 7z, tar, cpio, ar, CAB (sets too), RAR 1.5–7, Debian packages (listed as `dpkg-deb -R` unpacks them), RPMs, LHA, ISO and UDF, squashfs and DMG, and any part of a split archive (`a.7z.002`, `a.part3.rar`) opens the whole set.
