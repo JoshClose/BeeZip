@@ -1291,7 +1291,10 @@ mod tests {
             })
         };
         assert_eq!(probe(&b), Some(Confidence::Certain));
-        assert_eq!(probe(&bin(b"TRAILER!!!", 0, b"")), Some(Confidence::Certain));
+        assert_eq!(
+            probe(&bin(b"TRAILER!!!", 0, b"")),
+            Some(Confidence::Certain)
+        );
         // The binary magic and numbers alone aren't a cpio: the name must end at its size.
         let mut fake = b.clone();
         fake[20] = 9;
