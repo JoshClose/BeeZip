@@ -1,5 +1,6 @@
 //! squashfs (docs/M5.md §5.10): BeeZip's own reader, and backhand's writer with BeeZip's codecs.
 
+mod codec;
 mod read;
 mod write;
 

@@ -65,7 +65,7 @@ const MTIME: u64 = 1_767_225_600;
 #[test]
 fn every_fixture_reads_correctly() {
     let all = manifest();
-    assert_eq!(all.len(), 186, "the manifest lists every fixture");
+    assert_eq!(all.len(), 199, "the manifest lists every fixture");
     let mut failures = Vec::new();
     for fx in &all {
         let file = fx["file"].as_str().unwrap();
@@ -103,11 +103,14 @@ fn check(fx: &Value) -> Result<(), String> {
     let count = |pred: fn(&EntryKind) -> bool| entries.iter().filter(|e| pred(&e.kind)).count();
     let hardlinks = count(|k| matches!(k, EntryKind::Hardlink { .. }));
     let symlinks = count(|k| matches!(k, EntryKind::Symlink { .. }));
+    // Devices and FIFOs (squashfs's), listed as `other` and skipped when extracting.
+    let others = count(|k| matches!(k, EntryKind::Other));
     if hardlinks as u64 != fx["hardlinks"].as_u64().unwrap()
         || symlinks as u64 != fx["symlinks"].as_u64().unwrap()
+        || others as u64 != fx["others"].as_u64().unwrap_or(0)
     {
         return Err(format!(
-            "{hardlinks} hard links and {symlinks} symlinks listed"
+            "{hardlinks} hard links, {symlinks} symlinks and {others} others listed"
         ));
     }
     for want in expected {
@@ -145,7 +148,7 @@ fn check(fx: &Value) -> Result<(), String> {
                     return Err(format!("`{p}` has size {:?}", e.size));
                 }
             }
-            ("file", EntryKind::Hardlink { .. }) => {}
+            ("file", EntryKind::Hardlink { .. }) | ("other", EntryKind::Other) => {}
             (k, kind) => return Err(format!("`{p}` is {kind:?}, expected {k}")),
         }
     }
@@ -193,9 +196,14 @@ fn check(fx: &Value) -> Result<(), String> {
     let refused: Vec<_> = report
         .skipped
         .iter()
-        .filter(|s| s.reason != SkipReason::LinksDisabled)
+        .filter(|s| {
+            !matches!(
+                s.reason,
+                SkipReason::LinksDisabled | SkipReason::Unsupported
+            )
+        })
         .collect();
-    if !refused.is_empty() || report.skipped.len() != symlinks {
+    if !refused.is_empty() || report.skipped.len() != symlinks + others {
         return Err(format!("skipped {:?}", report.skipped));
     }
     for want in expected.iter().filter(|w| w["kind"] == "file") {
