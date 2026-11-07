@@ -572,6 +572,7 @@ impl ZipReader {
     fn open_data(&mut self, i: usize, cx: &mut dyn Ctx) -> Result<Box<dyn Read + '_>> {
         let pw = self.unlock(i, cx)?;
         let zipcrypto = self.zipcrypto[i];
+        let encrypted = pw.is_some();
         let opts = ZipReadOptions::new().password(pw.as_ref().map(|p| p.as_bytes()));
         let file = self
             .archive
@@ -580,16 +581,19 @@ impl ZipReader {
         Ok(Box::new(self.source.guard(CrcHint {
             inner: file,
             zipcrypto,
+            encrypted,
         })))
     }
 }
 
-/// Turns a CRC failure on a ZipCrypto entry, or a failed AES authentication code, into "wrong
-/// password or damaged data": both checks pass a wrong password now and then (1 in 256 and
-/// 1 in 65 536), so the failure at the end can't tell the two apart.
+/// Turns a CRC failure on a ZipCrypto entry, a failed AES authentication code, or data an
+/// encrypted entry's method can't decode, into "wrong password or damaged data": the password
+/// checks pass a wrong one now and then (1 in 256 for ZipCrypto, 1 in 65 536 for AES), and then
+/// the garbage fails wherever it fails first, usually in the decompressor (docs/M5.md §16, PR 4).
 struct CrcHint<R> {
     inner: R,
     zipcrypto: bool,
+    encrypted: bool,
 }
 
 impl<R: Read> Read for CrcHint<R> {
@@ -598,6 +602,10 @@ impl<R: Read> Read for CrcHint<R> {
             let text = e.to_string();
             if (self.zipcrypto && text.contains("Invalid checksum"))
                 || text.contains("Invalid authentication code")
+                || (self.encrypted
+                    && e.kind() != io::ErrorKind::UnexpectedEof
+                    && e.get_ref().is_none_or(|x| !x.is::<Error>())
+                    && crate::io::read_error(&e).kind == ErrorKind::Corrupt)
             {
                 Error::new(ErrorKind::WrongPassword, "wrong password or damaged data").into_io()
             } else {
