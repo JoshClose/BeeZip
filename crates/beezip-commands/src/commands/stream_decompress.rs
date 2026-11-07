@@ -6,7 +6,7 @@ use std::{
 
 use beezip_core::{
     CodecId, LayerKind, Meter, MeteredCtx,
-    codec::strip_extension,
+    codec::{strip_extension, xz_decoder_mt},
     detect_path,
     io::{BUF_SIZE, Counter, CountingReader, copy},
     limits::{Budget, Guarded, RatioGuard},
@@ -126,22 +126,35 @@ impl Command for StreamDecompress {
             ))
         })?;
 
+        // xz decodes on `[extract] threads`; a config that can't be read gives one per core.
+        let threads = cx.config().ok().map_or(0, |c| c.extract.threads);
         let counter = Counter::new();
         let mut meter = Meter::new(counter.clone(), Some(meta.len()));
         meter.current = Some(input.input.display().to_string());
         let mut bytes_out = 0;
         write_atomically(&output, |file| {
-            let source = File::open(&src).map_err(|e| {
-                CmdError::from(beezip_core::Error::io(
-                    format!("reading {}", src.display()),
-                    &e,
-                ))
-            })?;
-            let raw = Box::new(BufReader::with_capacity(
-                BUF_SIZE,
-                CountingReader::new(source, counter.clone()),
-            ));
-            let dec = codec.decoder(raw, &limits)?;
+            let open = || {
+                File::open(&src).map_err(|e| {
+                    CmdError::from(beezip_core::Error::io(
+                        format!("reading {}", src.display()),
+                        &e,
+                    ))
+                })
+            };
+            let mt = match codec {
+                CodecId::Xz if threads != 1 => xz_decoder_mt(open()?, &limits, threads, &counter),
+                _ => None,
+            };
+            let dec = match mt {
+                Some(dec) => dec,
+                None => {
+                    let raw = Box::new(BufReader::with_capacity(
+                        BUF_SIZE,
+                        CountingReader::new(open()?, counter.clone()),
+                    ));
+                    codec.decoder(raw, &limits)?
+                }
+            };
             let mut data = Guarded::new(
                 dec,
                 RatioGuard::new(&counter, &limits),
