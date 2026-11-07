@@ -281,6 +281,7 @@ fn m5_traversal_is_refused() {
         ("traversal.rpm", vec!["safe.txt"]),
         ("traversal.cab", vec!["safe.txt"]),
         ("traversal.lzh", vec!["safe.txt"]),
+        ("traversal.iso", vec!["safe.txt"]),
     ] {
         let (r, inside) = extract(name, FsOptions::default());
         let r = r.unwrap_or_else(|e| panic!("{name}: {e}"));
@@ -302,6 +303,31 @@ fn m5_traversal_is_refused() {
         },
     );
     assert!(reasons(&r.unwrap()).contains(&SkipReason::LinkOutside));
+}
+
+/// An ISO folder whose record points back at the top: listed once, with a warning, and the
+/// rest extracts (docs/M5.md §5.9).
+#[test]
+fn a_cyclic_iso_folder_is_listed_once() {
+    let mut cx = SimpleCtx::new();
+    let mut opened = open(&corpus("cyclic.iso"), &OpenOptions::default(), &mut cx).unwrap();
+    let paths: Vec<String> = opened
+        .reader
+        .entries(&mut cx)
+        .unwrap()
+        .iter()
+        .map(|e| e.path.clone())
+        .collect();
+    assert_eq!(paths, ["a", "a/b", "top.txt"]);
+    assert!(
+        cx.warnings.iter().any(|w| w.contains("cycle")),
+        "{:?}",
+        cx.warnings
+    );
+    drop(opened);
+    let (r, inside) = extract("cyclic.iso", FsOptions::default());
+    assert!(r.unwrap().skipped.is_empty());
+    assert_eq!(inside, ["a", "a/b", "top.txt"]);
 }
 
 /// A size past the end of the file is `Corrupt` when the archive opens or lists, before

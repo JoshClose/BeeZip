@@ -65,7 +65,7 @@ const MTIME: u64 = 1_767_225_600;
 #[test]
 fn every_fixture_reads_correctly() {
     let all = manifest();
-    assert_eq!(all.len(), 169, "the manifest lists every fixture");
+    assert_eq!(all.len(), 186, "the manifest lists every fixture");
     let mut failures = Vec::new();
     for fx in &all {
         let file = fx["file"].as_str().unwrap();
@@ -400,6 +400,49 @@ fn broken_fixtures_fail_as_they_should() {
         ("delharc/broken/regression-fuzz-10-1.bin", garbage),
         ("delharc/broken/unlha32-lh2.lzh", unsupported),
         ("linux/broken/ar-thin.a", unsupported),
+        // Listed with its real size; BeeZip doesn't decompress zisofs.
+        (
+            "libarchive/iso/broken/test_read_format_iso_zisofs.iso.Z",
+            Fails::With(&[beezip_core::ErrorKind::UnsupportedOperation]),
+        ),
+        (
+            "libarchive/iso/broken/test_read_format_iso_joliet_overlong.iso.Z",
+            Fails::Reads,
+        ),
+        // The Joliet root loops back on itself: hadris reads it as empty.
+        (
+            "libarchive/iso/broken/test_read_format_iso_joliet_utf16be_cycle.iso.Z",
+            Fails::Reads,
+        ),
+        (
+            "libarchive/iso/broken/test_read_format_iso_joliet_utf16be_overflow.iso",
+            Fails::Reads,
+        ),
+        (
+            "libarchive/iso/broken/test_read_format_iso_rockridge_ce_loop.iso.Z",
+            corrupt,
+        ),
+        (
+            "libarchive/iso/broken/test_read_format_iso_rockridge_ce_overflow.iso.Z",
+            corrupt,
+        ),
+        // Relocations that point at each other are listed where they're stored.
+        (
+            "libarchive/iso/broken/test_read_format_iso_rockridge_cl_re_cycle.iso.Z",
+            Fails::Reads,
+        ),
+        (
+            "libarchive/iso/broken/test_read_format_iso_rockridge_sl_leak.iso",
+            corrupt,
+        ),
+        (
+            "libarchive/iso/broken/test_read_format_iso_rockridge_zf_overflow.iso",
+            corrupt,
+        ),
+        (
+            "libarchive/iso/broken/test_read_format_iso_zisofs_overflow.iso",
+            corrupt,
+        ),
     ];
     let mut failures = Vec::new();
     for (file, want) in cases {

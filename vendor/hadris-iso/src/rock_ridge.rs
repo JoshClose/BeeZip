@@ -144,7 +144,6 @@ pub(crate) struct Sink<'a> {
     pub(crate) buf: &'a mut [u8],
     pub(crate) len: usize,
     pub(crate) overflow: bool,
-    last: Option<u8>,
 }
 
 impl<'a> Sink<'a> {
@@ -153,21 +152,19 @@ impl<'a> Sink<'a> {
             buf,
             len: 0,
             overflow: false,
-            last: None,
         }
     }
 
     fn push(&mut self, bytes: &[u8]) {
-        let Some(&last) = bytes.last() else {
+        if bytes.is_empty() {
             return;
-        };
+        }
         let end = self.len.saturating_add(bytes.len());
         match self.buf.get_mut(self.len..end) {
             Some(dst) if !self.overflow => dst.copy_from_slice(bytes),
             _ => self.overflow = true,
         }
         self.len = end;
-        self.last = Some(last);
     }
 }
 
@@ -183,6 +180,10 @@ pub(crate) struct Scan<'a> {
     link: Option<Sink<'a>>,
     link_done: bool,
     component_open: bool,
+    /// The next `SL` component needs a `/` before it. A root is itself a `/`, and a component
+    /// whose text continues needs none; every other one, empty ones included, is followed by
+    /// one, as libarchive and Linux join them (`.///file`, `/tmp//..`).
+    link_sep: bool,
     pub(crate) malformed: bool,
 }
 
@@ -198,6 +199,7 @@ impl<'a> Scan<'a> {
             link: None,
             link_done: false,
             component_open: false,
+            link_sep: false,
             malformed: false,
         }
     }
@@ -422,23 +424,22 @@ impl<'a> Scan<'a> {
             );
             if continuing {
                 sink.push(content);
+                self.link_sep = !flags.contains(SlComponentFlags::CONTINUE);
                 continue;
             }
-            if flags.contains(SlComponentFlags::ROOT) {
-                if sink.len == 0 {
-                    sink.push(b"/");
-                }
-                continue;
-            }
-            if sink.last.is_some_and(|last| last != b'/') {
+            if core::mem::replace(&mut self.link_sep, true) {
                 sink.push(b"/");
             }
-            if flags.contains(SlComponentFlags::CURRENT) {
+            if flags.contains(SlComponentFlags::ROOT) {
+                sink.push(b"/");
+                self.link_sep = false;
+            } else if flags.contains(SlComponentFlags::CURRENT) {
                 sink.push(b".");
             } else if flags.contains(SlComponentFlags::PARENT) {
                 sink.push(b"..");
             } else {
                 sink.push(content);
+                self.link_sep = !flags.contains(SlComponentFlags::CONTINUE);
             }
         }
         self.malformed |= !rest.is_empty();
@@ -489,6 +490,29 @@ mod tests {
         let len = scan.link_len().unwrap();
         assert!(scan.info.is_symlink());
         assert_eq!(&buf[..len], b"/usr/lib/../x");
+    }
+
+    #[test]
+    fn symlink_keeps_empty_components() {
+        // mkisofs's `.///file`, `/tmp//..` and `/tmp/`, with empty components, and an older
+        // mkisofs's, which writes them as roots (libarchive's rockridge fixtures).
+        let empty: &[u8] = b"";
+        let cases: [(&[(u8, &[u8])], &[u8]); 6] = [
+            (&[(0x02, empty), (0x00, empty), (0x00, empty), (0x00, b"file")], b".///file"),
+            (&[(0x08, empty), (0x00, b"tmp"), (0x00, empty), (0x04, empty)], b"/tmp//.."),
+            (&[(0x08, empty), (0x00, b"tmp"), (0x00, empty)], b"/tmp/"),
+            (&[(0x02, empty), (0x08, empty), (0x08, empty), (0x00, b"file")], b".///file"),
+            (&[(0x08, empty), (0x00, b"tmp"), (0x08, empty), (0x04, empty)], b"/tmp//.."),
+            (&[(0x04, empty), (0x02, empty), (0x04, empty), (0x00, b"tmp")], b".././../tmp"),
+        ];
+        for (components, expected) in cases {
+            let area = sl(0x00, components);
+            let mut buf = [0u8; 64];
+            let mut scan = Scan::new().with_link(&mut buf);
+            scan.feed(&area, 0);
+            let len = scan.link_len().unwrap();
+            assert_eq!(&buf[..len], expected);
+        }
     }
 
     #[test]

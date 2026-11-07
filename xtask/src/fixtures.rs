@@ -185,6 +185,8 @@ fn corpus() -> anyhow::Result<Vec<(&'static str, Vec<u8>)>> {
             "traversal.lzh",
             lzh(&[("..\\evil.txt", b"escaped"), ("safe.txt", b"safe")]),
         ),
+        ("traversal.iso", iso_traversal()?),
+        ("cyclic.iso", iso_cyclic()?),
         ("bomb.Z", compress_bomb()),
         ("bomb.lzo", lzop_bomb()),
         // Edge cases.
@@ -1016,4 +1018,117 @@ fn lzop_bomb() -> Vec<u8> {
     out.extend_from_slice(&[0x11; 16]);
     out.extend_from_slice(&0u32.to_be_bytes());
     out
+}
+
+/// What [`iso`] puts in an image.
+enum IsoItem<'a> {
+    Dir(&'a str),
+    File(&'a str, &'a [u8]),
+    Link(&'a str, &'a str),
+}
+
+/// An ISO from BeeZip's own writer (Joliet and Rock Ridge), dated at the corpus's fixed time so
+/// the bytes come out the same on every run.
+fn iso(items: &[IsoItem<'_>]) -> anyhow::Result<Vec<u8>> {
+    use beezip_core::{
+        SimpleCtx,
+        format::{
+            ArchiveWriter, NewEntry, NewKind,
+            iso::{IsoWriteOptions, IsoWriter},
+        },
+    };
+    let when = std::time::UNIX_EPOCH + std::time::Duration::from_secs(u64::from(MTIME));
+    let dir = workspace_root().join("target").join("gen-fixtures");
+    std::fs::create_dir_all(&dir)?;
+    let path = dir.join("image.iso");
+    let out = std::fs::File::create(&path)?;
+    let opts = IsoWriteOptions { time: Some(when) };
+    let mut w = Box::new(IsoWriter::new(Box::new(out), opts, &path)?);
+    let mut cx = SimpleCtx::new();
+    for item in items {
+        let (path, kind, data): (&str, NewKind, &[u8]) = match item {
+            IsoItem::Dir(p) => (p, NewKind::Dir, b""),
+            IsoItem::File(p, d) => (p, NewKind::File, d),
+            IsoItem::Link(p, t) => (
+                p,
+                NewKind::Symlink {
+                    target: (*t).to_owned(),
+                },
+                b"",
+            ),
+        };
+        let e = NewEntry {
+            path: path.to_owned(),
+            kind,
+            size: data.len() as u64,
+            modified: Some(when),
+            unix_mode: None,
+            dos_attrs: None,
+            source: None,
+        };
+        w.add(&e, &mut &data[..], &mut cx)?;
+    }
+    w.finish(&mut cx)?;
+    let bytes = std::fs::read(&path)?;
+    std::fs::remove_file(&path)?;
+    Ok(bytes)
+}
+
+/// The extent (first sector, length) of the directory record at `at`.
+fn iso_extent(img: &[u8], at: usize) -> anyhow::Result<(u32, u32)> {
+    let r = img.get(at..at + 34).context("a record past the image")?;
+    let lba = u32::from_le_bytes([r[2], r[3], r[4], r[5]]);
+    let len = u32::from_le_bytes([r[10], r[11], r[12], r[13]]);
+    Ok((lba, len))
+}
+
+/// Where the record named `name` is in the folder at `extent`.
+fn iso_record(img: &[u8], extent: (u32, u32), name: &[u8]) -> anyhow::Result<usize> {
+    let start = extent.0 as usize * 2048;
+    let mut at = start;
+    while at < start + extent.1 as usize {
+        let len = usize::from(img[at]);
+        if len == 0 {
+            at = (at / 2048 + 1) * 2048;
+            continue;
+        }
+        let n = usize::from(img[at + 32]);
+        if &img[at + 33..at + 33 + n] == name {
+            return Ok(at);
+        }
+        at += len;
+    }
+    bail!("no record named {}", String::from_utf8_lossy(name))
+}
+
+/// `..\evil.txt` (one Rock Ridge name, with Windows' separator in it), a symlink to `..`, and a
+/// safe file.
+fn iso_traversal() -> anyhow::Result<Vec<u8>> {
+    iso(&[
+        IsoItem::File("..\\evil.txt", b"escaped"),
+        IsoItem::Link("up", ".."),
+        IsoItem::File("safe.txt", b"safe"),
+    ])
+}
+
+/// `a/b` whose record points at the top folder's sectors, so a reader that follows it goes
+/// round `a` → `b` → the top without end. Only the primary tree is changed: Rock Ridge reads it.
+fn iso_cyclic() -> anyhow::Result<Vec<u8>> {
+    let mut img = iso(&[
+        IsoItem::Dir("a"),
+        IsoItem::Dir("a/b"),
+        IsoItem::File("a/b/inside.txt", b"unreachable"),
+        IsoItem::File("top.txt", b"top"),
+    ])?;
+    // The primary volume descriptor's root record is at byte 156 of sector 16.
+    let root = iso_extent(&img, 16 * 2048 + 156)?;
+    let a = iso_record(&img, root, b"A")?;
+    let b = iso_record(&img, iso_extent(&img, a)?, b"B")?;
+    let mut field = Vec::new();
+    for v in [root.0, root.1] {
+        field.extend_from_slice(&v.to_le_bytes());
+        field.extend_from_slice(&v.to_be_bytes());
+    }
+    img[b + 2..b + 18].copy_from_slice(&field);
+    Ok(img)
 }

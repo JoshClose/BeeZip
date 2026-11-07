@@ -414,11 +414,13 @@ pub fn create(
     report.files = added.files;
     report.dirs = added.dirs;
     report.links = added.links;
+    // ISO and squashfs read the files themselves, past the counter.
+    let reads_sources = writer.reads_sources();
     writer.finish(cx)?;
     meter.entries_done = planned.len() as u64;
     MeteredCtx::new(cx, &meter).report();
 
-    report.bytes_in = counter.get();
+    report.bytes_in = if reads_sources { total } else { counter.get() };
     match target {
         Target::Single(tmp) => {
             tmp.persist(output)?;

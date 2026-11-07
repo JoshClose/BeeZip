@@ -327,6 +327,7 @@ combos! {
     cpio_sz: "cpio.sz", cpio(Some(CodecId::Snappy)), None;
     cpio_z: "cpio.Z", cpio(Some(CodecId::Compress)), None;
     cpio_lzo: "cpio.lzo", cpio(Some(CodecId::Lzop)), None;
+    iso: "iso", WriteSpec::Iso(Default::default()), None;
 }
 
 fn cpio(codec: Option<CodecId>) -> WriteSpec {
