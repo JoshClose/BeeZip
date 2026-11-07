@@ -16,8 +16,8 @@ use std::{
 use crate::{
     CodecId, Ctx, Error, ErrorKind, Meter, MeteredCtx, OverwriteChoice, Result,
     format::{
-        ArchiveReader, ArchiveWriter, Encryption, Entry, EntryKind, FormatId, Keep, NewKind,
-        Selection, caps_for, normalize,
+        ArchiveReader, ArchiveWriter, Encryption, Entry, EntryKind, FormatId, Keep, NewEntry,
+        NewKind, Selection, caps_for, link_target, normalize,
         sevenz::SevenZReader,
         zip::{ZipReader, ZipWriter},
     },
@@ -90,6 +90,44 @@ pub fn rewrite(
     let mut meter = Meter::new(counter.clone(), Some(new_bytes));
     meter.entries_total = Some(items.len() as u64);
     let mut report = RewriteReport::default();
+
+    // The writer hears of every entry first, kept ones as what they'll be written as.
+    let mut expected: Vec<NewEntry> = Vec::with_capacity(items.len());
+    if !keeps.is_empty() {
+        let entries = source.entries(cx)?;
+        let by_id: HashMap<usize, &Entry> = entries.iter().map(|e| (e.id, e)).collect();
+        for k in &keeps {
+            let Some(e) = by_id.get(&k.id) else {
+                continue;
+            };
+            let (kind, size) = match &e.kind {
+                EntryKind::File => (NewKind::File, e.size.unwrap_or(0)),
+                EntryKind::Hardlink { .. } => (
+                    NewKind::File,
+                    link_target(entries, e).and_then(|t| t.size).unwrap_or(0),
+                ),
+                EntryKind::Dir => (NewKind::Dir, 0),
+                EntryKind::Symlink { target } => (
+                    NewKind::Symlink {
+                        target: target.clone(),
+                    },
+                    0,
+                ),
+                EntryKind::Other => continue,
+            };
+            expected.push(NewEntry {
+                path: k.path.trim_end_matches('/').to_owned(),
+                kind,
+                size,
+                modified: e.modified,
+                unix_mode: e.unix_mode,
+                dos_attrs: e.dos_attrs,
+            });
+        }
+    }
+    expected.extend(news.iter().map(|p| p.entry.clone()));
+    expected.retain(|e| writer.holds(&e.kind));
+    writer.expect(&expected)?;
 
     if !keeps.is_empty() {
         // How each kept entry counts, by the source's kinds.
@@ -275,6 +313,20 @@ pub fn editable(name: &str, opened: &mut Opened, cx: &mut dyn Ctx) -> Result<Arc
             FormatId::Stream => format!(
                 "{name} is a compressed file, not an archive; there are no entries to change"
             ),
+            FormatId::Deb => format!(
+                "{name} is a Debian package, which BeeZip reads but doesn't write: building one is \
+                 dpkg-deb's job"
+            ),
+            FormatId::Rpm => {
+                format!("{name} is an RPM package, which BeeZip reads but doesn't write")
+            }
+            FormatId::Lzh => {
+                format!("{name} is an LHA archive, which BeeZip reads but doesn't write")
+            }
+            FormatId::Cab => format!(
+                "{name} is a cabinet, which BeeZip creates but doesn't edit. Convert it \
+                 (`beezip convert`), or extract it and create it again."
+            ),
             other => format!("BeeZip doesn't edit {} archives", other.display_name()),
         }));
     }
@@ -295,6 +347,9 @@ pub fn editable(name: &str, opened: &mut Opened, cx: &mut dyn Ctx) -> Result<Arc
         (FormatId::SevenZ, []) => ArchiveKind::SevenZ,
         (FormatId::Tar, []) => ArchiveKind::Tar(None),
         (FormatId::Tar, [c]) if TAR_CODECS.contains(c) => ArchiveKind::Tar(Some(*c)),
+        (FormatId::Cpio, []) => ArchiveKind::Cpio(None),
+        (FormatId::Cpio, [c]) if TAR_CODECS.contains(c) => ArchiveKind::Cpio(Some(*c)),
+        (FormatId::Ar, []) => ArchiveKind::Ar,
         (_, cs) => {
             let chain: Vec<&str> = cs.iter().map(|c: &CodecId| c.name()).collect();
             return Err(Error::unsupported(format!(
@@ -483,7 +538,9 @@ fn plan_add(archive: &Path, entries: &[Entry], add: &AddOptions, cx: &mut dyn Ct
     Ok(Plan { items, changes })
 }
 
-/// Hard links among `kept` whose target is in `gone`, by the target's path.
+/// Hard links among `kept` whose target is in `gone`, by the target's path: the last entry
+/// before the link with that path (tar), else the file after it (a newc cpio's group carries
+/// its data in its last member).
 fn orphaned_links(entries: &[Entry], gone: &HashSet<usize>) -> Vec<(String, String)> {
     let mut out = Vec::new();
     for e in entries.iter().filter(|e| !gone.contains(&e.id)) {
@@ -491,10 +548,13 @@ fn orphaned_links(entries: &[Entry], gone: &HashSet<usize>) -> Vec<(String, Stri
             continue;
         };
         let t = normalize(target);
-        if let Some(to) = entries[..e.id.min(entries.len())]
+        let at = e.id.min(entries.len());
+        let to = entries[..at]
             .iter()
             .rev()
             .find(|x| normalize(&x.path) == t)
+            .or_else(|| link_target(entries, e));
+        if let Some(to) = to
             && gone.contains(&to.id)
         {
             out.push((t.clone(), e.path.clone()));
@@ -732,7 +792,7 @@ pub fn edit(
                 o.password = Some(cx.password(None, 0)?);
             }
         }
-        WriteSpec::Tar { .. } => {}
+        WriteSpec::Tar { .. } | WriteSpec::Cpio { .. } | WriteSpec::Ar | WriteSpec::Cab(_) => {}
     }
     if unencrypted && encrypted {
         report.unencrypted = new_files;
@@ -825,13 +885,13 @@ pub fn convert(
     // Raw copies need the source's own format, as it is (a zip or 7z inside a codec is
     // spooled, and its copies would come from the spool).
     let same_format = kind.format() == format
-        && (format == FormatId::Tar || codecs.is_empty())
+        && (matches!(format, FormatId::Tar | FormatId::Cpio) || codecs.is_empty())
         && opened.detection.volumes.len() <= 1;
     let raw = opts.raw && same_format;
     let encrypts = match spec {
         WriteSpec::Zip(o) => o.password.is_some(),
         WriteSpec::SevenZ(o) => o.password.is_some(),
-        WriteSpec::Tar { .. } => false,
+        WriteSpec::Tar { .. } | WriteSpec::Cpio { .. } | WriteSpec::Ar | WriteSpec::Cab(_) => false,
     };
     if info.encryption != Encryption::None && !raw && !encrypts && !opts.decrypt {
         return Err(Error::invalid_args(format!(

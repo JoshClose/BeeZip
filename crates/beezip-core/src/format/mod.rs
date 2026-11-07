@@ -1,7 +1,13 @@
 //! Archive formats: ZIP, TAR and the one-entry stream view of a bare compressed file
-//! (docs/M1.md §3.4).
+//! (docs/M1.md §3.4), 7z and RAR (docs/M3.md), and cpio, ar, deb, RPM, CAB and LHA (docs/M5.md §5).
 
+pub mod ar;
+pub mod cab;
+pub mod cpio;
+pub mod deb;
+pub mod lzh;
 pub mod rar;
+pub mod rpm;
 pub mod sevenz;
 pub mod sevenz_header;
 pub mod stream;
@@ -24,12 +30,32 @@ pub enum FormatId {
     Tar,
     SevenZ,
     Rar,
+    Cpio,
+    Ar,
+    /// A Debian package: an ar whose first member is `debian-binary`.
+    Deb,
+    Rpm,
+    Cab,
+    /// LHA, also called LZH.
+    Lzh,
     /// A bare compressed file, seen as an archive with one entry.
     Stream,
 }
 
 impl FormatId {
-    pub const ALL: [FormatId; 5] = [Self::Zip, Self::Tar, Self::SevenZ, Self::Rar, Self::Stream];
+    pub const ALL: [FormatId; 11] = [
+        Self::Zip,
+        Self::Tar,
+        Self::SevenZ,
+        Self::Rar,
+        Self::Cpio,
+        Self::Deb,
+        Self::Ar,
+        Self::Rpm,
+        Self::Cab,
+        Self::Lzh,
+        Self::Stream,
+    ];
 
     pub const fn name(self) -> &'static str {
         match self {
@@ -38,6 +64,12 @@ impl FormatId {
             Self::Stream => "stream",
             Self::SevenZ => "7z",
             Self::Rar => "rar",
+            Self::Cpio => "cpio",
+            Self::Ar => "ar",
+            Self::Deb => "deb",
+            Self::Rpm => "rpm",
+            Self::Cab => "cab",
+            Self::Lzh => "lzh",
         }
     }
 
@@ -48,6 +80,12 @@ impl FormatId {
             Self::Stream => "compressed file",
             Self::SevenZ => "7z",
             Self::Rar => "RAR",
+            Self::Cpio => "cpio",
+            Self::Ar => "ar",
+            Self::Deb => "Debian package",
+            Self::Rpm => "RPM package",
+            Self::Cab => "Cabinet",
+            Self::Lzh => "LHA",
         }
     }
 
@@ -62,6 +100,12 @@ impl FormatId {
             Self::Stream => &stream::Stream,
             Self::SevenZ => &sevenz::SevenZ,
             Self::Rar => &rar::Rar,
+            Self::Cpio => &cpio::Cpio,
+            Self::Ar => &ar::Ar,
+            Self::Deb => &deb::Deb,
+            Self::Rpm => &rpm::Rpm,
+            Self::Cab => &cab::Cab,
+            Self::Lzh => &lzh::Lzh,
         }
     }
 }
@@ -105,11 +149,11 @@ pub fn formats() -> impl Iterator<Item = &'static dyn ArchiveFormat> {
     FormatId::ALL.into_iter().map(FormatId::format)
 }
 
-/// The caps of `format` under `codecs`: a compressed tar must be decoded from the start to
-/// reach an entry, so it has no random access.
+/// The caps of `format` under `codecs`: a compressed tar or cpio must be decoded from the start
+/// to reach an entry, so it has no random access.
 pub fn caps_for(format: FormatId, codecs: &[CodecId]) -> FormatCaps {
     let mut caps = format.format().caps();
-    if !codecs.is_empty() && format == FormatId::Tar {
+    if !codecs.is_empty() && matches!(format, FormatId::Tar | FormatId::Cpio | FormatId::Ar) {
         caps.random_access = false;
     }
     caps
@@ -426,8 +470,41 @@ impl Copied {
     }
 }
 
+/// The entry a hard link's data is: the last file before it with the target's path, as tar
+/// links point back, else the first after it, since a newc cpio carries a group's data in its
+/// last member (docs/M5.md §5.2).
+pub fn link_target<'a>(entries: &'a [Entry], link: &Entry) -> Option<&'a Entry> {
+    let EntryKind::Hardlink { target } = &link.kind else {
+        return None;
+    };
+    let t = normalize(target);
+    let at = link.id.min(entries.len());
+    let is_it = |e: &&Entry| e.kind == EntryKind::File && normalize(&e.path) == t;
+    entries[..at]
+        .iter()
+        .rev()
+        .find(is_it)
+        .or_else(|| entries[at..].iter().find(is_it))
+}
+
 /// Writes a new archive. `finish` must be called; until it succeeds the output is incomplete.
 pub trait ArchiveWriter {
+    /// Every entry the archive will hold, in order, kept ones under their new paths, before
+    /// the first is copied or added. A writer refuses here what it can't store, before anything
+    /// is written (a cpio's files of 4 GiB), and ar writes its table of long names. The default
+    /// does nothing.
+    fn expect(&mut self, entries: &[NewEntry]) -> Result<()> {
+        let _ = entries;
+        Ok(())
+    }
+
+    /// Whether the format stores this kind of entry. ar and CAB hold only files, their folders
+    /// coming from their paths, so folders and links are left out of them, the links reported.
+    fn holds(&self, kind: &NewKind) -> bool {
+        let _ = kind;
+        true
+    }
+
     fn add(&mut self, entry: &NewEntry, data: &mut dyn Read, cx: &mut dyn Ctx) -> Result<()>;
 
     /// Copies whichever of `keep` it can without decoding them, from `source` when that is a

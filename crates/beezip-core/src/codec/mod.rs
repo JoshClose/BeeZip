@@ -1,13 +1,15 @@
 //! Single-stream codecs: gzip, zlib, raw deflate, bzip2, xz, lzma, lzip, zstd, lz4, brotli
-//! and snappy (docs/M1.md §3.2).
+//! and snappy (docs/M1.md §3.2), and Unix `.Z` and lzop (docs/M5.md §5.7, §5.8).
 
 mod brotli;
 mod bzip2;
+mod compress;
 mod deflate;
 mod gzip;
 mod lz4;
 mod lzip;
 mod lzma;
+mod lzop;
 mod snappy;
 mod xz;
 mod zlib;
@@ -40,10 +42,13 @@ pub enum CodecId {
     Lz4,
     Brotli,
     Snappy,
+    /// Unix `compress` (`.Z`).
+    Compress,
+    Lzop,
 }
 
 impl CodecId {
-    pub const ALL: [CodecId; 11] = [
+    pub const ALL: [CodecId; 13] = [
         Self::Gzip,
         Self::Zlib,
         Self::Deflate,
@@ -55,6 +60,8 @@ impl CodecId {
         Self::Lz4,
         Self::Brotli,
         Self::Snappy,
+        Self::Compress,
+        Self::Lzop,
     ];
 
     /// The stable lowercase id, as the CLI and the wire use it.
@@ -71,6 +78,8 @@ impl CodecId {
             Self::Lz4 => "lz4",
             Self::Brotli => "brotli",
             Self::Snappy => "snappy",
+            Self::Compress => "compress",
+            Self::Lzop => "lzop",
         }
     }
 
@@ -88,11 +97,22 @@ impl CodecId {
             Self::Lz4 => "LZ4 frame",
             Self::Brotli => "Brotli",
             Self::Snappy => "Snappy (framed)",
+            Self::Compress => "Unix compress (.Z)",
+            Self::Lzop => "lzop",
         }
     }
 
     pub fn from_name(name: &str) -> Option<Self> {
         Self::ALL.into_iter().find(|c| c.name() == name)
+    }
+
+    /// The extension a file of this codec is given: the first of its extensions, except `.Z`, which
+    /// is upper case by convention (extensions are matched in lower case).
+    pub fn extension(self) -> &'static str {
+        match self {
+            Self::Compress => ".Z",
+            _ => self.codec().extensions().first().copied().unwrap_or(""),
+        }
     }
 
     /// The codec's decoder over `r`, never read again once it fails ([`LatchReader`]).
@@ -118,6 +138,8 @@ impl CodecId {
             Self::Lz4 => &lz4::Lz4,
             Self::Brotli => &brotli::Brotli,
             Self::Snappy => &snappy::Snappy,
+            Self::Compress => &compress::Compress,
+            Self::Lzop => &lzop::Lzop,
         }
     }
 }
@@ -130,6 +152,8 @@ impl fmt::Display for CodecId {
 
 /// gzip header fields the stream format reads.
 pub use gzip::{header_name as gzip_header_name, trailer_size as gzip_trailer_size};
+/// The file name in an lzop header, which the stream view names its entry after.
+pub use lzop::header_name as lzop_header_name;
 
 /// Every codec, in [`CodecId::ALL`] order.
 pub fn codecs() -> impl Iterator<Item = &'static dyn Codec> {
@@ -239,7 +263,9 @@ pub trait Codec: Sync {
 }
 
 /// Tar shorthand extensions, which stand for `.tar` plus a codec extension.
-pub const TAR_SHORTHANDS: [&str; 6] = [".tgz", ".tbz", ".tbz2", ".txz", ".tzst", ".tlz"];
+pub const TAR_SHORTHANDS: [&str; 8] = [
+    ".tgz", ".tbz", ".tbz2", ".txz", ".tzst", ".tlz", ".taz", ".tzo",
+];
 
 /// The file name without `codec`'s extension: `a.tar.zst` → `a.tar`, `a.tgz` → `a.tar`.
 /// `None` if the name doesn't end in one of the codec's extensions.

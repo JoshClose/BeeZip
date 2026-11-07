@@ -18,12 +18,15 @@ beezip-unrar = { workspace = true, optional = true }
 brotli.workspace = true
 bzip2.workspace = true
 crc32fast.workspace = true
+delharc.workspace = true
 encoding_rs.workspace = true
 file-format.workspace = true
 filetime.workspace = true
 flate2.workspace = true
 globset.workspace = true
 lz4_flex.workspace = true
+lzokay.workspace = true
+lzxd.workspace = true
 lzma-rust2.workspace = true
 sevenz-rust2.workspace = true
 memchr.workspace = true

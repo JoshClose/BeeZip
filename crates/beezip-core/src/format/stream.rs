@@ -1,6 +1,6 @@
 //! A bare compressed file (`notes.txt.gz`) seen as an archive with one entry.
 //!
-//! - The entry is named from the gzip FNAME field if there is one, otherwise from the file name
+//! - The entry is named from the gzip FNAME field or the lzop header's name if there is one, otherwise from the file name
 //!   minus the codec extensions (`notes.txt.gz` → `notes.txt`, `a.tgz` → `a.tar`).
 //! - Its size comes from the xz index, or from gzip's ISIZE trailer when that can't have
 //!   wrapped (ISIZE is mod 2³²). Otherwise it is unknown until the data is decoded.
@@ -13,7 +13,7 @@ use super::{
 };
 use crate::{
     CodecId, Ctx, Error, ErrorKind, Meter, MeteredCtx, Result,
-    codec::{gzip_header_name, gzip_trailer_size, strip_extension},
+    codec::{gzip_header_name, gzip_trailer_size, lzop_header_name, strip_extension},
     detect::{Confidence, Probe},
     io::read_prefix,
     source::Source,
@@ -67,11 +67,17 @@ impl StreamReader {
     }
 }
 
-/// The gzip FNAME (for a single gzip layer), else the file name without its codec extensions.
+/// The gzip FNAME or the lzop header's name (for a single gzip or lzop layer), else the file name
+/// without its codec extensions.
 fn entry_name(source: &Source) -> Result<String> {
-    if source.codecs == [CodecId::Gzip] {
+    let header_name = match source.codecs.as_slice() {
+        [CodecId::Gzip] => Some(gzip_header_name as fn(&[u8]) -> Option<String>),
+        [CodecId::Lzop] => Some(lzop_header_name as fn(&[u8]) -> Option<String>),
+        _ => None,
+    };
+    if let Some(header_name) = header_name {
         let mut file = source.open_file()?;
-        if let Some(name) = gzip_header_name(&read_prefix(&mut file, 64 * 1024)) {
+        if let Some(name) = header_name(&read_prefix(&mut file, 64 * 1024)) {
             // Only the last component: FNAME is a plain name, but nothing enforces that.
             let base = name.rsplit(['/', '\\']).next().unwrap_or(&name);
             if !base.is_empty() {

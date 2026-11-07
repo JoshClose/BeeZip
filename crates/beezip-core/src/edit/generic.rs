@@ -20,7 +20,7 @@ use crate::{
     Ctx, Error, ErrorKind, Meter, MeteredCtx, OverwriteChoice, Progress, Result,
     format::{
         ArchiveReader, ArchiveWriter, Entry, EntryKind, EntrySink, Keep, NewEntry, NewKind,
-        Selection, normalize,
+        Selection, link_target,
     },
     io::{BUF_SIZE, CountingReader, PipeReader, copy, pipe},
     safefs::Partial,
@@ -81,18 +81,6 @@ fn sized<'a>(
             _partial: tmp,
         }),
     ))
-}
-
-/// The earlier file a hard link's data is, by the target's path.
-fn link_target<'a>(entries: &'a [Entry], link: &Entry) -> Option<&'a Entry> {
-    let EntryKind::Hardlink { target } = &link.kind else {
-        return None;
-    };
-    let t = normalize(target);
-    entries[..link.id.min(entries.len())]
-        .iter()
-        .rev()
-        .find(|e| e.kind == EntryKind::File && normalize(&e.path) == t)
 }
 
 /// Decodes `rest` from `source` and adds them to `writer`. Hard links become files (their
@@ -174,6 +162,8 @@ fn add_one(
             writer.add(&new_entry(e, path, NewKind::File, n), &mut data, cx)?;
             out.files += 1;
         }
+        // A format without folders (ar, CAB) has them through its files' paths.
+        EntryKind::Dir if !writer.holds(&NewKind::Dir) => {}
         EntryKind::Dir => {
             writer.add(&new_entry(e, path, NewKind::Dir, 0), &mut io::empty(), cx)?;
             out.dirs += 1;
@@ -182,6 +172,13 @@ fn add_one(
             let kind = NewKind::Symlink {
                 target: target.clone(),
             };
+            if !writer.holds(&kind) {
+                out.skipped.push(Skipped {
+                    path: path.to_owned(),
+                    reason: "a symbolic link, which the new archive can't hold".into(),
+                });
+                return Ok(());
+            }
             writer.add(&new_entry(e, path, kind, 0), &mut io::empty(), cx)?;
             out.links += 1;
         }
