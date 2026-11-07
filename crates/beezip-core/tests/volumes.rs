@@ -305,7 +305,7 @@ fn a_split_file_of_anything_else_extracts_joined() {
     for (i, b) in data.iter_mut().enumerate() {
         *b = (i * 7 % 251) as u8;
     }
-    let parts = split(dir.path(), "big.iso", &data, &[4000, 4000, 2000]);
+    let parts = split(dir.path(), "big.img", &data, &[4000, 4000, 2000]);
     let det = detect_path(&parts[1], &Default::default()).unwrap();
     assert_eq!(det.format(), Some(FormatId::Stream));
     assert!(det.joined);
@@ -313,7 +313,7 @@ fn a_split_file_of_anything_else_extracts_joined() {
     let mut opened = open(&parts[2], &OpenOptions::default(), &mut cx).unwrap();
     let entries = opened.reader.entries(&mut cx).unwrap().to_vec();
     assert_eq!(entries.len(), 1);
-    assert_eq!(entries[0].path, "big.iso");
+    assert_eq!(entries[0].path, "big.img");
     assert_eq!(entries[0].size, Some(10_000));
     let dest = tempfile::tempdir().unwrap();
     ops::extract(
@@ -325,7 +325,7 @@ fn a_split_file_of_anything_else_extracts_joined() {
         &mut SimpleCtx::new(),
     )
     .unwrap();
-    assert_eq!(fs::read(dest.path().join("big.iso")).unwrap(), data);
+    assert_eq!(fs::read(dest.path().join("big.img")).unwrap(), data);
 }
 
 #[test]

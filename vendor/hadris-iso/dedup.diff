@@ -1,0 +1,25 @@
+--- /c/Users/narsh/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/hadris-iso-3.0.0-rc.3/src/plan/directory.rs	2006-07-23 20:21:28.000000000 -0500
++++ src/plan/directory.rs	2026-11-06 14:46:40.651468800 -0600
+@@ -252,6 +252,8 @@
+ /// multi-extent file keep one name.
+ fn dedup(records: &mut [PendingRecord], rules: Rules) {
+     let mut seen = BTreeSet::new();
++    // Next suffix to try per colliding name, so each collision probes from where the last stopped.
++    let mut next: alloc::collections::BTreeMap<Vec<u8>, usize> = alloc::collections::BTreeMap::new();
+     let mut start = 0;
+     while start < records.len() {
+         if matches!(records[start].name[..], [0] | [1]) {
+@@ -264,10 +266,10 @@
+         }
+         let original = records[start].name.clone();
+         let unique = if seen.contains(&original) {
+-            let mut n = 1;
++            let n = next.entry(original.clone()).or_insert(1);
+             loop {
+-                let candidate = rules.dedup(&original, n);
+-                n += 1;
++                let candidate = rules.dedup(&original, *n);
++                *n += 1;
+                 if !seen.contains(&candidate) {
+                     break candidate;
+                 }

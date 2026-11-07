@@ -16,7 +16,10 @@ use crate::{
         ar::ArWriter,
         cab::{CabWriteOptions, CabWriter},
         cpio::CpioWriter,
+        dmg::{DmgWriteOptions, DmgWriter},
+        iso::{IsoWriteOptions, IsoWriter},
         sevenz::{SevenZWriteOptions, SevenZWriter},
+        squashfs::{SquashfsWriteOptions, SquashfsWriter},
         tar::TarWriter,
         zip::{ZipWriteOptions, ZipWriter},
     },
@@ -29,7 +32,7 @@ use crate::{
 pub use crate::edit::{convert, edit, rewrite};
 
 /// The archive kinds BeeZip writes: zip, 7z, tar and cpio, each of those two under one codec too,
-/// ar and CAB.
+/// ar and CAB, and the disk images ISO, squashfs and DMG.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ArchiveKind {
     Zip,
@@ -39,6 +42,11 @@ pub enum ArchiveKind {
     Cpio(Option<CodecId>),
     Ar,
     Cab,
+    /// ISO 9660 level 3 with Joliet and Rock Ridge.
+    Iso,
+    Squashfs,
+    /// An HFS+ volume in a UDZO image.
+    Dmg,
 }
 
 /// The codecs a tar or cpio can be wrapped in when creating (`-f tar.gz` and so on).
@@ -63,12 +71,12 @@ impl ArchiveKind {
             .chain(TAR_CODECS.map(|c| Self::Tar(Some(c))))
             .chain([Self::Cpio(None)])
             .chain(TAR_CODECS.map(|c| Self::Cpio(Some(c))))
-            .chain([Self::Ar, Self::Cab])
+            .chain([Self::Ar, Self::Cab, Self::Iso, Self::Squashfs, Self::Dmg])
     }
 
     /// `zip`, `7z`, `tar`, `tar.gz`, `tar.bz2`, `tar.xz`, `tar.lzma`, `tar.lz`, `tar.zst`,
     /// `tar.lz4`, `tar.br`, `tar.sz`, `tar.Z`, `tar.lzo`, `cpio` and `cpio.gz` and the rest, `ar`,
-    /// `cab`.
+    /// `cab`, `iso`, `squashfs`, `dmg`.
     pub fn name(self) -> String {
         match self {
             Self::Zip => "zip".into(),
@@ -79,6 +87,9 @@ impl ArchiveKind {
             Self::Cpio(Some(c)) => format!("cpio{}", c.extension()),
             Self::Ar => "ar".into(),
             Self::Cab => "cab".into(),
+            Self::Iso => "iso".into(),
+            Self::Squashfs => "squashfs".into(),
+            Self::Dmg => "dmg".into(),
         }
     }
 
@@ -87,7 +98,8 @@ impl ArchiveKind {
     }
 
     /// From an output file name: `.zip`, `.7z`, `.tar`, `.tar.<codec>` or a shorthand such as
-    /// `.tgz`, `.cpio` or `.cpio.<codec>`, `.ar`, `.cab`.
+    /// `.tgz`, `.cpio` or `.cpio.<codec>`, `.ar`, `.cab`, `.iso`, `.squashfs` (`.sqfs`, `.snap`),
+    /// `.dmg`.
     pub fn from_file_name(name: &str) -> Option<Self> {
         let lower = name.to_lowercase();
         for (ext, kind) in [
@@ -97,6 +109,11 @@ impl ArchiveKind {
             (".cpio", Self::Cpio(None)),
             (".ar", Self::Ar),
             (".cab", Self::Cab),
+            (".iso", Self::Iso),
+            (".squashfs", Self::Squashfs),
+            (".sqfs", Self::Squashfs),
+            (".snap", Self::Squashfs),
+            (".dmg", Self::Dmg),
         ] {
             if lower.ends_with(ext) {
                 return Some(kind);
@@ -128,6 +145,9 @@ impl ArchiveKind {
             Self::Cpio(_) => FormatId::Cpio,
             Self::Ar => FormatId::Ar,
             Self::Cab => FormatId::Cab,
+            Self::Iso => FormatId::Iso,
+            Self::Squashfs => FormatId::Squashfs,
+            Self::Dmg => FormatId::Dmg,
         }
     }
 }
@@ -150,6 +170,9 @@ pub enum WriteSpec {
     /// A GNU ar.
     Ar,
     Cab(CabWriteOptions),
+    Iso(IsoWriteOptions),
+    Squashfs(SquashfsWriteOptions),
+    Dmg(DmgWriteOptions),
 }
 
 /// A plain output file as a [`FinishWrite`].
@@ -157,8 +180,13 @@ fn plain(out: Box<dyn WriteSeek>) -> Box<dyn FinishWrite> {
     finisher(BufWriter::with_capacity(BUF_SIZE, out), |mut w| w.flush())
 }
 
-/// A writer for `spec` on `out`.
-pub fn create_writer(spec: &WriteSpec, out: Box<dyn WriteSeek>) -> Result<Box<dyn ArchiveWriter>> {
+/// A writer for `spec` on `out`. `output` is the path the archive will have: the disk images put
+/// their temporary files beside it, and name their volume after it.
+pub fn create_writer(
+    spec: &WriteSpec,
+    out: Box<dyn WriteSeek>,
+    output: &Path,
+) -> Result<Box<dyn ArchiveWriter>> {
     Ok(match spec {
         WriteSpec::Zip(opts) => Box::new(ZipWriter::new(out, opts.clone())?),
         WriteSpec::SevenZ(opts) => Box::new(SevenZWriter::new(out, opts)?),
@@ -180,6 +208,9 @@ pub fn create_writer(spec: &WriteSpec, out: Box<dyn WriteSeek>) -> Result<Box<dy
         }
         WriteSpec::Ar => Box::new(ArWriter::new(plain(out))),
         WriteSpec::Cab(opts) => Box::new(CabWriter::new(out, opts.clone())?),
+        WriteSpec::Iso(opts) => Box::new(IsoWriter::new(out, opts.clone(), output)?),
+        WriteSpec::Squashfs(opts) => Box::new(SquashfsWriter::new(out, opts.clone(), output)?),
+        WriteSpec::Dmg(opts) => Box::new(DmgWriter::new(out, opts.clone(), output)?),
     })
 }
 
@@ -280,6 +311,7 @@ pub fn plan(inputs: &[PathBuf], output: &Path, opts: &CreateOptions) -> Result<V
                     modified: meta.modified().ok(),
                     unix_mode: unix_mode(&meta),
                     dos_attrs: dos_attrs(&meta),
+                    source: Some(d.path().to_path_buf()),
                 },
                 source: d.path().to_path_buf(),
             });
@@ -367,7 +399,7 @@ pub fn create(
     };
 
     let spec = with_size_hint(spec, total);
-    let mut writer = create_writer(&spec, out)?;
+    let mut writer = create_writer(&spec, out, output)?;
     let expected: Vec<NewEntry> = planned
         .iter()
         .map(|p| p.entry.clone())
@@ -382,7 +414,7 @@ pub fn create(
     report.files = added.files;
     report.dirs = added.dirs;
     report.links = added.links;
-    writer.finish()?;
+    writer.finish(cx)?;
     meter.entries_done = planned.len() as u64;
     MeteredCtx::new(cx, &meter).report();
 
@@ -431,6 +463,7 @@ pub fn add_planned(
         Ok(Box::new(CountingReader::new(file, counter.clone())))
     };
     let limit = writer.solid_block_limit();
+    let reads_sources = writer.reads_sources();
     let mut group: Vec<usize> = Vec::new();
     let mut group_bytes = 0u64;
     let flush = |group: &mut Vec<usize>,
@@ -479,6 +512,11 @@ pub fn add_planned(
         meter.current = Some(p.entry.path.clone());
         let mut mcx = MeteredCtx::new(cx, meter);
         match p.entry.kind {
+            NewKind::File if reads_sources && p.entry.source.is_some() => {
+                // ISO and squashfs read the file themselves, when the image is written.
+                writer.add(&p.entry, &mut io::empty(), &mut mcx)?;
+                added.files += 1;
+            }
             NewKind::File => {
                 let mut r = open(p)?;
                 writer.add(&p.entry, &mut r, &mut mcx)?;
@@ -593,7 +631,7 @@ mod tests {
             ArchiveKind::from_name("cpio.lzo"),
             Some(ArchiveKind::Cpio(Some(CodecId::Lzop)))
         );
-        assert_eq!(ArchiveKind::all().count(), 28);
+        assert_eq!(ArchiveKind::all().count(), 31);
         for k in ArchiveKind::all() {
             assert_eq!(ArchiveKind::from_name(&k.name()), Some(k));
         }

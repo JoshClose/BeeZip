@@ -29,6 +29,9 @@ exceptions = [                       # MPL-2.0, unmodified, pulled in by Tauri 2
     { allow = ["MPL-2.0"], crate = "selectors" },
     # UnRAR (docs/M3.md §1): extraction only, its license notice shipped in THIRD_PARTY_NOTICES.
     { allow = ["LicenseRef-UnRAR"], crate = "unrar_sys" },
+    # backhand's hashes (docs/M5.md §1): the Boost license is permissive and OSI-approved. A
+    # per-crate exception keeps any other BSL crate visible.
+    { allow = ["BSL-1.0"], crate = "xxhash-rust" },
 ]
 
 # unrar_sys declares `MIT OR Apache-2.0`, which covers its bindings, but it compiles UnRAR's own

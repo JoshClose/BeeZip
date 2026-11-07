@@ -389,7 +389,7 @@ plan: Array<PlannedEntry> | null, };
 /**
  * The archive kinds `archive.create` writes.
  */
-export type ArchiveFormatName = "zip" | "7z" | "tar" | "tar.gz" | "tar.bz2" | "tar.xz" | "tar.lzma" | "tar.lz" | "tar.zst" | "tar.lz4" | "tar.br" | "tar.sz" | "tar.Z" | "tar.lzo" | "cpio" | "cpio.gz" | "cpio.bz2" | "cpio.xz" | "cpio.lzma" | "cpio.lz" | "cpio.zst" | "cpio.lz4" | "cpio.br" | "cpio.sz" | "cpio.Z" | "cpio.lzo" | "ar" | "cab";
+export type ArchiveFormatName = "zip" | "7z" | "tar" | "tar.gz" | "tar.bz2" | "tar.xz" | "tar.lzma" | "tar.lz" | "tar.zst" | "tar.lz4" | "tar.br" | "tar.sz" | "tar.Z" | "tar.lzo" | "cpio" | "cpio.gz" | "cpio.bz2" | "cpio.xz" | "cpio.lzma" | "cpio.lz" | "cpio.zst" | "cpio.lz4" | "cpio.br" | "cpio.sz" | "cpio.Z" | "cpio.lzo" | "ar" | "cab" | "iso" | "squashfs" | "dmg";
 
 /**
  * Summarise an archive: its format chain, entry counts, sizes and compression ratio, methods,
@@ -1161,11 +1161,12 @@ export type MethodInfo = { id: string, levels: LevelRange | null, };
 
 /**
  * A compression method for `archive.create`: zip's (`store`, `deflate`, `bzip2`, `zstd`,
- * `xz`, `ppmd`), 7z's (`lzma2`, `lzma`, `ppmd`, `bzip2`, `deflate`, `copy`) or a cabinet's
- * (`store`, `mszip`). One flag takes them all; [`MethodName::zip`], [`MethodName::sevenz`] and
- * [`MethodName::cab`] say which a format accepts, so `store` can't reach a 7z.
+ * `xz`, `ppmd`), 7z's (`lzma2`, `lzma`, `ppmd`, `bzip2`, `deflate`, `copy`), a cabinet's
+ * (`store`, `mszip`) or a squashfs image's (`gzip`, `xz`, `zstd`, `lz4`, `lzo`). One flag takes
+ * them all; [`MethodName::zip`], [`MethodName::sevenz`], [`MethodName::cab`] and
+ * [`MethodName::squashfs`] say which a format accepts, so `store` can't reach a 7z.
  */
-export type MethodName = "store" | "deflate" | "bzip2" | "zstd" | "xz" | "ppmd" | "lzma2" | "lzma" | "copy" | "mszip";
+export type MethodName = "store" | "deflate" | "bzip2" | "zstd" | "xz" | "ppmd" | "lzma2" | "lzma" | "copy" | "mszip" | "gzip" | "lz4" | "lzo";
 
 /**
  * How names stored as bytes are read (docs/M5.md §6): zip names without the UTF-8 flag, tar

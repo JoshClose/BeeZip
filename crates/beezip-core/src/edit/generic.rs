@@ -44,6 +44,7 @@ fn new_entry(e: &Entry, path: &str, kind: NewKind, size: u64) -> NewEntry {
         modified: e.modified,
         unix_mode: e.unix_mode,
         dos_attrs: e.dos_attrs,
+        source: None,
     }
 }
 

@@ -61,6 +61,9 @@ fn spec(kind: ArchiveKind) -> WriteSpec {
         },
         ArchiveKind::Ar => WriteSpec::Ar,
         ArchiveKind::Cab => WriteSpec::Cab(Default::default()),
+        ArchiveKind::Iso => WriteSpec::Iso(Default::default()),
+        ArchiveKind::Squashfs => WriteSpec::Squashfs(Default::default()),
+        ArchiveKind::Dmg => WriteSpec::Dmg(Default::default()),
     }
 }
 

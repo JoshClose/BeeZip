@@ -1,0 +1,45 @@
+#[allow(unused_macros)]
+macro_rules! sync_only {
+    ($($item:tt)*) => {};
+}
+#[allow(unused_macros)]
+macro_rules! async_only { ($($item:tt)*) => { $($item)* }; }
+
+#[allow(unused_macros)]
+macro_rules! io_transform {
+    ($($item:tt)*) => { $($item)* };
+}
+
+use hadris_fs::async_::FileSystem;
+use hadris_storage::async_ as storage;
+
+#[allow(clippy::duplicate_mod)]
+#[path = "image.rs"]
+pub(crate) mod image;
+pub use image::IsoFs;
+
+hadris_fs::__forward_filesystem! {
+    shims IsoFs<D: storage::BlockDevice> { read resolve write }
+}
+
+hadris_fs::__forward_filesystem! {
+    #[cfg(feature = "async")]
+    send IsoFs<D: hadris_storage::async_::SendBlockDevice> as hadris_fs::async_::SendFileSystem { read resolve write }
+}
+
+#[cfg(feature = "write")]
+use hadris_fs::async_ as fs;
+#[cfg(feature = "write")]
+use hadris_part::async_ as part;
+#[cfg(feature = "write")]
+#[path = "write.rs"]
+mod write;
+#[cfg(feature = "write")]
+#[cfg_attr(docsrs, doc(cfg(feature = "write")))]
+pub use write::write;
+#[cfg(feature = "write")]
+#[path = "session.rs"]
+mod session;
+#[cfg(feature = "write")]
+#[cfg_attr(docsrs, doc(cfg(feature = "write")))]
+pub use session::Session;
