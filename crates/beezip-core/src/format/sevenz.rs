@@ -1,4 +1,4 @@
-//! 7z, through sevenz-rust2 (=0.24.2). This is the only file that names `sevenz_rust2::`
+//! 7z, through sevenz-rust2 (=0.25.0). This is the only file that names `sevenz_rust2::`
 //! (docs/M3.md §3.3).
 //!
 //! - **Opening:** `sevenz_header::check` refuses a header that would decode past
@@ -309,7 +309,12 @@ struct BlockInfo {
 
 pub struct SevenZReader {
     source: Source,
+    /// The archive with every file's `has_crc` cleared, so sevenz-rust2 doesn't check the CRCs:
+    /// 0.25.0 repeats a mismatch when the rest of the entry is drained, which ends its solid block
+    /// there. `DecodeTag` checks them against `crcs`, and fails only that entry, as 7-Zip does.
     archive: Arc<Archive>,
+    /// `archive.files` index → the CRC its data has, if the archive gives one.
+    crcs: Arc<[Option<u32>]>,
     entries: Vec<Entry>,
     /// `archive.files` index → entry id (`None` for anti-items).
     entry_of: Vec<Option<usize>>,
@@ -331,7 +336,7 @@ impl SevenZReader {
         };
         let mut need_password = header.encrypted;
         let mut failed = 0u32;
-        let (archive, password) = loop {
+        let (mut archive, password) = loop {
             if failed > crate::ctx::MAX_PASSWORD_TRIES {
                 return Err(wrong_password());
             }
@@ -423,9 +428,19 @@ impl SevenZReader {
                 "skipped {anti} anti-item(s): deletion markers from an update, not files"
             ));
         }
+        // `push_raw_block` takes the CRCs from the sub-streams, not from the files.
+        let crcs: Arc<[Option<u32>]> = archive
+            .files
+            .iter()
+            .map(|f| (f.has_crc && f.has_stream).then_some(f.crc as u32))
+            .collect();
+        for f in &mut archive.files {
+            f.has_crc = false;
+        }
         Ok(Self {
             source,
             archive: Arc::new(archive),
+            crcs,
             entries,
             entry_of,
             file_of,
@@ -507,7 +522,8 @@ impl SevenZReader {
             meter.current = Some(entry.path.clone());
             let mut mcx = MeteredCtx::new(cx, meter);
             mcx.report();
-            let mut tagged = DecodeTag::new(data, encrypted, file);
+            let crc = self.crcs.get(range.start + at).copied().flatten();
+            let mut tagged = DecodeTag::new(data, encrypted, file, crc);
             let sent = match &entry.kind {
                 EntryKind::Symlink { .. } => link_entry(entry, &mut tagged)
                     .and_then(|(entry, mut body)| sink.entry(&entry, &mut body, &mut mcx)),
@@ -667,7 +683,9 @@ fn make_entry(
 /// size has been read, and ends the entry without an error when the block's stream ends first.
 /// A wrong password does that about once in 256 tries, when the garbage it decrypts to starts
 /// with LZMA2's end marker; so an entry that ends early is a decode error here (docs/M5.md §16,
-/// PR 3).
+/// PR 3). 0.25.0 reports that itself, before this sees the end.
+///
+/// And it checks the entry's CRC (`crc`), which `SevenZReader::open` hides from sevenz-rust2.
 struct DecodeTag<'a> {
     inner: &'a mut dyn Read,
     encrypted: bool,
@@ -676,18 +694,28 @@ struct DecodeTag<'a> {
     /// The bytes the entry has, and those read so far.
     size: u64,
     read: u64,
+    /// The CRC the entry's data must have, and the one it has so far.
+    crc: Option<u32>,
+    hasher: crc32fast::Hasher,
 }
 
 impl<'a> DecodeTag<'a> {
     /// `file` is the entry sevenz-rust2 passes with `inner`: it has data when it has a stream
-    /// and a size.
-    fn new(inner: &'a mut dyn Read, encrypted: bool, file: &ArchiveEntry) -> Self {
+    /// and a size. `crc` is its CRC, from `SevenZReader::crcs`.
+    fn new(
+        inner: &'a mut dyn Read,
+        encrypted: bool,
+        file: &ArchiveEntry,
+        crc: Option<u32>,
+    ) -> Self {
         Self {
             inner,
             encrypted,
             failed: None,
             size: if file.has_stream { file.size } else { 0 },
             read: 0,
+            crc,
+            hasher: crc32fast::Hasher::new(),
         }
     }
 
@@ -715,8 +743,18 @@ impl Read for DecodeTag<'_> {
                 ));
                 return Err(self.fail(short, true));
             }
+            Ok(0) if !buf.is_empty() => {
+                // The end, once: a CRC mismatch leaves the decoder sound, so it isn't latched.
+                if let Some(want) = self.crc.take()
+                    && self.hasher.clone().finalize() != want
+                {
+                    return Err(self.fail(Error::corrupt("7z: CRC mismatch"), false));
+                }
+                return Ok(0);
+            }
             Ok(n) => {
                 self.read += n as u64;
+                self.hasher.update(&buf[..n]);
                 return Ok(n);
             }
             Err(e) if e.kind() != io::ErrorKind::Interrupted => e,
@@ -964,6 +1002,7 @@ impl SevenZReader {
         password: Option<String>,
     ) -> Result<crate::io::PipeReader> {
         let archive = Arc::clone(&self.archive);
+        let crcs = Arc::clone(&self.crcs);
         let mut input = self.source.open_file()?;
         let threads = self.threads(b);
         let start = self.blocks[b].files.start;
@@ -975,6 +1014,7 @@ impl SevenZReader {
                 let mut writer = writer;
                 let result = decode_one(
                     &archive,
+                    &crcs,
                     b,
                     start,
                     target,
@@ -994,6 +1034,7 @@ impl SevenZReader {
 #[allow(clippy::too_many_arguments)]
 fn decode_one(
     archive: &Archive,
+    crcs: &[Option<u32>],
     b: usize,
     start: usize,
     target: usize,
@@ -1012,7 +1053,7 @@ fn decode_one(
     let result = decoder.for_each_entries(&mut |entry, data: &mut dyn Read| {
         let file = start + k;
         k += 1;
-        let mut tagged = DecodeTag::new(data, encrypted, entry);
+        let mut tagged = DecodeTag::new(data, encrypted, entry, crcs.get(file).copied().flatten());
         let mut buf = vec![0u8; BUF_SIZE];
         loop {
             if out.stopped() {
@@ -1392,6 +1433,8 @@ impl SevenZReader {
         password: Option<String>,
     ) -> Result<std::sync::mpsc::Receiver<Result<crate::io::PipeReader>>> {
         let archive = Arc::clone(&self.archive);
+        let crcs = Arc::clone(&self.crcs);
+        let start = self.blocks[b].files.start;
         let mut input = self.source.open_file()?;
         let threads = self.threads(b);
         let encrypted = self.blocks[b].encrypted;
@@ -1409,7 +1452,8 @@ impl SevenZReader {
                 let result = decoder.for_each_entries(&mut |file, data: &mut dyn Read| {
                     let at = k;
                     k += 1;
-                    let mut tagged = DecodeTag::new(data, encrypted, file);
+                    let crc = crcs.get(start + at).copied().flatten();
+                    let mut tagged = DecodeTag::new(data, encrypted, file, crc);
                     if keep.get(at).copied().unwrap_or(false) {
                         let (mut out, reader) = pipe(4, BUF_SIZE);
                         if tx.send(Ok(reader)).is_err() {
@@ -1580,14 +1624,39 @@ mod tests {
 
     /// What reading a whole entry through `DecodeTag` gives.
     fn read_tagged(data: &[u8], size: u64, encrypted: bool) -> std::result::Result<Vec<u8>, Error> {
+        read_tagged_crc(data, size, encrypted, None)
+    }
+
+    fn read_tagged_crc(
+        data: &[u8],
+        size: u64,
+        encrypted: bool,
+        crc: Option<u32>,
+    ) -> std::result::Result<Vec<u8>, Error> {
         let mut file = ArchiveEntry::new_file("a.txt");
         file.has_stream = size > 0;
         file.size = size;
         let mut inner: &[u8] = data;
-        let mut tagged = DecodeTag::new(&mut inner, encrypted, &file);
+        let mut tagged = DecodeTag::new(&mut inner, encrypted, &file, crc);
         let mut out = Vec::new();
         tagged.read_to_end(&mut out).map_err(|e| read_error(&e))?;
         Ok(out)
+    }
+
+    #[test]
+    fn decode_tag_checks_the_crc() {
+        let crc = crc32fast::hash(b"abc");
+        assert_eq!(
+            read_tagged_crc(b"abc", 3, false, Some(crc)).unwrap(),
+            b"abc"
+        );
+        let e = read_tagged_crc(b"abd", 3, false, Some(crc)).unwrap_err();
+        assert_eq!(
+            (e.kind, e.message.as_str()),
+            (ErrorKind::Corrupt, "7z: CRC mismatch")
+        );
+        let e = read_tagged_crc(b"abd", 3, true, Some(crc)).unwrap_err();
+        assert_eq!(e.kind, ErrorKind::WrongPassword, "{e}");
     }
 
     #[test]

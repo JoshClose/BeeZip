@@ -1,11 +1,11 @@
-//! ZIP, through the `zip` crate (=9.2.2). This is the only file that names `zip::`.
+//! ZIP, through the `zip` crate (=9.4.1). This is the only file that names `zip::`.
 //!
 //! - Opening detects where the archive starts (zip SFX), refuses archives whose entries share
 //!   compressed data (the overlapping-entry bomb), and reads the index from the central
 //!   directory without touching the data.
 //! - Times: the NTFS extra field (UTC, 100 ns), then the extended timestamp (UTC, 1 s), then
-//!   the DOS time (local, 2 s). zip 9.2.2 only exposes extra fields on an opened entry, so they
-//!   are read from the central directory here.
+//!   the DOS time (local, 2 s). zip 9.2.2–9.4.1 exposes extra fields only on an opened entry,
+//!   so they are read from the central directory here.
 //! - Encrypted entries ask `Ctx::password`; a password that worked is tried first for the rest.
 //!   ZipCrypto's one-byte check lets 1 wrong password in 256 through, so a CRC failure on a
 //!   ZipCrypto entry reads "wrong password or damaged data".
@@ -834,7 +834,7 @@ fn descriptor_len(d: &[u8], crc: u32, packed: u64, size: u64, zip64: bool) -> u8
 }
 
 /// The NTFS (0x000A) or extended-timestamp (0x5455) mtime of each entry, from the central
-/// directory, read through `file` (a second handle: zip 9.2.2 doesn't lend its reader out).
+/// directory, read through `file` (a second handle: zip 9.2.2–9.4.1 doesn't lend its reader out).
 /// Directories over 512 MiB are skipped, and DOS times are used instead.
 fn central_times(
     archive: &ZipArchive<ZipFileReader>,
