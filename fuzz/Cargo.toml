@@ -145,3 +145,10 @@ path = "fuzz_targets/dmg.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "xz-scan"
+path = "fuzz_targets/xz_scan.rs"
+test = false
+doc = false
+bench = false

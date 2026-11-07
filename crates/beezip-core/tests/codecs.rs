@@ -165,7 +165,14 @@ proptest! {
     #[test]
     fn multithreaded_writers(shape in shape()) {
         let data = bytes(&shape);
-        for codec in [CodecId::Xz, CodecId::Lzip, CodecId::Zstd] {
+        for codec in [
+            CodecId::Gzip,
+            CodecId::Zlib,
+            CodecId::Deflate,
+            CodecId::Xz,
+            CodecId::Lzip,
+            CodecId::Zstd,
+        ] {
             let l = codec.codec().levels().unwrap();
             assert!(codec.codec().threads());
             round_trip(codec, &data, &mt(l.min))?;
@@ -296,5 +303,199 @@ fn decoder_memory_limit_is_enforced() {
             beezip_core::ErrorKind::LimitExceeded,
             "{codec}: {err:?}"
         );
+    }
+}
+
+/// Parallel deflate (docs/M6.md §6.1, §10): gzip, zlib and raw deflate on more than one thread.
+mod parallel_deflate {
+    use std::time::{Duration, SystemTime};
+
+    use flate2::{
+        Compression, GzBuilder,
+        read::{DeflateDecoder, MultiGzDecoder, ZlibDecoder},
+        write::{DeflateEncoder, ZlibEncoder},
+    };
+
+    use super::*;
+
+    const BLOCK: usize = 128 * 1024;
+    const CODECS: [CodecId; 3] = [CodecId::Gzip, CodecId::Zlib, CodecId::Deflate];
+    const NAME: &str = "notes é.txt";
+    const MTIME: u64 = 1_700_000_000;
+
+    fn opts(level: u32, threads: u32) -> EncodeOpts {
+        EncodeOpts {
+            level: Some(level as i32),
+            threads,
+            gzip_name: Some(NAME.into()),
+            gzip_mtime: Some(SystemTime::UNIX_EPOCH + Duration::from_secs(MTIME)),
+            ..EncodeOpts::default()
+        }
+    }
+
+    /// Text, then random bytes: compressible blocks and incompressible ones.
+    fn mixed(len: usize) -> Vec<u8> {
+        let mut data = bytes(&Shape::Text {
+            len: len / 2,
+            seed: 11,
+        });
+        data.extend(bytes(&Shape::Random {
+            len: len - len / 2,
+            seed: 12,
+        }));
+        data
+    }
+
+    /// Through flate2's decoder, and through BeeZip's own.
+    fn decode_both(codec: CodecId, packed: &[u8]) -> (Vec<u8>, Vec<u8>) {
+        let mut flate2 = Vec::new();
+        match codec {
+            CodecId::Gzip => MultiGzDecoder::new(packed).read_to_end(&mut flate2),
+            CodecId::Zlib => ZlibDecoder::new(packed).read_to_end(&mut flate2),
+            _ => DeflateDecoder::new(packed).read_to_end(&mut flate2),
+        }
+        .unwrap();
+        let mut ours = Vec::new();
+        codec
+            .decoder(Box::new(packed), &Limits::default())
+            .unwrap()
+            .read_to_end(&mut ours)
+            .unwrap();
+        (flate2, ours)
+    }
+
+    /// What flate2 alone writes at `level`, as the codecs did before M6, with [`opts`]'s
+    /// gzip name and mtime.
+    fn flate2(codec: CodecId, data: &[u8], level: u32) -> Vec<u8> {
+        let level = Compression::new(level);
+        match codec {
+            CodecId::Gzip => {
+                let latin1: Vec<u8> = NAME.chars().map(|c| c as u8).collect();
+                let mut e = GzBuilder::new()
+                    .filename(latin1)
+                    .mtime(MTIME as u32)
+                    .write(Vec::new(), level);
+                e.write_all(data).unwrap();
+                e.finish().unwrap()
+            }
+            CodecId::Zlib => {
+                let mut e = ZlibEncoder::new(Vec::new(), level);
+                e.write_all(data).unwrap();
+                e.finish().unwrap()
+            }
+            _ => {
+                let mut e = DeflateEncoder::new(Vec::new(), level);
+                e.write_all(data).unwrap();
+                e.finish().unwrap()
+            }
+        }
+    }
+
+    /// Writes of `piece` bytes each.
+    fn encode_in(codec: CodecId, data: &[u8], opts: &EncodeOpts, piece: usize) -> Vec<u8> {
+        let mut out = Vec::new();
+        let mut enc = codec.codec().encoder(Box::new(&mut out), opts).unwrap();
+        for chunk in data.chunks(piece.max(1)) {
+            enc.write_all(chunk).unwrap();
+        }
+        enc.finish().unwrap();
+        out
+    }
+
+    #[test]
+    fn the_bytes_depend_only_on_the_level() {
+        let data = mixed(5 * BLOCK + 777);
+        for codec in CODECS {
+            for level in 0..=9 {
+                let two = encode_in(codec, &data, &opts(level, 2), data.len());
+                for threads in [4, 32] {
+                    let more = encode_in(codec, &data, &opts(level, threads), data.len());
+                    assert!(more == two, "{codec} level {level}: {threads} threads");
+                }
+                let (a, b) = decode_both(codec, &two);
+                assert!(a == data && b == data, "{codec} level {level}");
+            }
+        }
+    }
+
+    #[test]
+    fn round_trips_at_the_block_edges() {
+        let text = mixed(12 * BLOCK);
+        let random = bytes(&Shape::Random {
+            len: 3_000_000,
+            seed: 5,
+        });
+        let cases: [(&str, &[u8]); 7] = [
+            ("empty", &[]),
+            ("one byte", b"x"),
+            ("one block", &text[..BLOCK]),
+            ("one block and a byte", &text[..BLOCK + 1]),
+            ("two blocks", &text[..2 * BLOCK]),
+            ("many blocks", &text),
+            ("3 MB of random", &random),
+        ];
+        for codec in CODECS {
+            for (name, data) in cases {
+                for level in [0, 1, 6, 9] {
+                    let packed = encode_in(codec, data, &opts(level, 4), data.len());
+                    let (a, b) = decode_both(codec, &packed);
+                    assert!(a == data, "{codec} {name} level {level}: flate2");
+                    assert!(b == data, "{codec} {name} level {level}: BeeZip");
+                }
+            }
+        }
+    }
+
+    /// The gzip header keeps BeeZip's name and mtime as flate2's `GzBuilder` wrote them, and
+    /// the trailer has the same CRC and size; zlib's header and Adler-32 match too.
+    #[test]
+    fn headers_and_trailers_are_flate2s() {
+        let data = mixed(3 * BLOCK + 5);
+        let head = 10 + NAME.chars().count() + 1;
+        for level in 0..=9 {
+            let ours = encode_in(CodecId::Gzip, &data, &opts(level, 4), data.len());
+            let theirs = flate2(CodecId::Gzip, &data, level);
+            assert_eq!(ours[..head], theirs[..head], "gzip level {level}");
+            assert_eq!(ours[ours.len() - 8..], theirs[theirs.len() - 8..]);
+            let ours = encode_in(CodecId::Zlib, &data, &opts(level, 4), data.len());
+            let theirs = flate2(CodecId::Zlib, &data, level);
+            assert_eq!(ours[..2], theirs[..2], "zlib level {level}");
+            assert_eq!(ours[ours.len() - 4..], theirs[theirs.len() - 4..]);
+        }
+        // Without a name or a time: no FNAME and MTIME 0, as before.
+        let bare = EncodeOpts {
+            threads: 4,
+            ..EncodeOpts::default()
+        };
+        let ours = encode_in(CodecId::Gzip, b"abc", &bare, 3);
+        let mut theirs = GzBuilder::new().write(Vec::new(), Compression::new(6));
+        theirs.write_all(b"abc").unwrap();
+        assert_eq!(ours[..10], theirs.finish().unwrap()[..10]);
+    }
+
+    /// One thread is flate2's encoder, so it writes what BeeZip wrote before.
+    #[test]
+    fn one_thread_writes_todays_bytes() {
+        let data = mixed(3 * BLOCK + 5);
+        for codec in CODECS {
+            for level in [0, 1, 6, 9] {
+                let ours = encode_in(codec, &data, &opts(level, 1), data.len());
+                let theirs = flate2(codec, &data, level);
+                assert!(ours == theirs, "{codec} level {level}");
+            }
+        }
+    }
+
+    /// Blocks are cut by offset, so the sizes of the writes don't matter.
+    #[test]
+    fn odd_sized_writes_give_the_same_bytes() {
+        let data = mixed(2 * BLOCK + 1234);
+        for codec in CODECS {
+            let whole = encode_in(codec, &data, &opts(6, 4), data.len());
+            for piece in [1, 7, 1024 * 1024] {
+                let pieces = encode_in(codec, &data, &opts(6, 4), piece);
+                assert!(pieces == whole, "{codec}: writes of {piece}");
+            }
+        }
     }
 }

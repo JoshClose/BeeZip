@@ -87,12 +87,17 @@ beezip open backup.zip docs/a.md                 # extract to %TEMP%\BeeZip\open
 
 beezip compress big.log -c xz -l 9    # big.log.xz, keeping big.log
 beezip decompress backup.tar.zst      # backup.tar: one codec layer per call
+
+beezip bench                          # the common codecs and levels on BeeZip's own 8 MiB sample:
+                                      # size, MB/s and memory each way, every round trip checked
+beezip bench big.iso --grid full      # 8 MiB of the file, in 16 slices; every codec at every level
+beezip bench -g zstd:3,zstd:19:0,xz:6 # codec[:level[:threads]]; threads 0 is one per core
 ```
 
 - **Safety:** extraction never writes outside the destination. Paths with `..`, and links leading out, are skipped. The rest is extracted, then the command fails with exit code 14. Absolute paths, drive letters, reserved names such as `CON` and characters Windows can't store are rewritten, and reported. Symlinks are off by default (`--links` turns them on); hard links are extracted as copies. Zip bombs hit a 10 000:1 ratio limit.
 - **Editing:** `add`, `remove` and `rename` change zip, 7z, tar, cpio and ar archives (tar and cpio compressed or not). They never write into the archive: a new one is written beside it and swapped in, so a failed or cancelled change leaves it as it was, and the Mark of the Web, hidden attribute and creation time carry over. Entries that stay are copied without decoding: zip entries byte for byte, whole 7z blocks (a solid block that loses an entry is encoded again), tar, cpio and ar members (a compressed tar's or cpio's stream is encoded again). An ar's symbol table is left out of an edit, since it would be stale (`ranlib` makes it again). CAB, the disk images, packages and LHA aren't edited. Adding to an archive with encrypted entries needs a password for the new files, or `--unencrypted`. Split and self-extracting archives aren't edited; `convert` makes one file of them. `convert` of an encrypted archive needs `--new-password` or `--decrypt`.
 - **Prompts:** in a terminal, BeeZip asks for passwords and what to do with existing files. Without one, it fails and says which flag to pass (`--password`, `--overwrite`).
-- **Output:** `--output json` prints one JSON document, `--output ndjson` streams every job event (progress included), and `-q` hides progress bars. Ctrl+C cancels and removes the partly written file; a second Ctrl+C exits at once, and still removes it.
+- **Output:** `--output json` prints one JSON document, `--output ndjson` streams every job event (progress included, and `bench`'s cells as each finishes), and `-q` hides progress bars. Ctrl+C cancels and removes the partly written file; a second Ctrl+C exits at once, and still removes it.
 - **7z and RAR passwords:** 7z and RAR 1.5–4 have no password check, so a wrong password shows as damaged data; BeeZip asks again, up to three times. A RAR whose entries have different passwords asks for each.
 - **Volumes:** `-v/--volume-size` takes bytes or `100m`, `4g`, `700MB` (powers of 1024) and works for every format. Spanned zips (`.z01`) aren't supported.
 - **Every command is also reachable generically:** `beezip commands` lists them, `beezip schema archive.extract` prints the JSON schemas, and `beezip run archive.list --json '{"archive":"a.zip"}'` runs one with JSON arguments, as the desktop app and the MCP server do.
@@ -113,6 +118,7 @@ beezip settings set "mcp.roots=['C:\Users\you\Unpacked']" --reset limits.max_rat
 overwrite = "ask"          # ask | always | never | rename | newer
 links = false
 mark_of_the_web = "all"    # copy the archive's Zone.Identifier to extracted files, as Explorer does
+threads = 0                # extracting zips and decoding xz: 0 = one per core, 1 = one
 
 [edit]
 overwrite = "ask"          # adding over an entry already there (beezip add, the add dialog): ask | always | never | rename | newer

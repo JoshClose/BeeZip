@@ -83,6 +83,8 @@ impl Job {
     ) -> Result<Self, CmdError> {
         let (tx, steps) = mpsc::unbounded_channel();
         let progress = tx.clone();
+        // Only progress goes out while the job runs. `Partial` pieces aren't sent: the result
+        // carries all of them, and progress already names the piece being worked on.
         let sink: EventSink = Arc::new(move |event| {
             if let JobEvent::Progress(p) = event {
                 let _ = progress.send(Step::Progress(p));

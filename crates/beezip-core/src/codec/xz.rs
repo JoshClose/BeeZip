@@ -10,7 +10,7 @@ use crate::{
 
 pub struct Xz;
 
-const MAGIC: [u8; 6] = [0xFD, b'7', b'z', b'X', b'Z', 0x00];
+pub(super) const MAGIC: [u8; 6] = [0xFD, b'7', b'z', b'X', b'Z', 0x00];
 
 impl Codec for Xz {
     fn id(&self) -> CodecId {

@@ -75,7 +75,7 @@ jobs:
     timeout-minutes: 30
     env:
       BEEZIP_REQUIRE_GNU_TAR: "1"      # and without GNU tar
-      BEEZIP_REQUIRE_LINUX_TOOLS: "1"  # lzop, uncompress, cpio, ar, xorriso and unsquashfs check BeeZip's output (docs/M5.md §10)
+      BEEZIP_REQUIRE_LINUX_TOOLS: "1"  # gzip, lzop, uncompress, cpio, ar, xorriso and unsquashfs check BeeZip's output (docs/M5.md §10, docs/M6.md §10)
     steps:
       - uses: actions/checkout@v7
       - run: rustup toolchain install

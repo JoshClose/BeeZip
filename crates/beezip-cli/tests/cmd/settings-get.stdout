@@ -6,6 +6,7 @@ edit.overwrite              ask
 extract.links               false
 extract.mark_of_the_web     all
 extract.overwrite           ask
+extract.threads             0
 jobs.close_when_done        true
 levels.zstd                 3
 limits.decoder_memory_mib   1024

@@ -27,13 +27,31 @@ use crate::{
 };
 
 /// How to open an archive.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct OpenOptions {
     pub limits: Limits,
     /// The job's `max_total_bytes` budget; share it with the `FsSink`.
     pub budget: Budget,
     /// How names stored as bytes are read (docs/M5.md §6).
     pub names: NameDecoding,
+    /// Workers for reading: extracting a zip to disk and decoding xz (docs/M6.md §6.3, §6.4).
+    /// `0` is one per logical core; `1`, the default here, reads on the job's thread only.
+    pub threads: u32,
+    /// A zip with fewer files than this to extract is extracted on the job's thread: workers
+    /// cost more than they save on a few files. 64; tests lower it.
+    pub min_parallel_files: usize,
+}
+
+impl Default for OpenOptions {
+    fn default() -> Self {
+        Self {
+            limits: Limits::default(),
+            budget: Budget::default(),
+            names: NameDecoding::default(),
+            threads: 1,
+            min_parallel_files: 64,
+        }
+    }
 }
 
 impl OpenOptions {
@@ -42,13 +60,18 @@ impl OpenOptions {
         Self {
             limits,
             budget,
-            names: NameDecoding::default(),
+            ..Self::default()
         }
     }
 
     /// The same, reading names with `names`.
     pub fn with_names(self, names: NameDecoding) -> Self {
         Self { names, ..self }
+    }
+
+    /// The same, with `threads` workers for reading.
+    pub fn with_threads(self, threads: u32) -> Self {
+        Self { threads, ..self }
     }
 }
 
@@ -153,6 +176,9 @@ pub struct Source {
     pub budget: Budget,
     /// How names stored as bytes are read.
     pub names: NameDecoding,
+    /// Workers for reading, as [`OpenOptions::threads`] gives them.
+    pub threads: u32,
+    pub min_parallel_files: usize,
     /// Bytes of the input read so far in the current pass: progress and the ratio limit.
     pub counter: Counter,
     /// The input's size: the whole set's for a volume set.
@@ -196,6 +222,8 @@ impl Source {
             limits: opts.limits.clone(),
             budget: opts.budget.clone(),
             names: opts.names,
+            threads: opts.threads,
+            min_parallel_files: opts.min_parallel_files,
             counter: Counter::new(),
             size,
             modified: meta.modified().ok(),
@@ -235,11 +263,27 @@ impl Source {
         Ok(CountingReader::new(input, self.counter.clone()))
     }
 
-    /// The decoded stream, from the start.
+    /// The decoded stream, from the start. An outermost xz layer is decoded on several
+    /// threads when `threads` allows and the file has the blocks for it (docs/M6.md §6.4).
     pub fn open_stream(&self) -> Result<Box<dyn Read + Send>> {
-        let mut r: Box<dyn Read + Send> =
-            Box::new(BufReader::with_capacity(BUF_SIZE, self.open_file()?));
-        for c in &self.codecs {
+        let mt = match self.codecs.split_first() {
+            Some((CodecId::Xz, rest)) if self.threads != 1 => crate::codec::xz_decoder_mt(
+                self.input()?,
+                &self.limits,
+                self.threads,
+                &self.counter,
+            )
+            .map(|r| (r, rest)),
+            _ => None,
+        };
+        let (mut r, rest) = match mt {
+            Some(mt) => mt,
+            None => {
+                let file = BufReader::with_capacity(BUF_SIZE, self.open_file()?);
+                (Box::new(file) as Box<dyn Read + Send>, &self.codecs[..])
+            }
+        };
+        for c in rest {
             r = c.decoder(r, &self.limits)?;
         }
         Ok(r)

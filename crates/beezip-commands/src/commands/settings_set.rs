@@ -592,7 +592,7 @@ theme = \"dark\"
         assert_eq!(err.code, ErrorCode::InvalidArgs);
         assert_eq!(
             err.message,
-            "`extract.colour` isn't a setting; `[extract]` has links, mark_of_the_web, overwrite"
+            "`extract.colour` isn't a setting; `[extract]` has links, mark_of_the_web, overwrite, threads"
         );
         assert_eq!(err.details.as_ref().unwrap()["key"], "extract.colour");
         let err = set(&engine, json!({ "set": { "shell.items.nope": 1 } })).unwrap_err();

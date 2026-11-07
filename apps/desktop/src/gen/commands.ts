@@ -630,6 +630,113 @@ export type ArchiveTestOutput = { archive: string, entries: number,
 bytes: number, };
 
 /**
+ * One codec at one level and thread count.
+ */
+export type BenchCell = { codec: CodecName,
+/**
+ * `null` for codecs without levels.
+ */
+level: number | null,
+/**
+ * 1 for codecs without threads.
+ */
+threads: number, packed_bytes: number,
+/**
+ * `packed_bytes / sample bytes`, the share of the sample that remains: 0.25 is a quarter
+ * of its size. 0 if compressing failed.
+ */
+ratio: number,
+/**
+ * Megabytes (10⁶ bytes) of the sample per second; 0 if that way failed.
+ */
+compress_mbps: number, decompress_mbps: number,
+/**
+ * Bytes: the growth of the process's private bytes while that way ran, sampled every
+ * millisecond, so C code's allocations count. Other jobs running at the same time count
+ * too. 0 where the platform gives no figure (macOS).
+ */
+compress_mem: number, decompress_mem: number,
+/**
+ * The whole cell, both ways.
+ */
+ms: number,
+/**
+ * Why the cell failed: the codec's error, or a round trip that didn't match the sample.
+ */
+error: string | null, };
+
+/**
+ * One cell of a list.
+ */
+export type BenchCellSpec = { codec: CodecName,
+/**
+ * [default: the codec's own default level]
+ */
+level?: number,
+/**
+ * For the codecs that have threads; 0 is one per core [default: 1].
+ */
+threads?: number, };
+
+/**
+ * A named grid, or a list of cells.
+ */
+export type BenchGrid = BenchGridName | Array<BenchCellSpec>;
+
+export type BenchGridName = "default" | "full" | "threads";
+
+/**
+ * Benchmark the codecs: compress and decompress a sample in memory with each codec at the
+ * levels and thread counts of a grid, and report the size, the speed and the memory each way.
+ * Every round trip is checked against the sample; one that doesn't match fails its cell, not
+ * the run. Each cell is also sent as a `Partial` job event as it finishes, and a cancelled
+ * run returns the cells it finished. Nothing is written.
+ */
+export type BenchRunInput = {
+/**
+ * The file to take the sample from, read as 16 slices spread across it [default: BeeZip's
+ * built-in sample: seeded text, JSON, code, binary tables and 10 % random bytes].
+ */
+sample?: string,
+/**
+ * The cells to run: `default` (gzip 1/6/9, bzip2 9, xz 1/6/9, zstd 1/3/9/19, lz4, brotli
+ * 5/9, snappy and lzop, one thread each), `full` (every codec at every level), `threads`
+ * (zstd 3 and 9, xz 1 and 6, at 1, 4 and all threads), or a list of cells. On the command
+ * line a list is `codec[:level[:threads]]`, comma-separated: `zstd:3,zstd:19:0,lz4`, where
+ * threads 0 is one per core [default: default].
+ */
+grid?: BenchGrid,
+/**
+ * The sample's size: bytes, or a size such as `64m`, at most 1 GiB [default: 8 MiB; 64
+ * MiB for `threads`].
+ */
+bytes?: ByteSize, };
+
+export type BenchRunOutput = { sample: BenchSample,
+/**
+ * Logical CPUs: what "all threads" is.
+ */
+cpus: number,
+/**
+ * The cells that ran, in order.
+ */
+cells: Array<BenchCell>,
+/**
+ * The whole run, the sample's reading included.
+ */
+total_ms: number,
+/**
+ * The job was cancelled: `cells` holds the ones that finished.
+ */
+cancelled: boolean, };
+
+export type BenchSample = {
+/**
+ * The file, as given, or `built-in`.
+ */
+source: string, bytes: number, };
+
+/**
  * A size in bytes: a number, or a string with a unit such as `100m`, `4g` or `700MB`. The
  * units are powers of 1024, as with 7-Zip's `-v`: `k`, `m`, `g` and `t`, with or without `b`
  * or `ib`. A string is kept as written, so it reads back the same.
@@ -977,7 +1084,11 @@ links: boolean,
 /**
  * Whether extracted files keep the archive's "downloaded from the internet" mark.
  */
-mark_of_the_web: MarkOfTheWeb, };
+mark_of_the_web: MarkOfTheWeb,
+/**
+ * Threads for extracting zips and decoding xz. `0` is one per core; `1` uses one.
+ */
+threads: number, };
 
 /**
  * Detect what a file is: its chain of codecs and archive format (`zstd → tar`), whether it is
@@ -1047,10 +1158,12 @@ create: Array<string>, };
 export type InstallMode = "auto" | "classic" | "modern";
 
 /**
- * Everything a job reports, in order: `Started`, then any `Progress`, `Log` or `Prompt`, then
- * exactly one of `Finished`, `Failed` or `Cancelled`.
+ * Everything a job reports, in order: `Started`, then any `Progress`, `Log`, `Prompt` or
+ * `Partial`, then exactly one of `Finished`, `Failed` or `Cancelled`. A `Partial` is a piece
+ * of the output ready before the job ends (`bench.run` sends each cell as it finishes);
+ * `Finished` still carries the whole output.
  */
-export type JobEvent = { "type": "Started", job: number, } | { "type": "Progress" } & Progress | { "type": "Log", level: LogLevel, message: string, } | { "type": "Prompt", id: number, prompt: Prompt, } | { "type": "Finished", output: JsonValue, } | { "type": "Failed", error: CmdError, } | { "type": "Cancelled" };
+export type JobEvent = { "type": "Started", job: number, } | { "type": "Progress" } & Progress | { "type": "Log", level: LogLevel, message: string, } | { "type": "Prompt", id: number, prompt: Prompt, } | { "type": "Partial", output: JsonValue, } | { "type": "Finished", output: JsonValue, } | { "type": "Failed", error: CmdError, } | { "type": "Cancelled" };
 
 /**
  * A running job, as `Engine::jobs` lists it.
@@ -1709,6 +1822,14 @@ export type CommandMap = {
    * Fails with `Corrupt`, listing the damaged entries in `details`.
    */
   "archive.test": { input: ArchiveTestInput; output: ArchiveTestOutput };
+  /**
+   * Benchmark the codecs: compress and decompress a sample in memory with each codec at the
+   * levels and thread counts of a grid, and report the size, the speed and the memory each way.
+   * Every round trip is checked against the sample; one that doesn't match fails its cell, not
+   * the run. Each cell is also sent as a `Partial` job event as it finishes, and a cancelled
+   * run returns the cells it finished. Nothing is written.
+   */
+  "bench.run": { input: BenchRunInput; output: BenchRunOutput };
   /**
    * The `beezip` command line that runs a command with these arguments. Passwords are left
    * out (`omitted` names them): the copied command asks for them in the terminal.

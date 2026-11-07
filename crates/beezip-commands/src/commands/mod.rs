@@ -11,6 +11,7 @@ mod archive_list;
 mod archive_remove;
 mod archive_rename;
 mod archive_test;
+mod bench_run;
 mod cli_line;
 pub(crate) mod edit;
 mod entry_open;
@@ -42,6 +43,10 @@ pub use archive_list::{ArchiveList, ArchiveListInput, ArchiveListOutput};
 pub use archive_remove::{ArchiveRemove, ArchiveRemoveInput};
 pub use archive_rename::{ArchiveRename, ArchiveRenameInput};
 pub use archive_test::{ArchiveTest, ArchiveTestInput, ArchiveTestOutput};
+pub use bench_run::{
+    BenchCell, BenchCellSpec, BenchGrid, BenchGridName, BenchRun, BenchRunInput, BenchRunOutput,
+    BenchSample,
+};
 pub use cli_line::{CliLine, CliLineInput, CliLineOutput, ShellName};
 pub use edit::{Change, ChangeAction, EditOutput};
 pub use entry_open::{EntryOpen, EntryOpenInput, EntryOpenOutput, open_root};
@@ -84,6 +89,7 @@ pub fn register_all(registry: &mut Registry) {
         .register::<EntryOpen>()
         .register::<StreamCompress>()
         .register::<StreamDecompress>()
+        .register::<BenchRun>()
         .register::<CliLine>()
         .register::<SettingsGet>()
         .register::<SettingsSet>()

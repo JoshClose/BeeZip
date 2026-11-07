@@ -618,6 +618,27 @@ fn stream_compress_and_decompress_round_trip() {
     assert_eq!(err.code, ErrorCode::InvalidArgs);
 }
 
+/// An xz of many blocks decodes on `[extract] threads` (one per core by default, docs/M6.md
+/// §6.4) to what the one-block file gives, with the whole input counted.
+#[test]
+fn stream_decompress_decodes_xz_blocks_side_by_side() {
+    let root = tempfile::tempdir().unwrap();
+    let mut decoded = Vec::new();
+    for name in ["seq-T0.xz", "seq-T1.xz"] {
+        let input = fx(&format!("thirdparty/xz/{name}"));
+        let output = root.path().join(name).with_extension("txt");
+        let out = run(
+            "stream.decompress",
+            json!({ "input": input, "output": output }),
+        )
+        .unwrap();
+        assert_eq!(out["bytes_in"], std::fs::metadata(&input).unwrap().len());
+        assert_eq!(out["bytes_out"], 288_894);
+        decoded.push(std::fs::read(&output).unwrap());
+    }
+    assert!(decoded[0] == decoded[1]);
+}
+
 #[test]
 fn progress_is_throttled_and_the_last_update_goes_out() {
     let root = tempfile::tempdir().unwrap();

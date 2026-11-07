@@ -40,6 +40,34 @@ fn options(fx: &Value) -> OpenOptions {
     })
 }
 
+/// Four workers for reading, from the first file.
+fn parallel(opts: OpenOptions) -> OpenOptions {
+    OpenOptions {
+        threads: 4,
+        min_parallel_files: 1,
+        ..opts
+    }
+}
+
+/// Every file under `dir`: its path, contents' hash and, with `times`, its time.
+fn tree(dir: &Path, times: bool) -> Vec<(String, String, Option<std::time::SystemTime>)> {
+    let mut out: Vec<_> = walkdir::WalkDir::new(dir)
+        .into_iter()
+        .map(Result::unwrap)
+        .filter(|e| e.file_type().is_file())
+        .map(|e| {
+            let rel = e.path().strip_prefix(dir).unwrap();
+            (
+                rel.to_string_lossy().replace('\\', "/"),
+                sha256(&fs::read(e.path()).unwrap()),
+                e.metadata().unwrap().modified().ok().filter(|_| times),
+            )
+        })
+        .collect();
+    out.sort();
+    out
+}
+
 fn sha256(data: &[u8]) -> String {
     Sha256::digest(data)
         .iter()
@@ -227,6 +255,33 @@ fn check(fx: &Value) -> Result<(), String> {
                 return Err(format!("`{p}` has mtime {t:?}"));
             }
         }
+    }
+
+    // Again on four workers, from the first file (zips extract in parallel, docs/M6.md §10):
+    // the same report and the same files.
+    let dest4 = tempfile::tempdir().unwrap();
+    let opts = FsOptions {
+        overwrite: OverwritePolicy::Always,
+        ..FsOptions::default()
+    };
+    let par = ops::extract(
+        &path,
+        dest4.path(),
+        &Selection::all(),
+        &parallel(options(fx)),
+        opts,
+        &mut ctx(fx),
+    )
+    .map_err(|e| format!("parallel extract: {e}"))?;
+    if par != report {
+        return Err(format!(
+            "on four workers the report is {par:?}, not {report:?}"
+        ));
+    }
+    // Entries without a time get the time they're written.
+    let times = fx["utc_mtimes"].as_bool().unwrap();
+    if tree(dest4.path(), times) != tree(dest.path(), times) {
+        return Err("on four workers the files differ".to_owned());
     }
 
     // Integrity test.

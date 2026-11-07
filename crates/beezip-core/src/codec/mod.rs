@@ -1,10 +1,12 @@
 //! Single-stream codecs: gzip, zlib, raw deflate, bzip2, xz, lzma, lzip, zstd, lz4, brotli
-//! and snappy (docs/M1.md §3.2), and Unix `.Z` and lzop (docs/M5.md §5.7, §5.8).
+//! and snappy (docs/M1.md §3.2), and Unix `.Z` and lzop (docs/M5.md §5.7, §5.8). gzip, zlib
+//! and raw deflate compress on several threads with `deflate_par` (docs/M6.md §6.1).
 
 mod brotli;
 mod bzip2;
 mod compress;
 mod deflate;
+pub(crate) mod deflate_par;
 mod gzip;
 mod lz4;
 mod lzip;
@@ -12,6 +14,7 @@ mod lzma;
 mod lzop;
 mod snappy;
 mod xz;
+mod xz_mt;
 mod zlib;
 mod zstd;
 
@@ -154,6 +157,8 @@ impl fmt::Display for CodecId {
 pub use gzip::{header_name as gzip_header_name, trailer_size as gzip_trailer_size};
 /// The file name in an lzop header, which the stream view names its entry after.
 pub use lzop::header_name as lzop_header_name;
+/// xz on several threads, for a file BeeZip can seek (docs/M6.md §6.4).
+pub use xz_mt::decoder as xz_decoder_mt;
 
 /// Every codec, in [`CodecId::ALL`] order.
 pub fn codecs() -> impl Iterator<Item = &'static dyn Codec> {
@@ -218,12 +223,17 @@ impl EncodeOpts {
 
     /// The thread count to use: `0` becomes the number of cores.
     pub fn resolve_threads(&self) -> u32 {
-        match self.threads {
-            0 => std::thread::available_parallelism()
-                .map(|n| u32::try_from(n.get()).unwrap_or(1))
-                .unwrap_or(1),
-            n => n,
-        }
+        resolve_threads(self.threads)
+    }
+}
+
+/// A thread count as the settings give it: `0` becomes the number of logical cores.
+pub fn resolve_threads(threads: u32) -> u32 {
+    match threads {
+        0 => std::thread::available_parallelism()
+            .map(|n| u32::try_from(n.get()).unwrap_or(1))
+            .unwrap_or(1),
+        n => n,
     }
 }
 

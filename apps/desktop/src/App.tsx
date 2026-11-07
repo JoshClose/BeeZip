@@ -2,7 +2,7 @@
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { open as pickFiles } from "@tauri-apps/plugin-dialog";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Toasts } from "./components/ui/toasts";
 import { About } from "./features/about/About";
 import { Browser, pickAndAdd, testArchive } from "./features/browser/Browser";
@@ -87,6 +87,9 @@ async function chooseArchives() {
   const list = picked === null ? [] : Array.isArray(picked) ? picked : [picked];
   await openPaths(list);
 }
+
+// Loaded when first opened: the chart and its dialog stay out of the start-up bundle.
+const BenchDialog = lazy(() => import("./features/bench/BenchDialog").then((m) => ({ default: m.BenchDialog })));
 
 let started = false;
 
@@ -195,6 +198,7 @@ export default function App() {
           { id: "close", label: `Close ${tab.name}`, hint: "Ctrl+W", run: () => useArchives.getState().close(tab.id) },
         ]
       : []),
+    { id: "bench", label: "Benchmark the codecs…", run: () => show({ kind: "bench", file: tab?.path }) },
     { id: "settings", label: "Settings…", hint: "Ctrl+,", run: openSettings },
     ...themeActions(theme, (e) => toastError(e, "Theme")),
     { id: "about", label: "About BeeZip", run: () => show({ kind: "about" }) },
@@ -207,6 +211,7 @@ export default function App() {
     if (c.name === "archive.convert" && tab) return show({ kind: "convert", tab: tab.id });
     if (c.name === "archive.test" && tab) return testArchive(tab);
     if (c.name === "archive.info" && tab) return show({ kind: "info", tab: tab.id });
+    if (c.name === "bench.run") return show({ kind: "bench", file: tab?.path });
     if (takesOnlyArchive(c) && tab) {
       useJobs
         .getState()
@@ -251,6 +256,11 @@ export default function App() {
       {dialog?.kind === "about" && <About onClose={closeDialog} />}
       {dialog?.kind === "report" && <ReportDialog title={dialog.title} error={dialog.error} onClose={closeDialog} />}
       {dialog?.kind === "settings" && <SettingsDialog onClose={closeDialog} />}
+      {dialog?.kind === "bench" && (
+        <Suspense fallback={null}>
+          <BenchDialog file={dialog.file} onClose={closeDialog} />
+        </Suspense>
+      )}
       {formCommand && (
         <FormDialog
           command={formCommand}

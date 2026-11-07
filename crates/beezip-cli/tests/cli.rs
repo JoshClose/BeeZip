@@ -129,6 +129,40 @@ fn ndjson_streams_job_events() {
 }
 
 #[test]
+fn ndjson_streams_bench_cells_as_they_finish() {
+    let out = beezip()
+        .args([
+            "--output",
+            "ndjson",
+            "bench",
+            "-g",
+            "lz4,snappy",
+            "--bytes",
+            "64k",
+        ])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let events: Vec<Value> = String::from_utf8(out)
+        .unwrap()
+        .lines()
+        .map(|l| serde_json::from_str(l).unwrap())
+        .collect();
+    let cells: Vec<&Value> = events
+        .iter()
+        .filter(|e| e["type"] == "Partial")
+        .map(|e| &e["output"])
+        .collect();
+    assert_eq!(cells.len(), 2);
+    assert_eq!(cells[1]["codec"], "snappy");
+    let last = events.last().unwrap();
+    assert_eq!(last["type"], "Finished");
+    assert_eq!(last["output"]["cells"][1], *cells[1]);
+}
+
+#[test]
 fn schema_prints_input_and_output_schemas() {
     let out = stdout_json(beezip().args(["--output", "json", "schema", "app.version"]));
     assert_eq!(out["name"], "app.version");

@@ -37,8 +37,34 @@ fn listing(dir: &Path) -> Vec<String> {
     out
 }
 
-/// Extracts `name` into `<tmp>/parent/dest` and checks nothing new appeared outside `dest`.
+/// Extracts `name` into `<tmp>/parent/dest` and checks nothing new appeared outside `dest`;
+/// then again on four workers (zips extract in parallel from the first file, docs/M6.md §10),
+/// which must end the same way and leave the same files.
 fn extract(name: &str, opts: FsOptions) -> (beezip_core::Result<ExtractReport>, Vec<String>) {
+    let one = extract_with(name, opts.clone(), &OpenOptions::default());
+    let four = extract_with(
+        name,
+        opts,
+        &OpenOptions {
+            threads: 4,
+            min_parallel_files: 1,
+            ..OpenOptions::default()
+        },
+    );
+    let outcome = |r: &beezip_core::Result<ExtractReport>| match r {
+        Ok(report) => Ok(report.clone()),
+        Err(e) => Err(e.kind),
+    };
+    assert_eq!(outcome(&four.0), outcome(&one.0), "{name} on four workers");
+    assert_eq!(four.1, one.1, "{name} on four workers");
+    one
+}
+
+fn extract_with(
+    name: &str,
+    opts: FsOptions,
+    open_opts: &OpenOptions,
+) -> (beezip_core::Result<ExtractReport>, Vec<String>) {
     let root = tempfile::tempdir().unwrap();
     let parent = root.path().join("parent");
     let dest = parent.join("dest");
@@ -49,7 +75,7 @@ fn extract(name: &str, opts: FsOptions) -> (beezip_core::Result<ExtractReport>, 
         &corpus(name),
         &dest,
         &Selection::all(),
-        &OpenOptions::default(),
+        open_opts,
         opts,
         &mut SimpleCtx::new(),
     );

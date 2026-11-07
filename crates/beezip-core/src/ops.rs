@@ -188,7 +188,13 @@ pub fn create_writer(
     output: &Path,
 ) -> Result<Box<dyn ArchiveWriter>> {
     Ok(match spec {
-        WriteSpec::Zip(opts) => Box::new(ZipWriter::new(out, opts.clone())?),
+        WriteSpec::Zip(opts) => {
+            let dir = output
+                .parent()
+                .filter(|p| !p.as_os_str().is_empty())
+                .unwrap_or(Path::new("."));
+            Box::new(ZipWriter::new(out, opts.clone())?.spool_in(dir))
+        }
         WriteSpec::SevenZ(opts) => Box::new(SevenZWriter::new(out, opts)?),
         WriteSpec::Tar { codec: None, .. } => Box::new(TarWriter::new(plain(out))),
         WriteSpec::Tar {
@@ -452,8 +458,9 @@ pub struct Added {
 }
 
 /// Adds `planned` to `writer`, reading each file from disk through `counter`. A solid writer
-/// gets non-empty files in groups of up to its block limit (7z, docs/M3.md §3.3); everything
-/// else goes one entry at a time, in plan order. `first` is the progress count before them.
+/// gets non-empty files in groups of up to its block limit (7z, docs/M3.md §3.3); a writer
+/// with workers gets them all at once (zip, docs/M6.md §6.2); everything else goes one entry
+/// at a time, in plan order. `first` is the progress count before them.
 pub fn add_planned(
     writer: &mut dyn ArchiveWriter,
     planned: &[Planned],
@@ -462,6 +469,9 @@ pub fn add_planned(
     first: u64,
     cx: &mut dyn Ctx,
 ) -> Result<Added> {
+    if writer.workers() > 1 && writer.solid_block_limit().is_none() && !writer.reads_sources() {
+        return add_all_planned(writer, planned, counter, meter, first, cx);
+    }
     let mut added = Added::default();
     let open = |p: &Planned| -> Result<Box<dyn Read>> {
         let file = File::open(&p.source)
@@ -539,6 +549,46 @@ pub fn add_planned(
         }
     }
     flush(&mut group, writer, meter, cx)?;
+    Ok(added)
+}
+
+/// [`add_planned`] for a writer with workers: every entry it holds, at once.
+fn add_all_planned(
+    writer: &mut dyn ArchiveWriter,
+    planned: &[Planned],
+    counter: &Counter,
+    meter: &mut Meter,
+    first: u64,
+    cx: &mut dyn Ctx,
+) -> Result<Added> {
+    let mut added = Added::default();
+    let mut held = Vec::with_capacity(planned.len());
+    for p in planned {
+        if writer.holds(&p.entry.kind) {
+            held.push(p);
+            match p.entry.kind {
+                NewKind::File => added.files += 1,
+                NewKind::Dir => added.dirs += 1,
+                NewKind::Symlink { .. } => added.links += 1,
+            }
+        } else if let NewKind::Symlink { .. } = p.entry.kind {
+            cx.warn(format!(
+                "left out `{}`: the archive can't hold symbolic links",
+                p.entry.path
+            ));
+        }
+    }
+    let entries: Vec<NewEntry> = held.iter().map(|p| p.entry.clone()).collect();
+    let open = |k: usize| -> Result<Box<dyn Read + Send>> {
+        let p = held[k];
+        let file = File::open(&p.source)
+            .map_err(|e| Error::io(format!("reading {}", p.source.display()), &e))?;
+        Ok(Box::new(CountingReader::new(file, counter.clone())))
+    };
+    meter.entries_done = first;
+    meter.current = None;
+    writer.add_all(&entries, &open, &mut MeteredCtx::new(cx, meter))?;
+    meter.entries_done = first + planned.len() as u64;
     Ok(added)
 }
 

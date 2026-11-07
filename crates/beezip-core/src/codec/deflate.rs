@@ -2,7 +2,7 @@ use std::io::{Read, Write};
 
 use flate2::{Compression, read::DeflateDecoder, write::DeflateEncoder};
 
-use super::{Codec, CodecId, EncodeOpts, FinishWrite, Levels, finisher};
+use super::{Codec, CodecId, EncodeOpts, FinishWrite, Levels, deflate_par::ParDeflate, finisher};
 use crate::{
     Limits, Result,
     detect::{Confidence, Probe},
@@ -40,13 +40,25 @@ impl Codec for Deflate {
         Ok(Box::new(DeflateDecoder::new(r)))
     }
 
+    fn threads(&self) -> bool {
+        true
+    }
+
+    /// One thread is flate2's encoder; more is [`ParDeflate`], as for gzip.
     fn encoder<'a>(
         &self,
         w: Box<dyn Write + 'a>,
         opts: &EncodeOpts,
     ) -> Result<Box<dyn FinishWrite + 'a>> {
-        let level = opts.resolve_level(self.id(), self.levels())?;
-        let enc = DeflateEncoder::new(w, Compression::new(level.unsigned_abs()));
+        let level = opts.resolve_level(self.id(), self.levels())?.unsigned_abs();
+        let threads = opts.resolve_threads();
+        if threads > 1 {
+            let enc = ParDeflate::new(w, level, threads);
+            return Ok(finisher(enc, |e| {
+                e.finish().and_then(|(mut w, _)| w.flush())
+            }));
+        }
+        let enc = DeflateEncoder::new(w, Compression::new(level));
         Ok(finisher(enc, |e| e.finish().and_then(|mut w| w.flush())))
     }
 }

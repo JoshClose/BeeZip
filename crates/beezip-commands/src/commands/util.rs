@@ -45,7 +45,11 @@ pub fn open_archive(
 /// The job's open options, reading names in `encoding` (else the config's). Keep them to share
 /// their budget with an `FsSink`.
 pub fn open_options(encoding: Option<NameEncoding>, cx: &JobCtx) -> OpenOptions {
-    OpenOptions::new(cx.policy().limits.clone()).with_names(names(encoding, cx))
+    // A config that can't be read gives one per core, the default.
+    let threads = cx.config().ok().map_or(0, |c| c.extract.threads);
+    OpenOptions::new(cx.policy().limits.clone())
+        .with_names(names(encoding, cx))
+        .with_threads(threads)
 }
 
 /// How names are read: in `encoding`, else in `[names] encoding`, on this system's code pages.

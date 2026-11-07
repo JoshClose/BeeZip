@@ -37,6 +37,8 @@ lzokay.workspace = true
 lzxd.workspace = true
 lzma-rust2.workspace = true
 sevenz-rust2.workspace = true
+# xz blocks checked with SHA-256 (docs/M6.md §6.4); already built for lzma-rust2's xz.
+sha2.workspace = true
 memchr.workspace = true
 oem_cp.workspace = true
 snap.workspace = true
@@ -45,12 +47,20 @@ tempfile.workspace = true
 time.workspace = true
 walkdir.workspace = true
 zip.workspace = true
+zlib-rs.workspace = true
 zstd.workspace = true
+
+# bench.rs reads the process's private bytes (docs/M6.md §7), and safefs/disk.rs asks whether
+# a destination's disk pays for seeks (§6.3).
+[target.'cfg(windows)'.dependencies]
+windows-sys = { workspace = true, features = [
+    "Win32_Foundation", "Win32_Security", "Win32_Storage_FileSystem", "Win32_System_IO",
+    "Win32_System_Ioctl", "Win32_System_ProcessStatus", "Win32_System_Threading",
+] }
 
 [dev-dependencies]
 proptest.workspace = true
 serde_json.workspace = true
-sha2.workspace = true
 
 [lints]
 workspace = true

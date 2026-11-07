@@ -231,7 +231,39 @@ fn round_trip_with(
     compare(&out, tree)?;
     prop_assert_eq!(secs(&out), 1_700_000_000);
     no_partials(root.path())?;
+
+    // A zip again on four workers: the same tree and the same report (docs/M6.md §10).
+    if ext == "zip" {
+        let dest = root.path().join("x4");
+        let mut cx = match password {
+            Some(pw) => SimpleCtx::new().with_password(pw),
+            None => SimpleCtx::new(),
+        };
+        let par = ops::extract(
+            &archive,
+            &dest,
+            &Selection::all(),
+            &parallel(),
+            FsOptions::default(),
+            &mut cx,
+        )
+        .map_err(|e| TestCaseError::fail(format!("parallel extract: {e}")))?;
+        prop_assert_eq!(&par, &report);
+        let out = dest.join("in put");
+        compare(&out, tree)?;
+        prop_assert_eq!(secs(&out), 1_700_000_000);
+        no_partials(root.path())?;
+    }
     Ok(())
+}
+
+/// Four workers, from the first file (docs/M6.md §6.3).
+fn parallel() -> OpenOptions {
+    OpenOptions {
+        threads: 4,
+        min_parallel_files: 1,
+        ..OpenOptions::default()
+    }
 }
 
 fn no_partials(dir: &Path) -> Result<(), TestCaseError> {
@@ -259,6 +291,8 @@ fn zip(method: ZipMethod, password: Option<(&str, ZipEncryption)>) -> WriteSpec 
         level: None,
         password: password.map(|(p, _)| p.to_owned()),
         encryption: password.map(|(_, e)| e).unwrap_or_default(),
+        // Workers for every round trip: one thread's bytes are checked against them below.
+        threads: 4,
     })
 }
 

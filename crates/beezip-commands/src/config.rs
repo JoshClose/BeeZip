@@ -7,6 +7,7 @@
 //! overwrite = "ask"          # ask | always | never | rename | newer
 //! links = false
 //! mark_of_the_web = "all"    # all | none
+//! threads = 0                # zips and xz: 0 = one per core, 1 = one (docs/M6.md §6)
 //!
 //! [edit]                     # archive.add (docs/M5.md §7.1)
 //! overwrite = "ask"          # an entry already there: ask | always | never | rename | newer
@@ -100,6 +101,8 @@ pub struct ExtractConfig {
     pub links: bool,
     /// Whether extracted files keep the archive's "downloaded from the internet" mark.
     pub mark_of_the_web: MarkOfTheWeb,
+    /// Threads for extracting zips and decoding xz. `0` is one per core; `1` uses one.
+    pub threads: u32,
 }
 
 /// Changing archives in place (docs/M5.md §7).

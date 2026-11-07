@@ -21,9 +21,9 @@ Archive formats
 
 Codecs
   ID       NAME               LEVELS       THREADS  EXTENSIONS
-  gzip     gzip               0-9 (6)      -        .gz .tgz
-  zlib     zlib               0-9 (6)      -        .zz .zlib
-  deflate  raw deflate        0-9 (6)      -        (never detected)
+  gzip     gzip               0-9 (6)      yes      .gz .tgz
+  zlib     zlib               0-9 (6)      yes      .zz .zlib
+  deflate  raw deflate        0-9 (6)      yes      (never detected)
   bzip2    bzip2              1-9 (9)      -        .bz2 .tbz .tbz2
   xz       xz                 0-9 (6)      yes      .xz .txz
   lzma     LZMA (lzma-alone)  0-9 (6)      -        .lzma
@@ -33,6 +33,6 @@ Codecs
   brotli   Brotli             0-11 (9)     -        .br
   snappy   Snappy (framed)    -            -        .sz
   compress Unix compress (.Z) -            -        .z .taz
-  lzop     lzop               -            -        .lzo .tzo
+  lzop     lzop               -            yes      .lzo .tzo
 
 Create as: zip, 7z, tar, tar.gz, tar.bz2, tar.xz, tar.lzma, tar.lz, tar.zst, tar.lz4, tar.br, tar.sz, tar.Z, tar.lzo, cpio, cpio.gz, cpio.bz2, cpio.xz, cpio.lzma, cpio.lz, cpio.zst, cpio.lz4, cpio.br, cpio.sz, cpio.Z, cpio.lzo, ar, cab, iso, squashfs, dmg
