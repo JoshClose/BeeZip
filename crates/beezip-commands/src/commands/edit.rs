@@ -370,7 +370,7 @@ mod tests {
 
     fn out() -> EditOutput {
         EditOutput {
-            path: PathBuf::from(r"C:\x\a.zip"),
+            path: Path::new("x").join("a.zip"),
             format: ArchiveFormatName::Zip,
             added: 3,
             replaced: 0,
