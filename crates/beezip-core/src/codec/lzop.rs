@@ -21,6 +21,9 @@
 //! - **Writing:** lzop 1.04's layout in 256 KiB blocks with Adler-32s of both sides. lzokay's
 //!   output is LZO1X-999's kind, so the header says method 3, level 9. A block that doesn't
 //!   shrink is stored.
+//! - **Threads:** lzokay compresses at about 10 MB/s, as LZO1X-999 does, so blocks are
+//!   compressed side by side, two per worker at a time, and written in order (docs/M6.md §7).
+//!   Each block stands alone, so the bytes are the same at any thread count.
 //! - **lzokay's empty block:** lzokay compresses empty input to 4 bytes that every decoder
 //!   rejects, so BeeZip writes no block for empty input (docs/M5.md §5.8; the upstream list).
 
@@ -89,9 +92,14 @@ impl Codec for Lzop {
         opts.resolve_level(self.id(), self.levels())?;
         let name = opts.gzip_name.as_deref().unwrap_or_default();
         let mtime = opts.gzip_mtime.map(to_unix).unwrap_or(0).max(0);
-        let w = Writer::new(w, name.as_bytes(), mtime.unsigned_abs())
+        let mut w = Writer::new(w, name.as_bytes(), mtime.unsigned_abs())
             .map_err(|e| crate::io::write_error(&e))?;
+        w.threads = usize::try_from(opts.resolve_threads()).unwrap_or(1).max(1);
         Ok(finisher(w, Writer::finish))
+    }
+
+    fn threads(&self) -> bool {
+        true
     }
 }
 
@@ -372,6 +380,9 @@ impl<R: Read> Read for Reader<R> {
 struct Writer<W: Write> {
     out: W,
     buf: Vec<u8>,
+    /// Workers; with more than one, full blocks wait in `batch` until each has two.
+    threads: usize,
+    batch: Vec<Vec<u8>>,
 }
 
 impl<W: Write> Writer<W> {
@@ -397,6 +408,8 @@ impl<W: Write> Writer<W> {
         Ok(Self {
             out,
             buf: Vec::with_capacity(BLOCK_SIZE),
+            threads: 1,
+            batch: Vec::new(),
         })
     }
 
@@ -405,28 +418,73 @@ impl<W: Write> Writer<W> {
         if self.buf.is_empty() {
             return Ok(());
         }
-        let c = lzokay::compress::compress(&self.buf)
-            .map_err(|e| io::Error::other(format!("lzokay: {e:?}")))?;
-        let stored = c.len() >= self.buf.len();
-        let data: &[u8] = if stored { &self.buf } else { &c };
-        let mut info = Vec::with_capacity(16);
-        info.extend_from_slice(&(self.buf.len() as u32).to_be_bytes());
-        info.extend_from_slice(&(data.len() as u32).to_be_bytes());
-        info.extend_from_slice(&adler32(&self.buf).to_be_bytes());
-        if !stored {
-            info.extend_from_slice(&adler32(&c).to_be_bytes());
+        if self.threads == 1 {
+            let packed = pack(&self.buf)?;
+            self.buf.clear();
+            return self.out.write_all(&packed);
         }
-        self.out.write_all(&info)?;
-        self.out.write_all(data)?;
-        self.buf.clear();
+        let full = std::mem::replace(&mut self.buf, Vec::with_capacity(BLOCK_SIZE));
+        self.batch.push(full);
+        if self.batch.len() >= 2 * self.threads {
+            self.write_batch()?;
+        }
+        Ok(())
+    }
+
+    /// Compresses the waiting blocks on the workers, and writes them in order.
+    fn write_batch(&mut self) -> io::Result<()> {
+        let batch = std::mem::take(&mut self.batch);
+        let next = std::sync::atomic::AtomicUsize::new(0);
+        let packed: Vec<std::sync::Mutex<Option<io::Result<Vec<u8>>>>> =
+            batch.iter().map(|_| std::sync::Mutex::new(None)).collect();
+        std::thread::scope(|s| {
+            for _ in 0..self.threads.min(batch.len()) {
+                s.spawn(|| {
+                    loop {
+                        let i = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                        let Some(block) = batch.get(i) else { break };
+                        let done = pack(block);
+                        *packed[i]
+                            .lock()
+                            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(done);
+                    }
+                });
+            }
+        });
+        for p in packed {
+            let p = p
+                .into_inner()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .unwrap_or_else(|| Err(io::Error::other("lzop: a block wasn't compressed")))?;
+            self.out.write_all(&p)?;
+        }
         Ok(())
     }
 
     fn finish(mut self) -> io::Result<()> {
         self.block()?;
+        self.write_batch()?;
         self.out.write_all(&0u32.to_be_bytes())?;
         self.out.flush()
     }
+}
+
+/// One block as lzop writes it: its sizes, its checksums, then its data, compressed if that
+/// makes it smaller.
+fn pack(block: &[u8]) -> io::Result<Vec<u8>> {
+    let c = lzokay::compress::compress(block)
+        .map_err(|e| io::Error::other(format!("lzokay: {e:?}")))?;
+    let stored = c.len() >= block.len();
+    let data: &[u8] = if stored { block } else { &c };
+    let mut out = Vec::with_capacity(16 + data.len());
+    out.extend_from_slice(&(block.len() as u32).to_be_bytes());
+    out.extend_from_slice(&(data.len() as u32).to_be_bytes());
+    out.extend_from_slice(&adler32(block).to_be_bytes());
+    if !stored {
+        out.extend_from_slice(&adler32(&c).to_be_bytes());
+    }
+    out.extend_from_slice(data);
+    Ok(out)
 }
 
 impl<W: Write> Write for Writer<W> {
@@ -460,6 +518,25 @@ mod tests {
         let mut out = Vec::new();
         Reader::new(data, MAX_BLOCK).read_to_end(&mut out)?;
         Ok(out)
+    }
+
+    #[test]
+    fn threads_give_the_same_bytes() {
+        let data: Vec<u8> = (0..3_000_000u32)
+            .map(|i| (i.wrapping_mul(2_654_435_761) >> 13) as u8 & 0x3F)
+            .collect();
+        let one = encode(&data, "x");
+        for threads in [2, 4, 32] {
+            let mut out = Vec::new();
+            let mut w = Writer::new(&mut out, b"x", 1_700_000_000).unwrap();
+            w.threads = threads;
+            for piece in data.chunks(100_000) {
+                w.write_all(piece).unwrap();
+            }
+            w.finish().unwrap();
+            assert!(out == one, "{threads} threads");
+        }
+        assert_eq!(decode(&one).unwrap(), data);
     }
 
     #[test]
