@@ -16,7 +16,9 @@ use beezip_core::{
     CodecId, CreateOptions, EncodeOpts, FsOptions, OpenOptions, Selection, SimpleCtx, WriteSpec,
     format::{
         cab::{CabMethod, CabWriteOptions},
+        dmg::DmgWriteOptions,
         sevenz::{SevenZMethod, SevenZWriteOptions},
+        squashfs::{SquashfsMethod, SquashfsWriteOptions},
         zip::{ZipEncryption, ZipMethod, ZipWriteOptions},
     },
     ops,
@@ -327,6 +329,20 @@ combos! {
     cpio_sz: "cpio.sz", cpio(Some(CodecId::Snappy)), None;
     cpio_z: "cpio.Z", cpio(Some(CodecId::Compress)), None;
     cpio_lzo: "cpio.lzo", cpio(Some(CodecId::Lzop)), None;
+    iso: "iso", WriteSpec::Iso(Default::default()), None;
+    squashfs_gzip: "squashfs", squashfs(SquashfsMethod::Gzip), None;
+    squashfs_xz: "squashfs", squashfs(SquashfsMethod::Xz), None;
+    squashfs_zstd: "squashfs", squashfs(SquashfsMethod::Zstd), None;
+    squashfs_lz4: "squashfs", squashfs(SquashfsMethod::Lz4), None;
+    squashfs_lzo: "squashfs", squashfs(SquashfsMethod::Lzo), None;
+}
+
+/// squashfs holds folders, files and their times in seconds, so the whole tree comes back.
+fn squashfs(method: SquashfsMethod) -> WriteSpec {
+    WriteSpec::Squashfs(SquashfsWriteOptions {
+        method,
+        level: method.resolve_level(None).unwrap(),
+    })
 }
 
 fn cpio(codec: Option<CodecId>) -> WriteSpec {
@@ -514,10 +530,44 @@ proptest! {
     }
 }
 
+/// HFS+ holds times up to 2040-02-06 06:28:15 UTC: a tree for a DMG keeps to them.
+fn hfs_times(nodes: Vec<Node>) -> Vec<Node> {
+    const HFS_LAST: u64 = u32::MAX as u64 - 2_082_844_800;
+    nodes
+        .into_iter()
+        .map(|n| match n {
+            Node::File { name, data, mtime } => Node::File {
+                name,
+                data,
+                mtime: mtime.min(HFS_LAST),
+            },
+            Node::Dir {
+                name,
+                children,
+                mtime,
+            } => Node::Dir {
+                name,
+                children: hfs_times(children),
+                mtime: mtime.min(HFS_LAST),
+            },
+        })
+        .collect()
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(cases()))]
+    /// An HFS+ volume in UDZO: names (composed again from HFS+'s decomposed ones), bytes and
+    /// times come back.
+    #[test]
+    fn dmg(tree in tree().prop_map(hfs_times)) {
+        round_trip("dmg", &WriteSpec::Dmg(DmgWriteOptions::default()), None, &tree)?;
+    }
+}
+
 /// Every writable kind is covered above.
 #[test]
 fn every_kind_is_tested() {
-    assert_eq!(beezip_core::ArchiveKind::all().count(), 28);
+    assert_eq!(beezip_core::ArchiveKind::all().count(), 31);
 }
 
 #[test]

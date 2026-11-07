@@ -10,6 +10,7 @@ use beezip_core::{
     format::{
         cab::CabMethod,
         sevenz::SevenZMethod,
+        squashfs::SquashfsMethod,
         zip::{ZipEncryption, ZipMethod},
     },
     ops::ArchiveKind,
@@ -148,6 +149,15 @@ pub enum ArchiveFormatName {
     #[serde(rename = "cab")]
     #[value(name = "cab")]
     Cab,
+    #[serde(rename = "iso")]
+    #[value(name = "iso")]
+    Iso,
+    #[serde(rename = "squashfs")]
+    #[value(name = "squashfs")]
+    Squashfs,
+    #[serde(rename = "dmg")]
+    #[value(name = "dmg")]
+    Dmg,
 }
 
 impl ArchiveFormatName {
@@ -183,6 +193,9 @@ impl ArchiveFormatName {
             Self::CpioLzo => cpio(CodecId::Lzop),
             Self::Ar => ArchiveKind::Ar,
             Self::Cab => ArchiveKind::Cab,
+            Self::Iso => ArchiveKind::Iso,
+            Self::Squashfs => ArchiveKind::Squashfs,
+            Self::Dmg => ArchiveKind::Dmg,
         }
     }
 
@@ -307,9 +320,10 @@ impl SevenZMethodName {
 }
 
 /// A compression method for `archive.create`: zip's (`store`, `deflate`, `bzip2`, `zstd`,
-/// `xz`, `ppmd`), 7z's (`lzma2`, `lzma`, `ppmd`, `bzip2`, `deflate`, `copy`) or a cabinet's
-/// (`store`, `mszip`). One flag takes them all; [`MethodName::zip`], [`MethodName::sevenz`] and
-/// [`MethodName::cab`] say which a format accepts, so `store` can't reach a 7z.
+/// `xz`, `ppmd`), 7z's (`lzma2`, `lzma`, `ppmd`, `bzip2`, `deflate`, `copy`), a cabinet's
+/// (`store`, `mszip`) or a squashfs image's (`gzip`, `xz`, `zstd`, `lz4`, `lzo`). One flag takes
+/// them all; [`MethodName::zip`], [`MethodName::sevenz`], [`MethodName::cab`] and
+/// [`MethodName::squashfs`] say which a format accepts, so `store` can't reach a 7z.
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS, clap::ValueEnum,
 )]
@@ -326,6 +340,9 @@ pub enum MethodName {
     Lzma,
     Copy,
     Mszip,
+    Gzip,
+    Lz4,
+    Lzo,
 }
 
 impl MethodName {
@@ -337,7 +354,13 @@ impl MethodName {
             Self::Zstd => ZipMethodName::Zstd,
             Self::Xz => ZipMethodName::Xz,
             Self::Ppmd => ZipMethodName::Ppmd,
-            Self::Lzma2 | Self::Lzma | Self::Copy | Self::Mszip => return None,
+            Self::Lzma2
+            | Self::Lzma
+            | Self::Copy
+            | Self::Mszip
+            | Self::Gzip
+            | Self::Lz4
+            | Self::Lzo => return None,
         })
     }
 
@@ -349,7 +372,13 @@ impl MethodName {
             Self::Bzip2 => SevenZMethodName::Bzip2,
             Self::Deflate => SevenZMethodName::Deflate,
             Self::Copy => SevenZMethodName::Copy,
-            Self::Store | Self::Zstd | Self::Xz | Self::Mszip => return None,
+            Self::Store
+            | Self::Zstd
+            | Self::Xz
+            | Self::Mszip
+            | Self::Gzip
+            | Self::Lz4
+            | Self::Lzo => return None,
         })
     }
 
@@ -357,6 +386,17 @@ impl MethodName {
         match self {
             Self::Store => Some(CabMethod::Store),
             Self::Mszip => Some(CabMethod::Mszip),
+            _ => None,
+        }
+    }
+
+    pub fn squashfs(self) -> Option<SquashfsMethod> {
+        match self {
+            Self::Gzip => Some(SquashfsMethod::Gzip),
+            Self::Xz => Some(SquashfsMethod::Xz),
+            Self::Zstd => Some(SquashfsMethod::Zstd),
+            Self::Lz4 => Some(SquashfsMethod::Lz4),
+            Self::Lzo => Some(SquashfsMethod::Lzo),
             _ => None,
         }
     }
@@ -373,6 +413,9 @@ impl MethodName {
             Self::Lzma => "lzma",
             Self::Copy => "copy",
             Self::Mszip => "mszip",
+            Self::Gzip => "gzip",
+            Self::Lz4 => "lz4",
+            Self::Lzo => "lzo",
         }
     }
 }
@@ -400,7 +443,7 @@ impl EncryptionName {
 }
 
 /// How names stored as bytes are read (docs/M5.md §6): zip names without the UTF-8 flag, tar
-/// names outside pax records, cpio, ar and LHA names, CAB names without the UTF-8 flag. `auto` reads them as UTF-8 when they are valid UTF-8, otherwise in
+/// names outside pax records, cpio, ar, LHA and squashfs names, CAB names without the UTF-8 flag, ISO names outside Joliet. `auto` reads them as UTF-8 when they are valid UTF-8, otherwise in
 /// the system's code page (the OEM one for zip, as Explorer reads them). The others are code
 /// pages: `cp932` is Japanese (Shift-JIS), `cp936` Simplified Chinese (GBK), `cp949` Korean,
 /// `cp950` Traditional Chinese (Big5), `cp866` and `cp1251` Cyrillic, `cp437` and `cp850` DOS.
@@ -831,8 +874,9 @@ pub(crate) mod tests {
             let zip = m.zip().map(|z| serde_json::to_value(z).unwrap());
             let sz = m.sevenz().map(|s| serde_json::to_value(s).unwrap());
             let cab = m.cab().map(|c| serde_json::Value::from(c.name()));
-            assert!(zip.is_some() || sz.is_some() || cab.is_some());
-            for v in zip.into_iter().chain(sz).chain(cab) {
+            let sq = m.squashfs().map(|c| serde_json::Value::from(c.name()));
+            assert!(zip.is_some() || sz.is_some() || cab.is_some() || sq.is_some());
+            for v in zip.into_iter().chain(sz).chain(cab).chain(sq) {
                 assert_eq!(v, m.name());
             }
         }

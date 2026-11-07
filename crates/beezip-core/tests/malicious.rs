@@ -281,6 +281,14 @@ fn m5_traversal_is_refused() {
         ("traversal.rpm", vec!["safe.txt"]),
         ("traversal.cab", vec!["safe.txt"]),
         ("traversal.lzh", vec!["safe.txt"]),
+        ("traversal.iso", vec!["safe.txt"]),
+        // A folder named `..`, names holding `../` and `..\`, one holding `/etc/…`, and a
+        // symlink to `..`.
+        (
+            "traversal.squashfs",
+            vec!["etc", "etc/beezip-abs.txt", "safe.txt"],
+        ),
+        ("traversal.dmg", vec!["safe.txt"]),
     ] {
         let (r, inside) = extract(name, FsOptions::default());
         let r = r.unwrap_or_else(|e| panic!("{name}: {e}"));
@@ -294,14 +302,84 @@ fn m5_traversal_is_refused() {
         );
         assert_eq!(inside, safe, "{name}");
     }
-    let (r, _) = extract(
-        "traversal.cpio",
-        FsOptions {
-            links: true,
-            ..FsOptions::default()
-        },
+    for name in ["traversal.cpio", "traversal.squashfs", "traversal.dmg"] {
+        let (r, _) = extract(
+            name,
+            FsOptions {
+                links: true,
+                ..FsOptions::default()
+            },
+        );
+        assert!(
+            reasons(&r.unwrap()).contains(&SkipReason::LinkOutside),
+            "{name}"
+        );
+    }
+}
+
+/// A squashfs file whose inode claims 4 TiB in 4 KiB blocks: its list of 2³⁰ blocks (4 GiB)
+/// can't be in the image's inode table, so the image is `Corrupt` when it opens, before anything
+/// is read or allocated for the file.
+#[test]
+fn a_squashfs_block_count_past_its_table_is_corrupt() {
+    let err = open(
+        &corpus("squashfs-blocks.squashfs"),
+        &OpenOptions::default(),
+        &mut SimpleCtx::new(),
+    )
+    .err()
+    .unwrap();
+    assert_eq!(err.kind, ErrorKind::Corrupt, "{err}");
+    assert!(
+        err.message.contains("more than the inode table can hold"),
+        "{err}"
     );
-    assert!(reasons(&r.unwrap()).contains(&SkipReason::LinkOutside));
+    let (r, inside) = extract("squashfs-blocks.squashfs", FsOptions::default());
+    assert_eq!(r.unwrap_err().kind, ErrorKind::Corrupt);
+    assert!(inside.is_empty(), "{inside:?}");
+}
+
+/// A DMG chunk claiming a terabyte of sectors, stored in a terabyte, from four bytes: `Corrupt`
+/// when the image opens, before anything is allocated for it.
+#[test]
+fn a_dmg_chunk_that_claims_a_terabyte_is_corrupt() {
+    let err = open(
+        &corpus("bomb.dmg"),
+        &OpenOptions::default(),
+        &mut SimpleCtx::new(),
+    )
+    .err()
+    .unwrap();
+    assert_eq!(err.kind, ErrorKind::Corrupt, "{err}");
+    assert!(err.message.contains("chunk of"), "{err}");
+    let (r, inside) = extract("bomb.dmg", FsOptions::default());
+    assert_eq!(r.unwrap_err().kind, ErrorKind::Corrupt);
+    assert!(inside.is_empty(), "{inside:?}");
+}
+
+/// An ISO folder whose record points back at the top: listed once, with a warning, and the
+/// rest extracts (docs/M5.md §5.9).
+#[test]
+fn a_cyclic_iso_folder_is_listed_once() {
+    let mut cx = SimpleCtx::new();
+    let mut opened = open(&corpus("cyclic.iso"), &OpenOptions::default(), &mut cx).unwrap();
+    let paths: Vec<String> = opened
+        .reader
+        .entries(&mut cx)
+        .unwrap()
+        .iter()
+        .map(|e| e.path.clone())
+        .collect();
+    assert_eq!(paths, ["a", "a/b", "top.txt"]);
+    assert!(
+        cx.warnings.iter().any(|w| w.contains("cycle")),
+        "{:?}",
+        cx.warnings
+    );
+    drop(opened);
+    let (r, inside) = extract("cyclic.iso", FsOptions::default());
+    assert!(r.unwrap().skipped.is_empty());
+    assert_eq!(inside, ["a", "a/b", "top.txt"]);
 }
 
 /// A size past the end of the file is `Corrupt` when the archive opens or lists, before

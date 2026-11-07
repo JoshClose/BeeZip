@@ -717,7 +717,7 @@ impl ArchiveWriter for ArWriter<'_> {
         })
     }
 
-    fn finish(mut self: Box<Self>) -> Result<()> {
+    fn finish(mut self: Box<Self>, _: &mut dyn Ctx) -> Result<()> {
         self.start(&[])?;
         let out = self.out;
         out.finish().map_err(|e| write_error(&e))
@@ -839,6 +839,7 @@ mod tests {
                 modified: None,
                 unix_mode: None,
                 dos_attrs: None,
+                source: None,
             };
             let entries = [
                 file("a.txt", 5),
@@ -854,7 +855,7 @@ mod tests {
             w.add(&entries[0], &mut &b"hello"[..], &mut cx).unwrap();
             w.add(&entries[1], &mut &b"hi"[..], &mut cx).unwrap();
             w.add(&entries[2], &mut &b"x"[..], &mut cx).unwrap();
-            w.finish().unwrap();
+            w.finish(&mut cx).unwrap();
         }
         let got = list(&buf).unwrap();
         assert_eq!(

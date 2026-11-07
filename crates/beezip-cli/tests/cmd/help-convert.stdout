@@ -1,7 +1,7 @@
 Write an archive's entries to a new archive in another format, or with other options: zip,
-7z, tar, cpio, ar or cab, tar and cpio under a codec too, from any archive BeeZip reads (RAR,
-packages and split archives included). The source isn't changed. Entries are copied without decoding
-when the formats
+7z, tar, cpio, ar, cab, ISO, squashfs or DMG, tar and cpio under a codec too, from any archive
+BeeZip reads (RAR, packages, disk images and split archives included). The source isn't changed.
+Entries are copied without decoding when the formats
 match and no option asks for something else (`a.tar.gz` → `a.tar.zst` keeps every tar
 entry, encoding the stream again). An encrypted source needs `new_password` or `decrypt`:
 encryption is never dropped silently. What the new format can't hold is left out and
@@ -31,12 +31,14 @@ Options:
           
           [possible values: zip, 7z, tar, tar.gz, tar.bz2, tar.xz, tar.lzma, tar.lz, tar.zst,
           tar.lz4, tar.br, tar.sz, tar.Z, tar.lzo, cpio, cpio.gz, cpio.bz2, cpio.xz, cpio.lzma,
-          cpio.lz, cpio.zst, cpio.lz4, cpio.br, cpio.sz, cpio.Z, cpio.lzo, ar, cab]
+          cpio.lz, cpio.zst, cpio.lz4, cpio.br, cpio.sz, cpio.Z, cpio.lzo, ar, cab, iso, squashfs,
+          dmg]
 
   -m, --method <METHOD>
           The compression method, as for `archive.create`
           
-          [possible values: store, deflate, bzip2, zstd, xz, ppmd, lzma2, lzma, copy, mszip]
+          [possible values: store, deflate, bzip2, zstd, xz, ppmd, lzma2, lzma, copy, mszip, gzip,
+          lz4, lzo]
 
   -l, --level <LEVEL>
           The compression level; `formats.list` shows each codec's and method's range

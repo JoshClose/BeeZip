@@ -275,10 +275,14 @@ pub fn associations() -> anyhow::Result<Vec<Value>> {
     };
     for f in formats["formats"].as_array().into_iter().flatten() {
         if f["caps"]["list"] == true {
-            add(
-                &f["extensions"],
-                format!("{} archive", f["name"].as_str().unwrap_or("")),
-            );
+            // "ZIP archive", but "Apple disk image" and "Debian package" as they are.
+            let name = f["name"].as_str().unwrap_or("");
+            let what = if name.ends_with(" image") || name.ends_with(" package") {
+                name.to_owned()
+            } else {
+                format!("{name} archive")
+            };
+            add(&f["extensions"], what);
         }
     }
     for c in formats["codecs"].as_array().into_iter().flatten() {

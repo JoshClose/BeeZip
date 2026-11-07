@@ -9,6 +9,7 @@ use beezip_core::{
     format::{
         cab::{CabMethod, CabWriteOptions},
         sevenz::{SevenZMethod, SevenZWriteOptions},
+        squashfs::{SquashfsMethod, SquashfsWriteOptions},
         zip::{ZipMethod, ZipWriteOptions},
     },
     ops,
@@ -191,6 +192,46 @@ pub fn spec_for(
                 ));
             }
             Ok(WriteSpec::Cab(CabWriteOptions { method }))
+        }
+        ArchiveKind::Iso | ArchiveKind::Dmg => {
+            let what = if kind == ArchiveKind::Iso {
+                "an ISO"
+            } else {
+                "a DMG"
+            };
+            if args.method.is_some() || args.level.is_some() {
+                return Err(CmdError::invalid_args(format!(
+                    "{what} is written one way, so it has no `method` or `level`"
+                )));
+            }
+            if args.password.is_some() || args.encryption.is_some() {
+                return Err(CmdError::invalid_args(format!(
+                    "{what} can't be encrypted here; use zip or 7z"
+                )));
+            }
+            Ok(if kind == ArchiveKind::Iso {
+                WriteSpec::Iso(Default::default())
+            } else {
+                WriteSpec::Dmg(Default::default())
+            })
+        }
+        ArchiveKind::Squashfs => {
+            let method = match args.method {
+                None => SquashfsMethod::Gzip,
+                Some(m) => m.squashfs().ok_or_else(|| {
+                    CmdError::invalid_args(format!(
+                        "`{}` isn't a squashfs method; use gzip, xz, zstd, lz4 or lzo",
+                        m.name()
+                    ))
+                })?,
+            };
+            if args.password.is_some() || args.encryption.is_some() {
+                return Err(CmdError::invalid_args(
+                    "squashfs can't be encrypted; use zip or 7z",
+                ));
+            }
+            let level = method.resolve_level(level(args.level, method.name(), config))?;
+            Ok(WriteSpec::Squashfs(SquashfsWriteOptions { method, level }))
         }
     }
 }

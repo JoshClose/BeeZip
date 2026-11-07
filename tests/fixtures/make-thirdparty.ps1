@@ -14,6 +14,7 @@ Tools (as on the development machine, 2026-11-02):
   bsdtar 3.8.9        C:\Windows\System32\tar.exe (liblzma, bzip2 and zstd built in)
   .NET                Compress-Archive in PowerShell 7
   makecab, expand     C:\Windows\System32 (Windows 11)
+  IMAPI2              Windows' IMAPI2FS (MsftFileSystemImage), through COM
 
 The GNU tar archives hold a symlink, so this needs Developer Mode (or an elevated shell).
 
@@ -24,7 +25,8 @@ M5 added names in legacy code pages (docs/M5.md §6): zips from .NET's ZipArchiv
 entry name encoding, which writes the names in that code page with no UTF-8 flag (as Explorer
 on a Japanese or Russian Windows does), one from 7-Zip's -mcp, which adds Info-ZIP's Unicode
 Path extra, and a tar with Latin-1 names written by Python's tarfile (`python` on the PATH).
-It also added cabinets from makecab (docs/M5.md §10). The other M5 fixtures, in
+It also added cabinets from makecab, and UDF images from IMAPI2 (docs/M5.md §10). The other
+M5 fixtures, in
 thirdparty/libarchive/<fmt>, delharc, packages and linux, come from fetch-libarchive.ps1 and
 make-linux.sh.
 
@@ -36,7 +38,8 @@ AES salts) would otherwise change on every run.
 .PARAMETER Only
 Copy only the fixtures whose names match this wildcard (with their parts), and replace only their
 records; every other file in thirdparty/ and every other record is left as it is. Everything is
-still made in the temporary folder. `-Only 'makecab-*'` makes the cabinets alone.
+still made in the temporary folder. `-Only 'makecab-*'` makes the cabinets alone, `-Only
+'imapi-*'` the UDF images.
 #>
 param([switch]$Keep, [string]$Only)
 $ErrorActionPreference = 'Stop'
@@ -366,6 +369,47 @@ $setParts = @(Get-ChildItem 'makecab-set*.cab' | Sort-Object Name | ForEach-Obje
 if ($setParts.Count -lt 2 -or $setParts[0] -ne 'makecab-set1.cab') { throw "makecab made $($setParts -join ', ')" }
 Assert-Cab 'makecab-set1.cab' -set
 Add-Fixture 'makecab-set1.cab' $mc $cmd 'cab' (Expected 'ascii') $null $false $null @($setParts | Select-Object -Skip 1)
+
+# IMAPI2 (docs/M5.md §10): Windows' own image writer, which its "Burn to disc" uses: a UDF image
+# with no ISO 9660 tree at all, and a bridge image with ISO 9660, Joliet and UDF trees of the same
+# files. IMAPI2FS hands the image over as a COM IStream, which PowerShell can't cast, so a few
+# lines of C# copy it to a file.
+Add-Type -TypeDefinition @"
+using System.IO;
+using System.Runtime.InteropServices;
+using System.Runtime.InteropServices.ComTypes;
+public static class ImapiImage {
+    public static void Save(object stream, string path) {
+        var s = (IStream)stream;
+        var buf = new byte[1 << 20];
+        var read = Marshal.AllocHGlobal(4);
+        try {
+            using (var f = File.Create(path)) {
+                while (true) {
+                    s.Read(buf, buf.Length, read);
+                    int n = Marshal.ReadInt32(read);
+                    if (n <= 0) break;
+                    f.Write(buf, 0, n);
+                }
+            }
+        } finally {
+            Marshal.FreeHGlobal(read);
+        }
+    }
+}
+"@
+$im = "IMAPI2 (Windows $([Environment]::OSVersion.Version))"
+foreach ($i in @(@('imapi-udf.iso', 4, 'UDF'), @('imapi-bridge.iso', 7, 'ISO 9660, Joliet and UDF'))) {
+    $fsi = New-Object -ComObject IMAPI2FS.MsftFileSystemImage
+    $fsi.FileSystemsToCreate = $i[1]
+    $fsi.VolumeName = 'BEEZIP'
+    $fsi.Root.AddTree((Join-Path $work 'tree'), $true)
+    [ImapiImage]::Save($fsi.CreateResultImage().ImageStream, (Join-Path $work $i[0]))
+    & $sevenZip t $i[0] | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "7z t $($i[0]) failed" }
+    $cmd = "MsftFileSystemImage with FileSystemsToCreate = $($i[1]) ($($i[2])), Root.AddTree('tree', true), CreateResultImage()"
+    Add-Fixture $i[0] $im $cmd 'iso' (Expected 'tree') $null $true
+}
 
 Pop-Location
 New-Item -ItemType Directory -Force $out | Out-Null

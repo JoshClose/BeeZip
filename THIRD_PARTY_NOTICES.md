@@ -55,6 +55,24 @@ BeeZip reads and writes cpio, ar, CAB, Unix `.Z` and lzop, and reads Debian pack
 | `bytemuck`, `bytemuck_derive` | Zlib OR Apache-2.0 OR MIT | used by `delharc` |
 | `chrono` | MIT OR Apache-2.0 | dates in LHA headers, through `delharc` |
 
+## Disk images
+
+BeeZip reads and writes ISO 9660 (with Joliet and Rock Ridge), squashfs and DMG, and reads UDF, with these crates and its own code (docs/M5.md §5.9–§5.11). The squashfs reader and the DMG container (UDIF, ADC, LZVN, Apple's file compression) are BeeZip's.
+
+| Crate | License | What it is |
+|---|---|---|
+| `hadris-iso` | MIT | ISO 9660, Joliet and Rock Ridge, © hxyulin. BeeZip builds a patched copy of 3.0.0-rc.3 (`vendor/hadris-iso`, its changes in `BEEZIP.md` there) |
+| `hadris-udf`, `hadris-fs`, `hadris-io`, `hadris-storage`, `hadris-part`, `hadris-iso-raw`, `hadris-udf-raw`, `hadris-macros` | MIT | UDF, and the filesystem, I/O and storage layers both use, © hxyulin |
+| `spin` | MIT | locks for `hadris-fs` |
+| `backhand` | MIT OR Apache-2.0 | writing squashfs (BeeZip's own codecs compress for it) |
+| `deku`, `deku_derive`, `darling`, `ident_case` | MIT OR Apache-2.0 (`darling`: MIT) | binary layouts, for `backhand` |
+| `bitvec`, `funty`, `radium`, `tap`, `wyz` | MIT | bit fields, for `deku` |
+| `solana-nohash-hasher` | Apache-2.0 OR MIT | a hasher for `backhand`'s tables |
+| `xxhash-rust` | BSL-1.0 | xxHash, for `backhand` (the Boost Software License: an exception in `deny.toml`) |
+| `fstool` | MIT | HFS+, HFSX and APFS volumes inside DMGs, and the HFS+ writer |
+| `intl` | MIT | Unicode case folding and normalization, for `fstool`'s APFS names |
+| `lzfse_rust` | MIT OR Apache-2.0 | LZFSE, for DMG chunks and Apple-compressed files |
+
 ## UnRAR
 
 BeeZip reads RAR archives with UnRAR 7.1.0 by Alexander Roshal, compiled into BeeZip through the `unrar_sys` crate (whose own bindings are MIT OR Apache-2.0). BeeZip only extracts RAR archives; it can't create them, and UnRAR's code is not used to do so. The UnRAR source BeeZip builds is the copy `unrar_sys` 0.5.8 vendors, which carries that crate's patches. Its license, in full:

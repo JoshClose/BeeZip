@@ -9,8 +9,9 @@ default-members = [
     "crates/beezip-core", "crates/beezip-unrar", "crates/beezip-menu", "crates/beezip-commands",
     "crates/beezip-mcp", "crates/beezip-cli", "crates/beezip-shell", "xtask",
 ]
-# cargo-fuzz needs nightly, so fuzz/ is its own workspace (docs/M1.md §7).
-exclude = ["fuzz"]
+# cargo-fuzz needs nightly, so fuzz/ is its own workspace (docs/M1.md §7). The vendored
+# hadris-iso is a patched copy of a published crate, not a member.
+exclude = ["fuzz", "vendor/hadris-iso"]
 
 [workspace.package]
 version = "0.1.0"
@@ -83,6 +84,18 @@ lzxd    = "=0.2.7"   # CAB's LZX
 delharc = { version = "=0.8.0", default-features = false, features = [
     "std", "lh1", "lz", "pm", "lhx", "no-unsafe-assertions",
 ] }
+# The disk images (docs/M5.md §5.9–§5.11). hadris 3.0 isn't final yet: rc.3 is the newest
+# published, and hadris-iso is BeeZip's patched copy of it (vendor/hadris-iso, [patch] below).
+hadris-iso     = { version = "=3.0.0-rc.3", default-features = false, features = ["std", "sync", "write"] }
+hadris-udf     = { version = "=3.0.0-rc.3", default-features = false, features = ["std", "sync"] }
+hadris-fs      = { version = "=3.0.0-rc.3", default-features = false, features = ["std", "sync"] }
+hadris-io      = { version = "=3.0.0-rc.3", default-features = false, features = ["std", "sync"] }
+hadris-storage = { version = "=3.0.0-rc.3", default-features = false, features = ["std", "sync"] }
+# Writing squashfs only, with BeeZip's own codecs behind its CompressionAction; its reader isn't used.
+backhand   = { version = "=0.25.5", default-features = false, features = ["error-strings"] }
+# HFS+, HFSX and APFS inside DMGs, and the HFS+ writer. Named only by format/dmg.rs.
+fstool     = { version = "=0.5.2", default-features = false, features = ["hfs-plus", "apfs"] }
+lzfse_rust = "=0.2.1"   # DMG chunks and Apple-compressed (decmpfs) files
 # M4 Explorer integration (docs/M4.md §1): the same windows 0.62.2 that Tauri already builds, so
 # one copy serves the shell DLL, the commands and the app. Features are chosen per crate.
 windows          = "=0.62.2"
@@ -111,6 +124,11 @@ ctrlc      = "3.5.2"
 proptest   = "1.12.0"
 trycmd     = "1.2.1"
 sha2       = "0.11.1"
+
+# hadris-iso 3.0.0-rc.3 with the name de-duplication fix (docs/M5.md §5.9): its planner retries
+# every suffix for every colliding name, so 20 000 files sharing a long prefix took 80 s.
+[patch.crates-io]
+hadris-iso = { path = "vendor/hadris-iso" }
 
 [workspace.lints.rust]
 unsafe_code = "deny"            # beezip-shell opts out with #![allow(unsafe_code)] in M4

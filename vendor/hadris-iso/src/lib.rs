@@ -1,0 +1,211 @@
+//! # Hadris ISO
+//!
+//! ISO 9660 images: an allocation-free reader for every tree an image can
+//! carry, and a writer that builds images from a shared input tree.
+//!
+//! ## Reading
+//!
+//! `IsoFs` mounts an image on a `hadris_storage` block device, in each
+//! mode (`sync::IsoFs`, `async_::IsoFs`). An image has up to four trees:
+//! the primary tree, Rock Ridge names and metadata over it, a Joliet tree
+//! and an ISO 9660:1999 enhanced tree. `IsoFs::mount` reads the most
+//! capable one and `IsoFs::mount_namespace` picks one. `IsoFs` implements
+//! the read-only `hadris_fs` `FileSystem` trait, so `Volume` and its
+//! handles work on it. Reading needs no allocator.
+//!
+//! ```rust
+//! # #[cfg(all(feature = "sync", feature = "std", feature = "write"))]
+//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
+//! use std::io::Read;
+//!
+//! use hadris_fs::sync::Volume;
+//! use hadris_fs::{Content, MountOptions, Node, OpenOptions, Tree};
+//! use hadris_iso::sync::{IsoFs, write};
+//! use hadris_iso::{IsoOptions, plan};
+//! use hadris_storage::{BlockSize, MemDevice};
+//!
+//! let mut tree = Tree::new();
+//! tree.insert("boot/grub/grub.cfg", Node::file(Content::bytes("set timeout=3")))?;
+//! let options = IsoOptions::default();
+//! let size = plan(&tree, &options)?.size();
+//! let mut dev = MemDevice::new(vec![0u8; size as usize], BlockSize::new(2048).unwrap());
+//! let report = write(&mut dev, &tree, &options)?;
+//! assert_eq!(report.size(), size);
+//!
+//! let vol = Volume::new(IsoFs::mount(dev, MountOptions::new())?);
+//! let mut text = String::new();
+//! vol.open("/boot/grub/grub.cfg", OpenOptions::new().read())?
+//!     .read_to_string(&mut text)?;
+//! assert_eq!(text, "set timeout=3");
+//! # Ok(())
+//! # }
+//! # #[cfg(not(all(feature = "sync", feature = "std", feature = "write")))]
+//! # fn main() {}
+//! ```
+//!
+//! `IsoFs::info` returns what the primary volume descriptor records,
+//! `IsoFs::boot_catalog` reads the El Torito catalog into a caller buffer,
+//! `IsoFs::rock_ridge` returns the Rock Ridge entries of a node, and
+//! `IsoFs::records` and `IsoFs::extents` locate its directory records and
+//! data for `IsoFs::read_raw`. [`raw`] holds the on-disk layouts these
+//! methods return; the full set is in the `hadris-iso-raw` crate.
+//!
+//! ## Writing
+//!
+//! `write` (in each mode, with the `write` feature) lays out a `hadris_fs::Tree` as an
+//! image on a block device, as [`IsoOptions`] says, and returns a
+//! `hadris_fs::Report` of its size, where each file went, and what it could
+//! not store. [`plan`] returns the same report without I/O, so the device
+//! can be sized first. The output is reproducible: the writer reads no
+//! clock, and dates the volume with [`IsoOptions::with_time`], 1980-01-01
+//! by default.
+//!
+//! ## Sessions
+//!
+//! `Session` (in each mode, with the `write` feature) reads an existing image into a
+//! tree whose files point back at their extents, and writes it back after
+//! changes: as a new session after the old one ([`SessionMode::Append`]),
+//! or rebuilt in place ([`SessionMode::Rewrite`]).
+//!
+//! Reading fails with [`hadris_fs::Error`]; [`Detail::of`] names the
+//! structure or option at fault, and a device whose first volume descriptor
+//! is not ISO 9660 fails with
+//! [`ErrorKind::NotRecognized`](hadris_fs::ErrorKind::NotRecognized).
+//! Writing fails with [`hadris_fs::PathError`], which carries the path of
+//! the file whose content failed; [`Detail::from_code`] reads its detail.
+//!
+//! ## Features
+//!
+//! | Feature | Default | Description |
+//! |---|---|---|
+//! | `std` | Yes | Implies `alloc`; `std::io::Error` conversions and host files as tree content |
+//! | `alloc` | via `std` | The bounded reader metadata caches and `CacheOptions` |
+//! | `write` | Yes | Implies `alloc`; the writer, [`plan`], `Session` and [`IsoOptions`] |
+//! | `sync` | Yes | The blocking API in `sync` |
+//! | `async` | No | The common asynchronous API in `async_`; futures are Send for Send devices and operation state |
+//! | `tracing` | No | Operation spans through the `tracing` crate, also without `std` |
+//!
+//! No feature changes what an item does.
+
+#![no_std]
+#![deny(missing_docs)]
+#![allow(async_fn_in_trait)]
+// Sync and async APIs intentionally compile the same source modules twice.
+#![allow(clippy::duplicate_mod)]
+#![cfg_attr(docsrs, feature(doc_cfg))]
+#![cfg_attr(
+    not(all(feature = "write", any(feature = "sync", feature = "async"))),
+    allow(dead_code)
+)]
+
+#[cfg(feature = "alloc")]
+extern crate alloc;
+
+#[cfg(any(feature = "std", test))]
+extern crate std;
+
+#[cfg(feature = "alloc")]
+mod cache;
+#[cfg(feature = "alloc")]
+#[cfg_attr(docsrs, doc(cfg(feature = "alloc")))]
+pub use cache::CacheOptions;
+
+mod boot;
+mod error;
+mod info;
+mod name;
+mod namespace;
+#[cfg(feature = "write")]
+mod options;
+#[cfg(feature = "write")]
+mod plan;
+mod rock_ridge;
+#[cfg(kani)]
+mod verification;
+mod volume_info;
+
+/// The `hadris-iso-raw` layouts this crate's API returns:
+/// [`VolumeDescriptor`](raw::VolumeDescriptor) from `IsoFs::descriptor`,
+/// [`BootSectionEntry`](raw::BootSectionEntry) from `CatalogEntry::raw`, and
+/// the types of their fields and methods.
+///
+/// The other layouts and codecs are in `hadris-iso-raw`, which versions
+/// apart from this crate; depend on it directly to use them.
+pub mod raw {
+    pub use hadris_iso_raw::{
+        BootRecordVolumeDescriptor, BootSectionEntry, DecDateTime, DescriptorType, DirDateTime,
+        DirectoryRecordHeader, FileFlags, IsoStr, PrimaryVolumeDescriptor, RootDirectoryRecord,
+        SupplementaryVolumeDescriptor, U16Both, U16Le, U32Be, U32Both, U32Le, VolumeDescriptor,
+        VolumeDescriptorHeader, VolumeDescriptorSetTerminator,
+    };
+}
+
+#[cfg(feature = "sync")]
+#[cfg_attr(docsrs, doc(cfg(feature = "sync")))]
+#[path = ""]
+pub mod sync {
+    //! The blocking API.
+
+    macro_rules! io_transform {
+        ($($item:tt)*) => { hadris_macros::strip_async!{ $($item)* } };
+    }
+
+    #[cfg(feature = "write")]
+    use hadris_fs::sync as fs;
+    #[cfg(feature = "write")]
+    use hadris_part::sync as part;
+    use hadris_storage::sync as storage;
+
+    #[allow(unused_macros)]
+    macro_rules! sync_only { ($($item:tt)*) => { $($item)* }; }
+    #[allow(unused_macros)]
+    macro_rules! async_only {
+        ($($item:tt)*) => {};
+    }
+
+    use hadris_fs::sync::FileSystem;
+
+    #[path = "image.rs"]
+    mod image;
+    pub use image::IsoFs;
+    #[cfg(feature = "write")]
+    #[path = "write.rs"]
+    mod write;
+    #[cfg(feature = "write")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "write")))]
+    pub use write::write;
+    #[cfg(feature = "write")]
+    #[path = "session.rs"]
+    mod session;
+    #[cfg(feature = "write")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "write")))]
+    pub use session::Session;
+}
+
+pub use boot::{BootCatalog, CatalogEntries, CatalogEntry, Emulation, Platform};
+pub use error::Detail;
+pub use namespace::{JolietLevel, Namespace, Namespaces};
+#[cfg(feature = "write")]
+#[cfg_attr(docsrs, doc(cfg(feature = "write")))]
+pub use options::{
+    AppendedPartition, BootEntry, BootInfo, ElTorito, Hybrid, IsoLevel, IsoOptions, NameCase,
+    Preserve, Relocation, SessionMode,
+};
+#[cfg(feature = "write")]
+#[cfg_attr(docsrs, doc(cfg(feature = "write")))]
+pub use plan::plan;
+pub use rock_ridge::RockRidgeInfo;
+pub use volume_info::{IsoDate, IsoId, VolumeInfo};
+
+#[cfg(test)]
+extern crate self as hadris_iso;
+
+/// The common async API, with Send guarantees derived from the device and operation state.
+#[cfg(feature = "async")]
+#[path = "unified.rs"]
+pub mod async_;
+
+/// Compiles the README's Rust examples as doctests.
+#[cfg(all(doctest, feature = "std", feature = "sync", feature = "write"))]
+#[doc = include_str!("../README.md")]
+struct ReadmeDoctests;

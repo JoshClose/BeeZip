@@ -19,9 +19,10 @@ use crate::{
 
 /// Create an archive from files and folders. Each input is stored under its own name (`src/`
 /// becomes `src/…`). The format comes from `format` or the output's extension (`.zip`, `.7z`,
-/// `.tar`, `.tar.zst`, `.tgz`, `.cpio.gz`, `.ar`, `.cab`…); ar and cab hold files only. The
-/// archive is written to a temporary file and renamed into place, so a failed or cancelled
-/// create leaves nothing behind.
+/// `.tar`, `.tar.zst`, `.tgz`, `.cpio.gz`, `.ar`, `.cab`, `.iso`, `.squashfs`, `.dmg`…); ar
+/// and cab hold files only. An ISO has Joliet and Rock Ridge, a DMG is an HFS+ volume in a
+/// zlib-compressed image. The archive is written to a temporary file and renamed into place,
+/// so a failed or cancelled create leaves nothing behind.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, clap::Args, TS)]
 #[serde(deny_unknown_fields)]
 #[ts(optional_fields)]
@@ -37,7 +38,8 @@ pub struct ArchiveCreateInput {
     pub format: Option<ArchiveFormatName>,
     /// The compression method: for zip `store`, `deflate` (the default), `bzip2`, `zstd`, `xz`
     /// or `ppmd`; for 7z `lzma2` (the default), `lzma`, `ppmd`, `bzip2`, `deflate` or `copy`; for
-    /// cab `mszip` (the default) or `store`. A tar's or cpio's codec comes from `format`.
+    /// cab `mszip` (the default) or `store`; for squashfs `gzip` (the default), `xz`, `zstd`,
+    /// `lz4` or `lzo`. A tar's or cpio's codec comes from `format`.
     #[arg(short, long, value_enum)]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub method: Option<MethodName>,

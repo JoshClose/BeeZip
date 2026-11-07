@@ -1813,7 +1813,7 @@ impl ArchiveWriter for CabWriter {
         added
     }
 
-    fn finish(mut self: Box<Self>) -> Result<()> {
+    fn finish(mut self: Box<Self>, _: &mut dyn Ctx) -> Result<()> {
         if self.broken {
             return Err(Error::invalid_args(
                 "the cabinet can't be finished after a file failed",
@@ -1860,6 +1860,7 @@ mod tests {
             modified: Some(when()),
             unix_mode: None,
             dos_attrs: None,
+            source: None,
         }
     }
 
@@ -1880,7 +1881,7 @@ mod tests {
         for (e, (_, d)) in entries.iter().zip(files) {
             w.add(e, &mut &d[..], &mut cx).unwrap();
         }
-        Box::new(w).finish().unwrap();
+        Box::new(w).finish(&mut SimpleCtx::new()).unwrap();
     }
 
     fn open(path: &Path) -> Result<CabReader> {
@@ -2050,14 +2051,14 @@ mod tests {
             .add(&new_entry("a", 1), &mut &b"a"[..], &mut cx)
             .unwrap_err();
         assert_eq!(err.kind, ErrorKind::InvalidArgs);
-        let err = Box::new(w).finish().unwrap_err();
+        let err = Box::new(w).finish(&mut SimpleCtx::new()).unwrap_err();
         assert_eq!(err.kind, ErrorKind::InvalidArgs);
 
         let mut w = writer(&path, CabMethod::Mszip, None);
         w.expect(&announced).unwrap();
         w.add(&announced[2], &mut &b"ccccc"[..], &mut cx).unwrap();
         w.add(&b, &mut &pattern(70_000)[..], &mut cx).unwrap();
-        Box::new(w).finish().unwrap();
+        Box::new(w).finish(&mut SimpleCtx::new()).unwrap();
         // The list is in the order the data is, and `a` never came.
         check(&path, &[("c", b"ccccc".to_vec()), ("b", pattern(70_000))]);
     }
@@ -2072,7 +2073,7 @@ mod tests {
             .add(&e, &mut &b"abc"[..], &mut SimpleCtx::new())
             .unwrap_err();
         assert_eq!(err.kind, ErrorKind::Corrupt);
-        assert!(Box::new(w).finish().is_err());
+        assert!(Box::new(w).finish(&mut SimpleCtx::new()).is_err());
     }
 
     #[test]
@@ -2125,7 +2126,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("e.cab");
         let w = writer(&path, CabMethod::Mszip, None);
-        Box::new(w).finish().unwrap();
+        Box::new(w).finish(&mut SimpleCtx::new()).unwrap();
         let head = std::fs::read(&path).unwrap();
         assert_eq!(head.len(), HEADER_LEN + 8);
         assert_eq!(

@@ -1277,7 +1277,7 @@ impl ArchiveWriter for ZipWriter {
         }
     }
 
-    fn finish(self: Box<Self>) -> Result<()> {
+    fn finish(self: Box<Self>, _: &mut dyn Ctx) -> Result<()> {
         match self.out {
             Out::Plain(zip) => {
                 let mut file = zip.finish().map_err(write_zip_error)?;

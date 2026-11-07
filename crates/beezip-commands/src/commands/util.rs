@@ -242,7 +242,9 @@ pub(crate) mod tests {
         assert_eq!(s("d.e.zip"), "d.e");
         assert_eq!(s(".zip"), ".zip");
         assert_eq!(s("e.tar.zst.002"), "e");
-        assert_eq!(s("big.iso.001"), "big.iso");
+        // A split ISO is an archive's set; a split file of anything else keeps its name.
+        assert_eq!(s("big.iso.001"), "big");
+        assert_eq!(s("big.img.001"), "big.img");
         assert_eq!(s("a.part1.rar"), "a");
     }
 

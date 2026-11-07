@@ -1,17 +1,20 @@
 #!/bin/bash
-# Makes tests/fixtures/thirdparty/linux/ (docs/M5.md §10): GNU ar archives from binutils' ar, and
-# debs from dpkg-deb in each compression, then merges their records into manifest.json. Run it
-# from Windows, in the repository:
+# Makes tests/fixtures/thirdparty/linux/ and thirdparty/squashfs/ (docs/M5.md §10): GNU ar
+# archives from binutils' ar, debs from dpkg-deb in each compression, and squashfs images from
+# mksquashfs, one per compressor, then merges their records into manifest.json. Run it from
+# Windows, in the repository:
 #
 #   wsl -e bash tests/fixtures/make-linux.sh
 #
 # Tools (WSL's Ubuntu 24.04, 2026-11-06): GNU ar and as 2.42 (binutils), dpkg-deb 1.22.6,
-# python3 3.12, and Windows' 7-Zip 26.00 through WSL's interop for `7z t`.
+# mksquashfs and unsquashfs 4.6.1 (squashfs-tools), python3 3.12, and Windows' 7-Zip 26.00
+# through WSL's interop for `7z t`.
 #
 # Everything is made in a temporary folder on WSL's own disk with fixed times (SOURCE_DATE_EPOCH,
 # touch -d) and deterministic ar headers, so a rerun writes the same bytes. The expected entries
 # come from the tools themselves: `ar t` and `ar p` for ar, `dpkg-deb -R` (and its data.tar's
-# hard links) for debs; tests/fixtures/oracles.py must agree with them.
+# hard links) for debs, `unsquashfs -lln` and what `unsquashfs -d` extracts for squashfs;
+# tests/fixtures/oracles.py must agree with the first two.
 set -euo pipefail
 
 here="$(cd "$(dirname "$0")" && pwd)"
@@ -24,7 +27,7 @@ export SOURCE_DATE_EPOCH=1767225600 # 2026-01-01T00:00:00Z
 export LC_ALL=C.UTF-8 TZ=UTC
 stamp="@$SOURCE_DATE_EPOCH"
 
-command -v ar as dpkg-deb python3 >/dev/null
+command -v ar as dpkg-deb mksquashfs unsquashfs python3 >/dev/null
 [ -x "$seven" ] || { echo "no 7-Zip at $seven" >&2; exit 1; }
 
 cd "$work"
@@ -78,6 +81,59 @@ for z in gzip xz zstd none; do
     dpkg-deb --root-owner-group -Z"$z" --build "$pkg" "made/deb-$z.deb" >/dev/null
 done
 
+# squashfs: 4 KiB blocks so that small files make several. A file of text, random bytes and text
+# (compressed and stored blocks, a short last one), one with two blocks of zeros (holes), small
+# files (fragments), a hard link, a symlink and one whose target is 301 bytes, non-ASCII names,
+# an xattr on every file (ignored), and a character device and a FIFO from pseudo definitions,
+# since this isn't run as root. Each image is checked by `unsquashfs` and `7z t`.
+sq="$work/sqsrc"
+mkdir -p "$sq/docs/deep/er" "$sq/ünïcödé" made/squashfs
+printf 'Hello, BeeZip!\n' > "$sq/hello.txt"
+python3 -I -c 'import random, sys; sys.stdout.buffer.write(random.Random(42).randbytes(3000))' > "$sq/random.bin"
+: > "$sq/empty.txt"
+python3 -I -c '
+import random, sys
+text = b"".join(b"line %d of a file of several blocks\n" % i for i in range(250))
+sys.stdout.buffer.write(text[:8192] + random.Random(7).randbytes(4096) + text[:1500])' > "$sq/docs/blocks.bin"
+python3 -I -c 'import sys; sys.stdout.buffer.write(b"start\n" + bytes(4090 + 8192) + b"end\n")' > "$sq/docs/sparse.bin"
+ln "$sq/hello.txt" "$sq/docs/hard-hello"
+ln -s ../hello.txt "$sq/docs/link-to-hello"
+ln -s "$(printf 'x/%.0s' $(seq 150))t" "$sq/docs/long-link"
+printf 'deep\n' > "$sq/docs/deep/er/deep.txt"
+printf 'non-ASCII names\n' > "$sq/ünïcödé/名前.txt"
+find "$sq" -exec touch -h -d "$stamp" {} +
+pseudo=(-p "/devs D $SOURCE_DATE_EPOCH 755 0 0" -p "/devs/null C $SOURCE_DATE_EPOCH 666 0 0 1 3"
+    -p "/devs/fifo I $SOURCE_DATE_EPOCH 644 0 0 f")
+squash() {
+    local name=$1
+    shift
+    mksquashfs "$sq" "made/squashfs/$name" -noappend -quiet -no-progress -b 4K -all-root \
+        "${pseudo[@]}" -xattrs-add 'user.beezip=1' "$@" >/dev/null
+}
+squash gzip.squashfs -comp gzip
+squash gzip-1.squashfs -comp gzip -Xcompression-level 1
+squash gzip-tailends.squashfs -comp gzip -tailends
+squash gzip-nofrag.squashfs -comp gzip -no-fragments
+squash uncompressed.squashfs -comp gzip -no-compression
+squash xz.squashfs -comp xz
+squash xz-bcj.squashfs -comp xz -Xbcj x86
+squash lzma.squashfs -comp lzma
+squash lzo.squashfs -comp lzo
+squash lz4.squashfs -comp lz4
+squash lz4hc.squashfs -comp lz4 -Xhc
+squash zstd.squashfs -comp zstd
+# A name that isn't UTF-8 (Latin-1), for docs/M5.md §6.
+mkdir -p "$work/latin1"
+printf 'caf\xe9\n' > "$work/latin1/$(printf 'caf\xe9.txt')"
+touch -h -d "$stamp" "$work/latin1"/* "$work/latin1"
+mksquashfs "$work/latin1" made/squashfs/latin1.squashfs -noappend -quiet -no-progress -all-root \
+    >/dev/null
+
+sqout="$here/thirdparty/squashfs"
+mkdir -p "$sqout"
+find "$sqout" -maxdepth 1 -type f -name '*.squashfs' -delete
+cp made/squashfs/*.squashfs "$sqout/"
+
 mkdir -p "$out/broken"
 find "$out" -maxdepth 2 -type f \( -name '*.a' -o -name '*.deb' -o -name 'README.md' \) -delete
 cp made/*.a made/*.deb "$out/"
@@ -93,15 +149,17 @@ hang or a large allocation.
 | `ar-thin.a` | UnsupportedFormat | A GNU thin archive (`ar rcT`): it starts `!<thin>` and its members are names of other files, not data. |
 README
 
-# The records, merged into manifest.json: this script owns linux/.
-python3 -I -B - "$here" "$work/made" "$(ar --version | head -n 1)" "$(dpkg-deb --version | head -n 1)" "$seven" <<'PY'
-import io, json, os, re, subprocess, sys, tempfile
-here, made, ar_version, dpkg_version, seven = sys.argv[1:6]
+# The records, merged into manifest.json: this script owns linux/ and squashfs/.
+python3 -I -B - "$here" "$work/made" "$(ar --version | head -n 1)" "$(dpkg-deb --version | head -n 1)" "$seven" \
+    "$(mksquashfs -version | head -n 1)" <<'PY'
+import io, json, os, re, stat, subprocess, sys, tempfile
+here, made, ar_version, dpkg_version, seven, mksquashfs_version = sys.argv[1:7]
 sys.path.insert(0, here)
 import oracles
 
 ar_name = 'GNU ar ' + ar_version.split()[-1] + ' (binutils, Ubuntu 24.04 in WSL)'
 dpkg_name = 'dpkg-deb ' + re.search(r'version (\S+)', dpkg_version).group(1) + ' (Ubuntu 24.04 in WSL)'
+squashfs_name = 'mksquashfs ' + mksquashfs_version.split()[2] + ' (squashfs-tools, Ubuntu 24.04 in WSL)'
 
 
 def run(*args):
@@ -197,14 +255,98 @@ for z, ext in want.items():
         raise SystemExit(f'{name} holds {members}, not {data}')
     records.append(record(name, dpkg_name, f'dpkg-deb --root-owner-group -Z{z} --build pkg {name}', 'deb', listing))
 
+
+def squashfs_listing(path, encoding):
+    """`unsquashfs -lln` for the kinds, sizes and link targets, and what `unsquashfs -d` extracts
+    for the bytes and hard links (as non-root it can't make the character device, so that one is
+    left out of the extraction). Names are bytes, decoded as BeeZip decodes them."""
+    raw = run('unsquashfs', '-lln', '-no-xattrs', path)
+    listed = {}
+    for line in raw.split(b'\n'):
+        m = re.match(rb'^(\S)\S{9} \d+/\d+ +(\S+(?:, +\d+)?) \S+ \S+ squashfs-root/(.+)$', line)
+        if not m:
+            continue
+        kind, size, name = m.group(1), m.group(2), m.group(3)
+        target = None
+        if kind == b'l':
+            name, target = name.split(b' -> ', 1)
+        listed[name] = (kind, size, target)
+    tmp = tempfile.mkdtemp()
+    root = os.path.join(tmp, 'root')
+    devices = [n for n, (k, _, _) in listed.items() if k in b'cb']
+    run('unsquashfs', '-no-xattrs', '-q', '-n', '-excludes', '-d', root, path, *devices)
+    entries, others, inodes = [], [], {}
+    for name in sorted(listed):
+        kind, size, target = listed[name]
+        rel = '/'.join(oracles.decode(p, encoding) for p in name.split(b'/'))
+        full = os.path.join(os.fsencode(root), name)
+        if kind == b'-':
+            st = os.lstat(full)
+            with open(full, 'rb') as f:
+                data = f.read()
+            if len(data) != int(size):
+                raise SystemExit(f'{path}: {name!r} is {len(data)} bytes, listed as {size}')
+            entries.append(oracles.file_entry(rel, data))
+            inodes.setdefault(st.st_ino, []).append(rel)
+        elif kind == b'l':
+            if os.readlink(full) != target:
+                raise SystemExit(f'{path}: {name!r} points elsewhere when extracted')
+            entries.append(oracles.link_entry(rel, oracles.decode(target, encoding)))
+        elif kind != b'd':
+            if kind == b'p' and not stat.S_ISFIFO(os.lstat(full).st_mode):
+                raise SystemExit(f'{path}: {name!r} was extracted as something else')
+            others.append({'path': rel, 'kind': 'other'})
+    hardlinks = sum(len(names) - 1 for names in inodes.values())
+    return entries + others, hardlinks
+
+
+squashfs_images = [
+    ('gzip.squashfs', '-comp gzip'),
+    ('gzip-1.squashfs', '-comp gzip -Xcompression-level 1'),
+    ('gzip-tailends.squashfs', '-comp gzip -tailends'),
+    ('gzip-nofrag.squashfs', '-comp gzip -no-fragments'),
+    ('uncompressed.squashfs', '-comp gzip -no-compression'),
+    ('xz.squashfs', '-comp xz'),
+    ('xz-bcj.squashfs', '-comp xz -Xbcj x86'),
+    ('lzma.squashfs', '-comp lzma'),
+    ('lzo.squashfs', '-comp lzo'),
+    ('lz4.squashfs', '-comp lz4'),
+    ('lz4hc.squashfs', '-comp lz4 -Xhc'),
+    ('zstd.squashfs', '-comp zstd'),
+]
+squashfs_records = []
+for name, options in squashfs_images + [('latin1.squashfs', None)]:
+    path = os.path.join(made, 'squashfs', name)
+    encoding = 'cp1252' if name == 'latin1.squashfs' else None
+    entries, hardlinks = squashfs_listing(path, encoding)
+    if options is None:
+        command = 'mksquashfs latin1 latin1.squashfs -all-root (a file named caf\\xe9.txt, in Latin-1)'
+    else:
+        command = (f'mksquashfs src {name} -b 4K -all-root {options} -xattrs-add user.beezip=1 '
+                   '-p "/devs/null C ... 1 3" -p "/devs/fifo I ... f"')
+    r = {
+        'file': 'squashfs/' + name, 'producer': squashfs_name, 'command': command,
+        'chain': 'squashfs', 'password': None, 'utc_mtimes': True, 'hardlinks': hardlinks,
+        'symlinks': sum(1 for e in entries if e['kind'] == 'symlink'),
+        'others': sum(1 for e in entries if e['kind'] == 'other'),
+        '7z_test': test_7z(path), 'entries': entries,
+    }
+    if encoding:
+        r['encoding'] = encoding
+    if r['7z_test'] == "can't open it":
+        r['note'] = '7-Zip 26.00 can\'t open lz4 squashfs; the expected entries come from unsquashfs 4.6.1'
+    squashfs_records.append(r)
+
 manifest_path = os.path.join(here, 'manifest.json')
 with open(manifest_path, encoding='utf-8') as f:
     manifest = json.load(f)
-old = manifest['fixtures']
-mine = lambda r: r['file'].startswith('linux/')
-# The new records go where the old ones were, so a rerun leaves the order alone.
-at = next((i for i, r in enumerate(old) if mine(r)), len(old))
-manifest['fixtures'] = old[:at] + records + [r for r in old[at:] if not mine(r)]
+for prefix, new in [('linux/', records), ('squashfs/', squashfs_records)]:
+    old = manifest['fixtures']
+    mine = lambda r: r['file'].startswith(prefix)
+    # The new records go where the old ones were, so a rerun leaves the order alone.
+    at = next((i for i, r in enumerate(old) if mine(r)), len(old))
+    manifest['fixtures'] = old[:at] + new + [r for r in old[at:] if not mine(r)]
+records += squashfs_records
 with open(manifest_path, 'w', encoding='utf-8', newline='\n') as f:
     f.write(json.dumps(manifest, indent=2, ensure_ascii=False))
 for r in records:
