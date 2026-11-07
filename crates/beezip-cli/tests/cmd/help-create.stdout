@@ -1,7 +1,8 @@
 Create an archive from files and folders. Each input is stored under its own name (`src/`
-becomes `src/…`). The format comes from `format` or the output's extension (`.zip`, `.tar`,
-`.tar.zst`, `.tgz`…). The archive is written to a temporary file and renamed into place, so a
-failed or cancelled create leaves nothing behind.
+becomes `src/…`). The format comes from `format` or the output's extension (`.zip`, `.7z`,
+`.tar`, `.tar.zst`, `.tgz`, `.cpio.gz`, `.ar`, `.cab`…); ar and cab hold files only. The
+archive is written to a temporary file and renamed into place, so a failed or cancelled
+create leaves nothing behind.
 
 Usage: beezip create [OPTIONS] <OUTPUT> <INPUTS>...
 
@@ -17,14 +18,15 @@ Options:
           The archive format [default: from the output's extension]
           
           [possible values: zip, 7z, tar, tar.gz, tar.bz2, tar.xz, tar.lzma, tar.lz, tar.zst,
-          tar.lz4, tar.br, tar.sz]
+          tar.lz4, tar.br, tar.sz, tar.Z, tar.lzo, cpio, cpio.gz, cpio.bz2, cpio.xz, cpio.lzma,
+          cpio.lz, cpio.zst, cpio.lz4, cpio.br, cpio.sz, cpio.Z, cpio.lzo, ar, cab]
 
   -m, --method <METHOD>
           The compression method: for zip `store`, `deflate` (the default), `bzip2`, `zstd`, `xz` or
-          `ppmd`; for 7z `lzma2` (the default), `lzma`, `ppmd`, `bzip2`, `deflate` or `copy`. A
-          tar's codec comes from `format`
+          `ppmd`; for 7z `lzma2` (the default), `lzma`, `ppmd`, `bzip2`, `deflate` or `copy`; for
+          cab `mszip` (the default) or `store`. A tar's or cpio's codec comes from `format`
           
-          [possible values: store, deflate, bzip2, zstd, xz, ppmd, lzma2, lzma, copy]
+          [possible values: store, deflate, bzip2, zstd, xz, ppmd, lzma2, lzma, copy, mszip]
 
   -l, --level <LEVEL>
           The compression level; `formats.list` shows each codec's and method's range

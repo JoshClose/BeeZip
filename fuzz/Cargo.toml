@@ -85,3 +85,38 @@ debug-assertions = true
 
 [profile.release.package.libbz2-rs-sys]
 overflow-checks = false
+
+[[bin]]
+name = "cpio"
+path = "fuzz_targets/cpio.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "ar"
+path = "fuzz_targets/ar.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "rpm"
+path = "fuzz_targets/rpm.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "cab"
+path = "fuzz_targets/cab.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "lzh"
+path = "fuzz_targets/lzh.rs"
+test = false
+doc = false
+bench = false

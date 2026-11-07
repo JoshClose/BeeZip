@@ -15,10 +15,12 @@ use std::{
 use beezip_core::{
     CodecId, CreateOptions, EncodeOpts, FsOptions, OpenOptions, Selection, SimpleCtx, WriteSpec,
     format::{
+        cab::{CabMethod, CabWriteOptions},
         sevenz::{SevenZMethod, SevenZWriteOptions},
         zip::{ZipEncryption, ZipMethod, ZipWriteOptions},
     },
     ops,
+    time::to_dos,
 };
 use filetime::FileTime;
 use proptest::prelude::*;
@@ -311,6 +313,124 @@ combos! {
     tar_lz4: "tar.lz4", tar(Some(CodecId::Lz4)), None;
     tar_br: "tar.br", tar(Some(CodecId::Brotli)), None;
     tar_sz: "tar.sz", tar(Some(CodecId::Snappy)), None;
+    tar_z: "tar.Z", tar(Some(CodecId::Compress)), None;
+    tar_lzo: "tar.lzo", tar(Some(CodecId::Lzop)), None;
+    cpio_plain: "cpio", cpio(None), None;
+    cpio_gz: "cpio.gz", cpio(Some(CodecId::Gzip)), None;
+    cpio_bz2: "cpio.bz2", cpio(Some(CodecId::Bzip2)), None;
+    cpio_xz: "cpio.xz", cpio(Some(CodecId::Xz)), None;
+    cpio_lzma: "cpio.lzma", cpio(Some(CodecId::Lzma)), None;
+    cpio_lz: "cpio.lz", cpio(Some(CodecId::Lzip)), None;
+    cpio_zst: "cpio.zst", cpio(Some(CodecId::Zstd)), None;
+    cpio_lz4: "cpio.lz4", cpio(Some(CodecId::Lz4)), None;
+    cpio_br: "cpio.br", cpio(Some(CodecId::Brotli)), None;
+    cpio_sz: "cpio.sz", cpio(Some(CodecId::Snappy)), None;
+    cpio_z: "cpio.Z", cpio(Some(CodecId::Compress)), None;
+    cpio_lzo: "cpio.lzo", cpio(Some(CodecId::Lzop)), None;
+}
+
+fn cpio(codec: Option<CodecId>) -> WriteSpec {
+    WriteSpec::Cpio {
+        codec,
+        opts: EncodeOpts {
+            threads: 1,
+            ..EncodeOpts::default()
+        },
+    }
+}
+
+/// The files of `tree` under `dir`, by path, with their data and mtimes.
+fn flat(dir: &str, tree: &[Node], out: &mut Vec<(String, Vec<u8>, u64)>) {
+    for n in tree {
+        match n {
+            Node::File { name, data, mtime } => {
+                out.push((format!("{dir}/{name}"), data.clone(), *mtime))
+            }
+            Node::Dir { name, children, .. } => flat(&format!("{dir}/{name}"), children, out),
+        }
+    }
+}
+
+/// How a format stores times.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Times {
+    /// Unix seconds: they come back exactly.
+    Unix,
+    /// Local DOS times (CAB): the same DOS fields come back. They have 2-second steps, and a
+    /// local time in the hour repeated when summer time ends names two instants.
+    Dos,
+}
+
+/// A format that holds files only (ar, CAB): every file comes back with its bytes and its time;
+/// folders come from paths.
+fn files_round_trip(
+    ext: &str,
+    spec: &WriteSpec,
+    times: Times,
+    tree: &[Node],
+) -> Result<(), TestCaseError> {
+    let root = tempfile::tempdir().unwrap();
+    let input = root.path().join("in put");
+    fs::create_dir(&input).unwrap();
+    write(&input, tree);
+    let archive = root.path().join(format!("out.{ext}"));
+    ops::create(
+        &archive,
+        std::slice::from_ref(&input),
+        spec,
+        &CreateOptions::default(),
+        &mut SimpleCtx::new(),
+    )
+    .map_err(|e| TestCaseError::fail(format!("create: {e}")))?;
+    let dest = root.path().join("x");
+    let report = ops::extract(
+        &archive,
+        &dest,
+        &Selection::all(),
+        &OpenOptions::default(),
+        FsOptions::default(),
+        &mut SimpleCtx::new(),
+    )
+    .map_err(|e| TestCaseError::fail(format!("extract: {e}")))?;
+    prop_assert!(report.skipped.is_empty(), "{:?}", report.skipped);
+    let mut files = Vec::new();
+    flat("in put", tree, &mut files);
+    for (path, data, mtime) in files {
+        let p = dest.join(&path);
+        prop_assert!(
+            fs::read(&p).unwrap_or_default() == data,
+            "{} differs",
+            p.display()
+        );
+        let got = secs(&p);
+        let same = match times {
+            Times::Unix => got == mtime,
+            Times::Dos => to_dos(at(got)) == to_dos(at(mtime)),
+        };
+        prop_assert!(same, "mtime of {}: {got} for {mtime}", p.display());
+    }
+    no_partials(root.path())?;
+    Ok(())
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(cases()))]
+    #[test]
+    fn ar(tree in tree()) {
+        files_round_trip("ar", &WriteSpec::Ar, Times::Unix, &tree)?;
+    }
+
+    #[test]
+    fn cab_store(tree in tree()) {
+        let spec = WriteSpec::Cab(CabWriteOptions { method: CabMethod::Store });
+        files_round_trip("cab", &spec, Times::Dos, &tree)?;
+    }
+
+    #[test]
+    fn cab_mszip(tree in tree()) {
+        let spec = WriteSpec::Cab(CabWriteOptions { method: CabMethod::Mszip });
+        files_round_trip("cab", &spec, Times::Dos, &tree)?;
+    }
 }
 
 /// 7z has 38 combinations, so 8 cases each unless `PROPTEST_CASES` says otherwise.
@@ -397,7 +517,7 @@ proptest! {
 /// Every writable kind is covered above.
 #[test]
 fn every_kind_is_tested() {
-    assert_eq!(beezip_core::ArchiveKind::all().count(), 12);
+    assert_eq!(beezip_core::ArchiveKind::all().count(), 28);
 }
 
 #[test]
@@ -568,6 +688,50 @@ fn a_wrong_password_is_wrong_password() {
             "{enc:?}: {err:?}"
         );
     }
+}
+
+/// About 1 wrong password in 256 passes ZipCrypto's one-byte check, and the garbage it decrypts
+/// to then fails in the decompressor: that's a wrong password too. (`a_wrong_password_…` above
+/// failed this way 1 run in 256, the header being random.)
+#[test]
+fn a_wrong_password_past_zipcryptos_check_is_still_wrong() {
+    let root = tempfile::tempdir().unwrap();
+    let input = root.path().join("f.txt");
+    fs::write(&input, b"secret ".repeat(1000)).unwrap();
+    let archive = root.path().join("z.zip");
+    let spec = zip(
+        ZipMethod::Deflate,
+        Some(("right", ZipEncryption::ZipCrypto)),
+    );
+    ops::create(
+        &archive,
+        std::slice::from_ref(&input),
+        &spec,
+        &CreateOptions::default(),
+        &mut SimpleCtx::new(),
+    )
+    .unwrap();
+    let mut past_the_check = 0;
+    for i in 0..3000 {
+        let mut cx = SimpleCtx::new().with_password(format!("wrong{i}"));
+        let mut opened = beezip_core::open(&archive, &OpenOptions::default(), &mut cx).unwrap();
+        let mut data = Vec::new();
+        let err = match opened.reader.open_entry(0, &mut cx) {
+            Err(e) => e,
+            Ok(mut r) => {
+                past_the_check += 1;
+                r.read_to_end(&mut data)
+                    .map_err(|e| beezip_core::io::read_error(&e))
+                    .unwrap_err()
+            }
+        };
+        assert_eq!(
+            err.kind,
+            beezip_core::ErrorKind::WrongPassword,
+            "wrong{i}: {err}"
+        );
+    }
+    assert!(past_the_check > 0, "no password got past the check");
 }
 
 #[test]

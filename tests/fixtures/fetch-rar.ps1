@@ -309,8 +309,9 @@ foreach ($r in $rars.GetEnumerator()) {
     Add-Rar 'rars' $r.Key $r.Value[1] 'WinRAR, from rars 0.12.3''s tests' "rars-0.12.3/$($r.Value[0])"
 }
 
-# Copy into place, and merge the records into the manifest: this script owns the entries in
-# subfolders, make-thirdparty.ps1 the rest.
+# Copy into place, and merge the records into the manifest: this script owns libarchive/<name>
+# and rars/; fetch-libarchive.ps1 owns libarchive/<fmt>/, delharc/ and packages/, make-linux.sh
+# linux/, and make-thirdparty.ps1 the top-level names. Records it doesn't own are kept.
 foreach ($dir in 'libarchive', 'libarchive/broken', 'rars') {
     $target = Join-Path $out $dir
     New-Item -ItemType Directory -Force $target | Out-Null
@@ -319,8 +320,14 @@ foreach ($dir in 'libarchive', 'libarchive/broken', 'rars') {
 }
 $manifestPath = Join-Path $PSScriptRoot 'manifest.json'
 $manifest = Get-Content -Raw $manifestPath | ConvertFrom-Json -AsHashtable
-$kept = @($manifest.fixtures | Where-Object { $_.file -notlike '*/*' })
-$manifest.fixtures = $kept + $records
+$mine = { param($file) ($file -like 'libarchive/*' -and $file -notlike 'libarchive/*/*') -or $file -like 'rars/*' }
+# The new records go where the old ones were, so a rerun leaves the order alone.
+$old = @($manifest.fixtures)
+$at = 0
+while ($at -lt $old.Count -and -not (& $mine $old[$at].file)) { $at++ }
+$before = @(if ($at -gt 0) { $old[0..($at - 1)] })
+$after = @($old | Select-Object -Skip $at | Where-Object { -not (& $mine $_.file) })
+$manifest.fixtures = $before + $records + $after
 ($manifest | ConvertTo-Json -Depth 6) -replace "`r`n", "`n" | Set-Content -NoNewline $manifestPath
 Remove-Item -Recurse -Force $work
 $size = (Get-ChildItem -Recurse -File (Join-Path $out 'libarchive'), (Join-Path $out 'rars') | Measure-Object Length -Sum).Sum

@@ -157,6 +157,8 @@ levels_test!(zstd, CodecId::Zstd);
 levels_test!(lz4, CodecId::Lz4);
 levels_test!(brotli, CodecId::Brotli);
 levels_test!(snappy, CodecId::Snappy);
+levels_test!(compress, CodecId::Compress);
+levels_test!(lzop, CodecId::Lzop);
 
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(cases()))]
@@ -196,6 +198,7 @@ fn concatenated_streams_decode_whole() {
         CodecId::Lzip,
         CodecId::Zstd,
         CodecId::Lz4,
+        CodecId::Lzop,
     ] {
         let mut joined = encode(codec, &a, &EncodeOpts::default());
         joined.extend(encode(codec, &b, &EncodeOpts::default()));
@@ -246,6 +249,12 @@ fn truncated_streams_fail_as_corrupt() {
     for codec in CodecId::ALL {
         let packed = encode(codec, &data, &EncodeOpts::default());
         let cut = &packed[..packed.len() / 2];
+        if codec == CodecId::Compress {
+            // `.Z` has no end marker, length or checksum: a cut stream reads as a shorter one.
+            let short = decode(codec, cut);
+            assert!(!short.is_empty() && data.starts_with(&short), "{codec}");
+            continue;
+        }
         let result = codec
             .codec()
             .decoder(Box::new(cut), &Limits::default())

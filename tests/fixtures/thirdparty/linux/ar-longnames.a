@@ -1,0 +1,13 @@
+!<arch>
+//                                              62        `
+a-member-with-a-long-name.txt/
+another-long-member-name.txt/
+
+hello.txt/      0           0     0     644     15        `
+Hello, BeeZip!
+
+/0              0           0     0     644     37        `
+a member whose name is past 15 bytes
+
+/31             0           0     0     644     8         `
+another

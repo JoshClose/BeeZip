@@ -45,6 +45,11 @@ const DOCUMENTS: &[&str] = &[
 /// Extensions that only name a later part of a set; the first part is what people open.
 const LATER_PARTS: &[&str] = &["r00"];
 
+/// Extensions Windows opens itself: it mounts disk images and shows cabinets as folders, and
+/// taking those over would surprise people (docs/M5.md §5.12). Explorer's menu still offers
+/// BeeZip's items for them.
+const WINDOWS_OWNS: &[&str] = &["cab", "iso"];
+
 pub fn run(debug: bool, version: Option<&str>, sign_dev: bool) -> anyhow::Result<()> {
     let root = workspace_root();
     let profile = if debug { "debug" } else { "release" };
@@ -236,8 +241,8 @@ fn hooks(root: &Path, associations: &[Value], version: &str) -> anyhow::Result<P
 }
 
 /// One association per extension, `BeeZip.<ext>`, from `formats.list`: every archive and
-/// compressed-file extension BeeZip reads, but not the document formats or later parts, plus
-/// `.001` for numbered volume sets.
+/// compressed-file extension BeeZip reads, but not the document formats, later parts, or what
+/// Windows opens itself, plus `.001` for numbered volume sets.
 pub fn associations() -> anyhow::Result<Vec<Value>> {
     let formats = Engine::new(registry())
         .invoke(
@@ -261,6 +266,7 @@ pub fn associations() -> anyhow::Result<Vec<Value>> {
             if ext.is_empty()
                 || DOCUMENTS.contains(&ext.as_str())
                 || LATER_PARTS.contains(&ext.as_str())
+                || WINDOWS_OWNS.contains(&ext.as_str())
             {
                 continue;
             }
@@ -307,11 +313,12 @@ mod tests {
         let exts: Vec<&str> = list.iter().map(|a| a["ext"][0].as_str().unwrap()).collect();
         for want in [
             "zip", "7z", "rar", "tar", "gz", "tgz", "bz2", "tbz2", "xz", "txz", "zst", "tzst",
-            "lz", "tlz", "lzma", "lz4", "br", "sz", "cbz", "cb7", "cbr", "001",
+            "lz", "tlz", "lzma", "lz4", "br", "sz", "cbz", "cb7", "cbr", "001", "cpio", "ar",
+            "deb", "udeb", "rpm", "lzh", "lha", "z", "taz", "lzo", "tzo",
         ] {
             assert!(exts.contains(&want), "{want} is missing from {exts:?}");
         }
-        for not in ["docx", "jar", "epub", "r00"] {
+        for not in ["docx", "jar", "epub", "r00", "cab", "iso", "a", "lib"] {
             assert!(!exts.contains(&not), "{not} shouldn't be associated");
         }
         assert_eq!(list[0]["name"], format!("BeeZip.{}", exts[0]));

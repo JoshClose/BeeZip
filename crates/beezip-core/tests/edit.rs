@@ -28,12 +28,15 @@ use beezip_core::{
 };
 use proptest::prelude::*;
 
-const KINDS: [ArchiveKind; 5] = [
+const KINDS: [ArchiveKind; 8] = [
     ArchiveKind::Zip,
     ArchiveKind::SevenZ,
     ArchiveKind::Tar(None),
     ArchiveKind::Tar(Some(CodecId::Zstd)),
     ArchiveKind::Tar(Some(CodecId::Gzip)),
+    ArchiveKind::Cpio(None),
+    ArchiveKind::Cpio(Some(CodecId::Gzip)),
+    ArchiveKind::Ar,
 ];
 
 fn ext(kind: ArchiveKind) -> String {
@@ -52,6 +55,12 @@ fn spec(kind: ArchiveKind) -> WriteSpec {
             codec,
             opts: EncodeOpts::default(),
         },
+        ArchiveKind::Cpio(codec) => WriteSpec::Cpio {
+            codec,
+            opts: EncodeOpts::default(),
+        },
+        ArchiveKind::Ar => WriteSpec::Ar,
+        ArchiveKind::Cab => WriteSpec::Cab(Default::default()),
     }
 }
 
@@ -290,7 +299,9 @@ fn add_rename_remove_on_every_format() {
             &add(&[incoming.join("new.txt")], "docs", OverwritePolicy::Never),
         )
         .unwrap();
-        assert_eq!((r.added, r.entries), (1, 6), "{kind:?}");
+        // ar holds files only: its folders come from their paths.
+        let folder = usize::from(kind != ArchiveKind::Ar);
+        assert_eq!((r.added, r.entries), (1, 5 + folder as u64), "{kind:?}");
         let mut want = map(&[
             ("a.txt", b"alpha"),
             ("docs/b.txt", b"bravo"),
@@ -302,13 +313,18 @@ fn add_rename_remove_on_every_format() {
         tests_clean(&archive, &mut SimpleCtx::new());
 
         let r = edit(&archive, &rename("docs", "papers")).unwrap();
-        assert_eq!(r.renamed, 4, "{kind:?}: the folder and its three files");
+        assert_eq!(
+            r.renamed,
+            3 + folder as u64,
+            "{kind:?}: the folder and its three files"
+        );
         want = want
             .into_iter()
             .map(|(k, v)| (k.replacen("docs/", "papers/", 1), v))
             .collect();
         assert_eq!(files(&archive), want, "{kind:?} after rename");
-        assert_eq!(read(&archive).dirs, ["papers"], "{kind:?}");
+        let dirs: &[&str] = if folder == 1 { &["papers"] } else { &[] };
+        assert_eq!(read(&archive).dirs, dirs, "{kind:?}");
 
         let r = edit(&archive, &remove(&["papers/b.txt", "a.txt"])).unwrap();
         assert_eq!(r.removed, 2, "{kind:?}");
@@ -1342,11 +1358,21 @@ fn split_sfx_rar_and_read_only_formats_are_refused() {
         ("7z-7zsfx.exe", "self-extracting"),
         ("rars/ext_time_rar420.rar", "RAR"),
         ("7z-readme.md.gz", "compressed file"),
+        ("packages/python3-six_1.17.0-1_all.deb", "dpkg-deb's job"),
+        (
+            "packages/python3-six-1.17.0-7.fc43.noarch.rpm",
+            "RPM package",
+        ),
+        ("libarchive/lzh/test_read_format_lha_lh6.lzh", "LHA archive"),
+        ("makecab-mszip.cab", "creates but doesn't edit"),
     ];
     for (name, why) in cases {
         let e = edit(&thirdparty(name), &remove(&["anything"])).unwrap_err();
         assert_eq!(e.kind, ErrorKind::UnsupportedOperation, "{name}: {e}");
         assert!(e.message.contains(why), "{name}: {e}");
+        // One line, as a string's line continuation makes it.
+        let one_line = !e.message.contains('\n') && !e.message.contains("  ");
+        assert!(one_line, "{name}: {e:?}");
     }
 }
 

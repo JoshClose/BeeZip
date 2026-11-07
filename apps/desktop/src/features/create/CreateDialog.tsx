@@ -42,7 +42,8 @@ export type CreateForm = {
 export function applies(f: Pick<CreateForm, "format" | "method">, formats?: FormatsListOutput) {
   const methods = formats ? methodsOf(formats, f.format) : [];
   const codec = formats ? codecOfTar(formats, f.format) : undefined;
-  const method = methods.find((m) => m.id === (f.method ?? (f.format === "7z" ? "lzma2" : "deflate")));
+  const fallback = f.format === "7z" ? "lzma2" : f.format === "cab" ? "mszip" : "deflate";
+  const method = methods.find((m) => m.id === (f.method ?? fallback));
   const level: LevelRange | null = f.format === "zip" || f.format === "7z" ? (method?.levels ?? null) : (codec?.levels ?? null);
   const archive = f.format === "zip" || f.format === "7z";
   const stored = f.method === "store" || f.method === "copy";
@@ -58,7 +59,10 @@ export function applies(f: Pick<CreateForm, "format" | "method">, formats?: Form
 }
 
 /** Archive extensions a name may already end with, longest first. */
-const KNOWN = ["tar.gz", "tar.bz2", "tar.xz", "tar.lzma", "tar.lz", "tar.zst", "tar.lz4", "tar.br", "tar.sz", "tgz", "tbz2", "txz", "tzst", "zip", "7z", "tar"];
+const KNOWN = [
+  ...["tar", "cpio"].flatMap((a) => ["gz", "bz2", "xz", "lzma", "lz", "zst", "lz4", "br", "sz", "z", "lzo"].map((c) => `${a}.${c}`)),
+  ...["tgz", "tbz2", "txz", "tzst", "taz", "tzo", "zip", "7z", "tar", "cpio", "ar", "cab"],
+];
 
 /** The new archive's name for a format: `a.zip` → `a.7z`, `a.tar.gz` → `a.tar.zst`. */
 export function withFormat(output: string, to: string): string {

@@ -7,7 +7,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vites
 import { dropPaths, dropZone } from "../lib/drop";
 import { Browser } from "../features/browser/Browser";
 import { convertArgs, convertOutput, CreateDialog, type CreateForm } from "../features/create/CreateDialog";
-import { AddDialog, addArgs, initialAdd } from "../features/edit/AddDialog";
+import { AddDialog, addArgs, editFormat, initialAdd } from "../features/edit/AddDialog";
 import { deleteSelection } from "../features/edit/confirmDelete";
 import type { ArchiveInfoOutput, EditOutput, EntryInfo, FormatsListOutput } from "../gen/commands";
 import { archiveArgs, type Tab, useArchives } from "../lib/archives";
@@ -464,5 +464,24 @@ describe("converting (docs/M5.md §8.5)", () => {
     expect(screen.getByLabelText("Password")).toHaveValue("pw");
     expect(screen.queryByRole("checkbox", { name: /without a password/ })).toBeNull();
     expect(screen.getByRole("button", { name: /Convert/ })).toBeEnabled();
+  });
+});
+
+describe("the add dialog's format", () => {
+  it("names a compressed tar or cpio as formats.list does", () => {
+    const all: FormatsListOutput = {
+      ...formats,
+      codecs: [
+        ...formats.codecs,
+        { id: "compress", name: "Unix compress (.Z)", extensions: [".z", ".taz"], levels: null, threads: false, detected: true },
+        { id: "gzip", name: "gzip", extensions: [".gz", ".tgz"], levels: levels(0, 9, 6), threads: false, detected: true },
+      ],
+      create: [...formats.create, "tar.Z", "cpio", "cpio.gz", "ar"],
+    };
+    expect(editFormat(info({ format: "tar", codecs: ["compress"] }), all)).toBe("tar.Z");
+    expect(editFormat(info({ format: "cpio", codecs: ["gzip"] }), all)).toBe("cpio.gz");
+    expect(editFormat(info({ format: "cpio" }), all)).toBe("cpio");
+    expect(editFormat(info({ format: "ar" }), all)).toBe("ar");
+    expect(editFormat(info({ format: "tar", codecs: ["zstd"] }), all)).toBe("tar.zst");
   });
 });

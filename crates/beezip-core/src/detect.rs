@@ -21,8 +21,8 @@ use crate::{
     CodecId, Error, Limits, Result,
     codec::{codecs, strip_extension},
     format::{
-        FormatId, formats, rar::signature as rar_signature,
-        sevenz::start_header as sevenz_start_header, zip::is_sfx,
+        FormatId, cab::header_at as cab_header, formats, lzh::header_at as lzh_header,
+        rar::signature as rar_signature, sevenz::start_header as sevenz_start_header, zip::is_sfx,
     },
     io::read_prefix,
     volume::{SetKind, VolumeReader, find_set},
@@ -271,7 +271,8 @@ pub fn pe_overlay(head: &[u8]) -> Option<u64> {
     (end > 0).then_some(end)
 }
 
-/// An archive at the overlay of a PE file: its offset and its format layer.
+/// An archive at the overlay of a PE file: its offset and its format layer. 7z, RAR, CAB and LHA
+/// SFX modules put theirs there (docs/M5.md §5.5, §5.6).
 fn overlay_archive<R: Read + Seek>(r: &mut R, len: u64) -> Option<(u64, Layer)> {
     r.seek(SeekFrom::Start(0)).ok()?;
     let head = read_prefix(r, HEAD_LEN);
@@ -280,11 +281,15 @@ fn overlay_archive<R: Read + Seek>(r: &mut R, len: u64) -> Option<(u64, Layer)> 
         return None;
     }
     r.seek(SeekFrom::Start(at)).ok()?;
-    let start = read_prefix(r, 64);
+    // An LHA header and its checksum, or a cabinet's header.
+    let start = read_prefix(r, 4096);
     let _ = r.seek(SeekFrom::Start(0));
+    let rest = len - at;
     let (kind, confidence) = sevenz_start_header(&start)
         .map(|c| (FormatId::SevenZ, c))
-        .or_else(|| rar_signature(&start).map(|c| (FormatId::Rar, c)))?;
+        .or_else(|| rar_signature(&start).map(|c| (FormatId::Rar, c)))
+        .or_else(|| cab_header(&start, Some(rest)).map(|c| (FormatId::Cab, c)))
+        .or_else(|| lzh_header(&start).map(|c| (FormatId::Lzh, c)))?;
     Some((
         at,
         Layer {

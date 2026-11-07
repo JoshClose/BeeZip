@@ -1087,3 +1087,74 @@ impl ArchiveWriter for TarWriter<'_> {
         out.finish().map_err(|e| write_error(&e))
     }
 }
+
+/// What [`walk_nested`] calls with each entry, its data and the context.
+pub(crate) type EachEntry<'a> = dyn FnMut(Entry, &mut dyn Read, &mut dyn Ctx) -> Result<()> + 'a;
+
+/// Walks the tar in `r` from the start, as [`TarReader`] lists one, for a tar inside another
+/// format (a Debian package's), which names its entries in its own way. `each` gets every
+/// entry, with ids counted from 0, and its data (empty for anything but a file).
+pub(crate) fn walk_nested(
+    r: Box<dyn Read + Send + '_>,
+    names: &NameDecoding,
+    each: &mut EachEntry<'_>,
+    cx: &mut dyn Ctx,
+) -> Result<()> {
+    let mut ar = tar::Archive::new(r);
+    let mut n = 0usize;
+    for item in ar.entries().map_err(|e| tar_error(&e))? {
+        cx.check()?;
+        let mut e = item.map_err(|e| tar_error(&e))?;
+        if is_meta(e.header().entry_type()) {
+            continue;
+        }
+        let (entry, sparse) = convert(n, &mut e, names);
+        if entry.kind == EntryKind::File {
+            let mut data = entry_data(&mut e, sparse.as_ref());
+            each(entry, &mut data, cx)?;
+        } else {
+            each(entry, &mut io::empty(), cx)?;
+        }
+        n += 1;
+    }
+    Ok(())
+}
+
+/// A tar inside another format, kept open so one of its entries can be read
+/// ([`ArchiveReader::open_entry`]).
+pub(crate) struct Nested {
+    archive: tar::Archive<Box<dyn Read + Send>>,
+}
+
+impl Nested {
+    pub(crate) fn new(r: Box<dyn Read + Send>) -> Self {
+        Self {
+            archive: tar::Archive::new(r),
+        }
+    }
+
+    /// The data of the `n`th entry, counted as [`walk_nested`] counts them.
+    pub(crate) fn open(
+        &mut self,
+        n: usize,
+        names: &NameDecoding,
+        cx: &mut dyn Ctx,
+    ) -> Result<Box<dyn Read + '_>> {
+        let mut i = 0usize;
+        for item in self.archive.entries().map_err(|e| tar_error(&e))? {
+            cx.check()?;
+            let mut e = item.map_err(|e| tar_error(&e))?;
+            if is_meta(e.header().entry_type()) {
+                continue;
+            }
+            if i == n {
+                let (_, sparse) = convert(n, &mut e, names);
+                return Ok(entry_data(e, sparse.as_ref()));
+            }
+            i += 1;
+        }
+        Err(Error::corrupt(format!(
+            "tar: entry {n} vanished on a second pass"
+        )))
+    }
+}

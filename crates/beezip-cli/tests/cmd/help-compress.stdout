@@ -13,8 +13,21 @@ Options:
 
   -c, --codec <CODEC>
           The codec [default: from config, zstd]
-          
-          [possible values: gzip, zlib, deflate, bzip2, xz, lzma, lzip, zstd, lz4, brotli, snappy]
+
+          Possible values:
+          - gzip
+          - zlib
+          - deflate
+          - bzip2
+          - xz
+          - lzma
+          - lzip
+          - zstd
+          - lz4
+          - brotli
+          - snappy
+          - compress: Unix `compress` (`.Z`)
+          - lzop
 
   -l, --level <LEVEL>
           The compression level; `formats.list` shows each codec's range

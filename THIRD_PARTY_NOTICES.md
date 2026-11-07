@@ -42,6 +42,19 @@ Names stored in legacy code pages are read with these crates (docs/M5.md §6).
 | `sevenz-rust2` | Apache-2.0 | 7z reading and writing, a maintained fork of `sevenz-rust` |
 | `cbc`, `block-padding` | MIT OR Apache-2.0 | AES-CBC for 7z's AES-256 |
 
+## M5 formats
+
+BeeZip reads and writes cpio, ar, CAB, Unix `.Z` and lzop, and reads Debian packages, RPMs and LHA, with its own code over these crates (docs/M5.md §5).
+
+| Crate | License | What it is |
+|---|---|---|
+| `delharc` | MIT OR Apache-2.0 | LHA/LZH decoding (lh0–lh7, lhx, lz*, pm*) |
+| `lzokay` | MIT | LZO1X blocks, for lzop: © Luke Street, a Rust port of Jack Andersen's lzokay |
+| `lzxd` | MIT OR Apache-2.0 | LZX decoding, for CAB |
+| `zerocopy`, `zerocopy-derive` | BSD-2-Clause OR Apache-2.0 OR MIT | used by `lzokay` |
+| `bytemuck`, `bytemuck_derive` | Zlib OR Apache-2.0 OR MIT | used by `delharc` |
+| `chrono` | MIT OR Apache-2.0 | dates in LHA headers, through `delharc` |
+
 ## UnRAR
 
 BeeZip reads RAR archives with UnRAR 7.1.0 by Alexander Roshal, compiled into BeeZip through the `unrar_sys` crate (whose own bindings are MIT OR Apache-2.0). BeeZip only extracts RAR archives; it can't create them, and UnRAR's code is not used to do so. The UnRAR source BeeZip builds is the copy `unrar_sys` 0.5.8 vendors, which carries that crate's patches. Its license, in full:

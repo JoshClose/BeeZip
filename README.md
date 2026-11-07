@@ -2,7 +2,7 @@
 
 A Windows archive manager with a desktop app, a command-line tool (`beezip`) and an MCP server, all driven by one Rust command engine.
 
-> **Status:** milestone M4: the engine, the command line, the MCP server and the desktop app read and write zip, 7z and tar and read RAR, and Explorer's right-click menu reaches them. See [`docs/PLAN.md`](docs/PLAN.md) for the architecture and roadmap, and [`docs/M4.md`](docs/M4.md) for the current milestone.
+> **Status:** milestone M5: the engine, the command line, the MCP server and the desktop app read, write and edit zip, 7z, tar, cpio and ar, write CAB, read RAR, Debian packages, RPMs, CAB and LHA, and Explorer's right-click menu reaches them. See [`docs/PLAN.md`](docs/PLAN.md) for the architecture and roadmap, and [`docs/M5.md`](docs/M5.md) for the current milestone.
 
 ## Building
 
@@ -48,7 +48,7 @@ pnpm tauri dev      # the desktop app, reloading as you edit
 
 ## Command line
 
-`beezip` reads and writes ZIP, 7z and TAR, `tar` under any codec (`.tar.gz`, `.tar.zst`, `.tgz`…), and bare compressed files (`.gz`, `.bz2`, `.xz`, `.lzma`, `.lz`, `.zst`, `.lz4`, `.br`, `.sz`, `.zz`). It reads RAR 1.5–7, through UnRAR, but never writes it. Split archives (`a.7z.001`, `a.zip.001`, `a.part1.rar`, `a.rar` with `a.r00`…) open from any part, and self-extracting 7z, RAR and zip executables open like archives. It detects formats by content, not by extension.
+`beezip` reads and writes ZIP, 7z, TAR, cpio (newc, as initramfs images are), ar and CAB, `tar` and `cpio` under any codec (`.tar.gz`, `.tar.zst`, `.tgz`, `.cpio.gz`…), and bare compressed files (`.gz`, `.bz2`, `.xz`, `.lzma`, `.lz`, `.zst`, `.lz4`, `.br`, `.sz`, `.zz`, Unix `.Z`, `.lzo`). It reads RAR 1.5–7, through UnRAR, but never writes it, and reads Debian packages (listed as `dpkg-deb -R` unpacks them: the files, and the control files under `DEBIAN/`), RPMs, and LHA/LZH. cpio reads every header format (newc, crc, odc, old binary); CAB reads none, MSZIP and LZX, and cabinet sets; ar reads GNU and BSD archives. Split archives (`a.7z.001`, `a.zip.001`, `a.part1.rar`, `a.rar` with `a.r00`…) open from any part, and self-extracting 7z, RAR, zip, CAB and LHA executables open like archives. It detects formats by content, not by extension.
 
 ```powershell
 beezip formats                        # what BeeZip reads and writes, with levels and threading
@@ -71,6 +71,9 @@ beezip c logs.zip logs -m ppmd --exclude "*.tmp"
 beezip c backup.7z src -p "pass phrase"          # LZMA2, solid; the names are encrypted too
 beezip c big.7z videos -v 4g --solid=false       # big.7z.001, big.7z.002…; -m lzma|ppmd|bzip2|deflate|copy
 beezip x big.7z.002 -o out                       # any part opens the whole set
+beezip c initrd.cpio.gz rootfs                   # newc; files of 4 GiB or more don't fit
+beezip c drivers.cab inf -m mszip                # or -m store; files only, as in ar
+beezip list python3-six_1.17.0-1_all.deb         # DEBIAN/ and usr/, as dpkg-deb -R unpacks it
 
 beezip add backup.zip notes.txt --dir docs      # alias a; asks about an entry already there
 beezip rename backup.zip docs papers             # alias rn; a folder takes everything under it
@@ -84,7 +87,7 @@ beezip decompress backup.tar.zst      # backup.tar: one codec layer per call
 ```
 
 - **Safety:** extraction never writes outside the destination. Paths with `..`, and links leading out, are skipped. The rest is extracted, then the command fails with exit code 14. Absolute paths, drive letters, reserved names such as `CON` and characters Windows can't store are rewritten, and reported. Symlinks are off by default (`--links` turns them on); hard links are extracted as copies. Zip bombs hit a 10 000:1 ratio limit.
-- **Editing:** `add`, `remove` and `rename` change zip, 7z and tar archives (compressed or not). They never write into the archive: a new one is written beside it and swapped in, so a failed or cancelled change leaves it as it was, and the Mark of the Web, hidden attribute and creation time carry over. Entries that stay are copied without decoding: zip entries byte for byte, whole 7z blocks (a solid block that loses an entry is encoded again), tar entries (a compressed tar's stream is encoded again). Adding to an archive with encrypted entries needs a password for the new files, or `--unencrypted`. Split and self-extracting archives aren't edited; `convert` makes one file of them. `convert` of an encrypted archive needs `--new-password` or `--decrypt`.
+- **Editing:** `add`, `remove` and `rename` change zip, 7z, tar, cpio and ar archives (tar and cpio compressed or not). They never write into the archive: a new one is written beside it and swapped in, so a failed or cancelled change leaves it as it was, and the Mark of the Web, hidden attribute and creation time carry over. Entries that stay are copied without decoding: zip entries byte for byte, whole 7z blocks (a solid block that loses an entry is encoded again), tar, cpio and ar members (a compressed tar's or cpio's stream is encoded again). An ar's symbol table is left out of an edit, since it would be stale (`ranlib` makes it again). CAB, packages and LHA aren't edited. Adding to an archive with encrypted entries needs a password for the new files, or `--unencrypted`. Split and self-extracting archives aren't edited; `convert` makes one file of them. `convert` of an encrypted archive needs `--new-password` or `--decrypt`.
 - **Prompts:** in a terminal, BeeZip asks for passwords and what to do with existing files. Without one, it fails and says which flag to pass (`--password`, `--overwrite`).
 - **Output:** `--output json` prints one JSON document, `--output ndjson` streams every job event (progress included), and `-q` hides progress bars. Ctrl+C cancels and removes the partly written file; a second Ctrl+C exits at once, and still removes it.
 - **7z and RAR passwords:** 7z and RAR 1.5–4 have no password check, so a wrong password shows as damaged data; BeeZip asks again, up to three times. A RAR whose entries have different passwords asks for each.

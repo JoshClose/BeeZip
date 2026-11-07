@@ -65,7 +65,7 @@ const MTIME: u64 = 1_767_225_600;
 #[test]
 fn every_fixture_reads_correctly() {
     let all = manifest();
-    assert_eq!(all.len(), 69, "the manifest lists every fixture");
+    assert_eq!(all.len(), 169, "the manifest lists every fixture");
     let mut failures = Vec::new();
     for fx in &all {
         let file = fx["file"].as_str().unwrap();
@@ -329,4 +329,111 @@ fn legacy_names_need_their_encoding() {
             }
         }
     }
+}
+
+/// How a broken fixture must fail.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Fails {
+    /// Opening, listing or testing it is one of these errors.
+    With(&'static [beezip_core::ErrorKind]),
+    /// It lists and tests, and extracting it refuses entries as unsafe.
+    Unsafe,
+    /// It reads: the damage isn't one BeeZip can see (see the case's comment).
+    Reads,
+}
+
+/// The broken fixtures (not in the manifest; each folder's README says why): every one fails
+/// as it should, without a panic, a hang or a large allocation.
+#[test]
+fn broken_fixtures_fail_as_they_should() {
+    use beezip_core::ErrorKind::{Corrupt, UnsupportedFormat};
+    let corrupt = Fails::With(&[Corrupt]);
+    let unsupported = Fails::With(&[UnsupportedFormat]);
+    // Fuzzed headers that detection doesn't take for the format at all.
+    let garbage = Fails::With(&[Corrupt, UnsupportedFormat]);
+    let cases = [
+        // lzxd 0.2.7 decodes a match reaching before the stream's start as zeros instead of
+        // failing, and a cabinet has no checksum of its decoded data (the upstream list).
+        (
+            "libarchive/cab/broken/test_read_format_cab_lzx_invalid_history.cab",
+            Fails::Reads,
+        ),
+        (
+            "libarchive/cab/broken/test_read_format_cab_lzx_oob.cab",
+            garbage,
+        ),
+        (
+            "libarchive/cab/broken/test_read_format_cab_skip_malformed.cab",
+            garbage,
+        ),
+        (
+            "libarchive/cpio/broken/test_read_format_cpio_afio_header.part1.cpio",
+            unsupported,
+        ),
+        (
+            "libarchive/cpio/broken/test_read_format_cpio_afio_header.part2.cpio",
+            unsupported,
+        ),
+        ("libarchive/lzh/broken/test_copy_data_warning.lzh", corrupt),
+        // Ten archives run together; the first lists 29 entries and the rest is read as such.
+        ("libarchive/lzh/broken/test_fuzz.lzh", Fails::Reads),
+        (
+            "libarchive/lzh/broken/test_read_format_lha_oversize_header.lzh",
+            corrupt,
+        ),
+        // Its second header has no CRC field, an old variant libarchive takes and delharc
+        // doesn't.
+        (
+            "libarchive/lzh/broken/test_read_format_lha_symlink_missing_target.lzh",
+            corrupt,
+        ),
+        (
+            "libarchive/rpm/broken/test_read_format_huge_rpm.rpm",
+            corrupt,
+        ),
+        ("delharc/broken/regression-truncated.lzh", corrupt),
+        ("delharc/broken/regression-evil_pm2.lzh", corrupt),
+        ("delharc/broken/regression-dotdot.lzh", Fails::Unsafe),
+        ("delharc/broken/regression-symlink2.lzh", Fails::Unsafe),
+        ("delharc/broken/regression-symlink3.lzh", Fails::Unsafe),
+        ("delharc/broken/regression-clusterfuzz-1.bin", garbage),
+        ("delharc/broken/regression-fuzz-10-1.bin", garbage),
+        ("delharc/broken/unlha32-lh2.lzh", unsupported),
+        ("linux/broken/ar-thin.a", unsupported),
+    ];
+    let mut failures = Vec::new();
+    for (file, want) in cases {
+        let path = fixtures().join("thirdparty").join(file);
+        let mut cx = SimpleCtx::new();
+        let tested = ops::test(&path, &Selection::all(), &OpenOptions::default(), &mut cx);
+        let got = match &tested {
+            Err(e) => Some(e.kind),
+            Ok(r) if !r.ok() => Some(r.errors[0].kind),
+            Ok(_) => None,
+        };
+        let ok = match want {
+            Fails::With(kinds) => got.is_some_and(|k| kinds.contains(&k)),
+            Fails::Reads => got.is_none(),
+            Fails::Unsafe => {
+                let dest = tempfile::tempdir().unwrap();
+                let opts = FsOptions {
+                    links: true,
+                    ..FsOptions::default()
+                };
+                let r = ops::extract(
+                    &path,
+                    dest.path(),
+                    &Selection::all(),
+                    &OpenOptions::default(),
+                    opts,
+                    &mut cx,
+                );
+                got.is_none() && r.is_ok_and(|r| r.is_unsafe())
+            }
+        };
+        if !ok {
+            failures.push(format!("{file}: {want:?}, got {tested:?}"));
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
 }

@@ -1,6 +1,6 @@
 use beezip_core::{
     CodecId, FormatCaps, FormatId,
-    format::{caps_for, sevenz::SevenZMethod, zip::ZipMethod},
+    format::{cab::CabMethod, caps_for, sevenz::SevenZMethod, zip::ZipMethod},
     ops::ArchiveKind,
 };
 use schemars::JsonSchema;
@@ -149,6 +149,10 @@ impl Command for FormatsList {
                         FormatId::SevenZ => SevenZMethod::ALL
                             .into_iter()
                             .map(|m| method(m.name(), m.levels()))
+                            .collect(),
+                        FormatId::Cab => CabMethod::ALL
+                            .into_iter()
+                            .map(|m| method(m.name(), None))
                             .collect(),
                         _ => Vec::new(),
                     },

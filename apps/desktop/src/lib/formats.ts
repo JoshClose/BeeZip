@@ -37,10 +37,12 @@ export function readableExtensions(f: FormatsListOutput): string[] {
   return [...all].sort();
 }
 
-/** The codec a `tar.*` format compresses with: `tar.zst` → zstd's entry. */
+/** The codec a `tar.*` or `cpio.*` format compresses with: `tar.zst` → zstd's entry, `tar.Z` →
+ * compress's (extensions are listed in lower case). */
 export function codecOfTar(f: FormatsListOutput, format: string) {
-  if (!format.startsWith("tar.")) return undefined;
-  const ext = format.slice(4);
+  const m = /^(?:tar|cpio)\.(.+)$/.exec(format);
+  if (!m) return undefined;
+  const ext = m[1].toLowerCase();
   return f.codecs.find((c) => c.extensions.some((e) => e.replace(/^\./, "") === ext));
 }
 

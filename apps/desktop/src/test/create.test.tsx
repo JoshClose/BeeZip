@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { type CreateForm, CreateDialog, createArgs, defaultOutput, withFormat } from "../features/create/CreateDialog";
 import type { FormatsListOutput } from "../gen/commands";
+import { codecOfTar } from "../lib/formats";
 import { fake } from "./fakeEngine";
 
 vi.mock("../lib/engine", () => import("./fakeEngine"));
@@ -72,6 +73,22 @@ describe("the create dialog's arguments", () => {
     expect(withFormat(String.raw`C:\a\b.zip`, "tar.zst")).toBe(String.raw`C:\a\b.tar.zst`);
     expect(withFormat(String.raw`C:\a\b.tar.gz`, "7z")).toBe(String.raw`C:\a\b.7z`);
     expect(withFormat(String.raw`C:\a\core.7z`, "7z")).toBe(String.raw`C:\a\core.7z`);
+    // M5's kinds: a cpio under a codec, `.Z` in either case, ar and cab.
+    expect(withFormat(String.raw`C:\a\initrd.cpio.gz`, "tar.Z")).toBe(String.raw`C:\a\initrd.tar.Z`);
+    expect(withFormat(String.raw`C:\a\b.tar.Z`, "cpio.lzo")).toBe(String.raw`C:\a\b.cpio.lzo`);
+    expect(withFormat(String.raw`C:\a\b.taz`, "ar")).toBe(String.raw`C:\a\b.ar`);
+    expect(withFormat(String.raw`C:\a\b.ar`, "cab")).toBe(String.raw`C:\a\b.cab`);
+  });
+
+  it("finds the codec of a compressed tar or cpio, whatever the case", () => {
+    const all: FormatsListOutput = {
+      ...formats,
+      codecs: [...formats.codecs, { id: "compress", name: "Unix compress (.Z)", extensions: [".z", ".taz"], levels: null, threads: false, detected: true }],
+    };
+    expect(codecOfTar(all, "tar.Z")?.id).toBe("compress");
+    expect(codecOfTar(all, "cpio.gz")?.id).toBe("gzip");
+    expect(codecOfTar(all, "cpio")).toBeUndefined();
+    expect(codecOfTar(all, "cab")).toBeUndefined();
   });
 });
 

@@ -64,6 +64,16 @@ fn local_offset_at(t: OffsetDateTime) -> UtcOffset {
     UtcOffset::local_offset_at(t).unwrap_or(UtcOffset::UTC)
 }
 
+/// The UTC offset in force at a local time. The offset at the local time read as UTC is only a
+/// guess, wrong for the hours after a change (in Chicago, 03:30 on the morning summer time ends
+/// would read as 02:30 CST): the offset at the guessed instant is the one that applies, and a
+/// second look settles it. A local time that happens twice (the hour repeated when summer time
+/// ends) reads as one of the two.
+fn offset_of_local(local: PrimitiveDateTime) -> UtcOffset {
+    let guess = local_offset_at(local.assume_utc());
+    local_offset_at(local.assume_offset(guess))
+}
+
 /// A DOS time, read as local time at that date.
 pub fn from_dos(dos: DosTime) -> Option<SystemTime> {
     let year = 1980 + i32::from(dos.date >> 9);
@@ -76,8 +86,7 @@ pub fn from_dos(dos: DosTime) -> Option<SystemTime> {
         Date::from_calendar_date(year, month, day).ok()?,
         Time::from_hms(hour, minute, second.min(59)).ok()?,
     );
-    let offset = local_offset_at(local.assume_utc());
-    Some(local.assume_offset(offset).into())
+    Some(local.assume_offset(offset_of_local(local)).into())
 }
 
 /// Reads DOS times like [`from_dos`], remembering the UTC offset of recent dates and hours:
@@ -111,7 +120,7 @@ impl DosClock {
             Some((k, offset)) if k == key => offset,
             _ => {
                 let start = PrimitiveDateTime::new(date, Time::from_hms(hour, 0, 0).ok()?);
-                let offset = local_offset_at(start.assume_utc());
+                let offset = offset_of_local(start);
                 *slot = Some((key, offset));
                 offset
             }
@@ -155,6 +164,31 @@ pub fn rfc3339(t: SystemTime) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Every half hour of 2024–2026 goes to a DOS time and back unchanged, through both readers,
+    /// except in the hour repeated when summer time ends, where the local time names two
+    /// instants and the DOS fields still come back the same. (Reading the offset at the local
+    /// time as if it were UTC got the hours after each change wrong, in a zone that has them.)
+    #[test]
+    fn dos_times_round_trip_across_summer_time() {
+        let start = 1_704_067_200i64; // 2024-01-01T00:00:00Z
+        let mut clock = DosClock::default();
+        let mut repeated = 0;
+        for step in 0..(3 * 365 * 48) {
+            let t = from_unix(start + step * 1800, 0).unwrap();
+            let dos = to_dos(t).unwrap();
+            for back in [from_dos(dos).unwrap(), clock.read(dos).unwrap()] {
+                assert_eq!(to_dos(back), Some(dos), "{}", rfc3339(t));
+                let off = to_unix(back) - to_unix(t);
+                if off != 0 {
+                    assert_eq!(off.abs(), 3600, "{} read as {}", rfc3339(t), rfc3339(back));
+                    repeated += 1;
+                }
+            }
+        }
+        // Two half hours a year, each through two readers.
+        assert!(repeated <= 3 * 2 * 2, "{repeated} times read back wrong");
+    }
 
     #[test]
     fn unix_round_trip() {

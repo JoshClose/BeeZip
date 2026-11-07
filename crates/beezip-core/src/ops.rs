@@ -13,6 +13,9 @@ use crate::{
     codec::{FinishWrite, finisher},
     format::{
         ArchiveWriter, Entry, EntryKind, FormatId, NewEntry, NewKind,
+        ar::ArWriter,
+        cab::{CabWriteOptions, CabWriter},
+        cpio::CpioWriter,
         sevenz::{SevenZWriteOptions, SevenZWriter},
         tar::TarWriter,
         zip::{ZipWriteOptions, ZipWriter},
@@ -25,16 +28,21 @@ use crate::{
 
 pub use crate::edit::{convert, edit, rewrite};
 
-/// The archive kinds BeeZip writes: zip, 7z, tar, and tar under one codec.
+/// The archive kinds BeeZip writes: zip, 7z, tar and cpio, each of those two under one codec too,
+/// ar and CAB.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ArchiveKind {
     Zip,
     SevenZ,
     Tar(Option<CodecId>),
+    /// newc, as initramfs images are: plain or under a codec (`.cpio.gz`).
+    Cpio(Option<CodecId>),
+    Ar,
+    Cab,
 }
 
-/// The codecs a tar can be wrapped in when creating (`-f tar.gz` and so on).
-pub const TAR_CODECS: [CodecId; 9] = [
+/// The codecs a tar or cpio can be wrapped in when creating (`-f tar.gz` and so on).
+pub const TAR_CODECS: [CodecId; 11] = [
     CodecId::Gzip,
     CodecId::Bzip2,
     CodecId::Xz,
@@ -44,6 +52,8 @@ pub const TAR_CODECS: [CodecId; 9] = [
     CodecId::Lz4,
     CodecId::Brotli,
     CodecId::Snappy,
+    CodecId::Compress,
+    CodecId::Lzop,
 ];
 
 impl ArchiveKind {
@@ -51,19 +61,24 @@ impl ArchiveKind {
         [Self::Zip, Self::SevenZ, Self::Tar(None)]
             .into_iter()
             .chain(TAR_CODECS.map(|c| Self::Tar(Some(c))))
+            .chain([Self::Cpio(None)])
+            .chain(TAR_CODECS.map(|c| Self::Cpio(Some(c))))
+            .chain([Self::Ar, Self::Cab])
     }
 
     /// `zip`, `7z`, `tar`, `tar.gz`, `tar.bz2`, `tar.xz`, `tar.lzma`, `tar.lz`, `tar.zst`,
-    /// `tar.lz4`, `tar.br`, `tar.sz`.
+    /// `tar.lz4`, `tar.br`, `tar.sz`, `tar.Z`, `tar.lzo`, `cpio` and `cpio.gz` and the rest, `ar`,
+    /// `cab`.
     pub fn name(self) -> String {
         match self {
             Self::Zip => "zip".into(),
             Self::SevenZ => "7z".into(),
             Self::Tar(None) => "tar".into(),
-            Self::Tar(Some(c)) => {
-                let ext = c.codec().extensions().first().copied().unwrap_or("");
-                format!("tar{ext}")
-            }
+            Self::Tar(Some(c)) => format!("tar{}", c.extension()),
+            Self::Cpio(None) => "cpio".into(),
+            Self::Cpio(Some(c)) => format!("cpio{}", c.extension()),
+            Self::Ar => "ar".into(),
+            Self::Cab => "cab".into(),
         }
     }
 
@@ -71,17 +86,29 @@ impl ArchiveKind {
         Self::all().find(|k| k.name() == name)
     }
 
-    /// From an output file name: `.zip`, `.tar`, `.tar.<codec>` or a shorthand such as `.tgz`.
+    /// From an output file name: `.zip`, `.7z`, `.tar`, `.tar.<codec>` or a shorthand such as
+    /// `.tgz`, `.cpio` or `.cpio.<codec>`, `.ar`, `.cab`.
     pub fn from_file_name(name: &str) -> Option<Self> {
         let lower = name.to_lowercase();
-        if lower.ends_with(".zip") {
-            return Some(Self::Zip);
+        for (ext, kind) in [
+            (".zip", Self::Zip),
+            (".7z", Self::SevenZ),
+            (".tar", Self::Tar(None)),
+            (".cpio", Self::Cpio(None)),
+            (".ar", Self::Ar),
+            (".cab", Self::Cab),
+        ] {
+            if lower.ends_with(ext) {
+                return Some(kind);
+            }
         }
-        if lower.ends_with(".7z") {
-            return Some(Self::SevenZ);
-        }
-        if lower.ends_with(".tar") {
-            return Some(Self::Tar(None));
+        if let Some(c) = TAR_CODECS.into_iter().find(|c| {
+            c.codec()
+                .extensions()
+                .iter()
+                .any(|ext| lower.ends_with(&format!(".cpio{ext}")))
+        }) {
+            return Some(Self::Cpio(Some(c)));
         }
         TAR_CODECS.into_iter().find_map(|c| {
             c.codec().extensions().iter().find_map(|ext| {
@@ -98,6 +125,9 @@ impl ArchiveKind {
             Self::Zip => FormatId::Zip,
             Self::SevenZ => FormatId::SevenZ,
             Self::Tar(_) => FormatId::Tar,
+            Self::Cpio(_) => FormatId::Cpio,
+            Self::Ar => FormatId::Ar,
+            Self::Cab => FormatId::Cab,
         }
     }
 }
@@ -112,6 +142,14 @@ pub enum WriteSpec {
         codec: Option<CodecId>,
         opts: EncodeOpts,
     },
+    /// A newc cpio, likewise.
+    Cpio {
+        codec: Option<CodecId>,
+        opts: EncodeOpts,
+    },
+    /// A GNU ar.
+    Ar,
+    Cab(CabWriteOptions),
 }
 
 /// A plain output file as a [`FinishWrite`].
@@ -132,6 +170,16 @@ pub fn create_writer(spec: &WriteSpec, out: Box<dyn WriteSeek>) -> Result<Box<dy
             let w = Box::new(BufWriter::with_capacity(BUF_SIZE, out));
             Box::new(TarWriter::compressed(c.codec().encoder(w, opts)?))
         }
+        WriteSpec::Cpio { codec: None, .. } => Box::new(CpioWriter::new(plain(out))),
+        WriteSpec::Cpio {
+            codec: Some(c),
+            opts,
+        } => {
+            let w = Box::new(BufWriter::with_capacity(BUF_SIZE, out));
+            Box::new(CpioWriter::compressed(c.codec().encoder(w, opts)?))
+        }
+        WriteSpec::Ar => Box::new(ArWriter::new(plain(out))),
+        WriteSpec::Cab(opts) => Box::new(CabWriter::new(out, opts.clone())?),
     })
 }
 
@@ -320,6 +368,12 @@ pub fn create(
 
     let spec = with_size_hint(spec, total);
     let mut writer = create_writer(&spec, out)?;
+    let expected: Vec<NewEntry> = planned
+        .iter()
+        .map(|p| p.entry.clone())
+        .filter(|e| writer.holds(&e.kind))
+        .collect();
+    writer.expect(&expected)?;
     let counter = Counter::new();
     let mut meter = Meter::new(counter.clone(), Some(total));
     meter.entries_total = Some(planned.len() as u64);
@@ -398,6 +452,16 @@ pub fn add_planned(
     };
     for (i, p) in planned.iter().enumerate() {
         cx.check()?;
+        if !writer.holds(&p.entry.kind) {
+            // ar and CAB: folders come from their files' paths, and links are left out.
+            if let NewKind::Symlink { .. } = p.entry.kind {
+                cx.warn(format!(
+                    "left out `{}`: the archive can't hold symbolic links",
+                    p.entry.path
+                ));
+            }
+            continue;
+        }
         if let Some(limit) = limit
             && p.entry.kind == NewKind::File
             && p.entry.size > 0
@@ -443,6 +507,14 @@ enum Target {
 fn with_size_hint(spec: &WriteSpec, total: u64) -> WriteSpec {
     match spec {
         WriteSpec::Tar { codec, opts } if opts.size_hint.is_none() => WriteSpec::Tar {
+            codec: *codec,
+            opts: EncodeOpts {
+                size_hint: Some(total),
+                size_exact: false,
+                ..opts.clone()
+            },
+        },
+        WriteSpec::Cpio { codec, opts } if opts.size_hint.is_none() => WriteSpec::Cpio {
             codec: *codec,
             opts: EncodeOpts {
                 size_hint: Some(total),
@@ -513,7 +585,15 @@ mod tests {
             Some(ArchiveKind::Tar(Some(CodecId::Lzip)))
         );
         assert_eq!(ArchiveKind::from_name("tar.zz"), None);
-        assert_eq!(ArchiveKind::all().count(), 12);
+        assert_eq!(
+            ArchiveKind::from_name("tar.Z"),
+            Some(ArchiveKind::Tar(Some(CodecId::Compress)))
+        );
+        assert_eq!(
+            ArchiveKind::from_name("cpio.lzo"),
+            Some(ArchiveKind::Cpio(Some(CodecId::Lzop)))
+        );
+        assert_eq!(ArchiveKind::all().count(), 28);
         for k in ArchiveKind::all() {
             assert_eq!(ArchiveKind::from_name(&k.name()), Some(k));
         }
@@ -530,5 +610,24 @@ mod tests {
         assert_eq!(f("a.tar.br"), Some(ArchiveKind::Tar(Some(CodecId::Brotli))));
         assert_eq!(f("a.gz"), None);
         assert_eq!(f("a.7z"), Some(ArchiveKind::SevenZ));
+        assert_eq!(
+            f("a.tar.Z"),
+            Some(ArchiveKind::Tar(Some(CodecId::Compress)))
+        );
+        assert_eq!(f("a.taz"), Some(ArchiveKind::Tar(Some(CodecId::Compress))));
+        assert_eq!(f("a.tzo"), Some(ArchiveKind::Tar(Some(CodecId::Lzop))));
+        assert_eq!(f("initrd.cpio"), Some(ArchiveKind::Cpio(None)));
+        assert_eq!(
+            f("initrd.cpio.gz"),
+            Some(ArchiveKind::Cpio(Some(CodecId::Gzip)))
+        );
+        assert_eq!(
+            f("a.cpio.Z"),
+            Some(ArchiveKind::Cpio(Some(CodecId::Compress)))
+        );
+        assert_eq!(f("a.ar"), Some(ArchiveKind::Ar));
+        assert_eq!(f("a.cab"), Some(ArchiveKind::Cab));
+        assert_eq!(f("libx.a"), None);
+        assert_eq!(f("a.deb"), None);
     }
 }

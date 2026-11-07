@@ -18,8 +18,8 @@ use crate::{
 };
 
 /// Write an archive's entries to a new archive in another format, or with other options: zip,
-/// 7z, tar, or tar under a codec, from any archive BeeZip reads (RAR and split archives
-/// included). The source isn't changed. Entries are copied without decoding when the formats
+/// 7z, tar, cpio, ar or cab, tar and cpio under a codec too, from any archive BeeZip reads (RAR,
+/// packages and split archives included). The source isn't changed. Entries are copied without decoding when the formats
 /// match and no option asks for something else (`a.tar.gz` → `a.tar.zst` keeps every tar
 /// entry, encoding the stream again). An encrypted source needs `new_password` or `decrypt`:
 /// encryption is never dropped silently. What the new format can't hold is left out and

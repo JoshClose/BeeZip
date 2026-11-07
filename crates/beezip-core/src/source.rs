@@ -15,7 +15,8 @@ use crate::{
     CodecId, Ctx, Error, Limits, Result,
     detect::{Detection, detect_path},
     format::{
-        ArchiveReader, FormatId, rar::RarReader, sevenz::SevenZReader, stream::StreamReader,
+        ArchiveReader, FormatId, ar::ArReader, cab::CabReader, cpio::CpioReader, deb::DebReader,
+        lzh::LzhReader, rar::RarReader, rpm::RpmReader, sevenz::SevenZReader, stream::StreamReader,
         tar::TarReader, zip::ZipReader,
     },
     io::{BUF_SIZE, Counter, CountingReader},
@@ -282,8 +283,8 @@ pub fn open(path: &Path, opts: &OpenOptions, cx: &mut dyn Ctx) -> Result<Opened>
     let detection = detect_path(path, &opts.limits)?;
     let (format, codecs) = detection.require_archive()?;
     let mut source = Source::with_volumes(&detection.volumes, detection.joined, codecs, opts)?;
-    if format == FormatId::SevenZ {
-        // The 7z inside an SFX, seen from its start.
+    if matches!(format, FormatId::SevenZ | FormatId::Cab | FormatId::Lzh) {
+        // The archive inside an SFX, seen from its start.
         source.offset = detection.offset;
     }
     let input = source.counter.clone();
@@ -297,6 +298,12 @@ pub fn open(path: &Path, opts: &OpenOptions, cx: &mut dyn Ctx) -> Result<Opened>
             FormatId::Stream => Box::new(StreamReader::open(source)?),
             FormatId::SevenZ => Box::new(SevenZReader::open(source, detection.sfx, cx)?),
             FormatId::Rar => RarReader::open(source, detection.sfx, cx)?,
+            FormatId::Cpio => Box::new(CpioReader::new(source)),
+            FormatId::Ar => Box::new(ArReader::open(source, cx)?),
+            FormatId::Deb => Box::new(DebReader::open(source, cx)?),
+            FormatId::Rpm => Box::new(RpmReader::open(source, cx)?),
+            FormatId::Cab => Box::new(CabReader::open(source, cx)?),
+            FormatId::Lzh => Box::new(LzhReader::open(source, cx)?),
         })
     })();
     let reader = opened.map_err(|e| if joined { truncated_hint(e, parts) } else { e })?;

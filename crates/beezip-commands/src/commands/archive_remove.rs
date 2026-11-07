@@ -11,7 +11,8 @@ use crate::{
     wire::{NameEncoding, Secret},
 };
 
-/// Remove entries from an archive (zip, 7z, tar and tar under any codec). A folder takes
+/// Remove entries from an archive (zip, 7z, tar, cpio and ar, and tar and cpio under any
+/// codec). A folder takes
 /// everything under it. A new archive is written beside the old one and swapped in, so a failed
 /// or cancelled removal leaves it as it was; the entries that stay are copied without decoding,
 /// except the rest of a 7z solid block that loses one, which is encoded again. Fails with
