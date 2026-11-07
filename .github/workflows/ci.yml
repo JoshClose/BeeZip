@@ -75,8 +75,11 @@ jobs:
     timeout-minutes: 30
     env:
       BEEZIP_REQUIRE_GNU_TAR: "1"      # and without GNU tar
+      BEEZIP_REQUIRE_LINUX_TOOLS: "1"  # lzop, uncompress, cpio and ar check BeeZip's output (docs/M5.md §10)
     steps:
       - uses: actions/checkout@v7
       - run: rustup toolchain install
+      - name: The Linux tools the interop tests run
+        run: sudo apt-get update -q && sudo apt-get install -y -q --no-install-recommends lzop ncompress cpio binutils
       - uses: Swatinem/rust-cache@v2
       - run: cargo test --locked -p beezip-core -p beezip-menu -p beezip-commands -p beezip-mcp -p beezip-cli

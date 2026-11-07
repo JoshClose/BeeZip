@@ -161,6 +161,7 @@ mod seven_zip {
             "lz" => "lzip",
             "br" => "brotli",
             "sz" => "snappy",
+            "Z" => "z",
             other => other,
         }
     }
@@ -202,9 +203,32 @@ mod seven_zip {
                 tested.push(name);
             }
         }
+        // Everything but lzop, which 7-Zip doesn't read (docs/M5.md §10).
         for kind in [
-            "tar", "tar.gz", "tar.bz2", "tar.xz", "tar.lzma", "tar.lz", "tar.zst", "tar.lz4",
-            "tar.br", "tar.sz",
+            "tar",
+            "tar.gz",
+            "tar.bz2",
+            "tar.xz",
+            "tar.lzma",
+            "tar.lz",
+            "tar.zst",
+            "tar.lz4",
+            "tar.br",
+            "tar.sz",
+            "tar.Z",
+            "cpio",
+            "cpio.gz",
+            "cpio.bz2",
+            "cpio.xz",
+            "cpio.lzma",
+            "cpio.lz",
+            "cpio.zst",
+            "cpio.lz4",
+            "cpio.br",
+            "cpio.sz",
+            "cpio.Z",
+            "ar",
+            "cab",
         ] {
             if !have.contains(needs(kind)) {
                 eprintln!("7-Zip doesn't read {kind}; not tested");
@@ -215,7 +239,77 @@ mod seven_zip {
             assert!(seven(&exe, &["t", &name], root.path()), "7z t {name}");
             tested.push(name);
         }
-        assert!(tested.len() >= 20, "{tested:?}");
+        for method in ["store", "mszip"] {
+            let name = format!("{method}.cab");
+            beezip(&["create", &name, "tree", "-m", method], root.path());
+            assert!(seven(&exe, &["t", &name], root.path()), "7z t {name}");
+            tested.push(name);
+        }
+        // This 7-Zip lacks lzip, lz4, brotli and snappy; one with them tests 44.
+        assert!(tested.len() >= 36, "{tested:?}");
+    }
+
+    /// cpio, ar, CAB and `.Z` from BeeZip extract to the same bytes in 7-Zip, and CABs in
+    /// Windows' `expand.exe` too (docs/M5.md §10).
+    #[test]
+    fn m5_archives_extract_identically_elsewhere() {
+        let Some(exe) = seven_zip() else { return };
+        let root = tempfile::tempdir().unwrap();
+        make_tree(root.path());
+        let want = hashes(&root.path().join("tree"));
+        for (name, args) in [
+            ("t.tar.Z", vec![]),
+            ("t.cpio", vec![]),
+            ("t.cpio.xz", vec![]),
+            ("t.ar", vec![]),
+            ("s.cab", vec!["-m", "store"]),
+            ("m.cab", vec!["-m", "mszip"]),
+        ] {
+            let mut a = vec!["create", name, "tree"];
+            a.extend(args);
+            beezip(&a, root.path());
+            // A compressed tar or cpio is two layers to 7-Zip: the outer one is unpacked first.
+            let inner = if name.matches('.').count() > 1 {
+                let dest = root.path().join(format!("o-{name}"));
+                let out = format!("-o{}", dest.display());
+                assert!(seven(&exe, &["x", name, &out], root.path()), "7z x {name}");
+                dest.join(name.rsplit_once('.').unwrap().0)
+            } else {
+                root.path().join(name)
+            };
+            let dest = root.path().join(format!("x-{name}"));
+            let out = format!("-o{}", dest.display());
+            let inner = inner.to_str().unwrap().to_owned();
+            assert!(
+                seven(&exe, &["x", &inner, &out], root.path()),
+                "7z x {inner}"
+            );
+            let mut got = hashes(&dest.join("tree"));
+            let mut want = want.clone();
+            if name.ends_with(".ar") {
+                // ar marks no encoding, and 7-Zip reads its names in the OEM code page: the
+                // UTF-8 name comes out garbled there (GNU ar reads it right, docs/M5.md §16).
+                got.retain(|p, _| p.is_ascii());
+                want.retain(|p, _| p.is_ascii());
+            }
+            assert_eq!(got, want, "{name} in 7-Zip");
+        }
+        let expand = PathBuf::from(r"C:\Windows\System32\expand.exe");
+        for name in ["s.cab", "m.cab"] {
+            let dest = root.path().join(format!("e-{name}"));
+            std::fs::create_dir(&dest).unwrap();
+            let out = Command::new(&expand)
+                .args([name, "-F:*", dest.to_str().unwrap()])
+                .current_dir(root.path())
+                .output()
+                .unwrap();
+            assert!(
+                out.status.success(),
+                "expand {name}: {}",
+                String::from_utf8_lossy(&out.stdout)
+            );
+            assert_eq!(hashes(&dest.join("tree")), want, "{name} in expand.exe");
+        }
     }
 
     #[test]
@@ -671,5 +765,134 @@ mod gnu_tar {
             beezip(&["x", name, "-o", dest.to_str().unwrap()], root.path());
             assert_eq!(hashes(&dest.join("tree")), want, "{name}");
         }
+    }
+}
+
+/// The Linux tools on BeeZip's output (docs/M5.md §10): `lzop -t`, `uncompress`, `cpio -it` and
+/// `ar t`. CI's Linux job installs them and sets `BEEZIP_REQUIRE_LINUX_TOOLS=1`.
+#[cfg(unix)]
+mod linux_tools {
+    use std::{io::Write, process::Stdio};
+
+    use super::*;
+
+    fn found(name: &str, arg: &str) -> Option<PathBuf> {
+        Command::new(name)
+            .arg(arg)
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .ok()
+            .map(|_| PathBuf::from(name))
+    }
+
+    /// Runs `exe`, with `stdin` fed to it, and returns what it printed.
+    fn run(exe: &Path, args: &[&str], cwd: &Path, stdin: Option<&[u8]>) -> Vec<u8> {
+        let mut child = Command::new(exe)
+            .args(args)
+            .current_dir(cwd)
+            .stdin(if stdin.is_some() {
+                Stdio::piped()
+            } else {
+                Stdio::null()
+            })
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        if let Some(data) = stdin {
+            child.stdin.take().unwrap().write_all(data).unwrap();
+        }
+        let out = child.wait_with_output().unwrap();
+        assert!(
+            out.status.success(),
+            "{} {args:?}: {}",
+            exe.display(),
+            String::from_utf8_lossy(&out.stderr)
+        );
+        out.stdout
+    }
+
+    #[test]
+    fn linux_tools_read_beezip_output() {
+        let var = "BEEZIP_REQUIRE_LINUX_TOOLS";
+        let (Some(lzop), Some(uncompress), Some(cpio), Some(ar)) = (
+            require(found("lzop", "-V"), var, "lzop"),
+            require(found("uncompress", "-V"), var, "uncompress"),
+            require(found("cpio", "--version"), var, "cpio"),
+            require(found("ar", "--version"), var, "ar"),
+        ) else {
+            return;
+        };
+        let root = tempfile::tempdir().unwrap();
+        make_tree(root.path());
+        let readme = std::fs::read(root.path().join("tree/docs/readme.md")).unwrap();
+        let blob = std::fs::read(root.path().join("tree/data/blob.bin")).unwrap();
+
+        // lzop: a bare file and a tar, tested and decoded.
+        beezip(
+            &[
+                "compress",
+                "tree/docs/readme.md",
+                "-c",
+                "lzop",
+                "-o",
+                "readme.md.lzo",
+            ],
+            root.path(),
+        );
+        run(&lzop, &["-t", "readme.md.lzo"], root.path(), None);
+        let out = run(&lzop, &["-dc", "readme.md.lzo"], root.path(), None);
+        assert_eq!(out, readme);
+        beezip(&["create", "t.tar.lzo", "tree"], root.path());
+        run(&lzop, &["-t", "t.tar.lzo"], root.path(), None);
+
+        // .Z: text, and random data, which makes the table clear and the width grow.
+        for (file, want) in [
+            ("tree/docs/readme.md", &readme),
+            ("tree/data/blob.bin", &blob),
+        ] {
+            let out = format!("{}.Z", file.rsplit('/').next().unwrap());
+            beezip(
+                &["compress", file, "-c", "compress", "-o", &out],
+                root.path(),
+            );
+            let got = run(&uncompress, &["-c", &out], root.path(), None);
+            assert_eq!(&got, want, "{out}");
+        }
+
+        // cpio: listed, and extracted to the same bytes.
+        beezip(&["create", "t.cpio", "tree"], root.path());
+        let bytes = std::fs::read(root.path().join("t.cpio")).unwrap();
+        let listing = run(&cpio, &["-it"], root.path(), Some(&bytes));
+        let listing = String::from_utf8_lossy(&listing).into_owned();
+        assert!(listing.contains("tree/docs/readme.md"), "{listing}");
+        let dest = root.path().join("x-cpio");
+        std::fs::create_dir(&dest).unwrap();
+        run(&cpio, &["-idm", "--quiet"], &dest, Some(&bytes));
+        assert_eq!(
+            hashes(&dest.join("tree")),
+            hashes(&root.path().join("tree"))
+        );
+
+        // ar: every member listed, with its bytes.
+        beezip(&["create", "t.ar", "tree"], root.path());
+        let listing = run(&ar, &["t", "t.ar"], root.path(), None);
+        let listing = String::from_utf8_lossy(&listing).into_owned();
+        for name in [
+            "tree/hello.txt",
+            "tree/docs/readme.md",
+            "tree/deep/a/b/c/d.txt",
+        ] {
+            assert!(listing.lines().any(|l| l == name), "{name} in {listing}");
+        }
+        // `P`: match the full path, not just the name.
+        let got = run(
+            &ar,
+            &["pP", "t.ar", "tree/docs/readme.md"],
+            root.path(),
+            None,
+        );
+        assert_eq!(got, readme);
     }
 }
