@@ -635,7 +635,9 @@ pub(super) fn write(
         in_flight: 0,
         done: HashMap::new(),
     });
-    let changed = Condvar::new();
+    // Workers wait on `room` for the window to move; the job's thread waits on `ready`.
+    let room = Condvar::new();
+    let ready = Condvar::new();
     let stop = AtomicBool::new(false);
     std::thread::scope(|s| {
         for _ in 0..workers.min(entries.len()) {
@@ -655,14 +657,14 @@ pub(super) fn write(
                                 return;
                             }
                             let k = st.next;
-                            let room = k < st.written + ahead
+                            let fits = k < st.written + ahead
                                 && (st.in_flight + size(k) <= IN_FLIGHT || k == st.written);
-                            if room {
+                            if fits {
                                 st.next += 1;
                                 st.in_flight += size(k);
                                 break k;
                             }
-                            st = changed.wait(st).unwrap_or_else(PoisonError::into_inner);
+                            st = room.wait(st).unwrap_or_else(PoisonError::into_inner);
                         }
                     };
                     let made = (|| {
@@ -673,7 +675,7 @@ pub(super) fn write(
                         one_entry(&opts, level, &entries[k], &mut data, &mut wcx, &spool)
                     })();
                     lock(&window).done.insert(k, made);
-                    changed.notify_all();
+                    ready.notify_one();
                 }
             });
         }
@@ -684,7 +686,7 @@ pub(super) fn write(
                     let threads = u32::try_from(workers).unwrap_or(u32::MAX);
                     append_big(w, entry, &mut data, threads, cx)?;
                     lock(&window).written += 1;
-                    changed.notify_all();
+                    room.notify_one();
                     continue;
                 }
                 let made = loop {
@@ -694,17 +696,19 @@ pub(super) fn write(
                         st.in_flight -= size(k);
                         break made;
                     }
-                    drop(changed.wait_timeout(st, POLL));
+                    // Wakes a worker in case none is on the entry this one waits for.
+                    room.notify_one();
+                    drop(ready.wait_timeout(st, POLL));
                     cx.check()?;
                 };
-                changed.notify_all();
+                room.notify_one();
                 w.append(made?)?;
                 cx.check()?;
             }
             Ok(())
         })();
         stop.store(true, Ordering::Relaxed);
-        changed.notify_all();
+        room.notify_all();
         result
     })
 }

@@ -1067,7 +1067,8 @@ enum Out {
 /// A new zip written from one-entry zips the workers make ([`par::Blob`]): each one's local
 /// part copied here, its central record moved to where it landed.
 struct Spans {
-    out: Box<dyn WriteSeek>,
+    /// Buffered: a zip of small files is many small appends.
+    out: BufWriter<Box<dyn WriteSeek>>,
     pos: u64,
     recs: Vec<CentralRecord>,
 }
@@ -1402,7 +1403,7 @@ impl ArchiveWriter for ZipWriter {
             && let Out::Fresh(out) = std::mem::replace(&mut self.out, Out::Gone)
         {
             self.out = Out::Spans(Box::new(Spans {
-                out,
+                out: BufWriter::with_capacity(BUF_SIZE, out),
                 pos: 0,
                 recs: Vec::new(),
             }));
