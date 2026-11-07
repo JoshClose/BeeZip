@@ -56,7 +56,7 @@ rust-toolchain.toml           # 1.99.1 (exact; "1.99" makes rustup fetch a secon
 deny.toml                     # cargo-deny license allowlist
 crates/beezip-core/           # format engine (sync Read/Write/Seek; no tokio)
   src/{detect,codec/*,format/*,backend/*,safefs,volume,progress,error}.rs
-crates/beezip-unrar/          # UnRAR through unrar_sys: the only unsafe code before beezip-shell; core's `rar` feature
+crates/beezip-unrar/          # UnRAR through unrar_sys, core's `rar` feature. Unsafe code lives here, in beezip-shell, and (M6) in two Windows calls in core: bench.rs's private bytes, safefs/disk.rs's seek penalty
 crates/beezip-commands/       # Command trait, registry, engine, jobs, policy, config
   src/commands/*.rs           # one file per command
 crates/beezip-mcp/            # rmcp ServerHandler built dynamically from the registry

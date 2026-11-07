@@ -133,7 +133,7 @@ sha2       = "0.11.1"
 hadris-iso = { path = "vendor/hadris-iso" }
 
 [workspace.lints.rust]
-unsafe_code = "deny"            # beezip-shell opts out with #![allow(unsafe_code)] in M4
+unsafe_code = "deny"            # beezip-shell opts out with #![allow(unsafe_code)] in M4; core allows two Windows calls (M6)
 [workspace.lints.clippy]
 all = { level = "warn", priority = -1 }
 dbg_macro = "warn"
