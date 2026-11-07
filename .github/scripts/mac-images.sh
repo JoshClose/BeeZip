@@ -49,7 +49,7 @@ for img in "$dir"/*.iso "$dir"/*.dmg; do
         dev="$(echo "$out" | awk '/Apple_HFS/ { print $1; exit }')"
         disk="$(echo "$out" | awk 'NR == 1 { print $1 }')"
         [ -n "$dev" ] || { echo "no HFS+ volume in $img" >&2; exit 1; }
-        fsck_hfs -n "$dev"
+        sudo fsck_hfs -n "$dev"
         hdiutil detach "$disk"
         ;;
     esac

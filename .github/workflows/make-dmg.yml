@@ -1,15 +1,10 @@
 name: Make DMG fixtures
 # hdiutil's images of BeeZip's own fixture tree (docs/M5.md §10), made on a Mac since nobody here
-# has one: tests/fixtures/make-dmg.sh says what the artifact holds. The images are committed to
-# tests/fixtures/thirdparty/dmg/ with this run's id, and the manifest records merged.
+# has one: tests/fixtures/make-dmg.sh says what the artifact holds. tests/fixtures/merge-dmg.py
+# puts the images in tests/fixtures/thirdparty/dmg/ and their records, with the run's id, in the
+# manifest. (PR 5 ran it from a push to its branch, before it was on master.)
 on:
   workflow_dispatch:
-  # For PR 5 only, so it can run before it's on master.
-  push:
-    branches: [m5-images]
-    paths:
-      - .github/workflows/make-dmg.yml
-      - tests/fixtures/make-dmg.sh
 permissions: { contents: read }
 
 jobs:

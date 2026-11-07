@@ -7318,6 +7318,935 @@
         }
       ],
       "encoding": "cp1252"
+    },
+    {
+      "file": "dmg/apfs-udbz.dmg",
+      "producer": "hdiutil on macOS 26.7.2 (25G332), GitHub macos-latest, make-dmg.yml run 42362026482 (https://github.com/JoshClose/BeeZip/actions/runs/42362026482)",
+      "command": "hdiutil create -quiet -srcfolder tree -volname BeeZip APFS -fs APFS -format UDBZ apfs-udbz.dmg",
+      "chain": "dmg",
+      "password": null,
+      "utc_mtimes": true,
+      "hardlinks": 0,
+      "symlinks": 1,
+      "filesystem": "APFS",
+      "note": "Entries are what macOS shows on the volume, attached read-only, from its root; HFS+ names composed (NFC). The journal and HFS+ private folders are hidden by macOS. Hard links are listed as files with their data, as fstool reads them.",
+      "7z_test": "ok",
+      "entries": [
+        {
+          "path": "blocks.txt",
+          "kind": "file",
+          "size": 329000,
+          "sha256": "0cf0d38a194a247921af6da6ab57f0b906e6ef9b8ea082c48f2c2eda0d85f796"
+        },
+        {
+          "path": "empty.txt",
+          "kind": "file",
+          "size": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "path": "link-to-readme",
+          "kind": "symlink",
+          "target": "readme.txt"
+        },
+        {
+          "path": "random.bin",
+          "kind": "file",
+          "size": 70000,
+          "sha256": "0ba64ff889c0ec4153e81ec8db03485ed75fe98af4cf61b46d7d8f9d3b25d3af"
+        },
+        {
+          "path": "readme.txt",
+          "kind": "file",
+          "size": 1680,
+          "sha256": "2b6c87ecfbdee89a023c07e8dcd07cf23b368f815589aa37229e20b82950afaf"
+        },
+        {
+          "path": "tool.sh",
+          "kind": "file",
+          "size": 22,
+          "sha256": "724e35ceba33f19eb96aba93c9b438e6ca266b0332120636ee9337696a6ff082"
+        },
+        {
+          "path": "Ünïcödé café 日本.txt",
+          "kind": "file",
+          "size": 16,
+          "sha256": "efd1bd5224d891288126fa406f21bc70ec94339b4c2913c4230070d05fda2159"
+        },
+        {
+          "path": "sub/nested/deep.txt",
+          "kind": "file",
+          "size": 24,
+          "sha256": "cf0974faeb4f8f89ae668ec798e283ab680de3f8799caeb0006cdcc7d10d8523"
+        }
+      ]
+    },
+    {
+      "file": "dmg/apfs-udro.dmg",
+      "producer": "hdiutil on macOS 26.7.2 (25G332), GitHub macos-latest, make-dmg.yml run 42362026482 (https://github.com/JoshClose/BeeZip/actions/runs/42362026482)",
+      "command": "hdiutil create -quiet -srcfolder tree -volname BeeZip APFS -fs APFS -format UDRO apfs-udro.dmg",
+      "chain": "dmg",
+      "password": null,
+      "utc_mtimes": true,
+      "hardlinks": 0,
+      "symlinks": 1,
+      "filesystem": "APFS",
+      "note": "Entries are what macOS shows on the volume, attached read-only, from its root; HFS+ names composed (NFC). The journal and HFS+ private folders are hidden by macOS. Hard links are listed as files with their data, as fstool reads them.",
+      "7z_test": "ok",
+      "entries": [
+        {
+          "path": "blocks.txt",
+          "kind": "file",
+          "size": 329000,
+          "sha256": "0cf0d38a194a247921af6da6ab57f0b906e6ef9b8ea082c48f2c2eda0d85f796"
+        },
+        {
+          "path": "empty.txt",
+          "kind": "file",
+          "size": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "path": "link-to-readme",
+          "kind": "symlink",
+          "target": "readme.txt"
+        },
+        {
+          "path": "random.bin",
+          "kind": "file",
+          "size": 70000,
+          "sha256": "0ba64ff889c0ec4153e81ec8db03485ed75fe98af4cf61b46d7d8f9d3b25d3af"
+        },
+        {
+          "path": "readme.txt",
+          "kind": "file",
+          "size": 1680,
+          "sha256": "2b6c87ecfbdee89a023c07e8dcd07cf23b368f815589aa37229e20b82950afaf"
+        },
+        {
+          "path": "tool.sh",
+          "kind": "file",
+          "size": 22,
+          "sha256": "724e35ceba33f19eb96aba93c9b438e6ca266b0332120636ee9337696a6ff082"
+        },
+        {
+          "path": "Ünïcödé café 日本.txt",
+          "kind": "file",
+          "size": 16,
+          "sha256": "efd1bd5224d891288126fa406f21bc70ec94339b4c2913c4230070d05fda2159"
+        },
+        {
+          "path": "sub/nested/deep.txt",
+          "kind": "file",
+          "size": 24,
+          "sha256": "cf0974faeb4f8f89ae668ec798e283ab680de3f8799caeb0006cdcc7d10d8523"
+        }
+      ]
+    },
+    {
+      "file": "dmg/apfs-udzo.dmg",
+      "producer": "hdiutil on macOS 26.7.2 (25G332), GitHub macos-latest, make-dmg.yml run 42362026482 (https://github.com/JoshClose/BeeZip/actions/runs/42362026482)",
+      "command": "hdiutil create -quiet -srcfolder tree -volname BeeZip APFS -fs APFS -format UDZO apfs-udzo.dmg",
+      "chain": "dmg",
+      "password": null,
+      "utc_mtimes": true,
+      "hardlinks": 0,
+      "symlinks": 1,
+      "filesystem": "APFS",
+      "note": "Entries are what macOS shows on the volume, attached read-only, from its root; HFS+ names composed (NFC). The journal and HFS+ private folders are hidden by macOS. Hard links are listed as files with their data, as fstool reads them.",
+      "7z_test": "ok",
+      "entries": [
+        {
+          "path": "blocks.txt",
+          "kind": "file",
+          "size": 329000,
+          "sha256": "0cf0d38a194a247921af6da6ab57f0b906e6ef9b8ea082c48f2c2eda0d85f796"
+        },
+        {
+          "path": "empty.txt",
+          "kind": "file",
+          "size": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "path": "link-to-readme",
+          "kind": "symlink",
+          "target": "readme.txt"
+        },
+        {
+          "path": "random.bin",
+          "kind": "file",
+          "size": 70000,
+          "sha256": "0ba64ff889c0ec4153e81ec8db03485ed75fe98af4cf61b46d7d8f9d3b25d3af"
+        },
+        {
+          "path": "readme.txt",
+          "kind": "file",
+          "size": 1680,
+          "sha256": "2b6c87ecfbdee89a023c07e8dcd07cf23b368f815589aa37229e20b82950afaf"
+        },
+        {
+          "path": "tool.sh",
+          "kind": "file",
+          "size": 22,
+          "sha256": "724e35ceba33f19eb96aba93c9b438e6ca266b0332120636ee9337696a6ff082"
+        },
+        {
+          "path": "Ünïcödé café 日本.txt",
+          "kind": "file",
+          "size": 16,
+          "sha256": "efd1bd5224d891288126fa406f21bc70ec94339b4c2913c4230070d05fda2159"
+        },
+        {
+          "path": "sub/nested/deep.txt",
+          "kind": "file",
+          "size": 24,
+          "sha256": "cf0974faeb4f8f89ae668ec798e283ab680de3f8799caeb0006cdcc7d10d8523"
+        }
+      ]
+    },
+    {
+      "file": "dmg/apfs-ulfo.dmg",
+      "producer": "hdiutil on macOS 26.7.2 (25G332), GitHub macos-latest, make-dmg.yml run 42362026482 (https://github.com/JoshClose/BeeZip/actions/runs/42362026482)",
+      "command": "hdiutil create -quiet -srcfolder tree -volname BeeZip APFS -fs APFS -format ULFO apfs-ulfo.dmg",
+      "chain": "dmg",
+      "password": null,
+      "utc_mtimes": true,
+      "hardlinks": 0,
+      "symlinks": 1,
+      "filesystem": "APFS",
+      "note": "Entries are what macOS shows on the volume, attached read-only, from its root; HFS+ names composed (NFC). The journal and HFS+ private folders are hidden by macOS. Hard links are listed as files with their data, as fstool reads them.",
+      "7z_test": "ok",
+      "entries": [
+        {
+          "path": "blocks.txt",
+          "kind": "file",
+          "size": 329000,
+          "sha256": "0cf0d38a194a247921af6da6ab57f0b906e6ef9b8ea082c48f2c2eda0d85f796"
+        },
+        {
+          "path": "empty.txt",
+          "kind": "file",
+          "size": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "path": "link-to-readme",
+          "kind": "symlink",
+          "target": "readme.txt"
+        },
+        {
+          "path": "random.bin",
+          "kind": "file",
+          "size": 70000,
+          "sha256": "0ba64ff889c0ec4153e81ec8db03485ed75fe98af4cf61b46d7d8f9d3b25d3af"
+        },
+        {
+          "path": "readme.txt",
+          "kind": "file",
+          "size": 1680,
+          "sha256": "2b6c87ecfbdee89a023c07e8dcd07cf23b368f815589aa37229e20b82950afaf"
+        },
+        {
+          "path": "tool.sh",
+          "kind": "file",
+          "size": 22,
+          "sha256": "724e35ceba33f19eb96aba93c9b438e6ca266b0332120636ee9337696a6ff082"
+        },
+        {
+          "path": "Ünïcödé café 日本.txt",
+          "kind": "file",
+          "size": 16,
+          "sha256": "efd1bd5224d891288126fa406f21bc70ec94339b4c2913c4230070d05fda2159"
+        },
+        {
+          "path": "sub/nested/deep.txt",
+          "kind": "file",
+          "size": 24,
+          "sha256": "cf0974faeb4f8f89ae668ec798e283ab680de3f8799caeb0006cdcc7d10d8523"
+        }
+      ]
+    },
+    {
+      "file": "dmg/apfs-ulmo.dmg",
+      "producer": "hdiutil on macOS 26.7.2 (25G332), GitHub macos-latest, make-dmg.yml run 42362026482 (https://github.com/JoshClose/BeeZip/actions/runs/42362026482)",
+      "command": "hdiutil create -quiet -srcfolder tree -volname BeeZip APFS -fs APFS -format ULMO apfs-ulmo.dmg",
+      "chain": "dmg",
+      "password": null,
+      "utc_mtimes": true,
+      "hardlinks": 0,
+      "symlinks": 1,
+      "filesystem": "APFS",
+      "note": "Entries are what macOS shows on the volume, attached read-only, from its root; HFS+ names composed (NFC). The journal and HFS+ private folders are hidden by macOS. Hard links are listed as files with their data, as fstool reads them.",
+      "7z_test": "ok",
+      "entries": [
+        {
+          "path": "blocks.txt",
+          "kind": "file",
+          "size": 329000,
+          "sha256": "0cf0d38a194a247921af6da6ab57f0b906e6ef9b8ea082c48f2c2eda0d85f796"
+        },
+        {
+          "path": "empty.txt",
+          "kind": "file",
+          "size": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "path": "link-to-readme",
+          "kind": "symlink",
+          "target": "readme.txt"
+        },
+        {
+          "path": "random.bin",
+          "kind": "file",
+          "size": 70000,
+          "sha256": "0ba64ff889c0ec4153e81ec8db03485ed75fe98af4cf61b46d7d8f9d3b25d3af"
+        },
+        {
+          "path": "readme.txt",
+          "kind": "file",
+          "size": 1680,
+          "sha256": "2b6c87ecfbdee89a023c07e8dcd07cf23b368f815589aa37229e20b82950afaf"
+        },
+        {
+          "path": "tool.sh",
+          "kind": "file",
+          "size": 22,
+          "sha256": "724e35ceba33f19eb96aba93c9b438e6ca266b0332120636ee9337696a6ff082"
+        },
+        {
+          "path": "Ünïcödé café 日本.txt",
+          "kind": "file",
+          "size": 16,
+          "sha256": "efd1bd5224d891288126fa406f21bc70ec94339b4c2913c4230070d05fda2159"
+        },
+        {
+          "path": "sub/nested/deep.txt",
+          "kind": "file",
+          "size": 24,
+          "sha256": "cf0974faeb4f8f89ae668ec798e283ab680de3f8799caeb0006cdcc7d10d8523"
+        }
+      ]
+    },
+    {
+      "file": "dmg/hfs-apm-udzo.dmg",
+      "producer": "hdiutil on macOS 26.7.2 (25G332), GitHub macos-latest, make-dmg.yml run 42362026482 (https://github.com/JoshClose/BeeZip/actions/runs/42362026482)",
+      "command": "hdiutil create -quiet -srcfolder tree -volname BeeZip HFS -fs HFS+ -format UDZO -layout SPUD hfs-apm-udzo.dmg",
+      "chain": "dmg",
+      "password": null,
+      "utc_mtimes": true,
+      "hardlinks": 0,
+      "symlinks": 1,
+      "filesystem": "HFS+",
+      "note": "Entries are what macOS shows on the volume, attached read-only, from its root; HFS+ names composed (NFC). The journal and HFS+ private folders are hidden by macOS. Hard links are listed as files with their data, as fstool reads them.",
+      "7z_test": "ok",
+      "entries": [
+        {
+          "path": "Ünïcödé café 日本.txt",
+          "kind": "file",
+          "size": 16,
+          "sha256": "efd1bd5224d891288126fa406f21bc70ec94339b4c2913c4230070d05fda2159"
+        },
+        {
+          "path": "blocks.txt",
+          "kind": "file",
+          "size": 329000,
+          "sha256": "0cf0d38a194a247921af6da6ab57f0b906e6ef9b8ea082c48f2c2eda0d85f796"
+        },
+        {
+          "path": "empty.txt",
+          "kind": "file",
+          "size": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "path": "link-to-readme",
+          "kind": "symlink",
+          "target": "readme.txt"
+        },
+        {
+          "path": "random.bin",
+          "kind": "file",
+          "size": 70000,
+          "sha256": "0ba64ff889c0ec4153e81ec8db03485ed75fe98af4cf61b46d7d8f9d3b25d3af"
+        },
+        {
+          "path": "readme.txt",
+          "kind": "file",
+          "size": 1680,
+          "sha256": "2b6c87ecfbdee89a023c07e8dcd07cf23b368f815589aa37229e20b82950afaf"
+        },
+        {
+          "path": "tool.sh",
+          "kind": "file",
+          "size": 22,
+          "sha256": "724e35ceba33f19eb96aba93c9b438e6ca266b0332120636ee9337696a6ff082"
+        },
+        {
+          "path": "sub/nested/deep.txt",
+          "kind": "file",
+          "size": 24,
+          "sha256": "cf0974faeb4f8f89ae668ec798e283ab680de3f8799caeb0006cdcc7d10d8523"
+        }
+      ]
+    },
+    {
+      "file": "dmg/hfs-decmpfs-udzo.dmg",
+      "producer": "hdiutil on macOS 26.7.2 (25G332), GitHub macos-latest, make-dmg.yml run 42362026482 (https://github.com/JoshClose/BeeZip/actions/runs/42362026482)",
+      "command": "hdiutil convert -quiet hfs-rw.dmg -format UDZO -o hfs-decmpfs-udzo.dmg",
+      "chain": "dmg",
+      "password": null,
+      "utc_mtimes": true,
+      "hardlinks": 0,
+      "symlinks": 1,
+      "filesystem": "HFS+",
+      "note": "Entries are what macOS shows on the volume, attached read-only, from its root; HFS+ names composed (NFC). The journal and HFS+ private folders are hidden by macOS. Hard links are listed as files with their data, as fstool reads them.",
+      "7z_test": "errors: ERROR: Data Error : BeeZip HFS decmpfs\\LZVN\\large.txt",
+      "entries": [
+        {
+          "path": "LZFSE/large.txt",
+          "kind": "file",
+          "size": 248000,
+          "sha256": "42cce527b9c721ec52aaf2784be699d4cb269394dfa0f8e157b860c1fcc86742",
+          "decmpfs": 12
+        },
+        {
+          "path": "LZFSE/small.txt",
+          "kind": "file",
+          "size": 2000,
+          "sha256": "aefe3a2e2e5daa1c0e3eac6be2475931ee0ea98be06817549525eebc893ea3de",
+          "decmpfs": 11
+        },
+        {
+          "path": "LZVN/large.txt",
+          "kind": "file",
+          "size": 248000,
+          "sha256": "42cce527b9c721ec52aaf2784be699d4cb269394dfa0f8e157b860c1fcc86742",
+          "decmpfs": 8
+        },
+        {
+          "path": "LZVN/small.txt",
+          "kind": "file",
+          "size": 2000,
+          "sha256": "aefe3a2e2e5daa1c0e3eac6be2475931ee0ea98be06817549525eebc893ea3de",
+          "decmpfs": 7
+        },
+        {
+          "path": "ZLIB/large.txt",
+          "kind": "file",
+          "size": 248000,
+          "sha256": "42cce527b9c721ec52aaf2784be699d4cb269394dfa0f8e157b860c1fcc86742",
+          "decmpfs": 4
+        },
+        {
+          "path": "ZLIB/small.txt",
+          "kind": "file",
+          "size": 2000,
+          "sha256": "aefe3a2e2e5daa1c0e3eac6be2475931ee0ea98be06817549525eebc893ea3de",
+          "decmpfs": 3
+        },
+        {
+          "path": "ditto/large.txt",
+          "kind": "file",
+          "size": 248000,
+          "sha256": "42cce527b9c721ec52aaf2784be699d4cb269394dfa0f8e157b860c1fcc86742",
+          "decmpfs": 8
+        },
+        {
+          "path": "ditto/small.txt",
+          "kind": "file",
+          "size": 2000,
+          "sha256": "aefe3a2e2e5daa1c0e3eac6be2475931ee0ea98be06817549525eebc893ea3de"
+        },
+        {
+          "path": "plain/Ünïcödé café 日本.txt",
+          "kind": "file",
+          "size": 16,
+          "sha256": "efd1bd5224d891288126fa406f21bc70ec94339b4c2913c4230070d05fda2159"
+        },
+        {
+          "path": "plain/blocks.txt",
+          "kind": "file",
+          "size": 329000,
+          "sha256": "0cf0d38a194a247921af6da6ab57f0b906e6ef9b8ea082c48f2c2eda0d85f796"
+        },
+        {
+          "path": "plain/empty.txt",
+          "kind": "file",
+          "size": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "path": "plain/hard-readme",
+          "kind": "file",
+          "size": 1680,
+          "sha256": "2b6c87ecfbdee89a023c07e8dcd07cf23b368f815589aa37229e20b82950afaf"
+        },
+        {
+          "path": "plain/link-to-readme",
+          "kind": "symlink",
+          "target": "readme.txt"
+        },
+        {
+          "path": "plain/random.bin",
+          "kind": "file",
+          "size": 70000,
+          "sha256": "0ba64ff889c0ec4153e81ec8db03485ed75fe98af4cf61b46d7d8f9d3b25d3af"
+        },
+        {
+          "path": "plain/readme.txt",
+          "kind": "file",
+          "size": 1680,
+          "sha256": "2b6c87ecfbdee89a023c07e8dcd07cf23b368f815589aa37229e20b82950afaf"
+        },
+        {
+          "path": "plain/tool.sh",
+          "kind": "file",
+          "size": 22,
+          "sha256": "724e35ceba33f19eb96aba93c9b438e6ca266b0332120636ee9337696a6ff082"
+        },
+        {
+          "path": "plain/sub/nested/deep.txt",
+          "kind": "file",
+          "size": 24,
+          "sha256": "cf0974faeb4f8f89ae668ec798e283ab680de3f8799caeb0006cdcc7d10d8523"
+        }
+      ]
+    },
+    {
+      "file": "dmg/hfs-none-udzo.dmg",
+      "producer": "hdiutil on macOS 26.7.2 (25G332), GitHub macos-latest, make-dmg.yml run 42362026482 (https://github.com/JoshClose/BeeZip/actions/runs/42362026482)",
+      "command": "hdiutil create -quiet -srcfolder tree -volname BeeZip HFS -fs HFS+ -format UDZO -layout NONE hfs-none-udzo.dmg",
+      "chain": "dmg",
+      "password": null,
+      "utc_mtimes": true,
+      "hardlinks": 0,
+      "symlinks": 1,
+      "filesystem": "HFS+",
+      "note": "Entries are what macOS shows on the volume, attached read-only, from its root; HFS+ names composed (NFC). The journal and HFS+ private folders are hidden by macOS. Hard links are listed as files with their data, as fstool reads them.",
+      "7z_test": "ok",
+      "entries": [
+        {
+          "path": "Ünïcödé café 日本.txt",
+          "kind": "file",
+          "size": 16,
+          "sha256": "efd1bd5224d891288126fa406f21bc70ec94339b4c2913c4230070d05fda2159"
+        },
+        {
+          "path": "blocks.txt",
+          "kind": "file",
+          "size": 329000,
+          "sha256": "0cf0d38a194a247921af6da6ab57f0b906e6ef9b8ea082c48f2c2eda0d85f796"
+        },
+        {
+          "path": "empty.txt",
+          "kind": "file",
+          "size": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "path": "link-to-readme",
+          "kind": "symlink",
+          "target": "readme.txt"
+        },
+        {
+          "path": "random.bin",
+          "kind": "file",
+          "size": 70000,
+          "sha256": "0ba64ff889c0ec4153e81ec8db03485ed75fe98af4cf61b46d7d8f9d3b25d3af"
+        },
+        {
+          "path": "readme.txt",
+          "kind": "file",
+          "size": 1680,
+          "sha256": "2b6c87ecfbdee89a023c07e8dcd07cf23b368f815589aa37229e20b82950afaf"
+        },
+        {
+          "path": "tool.sh",
+          "kind": "file",
+          "size": 22,
+          "sha256": "724e35ceba33f19eb96aba93c9b438e6ca266b0332120636ee9337696a6ff082"
+        },
+        {
+          "path": "sub/nested/deep.txt",
+          "kind": "file",
+          "size": 24,
+          "sha256": "cf0974faeb4f8f89ae668ec798e283ab680de3f8799caeb0006cdcc7d10d8523"
+        }
+      ]
+    },
+    {
+      "file": "dmg/hfs-udbz.dmg",
+      "producer": "hdiutil on macOS 26.7.2 (25G332), GitHub macos-latest, make-dmg.yml run 42362026482 (https://github.com/JoshClose/BeeZip/actions/runs/42362026482)",
+      "command": "hdiutil create -quiet -srcfolder tree -volname BeeZip HFS -fs HFS+ -format UDBZ hfs-udbz.dmg",
+      "chain": "dmg",
+      "password": null,
+      "utc_mtimes": true,
+      "hardlinks": 0,
+      "symlinks": 1,
+      "filesystem": "HFS+",
+      "note": "Entries are what macOS shows on the volume, attached read-only, from its root; HFS+ names composed (NFC). The journal and HFS+ private folders are hidden by macOS. Hard links are listed as files with their data, as fstool reads them.",
+      "7z_test": "ok",
+      "entries": [
+        {
+          "path": "Ünïcödé café 日本.txt",
+          "kind": "file",
+          "size": 16,
+          "sha256": "efd1bd5224d891288126fa406f21bc70ec94339b4c2913c4230070d05fda2159"
+        },
+        {
+          "path": "blocks.txt",
+          "kind": "file",
+          "size": 329000,
+          "sha256": "0cf0d38a194a247921af6da6ab57f0b906e6ef9b8ea082c48f2c2eda0d85f796"
+        },
+        {
+          "path": "empty.txt",
+          "kind": "file",
+          "size": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "path": "link-to-readme",
+          "kind": "symlink",
+          "target": "readme.txt"
+        },
+        {
+          "path": "random.bin",
+          "kind": "file",
+          "size": 70000,
+          "sha256": "0ba64ff889c0ec4153e81ec8db03485ed75fe98af4cf61b46d7d8f9d3b25d3af"
+        },
+        {
+          "path": "readme.txt",
+          "kind": "file",
+          "size": 1680,
+          "sha256": "2b6c87ecfbdee89a023c07e8dcd07cf23b368f815589aa37229e20b82950afaf"
+        },
+        {
+          "path": "tool.sh",
+          "kind": "file",
+          "size": 22,
+          "sha256": "724e35ceba33f19eb96aba93c9b438e6ca266b0332120636ee9337696a6ff082"
+        },
+        {
+          "path": "sub/nested/deep.txt",
+          "kind": "file",
+          "size": 24,
+          "sha256": "cf0974faeb4f8f89ae668ec798e283ab680de3f8799caeb0006cdcc7d10d8523"
+        }
+      ]
+    },
+    {
+      "file": "dmg/hfs-udco.dmg",
+      "producer": "hdiutil on macOS 26.7.2 (25G332), GitHub macos-latest, make-dmg.yml run 42362026482 (https://github.com/JoshClose/BeeZip/actions/runs/42362026482)",
+      "command": "hdiutil create -quiet -srcfolder tree -volname BeeZip HFS -fs HFS+ -format UDCO hfs-udco.dmg",
+      "chain": "dmg",
+      "password": null,
+      "utc_mtimes": true,
+      "hardlinks": 0,
+      "symlinks": 1,
+      "filesystem": "HFS+",
+      "note": "Entries are what macOS shows on the volume, attached read-only, from its root; HFS+ names composed (NFC). The journal and HFS+ private folders are hidden by macOS. Hard links are listed as files with their data, as fstool reads them.",
+      "7z_test": "ok",
+      "entries": [
+        {
+          "path": "Ünïcödé café 日本.txt",
+          "kind": "file",
+          "size": 16,
+          "sha256": "efd1bd5224d891288126fa406f21bc70ec94339b4c2913c4230070d05fda2159"
+        },
+        {
+          "path": "blocks.txt",
+          "kind": "file",
+          "size": 329000,
+          "sha256": "0cf0d38a194a247921af6da6ab57f0b906e6ef9b8ea082c48f2c2eda0d85f796"
+        },
+        {
+          "path": "empty.txt",
+          "kind": "file",
+          "size": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "path": "link-to-readme",
+          "kind": "symlink",
+          "target": "readme.txt"
+        },
+        {
+          "path": "random.bin",
+          "kind": "file",
+          "size": 70000,
+          "sha256": "0ba64ff889c0ec4153e81ec8db03485ed75fe98af4cf61b46d7d8f9d3b25d3af"
+        },
+        {
+          "path": "readme.txt",
+          "kind": "file",
+          "size": 1680,
+          "sha256": "2b6c87ecfbdee89a023c07e8dcd07cf23b368f815589aa37229e20b82950afaf"
+        },
+        {
+          "path": "tool.sh",
+          "kind": "file",
+          "size": 22,
+          "sha256": "724e35ceba33f19eb96aba93c9b438e6ca266b0332120636ee9337696a6ff082"
+        },
+        {
+          "path": "sub/nested/deep.txt",
+          "kind": "file",
+          "size": 24,
+          "sha256": "cf0974faeb4f8f89ae668ec798e283ab680de3f8799caeb0006cdcc7d10d8523"
+        }
+      ]
+    },
+    {
+      "file": "dmg/hfs-udro.dmg",
+      "producer": "hdiutil on macOS 26.7.2 (25G332), GitHub macos-latest, make-dmg.yml run 42362026482 (https://github.com/JoshClose/BeeZip/actions/runs/42362026482)",
+      "command": "hdiutil create -quiet -srcfolder tree -volname BeeZip HFS -fs HFS+ -format UDRO hfs-udro.dmg",
+      "chain": "dmg",
+      "password": null,
+      "utc_mtimes": true,
+      "hardlinks": 0,
+      "symlinks": 1,
+      "filesystem": "HFS+",
+      "note": "Entries are what macOS shows on the volume, attached read-only, from its root; HFS+ names composed (NFC). The journal and HFS+ private folders are hidden by macOS. Hard links are listed as files with their data, as fstool reads them.",
+      "7z_test": "ok",
+      "entries": [
+        {
+          "path": "Ünïcödé café 日本.txt",
+          "kind": "file",
+          "size": 16,
+          "sha256": "efd1bd5224d891288126fa406f21bc70ec94339b4c2913c4230070d05fda2159"
+        },
+        {
+          "path": "blocks.txt",
+          "kind": "file",
+          "size": 329000,
+          "sha256": "0cf0d38a194a247921af6da6ab57f0b906e6ef9b8ea082c48f2c2eda0d85f796"
+        },
+        {
+          "path": "empty.txt",
+          "kind": "file",
+          "size": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "path": "link-to-readme",
+          "kind": "symlink",
+          "target": "readme.txt"
+        },
+        {
+          "path": "random.bin",
+          "kind": "file",
+          "size": 70000,
+          "sha256": "0ba64ff889c0ec4153e81ec8db03485ed75fe98af4cf61b46d7d8f9d3b25d3af"
+        },
+        {
+          "path": "readme.txt",
+          "kind": "file",
+          "size": 1680,
+          "sha256": "2b6c87ecfbdee89a023c07e8dcd07cf23b368f815589aa37229e20b82950afaf"
+        },
+        {
+          "path": "tool.sh",
+          "kind": "file",
+          "size": 22,
+          "sha256": "724e35ceba33f19eb96aba93c9b438e6ca266b0332120636ee9337696a6ff082"
+        },
+        {
+          "path": "sub/nested/deep.txt",
+          "kind": "file",
+          "size": 24,
+          "sha256": "cf0974faeb4f8f89ae668ec798e283ab680de3f8799caeb0006cdcc7d10d8523"
+        }
+      ]
+    },
+    {
+      "file": "dmg/hfs-udzo.dmg",
+      "producer": "hdiutil on macOS 26.7.2 (25G332), GitHub macos-latest, make-dmg.yml run 42362026482 (https://github.com/JoshClose/BeeZip/actions/runs/42362026482)",
+      "command": "hdiutil create -quiet -srcfolder tree -volname BeeZip HFS -fs HFS+ -format UDZO hfs-udzo.dmg",
+      "chain": "dmg",
+      "password": null,
+      "utc_mtimes": true,
+      "hardlinks": 0,
+      "symlinks": 1,
+      "filesystem": "HFS+",
+      "note": "Entries are what macOS shows on the volume, attached read-only, from its root; HFS+ names composed (NFC). The journal and HFS+ private folders are hidden by macOS. Hard links are listed as files with their data, as fstool reads them.",
+      "7z_test": "ok",
+      "entries": [
+        {
+          "path": "Ünïcödé café 日本.txt",
+          "kind": "file",
+          "size": 16,
+          "sha256": "efd1bd5224d891288126fa406f21bc70ec94339b4c2913c4230070d05fda2159"
+        },
+        {
+          "path": "blocks.txt",
+          "kind": "file",
+          "size": 329000,
+          "sha256": "0cf0d38a194a247921af6da6ab57f0b906e6ef9b8ea082c48f2c2eda0d85f796"
+        },
+        {
+          "path": "empty.txt",
+          "kind": "file",
+          "size": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "path": "link-to-readme",
+          "kind": "symlink",
+          "target": "readme.txt"
+        },
+        {
+          "path": "random.bin",
+          "kind": "file",
+          "size": 70000,
+          "sha256": "0ba64ff889c0ec4153e81ec8db03485ed75fe98af4cf61b46d7d8f9d3b25d3af"
+        },
+        {
+          "path": "readme.txt",
+          "kind": "file",
+          "size": 1680,
+          "sha256": "2b6c87ecfbdee89a023c07e8dcd07cf23b368f815589aa37229e20b82950afaf"
+        },
+        {
+          "path": "tool.sh",
+          "kind": "file",
+          "size": 22,
+          "sha256": "724e35ceba33f19eb96aba93c9b438e6ca266b0332120636ee9337696a6ff082"
+        },
+        {
+          "path": "sub/nested/deep.txt",
+          "kind": "file",
+          "size": 24,
+          "sha256": "cf0974faeb4f8f89ae668ec798e283ab680de3f8799caeb0006cdcc7d10d8523"
+        }
+      ]
+    },
+    {
+      "file": "dmg/hfs-ulfo.dmg",
+      "producer": "hdiutil on macOS 26.7.2 (25G332), GitHub macos-latest, make-dmg.yml run 42362026482 (https://github.com/JoshClose/BeeZip/actions/runs/42362026482)",
+      "command": "hdiutil create -quiet -srcfolder tree -volname BeeZip HFS -fs HFS+ -format ULFO hfs-ulfo.dmg",
+      "chain": "dmg",
+      "password": null,
+      "utc_mtimes": true,
+      "hardlinks": 0,
+      "symlinks": 1,
+      "filesystem": "HFS+",
+      "note": "Entries are what macOS shows on the volume, attached read-only, from its root; HFS+ names composed (NFC). The journal and HFS+ private folders are hidden by macOS. Hard links are listed as files with their data, as fstool reads them.",
+      "7z_test": "ok",
+      "entries": [
+        {
+          "path": "Ünïcödé café 日本.txt",
+          "kind": "file",
+          "size": 16,
+          "sha256": "efd1bd5224d891288126fa406f21bc70ec94339b4c2913c4230070d05fda2159"
+        },
+        {
+          "path": "blocks.txt",
+          "kind": "file",
+          "size": 329000,
+          "sha256": "0cf0d38a194a247921af6da6ab57f0b906e6ef9b8ea082c48f2c2eda0d85f796"
+        },
+        {
+          "path": "empty.txt",
+          "kind": "file",
+          "size": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "path": "link-to-readme",
+          "kind": "symlink",
+          "target": "readme.txt"
+        },
+        {
+          "path": "random.bin",
+          "kind": "file",
+          "size": 70000,
+          "sha256": "0ba64ff889c0ec4153e81ec8db03485ed75fe98af4cf61b46d7d8f9d3b25d3af"
+        },
+        {
+          "path": "readme.txt",
+          "kind": "file",
+          "size": 1680,
+          "sha256": "2b6c87ecfbdee89a023c07e8dcd07cf23b368f815589aa37229e20b82950afaf"
+        },
+        {
+          "path": "tool.sh",
+          "kind": "file",
+          "size": 22,
+          "sha256": "724e35ceba33f19eb96aba93c9b438e6ca266b0332120636ee9337696a6ff082"
+        },
+        {
+          "path": "sub/nested/deep.txt",
+          "kind": "file",
+          "size": 24,
+          "sha256": "cf0974faeb4f8f89ae668ec798e283ab680de3f8799caeb0006cdcc7d10d8523"
+        }
+      ]
+    },
+    {
+      "file": "dmg/hfs-ulmo.dmg",
+      "producer": "hdiutil on macOS 26.7.2 (25G332), GitHub macos-latest, make-dmg.yml run 42362026482 (https://github.com/JoshClose/BeeZip/actions/runs/42362026482)",
+      "command": "hdiutil create -quiet -srcfolder tree -volname BeeZip HFS -fs HFS+ -format ULMO hfs-ulmo.dmg",
+      "chain": "dmg",
+      "password": null,
+      "utc_mtimes": true,
+      "hardlinks": 0,
+      "symlinks": 1,
+      "filesystem": "HFS+",
+      "note": "Entries are what macOS shows on the volume, attached read-only, from its root; HFS+ names composed (NFC). The journal and HFS+ private folders are hidden by macOS. Hard links are listed as files with their data, as fstool reads them.",
+      "7z_test": "ok",
+      "entries": [
+        {
+          "path": "Ünïcödé café 日本.txt",
+          "kind": "file",
+          "size": 16,
+          "sha256": "efd1bd5224d891288126fa406f21bc70ec94339b4c2913c4230070d05fda2159"
+        },
+        {
+          "path": "blocks.txt",
+          "kind": "file",
+          "size": 329000,
+          "sha256": "0cf0d38a194a247921af6da6ab57f0b906e6ef9b8ea082c48f2c2eda0d85f796"
+        },
+        {
+          "path": "empty.txt",
+          "kind": "file",
+          "size": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "path": "link-to-readme",
+          "kind": "symlink",
+          "target": "readme.txt"
+        },
+        {
+          "path": "random.bin",
+          "kind": "file",
+          "size": 70000,
+          "sha256": "0ba64ff889c0ec4153e81ec8db03485ed75fe98af4cf61b46d7d8f9d3b25d3af"
+        },
+        {
+          "path": "readme.txt",
+          "kind": "file",
+          "size": 1680,
+          "sha256": "2b6c87ecfbdee89a023c07e8dcd07cf23b368f815589aa37229e20b82950afaf"
+        },
+        {
+          "path": "tool.sh",
+          "kind": "file",
+          "size": 22,
+          "sha256": "724e35ceba33f19eb96aba93c9b438e6ca266b0332120636ee9337696a6ff082"
+        },
+        {
+          "path": "sub/nested/deep.txt",
+          "kind": "file",
+          "size": 24,
+          "sha256": "cf0974faeb4f8f89ae668ec798e283ab680de3f8799caeb0006cdcc7d10d8523"
+        }
+      ]
     }
   ]
 }
