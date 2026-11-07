@@ -79,6 +79,8 @@ tests/fixtures/               # reference archives + manifest.json (entries + ha
   - `extract(&Selection, &mut dyn EntrySink, &Ctx)` streams entries in archive order, which keeps solid archives fast.
   - `open_entry(id) -> Read`.
 - **`ArchiveWriter`**:
+  - `expect(entries)`: every entry the archive will hold, before the first is written, so a writer can refuse what it can't store before writing anything (a cpio's 4 GiB files) and write tables first (ar's long names, CAB's file list) (docs/M5.md §16, PR 4).
+  - `holds(kind)`: ar and CAB hold files only, so folders and links are left out of them, the links reported.
   - `add(meta, Read, &Ctx)`.
   - `copy_from(reader, keep) -> ids not copied`, which copies entries without recompressing them: zip entries byte for byte (BeeZip's own copy, not the zip crate's `raw_copy_file`, whose copies are corrupt for ZipCrypto and LZMA), whole 7z blocks, tar, cpio and ar members. It takes a list rather than one id because 7z copies whole blocks (docs/M5.md §3.2).
   - `finish()`.
