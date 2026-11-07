@@ -1,7 +1,7 @@
 #Requires -Version 7
 <#
 .SYNOPSIS
-Fetches M5's third-party fixtures for cpio, ar, RPM, CAB, LHA, .Z and lzop into
+Fetches M5's third-party fixtures for cpio, ar, RPM, CAB, LHA, .Z, lzop and ISO into
 tests/fixtures/thirdparty/{libarchive/<fmt>,delharc,packages}, and records them in manifest.json
 (docs/M5.md §10).
 
@@ -17,7 +17,8 @@ tests/fixtures/thirdparty/{libarchive/<fmt>,delharc,packages}, and records them 
 
 Every file is checked against the SHA-256 below. The expected entries come from 7-Zip 26.00
 (`7z l -slt`, and `7z x` for the bytes) where it reads the format, cross-checked against
-oracles.py, which parses the headers itself; any disagreement stops the script unless the
+oracles.py, which parses the headers itself (7-Zip alone for ISO, whose names and Rock Ridge
+links it reads); any disagreement stops the script unless the
 fixture's `note` explains it. Where 7-Zip can't read a fixture, the record says in `note` where
 its values came from instead: liblzo2 (WSL's, through ctypes) for lzop, delharc 0.8.0 for the
 LHA methods 7-Zip lacks (the table in $delharcData, made by a throwaway program against
@@ -141,7 +142,7 @@ $la = @(
     @{ dir = 'lzh'; src = 'libarchive/test/test_read_format_lha_oversize_header.lzh'; broken = 'Corrupt'
         why = 'The 19th header is larger than the file allows (test_read_format_lha_oversize_header.c: 18 entries, then ARCHIVE_FATAL).' }
     @{ dir = 'lzh'; src = 'libarchive/test/test_read_format_lha_symlink_missing_target.lzh'; broken = 'Corrupt'
-        why = 'A symlink entry whose name lacks the `|target` part; libarchive fails that entry and reads `second` after it (test_read_format_lha_symlink_missing_target.c). `second`'s level-0 header has no CRC field, an old variant libarchive takes and delharc refuses, so BeeZip fails the archive there. 7-Zip reports a headers error.' }
+        why = 'A symlink entry whose name lacks the `|target` part; libarchive fails that entry and reads `second` after it (test_read_format_lha_symlink_missing_target.c). `second`''s level-0 header has no CRC field, an old variant libarchive takes and delharc refuses, so BeeZip fails the archive there. 7-Zip reports a headers error.' }
     @{ dir = 'lzh'; src = 'tar/test/test_copy_data_warning.lzh'; broken = 'Corrupt'
         why = 'file1''s data fails its CRC-16 (tar/test/test_copy_data_warning.c); 7-Zip reports a data error.' }
 
@@ -152,6 +153,67 @@ $la = @(
     @{ dir = 'compress'; src = 'tar/test/test_extract.tar.Z'; chain = 'compress → tar' }
     @{ dir = 'compress'; src = 'libarchive/test/test_read_format_gtar_filename_koi8r.tar.Z'; chain = 'compress → tar'; encoding = 'koi8-r' }
     @{ dir = 'compress'; src = 'libarchive/test/test_read_format_ustar_filename_eucjp.tar.Z'; chain = 'compress → tar'; encoding = 'euc-jp' }
+
+    # ISO 9660: Joliet, Rock Ridge (old and new), relocation, multi-extent, zisofs, and the
+    # crafted images of libarchive's fixes. Most are compressed with compress(1), as libarchive
+    # keeps them.
+    @{ dir = 'iso'; src = 'libarchive/test/test_read_format_iso.iso.Z'; chain = 'compress → iso'
+        note = 'An empty image: libarchive''s test_read_format_iso_Z.c lists only its root.' }
+    @{ dir = 'iso'; src = 'libarchive/test/test_read_format_iso_2.iso.Z'; chain = 'compress → iso' }
+    @{ dir = 'iso'; src = 'libarchive/test/test_read_format_iso_3.iso.Z'; chain = 'compress → iso' }
+    @{ dir = 'iso'; src = 'libarchive/test/test_read_format_iso_joliet.iso.Z'; chain = 'compress → iso'
+        expect = { param($s) foreach ($e in $s) { if ($e.path -eq 'symlink') { [ordered]@{ path = 'symlink'; kind = 'symlink'; target = 'long-joliet-file-name.textfile' } } else { $e } } }
+        note = '7-Zip 26.00 reads the Joliet tree, where symlink is an empty file; Rock Ridge makes it a link to long-joliet-file-name.textfile, as libarchive''s test_read_format_isojoliet_rr.c reads it.' }
+    @{ dir = 'iso'; src = 'libarchive/test/test_read_format_iso_joliet_by_nero.iso.Z'; chain = 'compress → iso' }
+    @{ dir = 'iso'; src = 'libarchive/test/test_read_format_iso_joliet_long.iso.Z'; chain = 'compress → iso' }
+    @{ dir = 'iso'; src = 'libarchive/test/test_read_format_iso_joliet_rockridge.iso.Z'; chain = 'compress → iso'
+        expect = { param($s) foreach ($e in $s) { if ($e.path -eq 'symlink') { [ordered]@{ path = 'symlink'; kind = 'symlink'; target = 'long-joliet-file-name.textfile' } } else { $e } } }
+        note = '7-Zip 26.00 reads the Joliet tree, where symlink is an empty file; Rock Ridge makes it a link to long-joliet-file-name.textfile, as libarchive''s test_read_format_isojoliet_rr.c reads it.' }
+    @{ dir = 'iso'; src = 'libarchive/test/test_read_format_iso_multi_extent.iso.Z'; chain = 'compress → iso' }
+    @{ dir = 'iso'; src = 'libarchive/test/test_read_format_iso_rockridge.iso.Z'; chain = 'compress → iso'
+        expect = { param($s) foreach ($e in $s) { $t = @{ symlink3 = '/tmp/..'; symlink6 = '/tmp//..' }[$e.path]; if ($t) { $e.target = $t }; $e } }
+        note = '7-Zip 26.00 ends symlink3''s and symlink6''s targets with a /, which this older mkisofs''s SL entries don''t have; the targets are libarchive''s (test_read_format_isorr_compress.c).' }
+    @{ dir = 'iso'; src = 'libarchive/test/test_read_format_iso_rockridge_ce.iso.Z'; chain = 'compress → iso'
+        expect = {
+            param($s)
+            $made = @()
+            foreach ($n in 151, 152, 153) {
+                $bytes = [Text.Encoding]::ASCII.GetBytes("hello $n`n") + [byte[]]::new(4080)
+                $made += [ordered]@{ path = 'a' * $n; kind = 'file'; size = $bytes.Length; sha256 = Sha256 $bytes }
+            }
+            foreach ($n in 1..3) { $made += [ordered]@{ path = "sym$n"; kind = 'symlink'; target = 'a' * (150 + $n) } }
+            $made
+        }
+        note = '7-Zip 26.00 doesn''t follow the continuation areas (CE) the long names and link targets are in: it lists the names cut to 146 characters and the links empty. The entries are what test_read_format_isorr_ce.c''s script makes: "hello 151" to "hello 153" and 4 080 zero bytes, under names of 151 to 153 a''s, and links to them.' }
+    @{ dir = 'iso'; src = 'libarchive/test/test_read_format_iso_rockridge_new.iso.Z'; chain = 'compress → iso' }
+    @{ dir = 'iso'; src = 'libarchive/test/test_read_format_iso_rockridge_rr_moved.iso.Z'; chain = 'compress → iso'
+        relocated = @{ 'rr_moved/dir8' = 'dir1/dir2/dir3/dir4/dir5/dir6/dir7/dir8' }
+        note = 'Rock Ridge relocated dir1/…/dir7/dir8 to rr_moved/dir8 (CL, PL and RE entries). 7-Zip 26.00 lists it there, with an empty file where it belongs; the paths here are libarchive''s (test_read_format_isorr_rr_moved.c), which put it back, with 7-Zip''s bytes.' }
+    @{ dir = 'iso'; src = 'libarchive/test/test_read_format_iso_rockridge_cl_re_control.iso.Z'; chain = 'compress → iso'
+        note = 'rr_moved/B is marked relocated (RE), but no folder points at it (no CL), so it stays in rr_moved, as 7-Zip lists it; libarchive''s test_read_format_iso_rockridge_cl_re_cycle.c reads it to the end.' }
+    @{ dir = 'iso'; src = 'libarchive/test/test_read_format_iso_xorriso.iso.Z'; chain = 'compress → iso' }
+    @{ dir = 'iso'; src = 'libarchive/test/test_fuzz_1.iso.Z'; chain = 'compress → iso'
+        note = 'test_fuzz.c''s seed: 203 folders nested one in another, which the test mutates.' }
+    @{ dir = 'iso'; src = 'libarchive/test/test_read_format_iso_zisofs.iso.Z'; broken = 'UnsupportedOperation'
+        why = 'file and hardlink are zisofs-compressed (Rock Ridge ZF): listed with their real size (12 345 684 bytes), and extracting either is UnsupportedOperation, as BeeZip doesn''t decompress zisofs (docs/M5.md §5.9). 7-Zip lists their compressed bytes.' }
+    @{ dir = 'iso'; src = 'libarchive/test/test_read_format_iso_joliet_overlong.iso.Z'; broken = 'Reads'
+        why = 'Joliet names past the 103 characters libarchive takes (test_read_format_isojoliet_long.c reads them cut, as in joliet_long); 7-Zip can''t open it. BeeZip lists the same three entries as test_read_format_iso_joliet_long.' }
+    @{ dir = 'iso'; src = 'libarchive/test/test_read_format_iso_joliet_utf16be_cycle.iso.Z'; broken = 'Reads (lists nothing)'
+        why = 'The Joliet tree loops back on itself (test_read_format_iso_joliet_utf16be_cycle.c: libarchive fails with "Pathname is too long"). hadris reads the Joliet root as empty, so nothing is listed; no hang.' }
+    @{ dir = 'iso'; src = 'libarchive/test/test_read_format_iso_joliet_utf16be_overflow.iso'; broken = 'Reads'
+        why = 'A Joliet path longer than libarchive''s buffer (test_read_format_iso_joliet_utf16be_overflow.c: "Pathname is too long"). BeeZip lists the six folders; extraction makes the path if the file system takes it.' }
+    @{ dir = 'iso'; src = 'libarchive/test/test_read_format_iso_rockridge_ce_loop.iso.Z'; broken = 'Corrupt'
+        why = 'A Rock Ridge continuation area (CE) that points at itself (test_read_format_isorr_ce_loop.c: ARCHIVE_FATAL). hadris lists the entry under its ISO 9660 name; opening it fails.' }
+    @{ dir = 'iso'; src = 'libarchive/test/test_read_format_iso_rockridge_ce_overflow.iso.Z'; broken = 'Corrupt'
+        why = 'A CE entry whose offset and length run past its block (test_read_format_iso_rockridge_ce_overflow.c: "Invalid parameter in SUSP "CE" extension").' }
+    @{ dir = 'iso'; src = 'libarchive/test/test_read_format_iso_rockridge_cl_re_cycle.iso.Z'; broken = 'Reads'
+        why = 'Relocated folders (CL and RE) that point at each other (test_read_format_iso_rockridge_cl_re_cycle.c: ARCHIVE_FATAL). hadris doesn''t follow the loop: the folders are listed where they are stored, in rr_moved; no hang.' }
+    @{ dir = 'iso'; src = 'libarchive/test/test_read_format_iso_rockridge_sl_leak.iso'; broken = 'Corrupt'
+        why = 'compress(1) data despite its name, cut short: the .Z stream fails, as in 7-Zip ("Data Error"). libarchive''s test_read_format_iso_rockridge_sl_leak.c only checks that a symlink''s SL entries don''t leak.' }
+    @{ dir = 'iso'; src = 'libarchive/test/test_read_format_iso_rockridge_zf_overflow.iso'; broken = 'Corrupt'
+        why = 'A ZF entry cut short in the root''s continuation area, which over-read libarchive''s buffer (test_read_format_iso_rockridge_zf_overflow.c).' }
+    @{ dir = 'iso'; src = 'libarchive/test/test_read_format_iso_zisofs_overflow.iso'; broken = 'Corrupt'
+        why = 'A zisofs header with a block size of 4 bytes and a size of 0xFFFFFFF9 (test_read_format_iso_zisofs_overflow.c). hadris refuses the directory record.' }
 
     # lzop
     @{ dir = 'lzop'; src = 'libarchive/test/test_compat_lzop_1.tar.lzo'; chain = 'lzop → tar'; note = $lzop }
@@ -290,6 +352,31 @@ $sha256 = @{
     'libarchive/lzop/test_read_filter_lzop.tar.lzo' = '103485dc1d666a526d59dab900238d5113b832fd201aeade58f1dfa30c0fb4cd'
     'libarchive/lzop/test_read_filter_lzop_multiple_parts.tar.lzo' = '7a1646375deceaebdd94f3857094fddfc95803d48a654cbe7dbbd7107f81d2fd'
     'libarchive/lzop/test_extract.tar.lzo' = '2a5548f0a439226d07a1791fb1343b9ca210c71b535929122e5e1b4e8928695c'
+    'libarchive/iso/test_read_format_iso.iso.Z' = '88be44fd2ca7f0cf78450b3753ad97b5e1157abed3d0ba81ca40426b3975945d'
+    'libarchive/iso/test_read_format_iso_2.iso.Z' = 'ec84d2bb05264f790d54df03610c839c8a0420e8a600a5755d4aae272d43dbc2'
+    'libarchive/iso/test_read_format_iso_3.iso.Z' = 'b141ed3589d9c4aa47b058a4892b3f188f3b6a4156e7f25c6081ee1f6226d5fe'
+    'libarchive/iso/test_read_format_iso_joliet.iso.Z' = '7f90168680a93e01852cbe95b1922448d961da2179c7c37ca8351a0be15b0359'
+    'libarchive/iso/test_read_format_iso_joliet_by_nero.iso.Z' = '964c71e92a9e01650d517a8062e6d899cdd02e4a077ee21d16d78c035a96e714'
+    'libarchive/iso/test_read_format_iso_joliet_long.iso.Z' = 'a9a5f78cc042db159abf8cc9f0d4808fa64c75dd7bfeaf1bc2f75eb102e8eafe'
+    'libarchive/iso/broken/test_read_format_iso_joliet_overlong.iso.Z' = 'eb9ed2af2d0fd1fa3d6ab88d615f85301a61749efc347fd72784111d66e7501f'
+    'libarchive/iso/test_read_format_iso_joliet_rockridge.iso.Z' = 'd87b024de68f18644eace37173ee893cf7ed6625538f10e73e250eb84f4e7e2b'
+    'libarchive/iso/test_read_format_iso_multi_extent.iso.Z' = 'af63f873999370e62a1e9bcc9028d7a84beaf344ae49b7c8b5b76dee7b8b3ffa'
+    'libarchive/iso/test_read_format_iso_rockridge.iso.Z' = '28da594060dba109318cab4f3c98f965051919650e936b5328a611758c6fad87'
+    'libarchive/iso/test_read_format_iso_rockridge_ce.iso.Z' = 'd9625d9bb011f58c712bffa009f0919b5bf5c545ec8c22434a0f739946f0f10d'
+    'libarchive/iso/test_read_format_iso_rockridge_new.iso.Z' = 'f988ef331122b61192894d60c5aed4c11de1068414c7a3d36c1abd56452145ed'
+    'libarchive/iso/test_read_format_iso_rockridge_rr_moved.iso.Z' = 'c852c5dfed1b10956e579666f082e0531685fe25e52d92e4e1126094a7253135'
+    'libarchive/iso/test_read_format_iso_rockridge_cl_re_control.iso.Z' = 'b86a1ea2b8c56ab3a6bcdc68aeae59d38bb093b65c4c2adb773a2af378823cf8'
+    'libarchive/iso/test_read_format_iso_xorriso.iso.Z' = 'c5022d338d8d20e7d0f439b92cb4016c731a1e6a983f24ea53f3ddf025917498'
+    'libarchive/iso/test_fuzz_1.iso.Z' = '84ce90af0cae13703e816265dfa7a9c07a643a2e7db55974c62a317fac5544ac'
+    'libarchive/iso/broken/test_read_format_iso_zisofs.iso.Z' = '8b223e4abe9876d895a56d960560868d7fce4f53420934a1e269c22f69b757fe'
+    'libarchive/iso/broken/test_read_format_iso_joliet_utf16be_cycle.iso.Z' = '3d6786e1171a7814fb07ecb8499c8c6964214c967cb48082f25479cc0f2df8c0'
+    'libarchive/iso/broken/test_read_format_iso_joliet_utf16be_overflow.iso' = '9924be42f57e76649671400f07af91dd2022e91f3653aa0a8d426b4a8f83c25b'
+    'libarchive/iso/broken/test_read_format_iso_rockridge_ce_loop.iso.Z' = '1b195f0f5fce768a3a8aa7ac88f5dadf1a370634c3b6a1372396745a6219d1bb'
+    'libarchive/iso/broken/test_read_format_iso_rockridge_ce_overflow.iso.Z' = 'f153ff4ec16050af877ab13ad71e5bd6fcc379009ad55319a61f2a0133dadf5f'
+    'libarchive/iso/broken/test_read_format_iso_rockridge_cl_re_cycle.iso.Z' = 'f8dc684af7cf005f05bb1a21578741a5a406b9e082e0b4ee33538ac8788d650e'
+    'libarchive/iso/broken/test_read_format_iso_rockridge_sl_leak.iso' = 'b3cb97c3ba4e9fca1175677ab72278cac376f7bdf96c9f5f927639f21e771c8e'
+    'libarchive/iso/broken/test_read_format_iso_rockridge_zf_overflow.iso' = '12105639da0b4b066d355943a7339f035a67e25c54a4f00fc5ca9fa5dca1f6c7'
+    'libarchive/iso/broken/test_read_format_iso_zisofs_overflow.iso' = 'bdffba8002dc943334ae15b6fd8eece8dac7bbee165bc0f09217dd1d1bc49c5b'
     'delharc/lharc113-lh1.lzh' = '594af58cb27d6a80e9bebd108cc82a8ab881a4b5549e4fc10379fbf7a0d83069'
     'delharc/lha_amiga_122-lh4.lzh' = '287586d14f052cb1e128cc87f6277a3da6e88431369e65c815666a67718e065c'
     'delharc/lha213-lh5.lzh' = '7f10d0be69536733217e984e4ff81d8980f2df06822581d7c006257bfad34851'
@@ -697,6 +784,31 @@ function Expected($f, [string]$path) {
                 $e.sha256 = $s[$i].sha256
             }
         }
+        'iso' {
+            # 7-Zip reads Rock Ridge and Joliet names and Rock Ridge's links itself.
+            $s = List-7z $inner
+            if ($null -eq $s) { throw "$($f.name): 7-Zip can't list it" }
+            if ($f.Contains('relocated')) {
+                # Each relocated folder back where it belongs, and the empty file 7-Zip shows
+                # there dropped.
+                $moved = @()
+                foreach ($e in $s) {
+                    if ($f.relocated.Values -contains $e.path) { continue }
+                    foreach ($k in $f.relocated.Keys) {
+                        if ($e.path.StartsWith("$k/")) { $e.path = $f.relocated[$k] + $e.path.Substring($k.Length) }
+                    }
+                    $moved += $e
+                }
+                $s = $moved
+                $diffs += 'relocated folders put back'
+            }
+            if ($f.Contains('expect')) {
+                # Where 7-Zip is wrong, the answer from libarchive's tests (the fixture's note).
+                $s = @(& $f.expect $s)
+                $diffs += 'entries from libarchive''s test'
+            }
+            $p = @{ entries = $s; hardlinks = 0; others = @() }
+        }
         'lzh' {
             $p = Oracle @('list', 'lzh', $path, $enc)
             $s = List-7z $path -crc -type lzh
@@ -911,7 +1023,7 @@ foreach ($dir in $folders) {
 }
 $manifestPath = Join-Path $PSScriptRoot 'manifest.json'
 $manifest = Get-Content -Raw $manifestPath | ConvertFrom-Json -AsHashtable
-$mine = { param($file) $file -match '^libarchive/(cpio|ar|rpm|cab|lzh|compress|lzop)/' -or $file -like 'delharc/*' -or $file -like 'packages/*' }
+$mine = { param($file) $file -match '^libarchive/(cpio|ar|rpm|cab|lzh|compress|lzop|iso)/' -or $file -like 'delharc/*' -or $file -like 'packages/*' }
 # The new records go where the old ones were, so a rerun leaves the order alone.
 $old = @($manifest.fixtures)
 $at = 0

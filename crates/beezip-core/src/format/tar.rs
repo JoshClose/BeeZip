@@ -1082,7 +1082,7 @@ impl ArchiveWriter for TarWriter<'_> {
         })
     }
 
-    fn finish(self: Box<Self>) -> Result<()> {
+    fn finish(self: Box<Self>, _: &mut dyn Ctx) -> Result<()> {
         let out = self.builder.into_inner().map_err(|e| write_error(&e))?;
         out.finish().map_err(|e| write_error(&e))
     }

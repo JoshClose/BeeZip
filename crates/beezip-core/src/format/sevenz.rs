@@ -1568,7 +1568,7 @@ impl ArchiveWriter for SevenZWriter {
             .map_err(sz_write_error)
     }
 
-    fn finish(self: Box<Self>) -> Result<()> {
+    fn finish(self: Box<Self>, _: &mut dyn Ctx) -> Result<()> {
         let mut out = self.w.finish().map_err(|e| write_error(&e))?;
         io::Write::flush(&mut out).map_err(|e| write_error(&e))
     }

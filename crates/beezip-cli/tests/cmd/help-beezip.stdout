@@ -15,18 +15,20 @@ Commands:
               was. Entries that stay are copied without decoding. An archive whose entries are
               encrypted needs a password for the new files, unless `unencrypted`. [alias: a]
   convert     Write an archive's entries to a new archive in another format, or with other options:
-              zip, 7z, tar, cpio, ar or cab, tar and cpio under a codec too, from any archive BeeZip
-              reads (RAR, packages and split archives included). The source isn't changed. Entries
-              are copied without decoding when the formats match and no option asks for something
-              else (`a.tar.gz` → `a.tar.zst` keeps every tar entry, encoding the stream again). An
-              encrypted source needs `new_password` or `decrypt`: encryption is never dropped
-              silently. What the new format can't hold is left out and reported in `skipped`; hard
-              links become files where the format has none.
+              zip, 7z, tar, cpio, ar, cab, ISO, squashfs or DMG, tar and cpio under a codec too,
+              from any archive BeeZip reads (RAR, packages, disk images and split archives
+              included). The source isn't changed. Entries are copied without decoding when the
+              formats match and no option asks for something else (`a.tar.gz` → `a.tar.zst` keeps
+              every tar entry, encoding the stream again). An encrypted source needs `new_password`
+              or `decrypt`: encryption is never dropped silently. What the new format can't hold is
+              left out and reported in `skipped`; hard links become files where the format has none.
   create      Create an archive from files and folders. Each input is stored under its own name
               (`src/` becomes `src/…`). The format comes from `format` or the output's extension
-              (`.zip`, `.7z`, `.tar`, `.tar.zst`, `.tgz`, `.cpio.gz`, `.ar`, `.cab`…); ar and cab
-              hold files only. The archive is written to a temporary file and renamed into place, so
-              a failed or cancelled create leaves nothing behind. [alias: c]
+              (`.zip`, `.7z`, `.tar`, `.tar.zst`, `.tgz`, `.cpio.gz`, `.ar`, `.cab`, `.iso`,
+              `.squashfs`, `.dmg`…); ar and cab hold files only. An ISO has Joliet and Rock Ridge, a
+              DMG is an HFS+ volume in a zlib-compressed image. The archive is written to a
+              temporary file and renamed into place, so a failed or cancelled create leaves nothing
+              behind. [alias: c]
   extract     Extract an archive, or the selected entries. Unsafe entries (paths climbing out with
               `..`, links leading out) are skipped and the rest extracted; the command then fails
               with `Unsafe` and the report in `details`. Without `dest`, files go into the current

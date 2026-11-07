@@ -122,6 +122,7 @@ pub fn rewrite(
                 modified: e.modified,
                 unix_mode: e.unix_mode,
                 dos_attrs: e.dos_attrs,
+                source: None,
             });
         }
     }
@@ -168,19 +169,23 @@ pub fn rewrite(
     report.files += added.files;
     report.dirs += added.dirs;
     report.links += added.links;
-    writer.finish()?;
+    writer.finish(cx)?;
     meter.entries_done = items.len() as u64;
     MeteredCtx::new(cx, &meter).report();
     report.bytes_in = counter.get();
     Ok(report)
 }
 
-/// A writer for `spec` on `file`. A zip written to a file can copy another zip's entries byte
-/// for byte, since it reads its own output back (docs/M5.md §3.3).
-pub fn file_writer(spec: &WriteSpec, file: fs::File) -> Result<Box<dyn ArchiveWriter>> {
+/// A writer for `spec` on `file`, which will become `output`. A zip written to a file can copy
+/// another zip's entries byte for byte, since it reads its own output back (docs/M5.md §3.3).
+pub fn file_writer(
+    spec: &WriteSpec,
+    file: fs::File,
+    output: &Path,
+) -> Result<Box<dyn ArchiveWriter>> {
     match spec {
         WriteSpec::Zip(o) => Ok(Box::new(ZipWriter::editing(file, o.clone())?)),
-        other => create_writer(other, Box::new(file)),
+        other => create_writer(other, Box::new(file), output),
     }
 }
 
@@ -326,6 +331,11 @@ pub fn editable(name: &str, opened: &mut Opened, cx: &mut dyn Ctx) -> Result<Arc
             FormatId::Cab => format!(
                 "{name} is a cabinet, which BeeZip creates but doesn't edit. Convert it \
                  (`beezip convert`), or extract it and create it again."
+            ),
+            FormatId::Iso | FormatId::Squashfs | FormatId::Dmg => format!(
+                "{name} is a disk image, which BeeZip creates but doesn't edit: a change would \
+                 rebuild the whole image. Convert it (`beezip convert`), or extract it and create \
+                 it again."
             ),
             other => format!("BeeZip doesn't edit {} archives", other.display_name()),
         }));
@@ -792,14 +802,20 @@ pub fn edit(
                 o.password = Some(cx.password(None, 0)?);
             }
         }
-        WriteSpec::Tar { .. } | WriteSpec::Cpio { .. } | WriteSpec::Ar | WriteSpec::Cab(_) => {}
+        WriteSpec::Tar { .. }
+        | WriteSpec::Cpio { .. }
+        | WriteSpec::Ar
+        | WriteSpec::Cab(_)
+        | WriteSpec::Iso(_)
+        | WriteSpec::Squashfs(_)
+        | WriteSpec::Dmg(_) => {}
     }
     if unencrypted && encrypted {
         report.unencrypted = new_files;
     }
 
     let partial = target.partial()?;
-    let writer = file_writer(&spec, partial.try_clone()?)?;
+    let writer = file_writer(&spec, partial.try_clone()?, &target.path)?;
     let written = rewrite(&mut *opened.reader, &plan.items, writer, true, cx)?;
     drop(opened);
     report.copied = written.copied;
@@ -891,7 +907,13 @@ pub fn convert(
     let encrypts = match spec {
         WriteSpec::Zip(o) => o.password.is_some(),
         WriteSpec::SevenZ(o) => o.password.is_some(),
-        WriteSpec::Tar { .. } | WriteSpec::Cpio { .. } | WriteSpec::Ar | WriteSpec::Cab(_) => false,
+        WriteSpec::Tar { .. }
+        | WriteSpec::Cpio { .. }
+        | WriteSpec::Ar
+        | WriteSpec::Cab(_)
+        | WriteSpec::Iso(_)
+        | WriteSpec::Squashfs(_)
+        | WriteSpec::Dmg(_) => false,
     };
     if info.encryption != Encryption::None && !raw && !encrypts && !opts.decrypt {
         return Err(Error::invalid_args(format!(
@@ -939,7 +961,7 @@ pub fn convert(
     let written = match opts.volume_size {
         None => {
             let partial = Partial::create(&dir, &format!(".{out_name}"))?;
-            let writer = file_writer(spec, partial.try_clone()?)?;
+            let writer = file_writer(spec, partial.try_clone()?, output)?;
             let w = rewrite(&mut *opened.reader, &items, writer, raw, cx)?;
             drop(opened);
             partial.persist(output)?;
@@ -949,7 +971,7 @@ pub fn convert(
         Some(size) => {
             let volumes = VolumeWriter::create(output, size, opts.overwrite)?;
             let out: Box<dyn WriteSeek> = Box::new(volumes.clone());
-            let writer = create_writer(spec, out)?;
+            let writer = create_writer(spec, out, output)?;
             let w = rewrite(&mut *opened.reader, &items, writer, raw, cx)?;
             drop(opened);
             report.volumes = volumes.finish()?;

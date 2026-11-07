@@ -16,8 +16,9 @@ use crate::{
     detect::{Detection, detect_path},
     format::{
         ArchiveReader, FormatId, ar::ArReader, cab::CabReader, cpio::CpioReader, deb::DebReader,
-        lzh::LzhReader, rar::RarReader, rpm::RpmReader, sevenz::SevenZReader, stream::StreamReader,
-        tar::TarReader, zip::ZipReader,
+        dmg::DmgReader, iso::IsoReader, lzh::LzhReader, rar::RarReader, rpm::RpmReader,
+        sevenz::SevenZReader, squashfs::SquashfsReader, stream::StreamReader, tar::TarReader,
+        zip::ZipReader,
     },
     io::{BUF_SIZE, Counter, CountingReader},
     limits::{Budget, Guarded, RatioGuard},
@@ -304,6 +305,9 @@ pub fn open(path: &Path, opts: &OpenOptions, cx: &mut dyn Ctx) -> Result<Opened>
             FormatId::Rpm => Box::new(RpmReader::open(source, cx)?),
             FormatId::Cab => Box::new(CabReader::open(source, cx)?),
             FormatId::Lzh => Box::new(LzhReader::open(source, cx)?),
+            FormatId::Iso => Box::new(IsoReader::open(source, cx)?),
+            FormatId::Squashfs => Box::new(SquashfsReader::open(source, cx)?),
+            FormatId::Dmg => Box::new(DmgReader::open(source, cx)?),
         })
     })();
     let reader = opened.map_err(|e| if joined { truncated_hint(e, parts) } else { e })?;

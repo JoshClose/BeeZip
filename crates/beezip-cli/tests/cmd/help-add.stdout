@@ -35,7 +35,8 @@ Options:
           `deflate` (the default), `bzip2`, `zstd`, `xz` or `ppmd`; for 7z `lzma2` (the default),
           `lzma`, `ppmd`, `bzip2`, `deflate` or `copy`. A tar keeps its codec
           
-          [possible values: store, deflate, bzip2, zstd, xz, ppmd, lzma2, lzma, copy, mszip]
+          [possible values: store, deflate, bzip2, zstd, xz, ppmd, lzma2, lzma, copy, mszip, gzip,
+          lz4, lzo]
 
   -l, --level <LEVEL>
           The compression level, for the new files, or a compressed tar's stream

@@ -2104,6 +2104,102 @@
       ]
     },
     {
+      "file": "imapi-udf.iso",
+      "producer": "IMAPI2 (Windows 10.0.26300.0)",
+      "command": "MsftFileSystemImage with FileSystemsToCreate = 4 (UDF), Root.AddTree('tree', true), CreateResultImage()",
+      "chain": "iso",
+      "password": null,
+      "utc_mtimes": true,
+      "hardlinks": 0,
+      "symlinks": 0,
+      "entries": [
+        {
+          "path": "tree/hello.txt",
+          "kind": "file",
+          "size": 15,
+          "sha256": "a357597dcc1f4c3d10721860b7d1f354c8c409c918c15321d4a9709bed42f804"
+        },
+        {
+          "path": "tree/empty.txt",
+          "kind": "file",
+          "size": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "path": "tree/docs/readme.md",
+          "kind": "file",
+          "size": 1361,
+          "sha256": "a5b3d4f901e77563523daf6184faf17e828ec768deb25c1f0bd86ed74755aeb3"
+        },
+        {
+          "path": "tree/data/random.bin",
+          "kind": "file",
+          "size": 4096,
+          "sha256": "2d69f59f2f34c120efe7563c6e9d3ebac31879b8a53d78faa06f55075cba9ef0"
+        },
+        {
+          "path": "tree/ünïcödé/名前.txt",
+          "kind": "file",
+          "size": 16,
+          "sha256": "efd1bd5224d891288126fa406f21bc70ec94339b4c2913c4230070d05fda2159"
+        },
+        {
+          "path": "tree/deep/directory-with-a-long-name-0123456789/another-long-directory-name-abcdefghij/file-with-a-long-name-past-100-characters.txt",
+          "kind": "file",
+          "size": 12,
+          "sha256": "362a2156f3de3a9debe2c4816f14732163876818db0b3080953b620ba0ab7bed"
+        }
+      ]
+    },
+    {
+      "file": "imapi-bridge.iso",
+      "producer": "IMAPI2 (Windows 10.0.26300.0)",
+      "command": "MsftFileSystemImage with FileSystemsToCreate = 7 (ISO 9660, Joliet and UDF), Root.AddTree('tree', true), CreateResultImage()",
+      "chain": "iso",
+      "password": null,
+      "utc_mtimes": true,
+      "hardlinks": 0,
+      "symlinks": 0,
+      "entries": [
+        {
+          "path": "tree/hello.txt",
+          "kind": "file",
+          "size": 15,
+          "sha256": "a357597dcc1f4c3d10721860b7d1f354c8c409c918c15321d4a9709bed42f804"
+        },
+        {
+          "path": "tree/empty.txt",
+          "kind": "file",
+          "size": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "path": "tree/docs/readme.md",
+          "kind": "file",
+          "size": 1361,
+          "sha256": "a5b3d4f901e77563523daf6184faf17e828ec768deb25c1f0bd86ed74755aeb3"
+        },
+        {
+          "path": "tree/data/random.bin",
+          "kind": "file",
+          "size": 4096,
+          "sha256": "2d69f59f2f34c120efe7563c6e9d3ebac31879b8a53d78faa06f55075cba9ef0"
+        },
+        {
+          "path": "tree/ünïcödé/名前.txt",
+          "kind": "file",
+          "size": 16,
+          "sha256": "efd1bd5224d891288126fa406f21bc70ec94339b4c2913c4230070d05fda2159"
+        },
+        {
+          "path": "tree/deep/directory-with-a-long-name-0123456789/another-long-directory-name-abcdefghij/file-with-a-long-name-past-100-characters.txt",
+          "kind": "file",
+          "size": 12,
+          "sha256": "362a2156f3de3a9debe2c4816f14732163876818db0b3080953b620ba0ab7bed"
+        }
+      ]
+    },
+    {
       "file": "libarchive/test_read_format_rar.rar",
       "producer": "WinRAR, from libarchive 3.8.11's tests",
       "command": "libarchive/test/test_read_format_rar.rar.uu at v3.8.11, uudecoded",
@@ -4469,6 +4565,465 @@
       ]
     },
     {
+      "file": "libarchive/iso/test_read_format_iso.iso.Z",
+      "producer": "from libarchive 3.8.11's tests",
+      "command": "libarchive/test/test_read_format_iso.iso.Z.uu at v3.8.11, uudecoded",
+      "chain": "compress → iso",
+      "password": null,
+      "utc_mtimes": false,
+      "hardlinks": 0,
+      "symlinks": 0,
+      "note": "An empty image: libarchive's test_read_format_iso_Z.c lists only its root.",
+      "7z_test": "ok",
+      "entries": []
+    },
+    {
+      "file": "libarchive/iso/test_read_format_iso_2.iso.Z",
+      "producer": "from libarchive 3.8.11's tests",
+      "command": "libarchive/test/test_read_format_iso_2.iso.Z.uu at v3.8.11, uudecoded",
+      "chain": "compress → iso",
+      "password": null,
+      "utc_mtimes": false,
+      "hardlinks": 0,
+      "symlinks": 0,
+      "7z_test": "ok",
+      "entries": [
+        {
+          "path": "A/B",
+          "kind": "file",
+          "size": 6,
+          "sha256": "5891b5b522d5df086d0ff0b110fbd9d21bb4fc7163af34d08286a2e846f6be03"
+        },
+        {
+          "path": "C/D",
+          "kind": "file",
+          "size": 6,
+          "sha256": "5891b5b522d5df086d0ff0b110fbd9d21bb4fc7163af34d08286a2e846f6be03"
+        }
+      ]
+    },
+    {
+      "file": "libarchive/iso/test_read_format_iso_3.iso.Z",
+      "producer": "from libarchive 3.8.11's tests",
+      "command": "libarchive/test/test_read_format_iso_3.iso.Z.uu at v3.8.11, uudecoded",
+      "chain": "compress → iso",
+      "password": null,
+      "utc_mtimes": false,
+      "hardlinks": 0,
+      "symlinks": 0,
+      "7z_test": "ok",
+      "entries": [
+        {
+          "path": "A/B",
+          "kind": "file",
+          "size": 6,
+          "sha256": "5891b5b522d5df086d0ff0b110fbd9d21bb4fc7163af34d08286a2e846f6be03"
+        },
+        {
+          "path": "C/D",
+          "kind": "file",
+          "size": 6,
+          "sha256": "5891b5b522d5df086d0ff0b110fbd9d21bb4fc7163af34d08286a2e846f6be03"
+        }
+      ]
+    },
+    {
+      "file": "libarchive/iso/test_read_format_iso_joliet.iso.Z",
+      "producer": "from libarchive 3.8.11's tests",
+      "command": "libarchive/test/test_read_format_iso_joliet.iso.Z.uu at v3.8.11, uudecoded",
+      "chain": "compress → iso",
+      "password": null,
+      "utc_mtimes": false,
+      "hardlinks": 0,
+      "symlinks": 1,
+      "note": "7-Zip 26.00 reads the Joliet tree, where symlink is an empty file; Rock Ridge makes it a link to long-joliet-file-name.textfile, as libarchive's test_read_format_isojoliet_rr.c reads it.",
+      "7z_test": "ok",
+      "entries": [
+        {
+          "path": "hardlink",
+          "kind": "file",
+          "size": 6,
+          "sha256": "5891b5b522d5df086d0ff0b110fbd9d21bb4fc7163af34d08286a2e846f6be03"
+        },
+        {
+          "path": "long-joliet-file-name.textfile",
+          "kind": "file",
+          "size": 6,
+          "sha256": "5891b5b522d5df086d0ff0b110fbd9d21bb4fc7163af34d08286a2e846f6be03"
+        },
+        {
+          "path": "symlink",
+          "kind": "symlink",
+          "target": "long-joliet-file-name.textfile"
+        }
+      ]
+    },
+    {
+      "file": "libarchive/iso/test_read_format_iso_joliet_by_nero.iso.Z",
+      "producer": "from libarchive 3.8.11's tests",
+      "command": "libarchive/test/test_read_format_iso_joliet_by_nero.iso.Z.uu at v3.8.11, uudecoded",
+      "chain": "compress → iso",
+      "password": null,
+      "utc_mtimes": false,
+      "hardlinks": 0,
+      "symlinks": 0,
+      "7z_test": "ok",
+      "entries": [
+        {
+          "path": "test/test.txt",
+          "kind": "file",
+          "size": 8,
+          "sha256": "d37b9395c2baf168f977ce9ff9ec007d7270fc84cbf1549324bfc8dfc34333a9"
+        }
+      ]
+    },
+    {
+      "file": "libarchive/iso/test_read_format_iso_joliet_long.iso.Z",
+      "producer": "from libarchive 3.8.11's tests",
+      "command": "libarchive/test/test_read_format_iso_joliet_long.iso.Z.uu at v3.8.11, uudecoded",
+      "chain": "compress → iso",
+      "password": null,
+      "utc_mtimes": false,
+      "hardlinks": 0,
+      "symlinks": 0,
+      "7z_test": "ok",
+      "entries": [
+        {
+          "path": "1234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123",
+          "kind": "file",
+          "size": 6,
+          "sha256": "5891b5b522d5df086d0ff0b110fbd9d21bb4fc7163af34d08286a2e846f6be03"
+        },
+        {
+          "path": "hardlink",
+          "kind": "file",
+          "size": 6,
+          "sha256": "5891b5b522d5df086d0ff0b110fbd9d21bb4fc7163af34d08286a2e846f6be03"
+        }
+      ]
+    },
+    {
+      "file": "libarchive/iso/test_read_format_iso_joliet_rockridge.iso.Z",
+      "producer": "from libarchive 3.8.11's tests",
+      "command": "libarchive/test/test_read_format_iso_joliet_rockridge.iso.Z.uu at v3.8.11, uudecoded",
+      "chain": "compress → iso",
+      "password": null,
+      "utc_mtimes": false,
+      "hardlinks": 0,
+      "symlinks": 1,
+      "note": "7-Zip 26.00 reads the Joliet tree, where symlink is an empty file; Rock Ridge makes it a link to long-joliet-file-name.textfile, as libarchive's test_read_format_isojoliet_rr.c reads it.",
+      "7z_test": "ok",
+      "entries": [
+        {
+          "path": "hardlink",
+          "kind": "file",
+          "size": 6,
+          "sha256": "5891b5b522d5df086d0ff0b110fbd9d21bb4fc7163af34d08286a2e846f6be03"
+        },
+        {
+          "path": "long-joliet-file-name.textfile",
+          "kind": "file",
+          "size": 6,
+          "sha256": "5891b5b522d5df086d0ff0b110fbd9d21bb4fc7163af34d08286a2e846f6be03"
+        },
+        {
+          "path": "symlink",
+          "kind": "symlink",
+          "target": "long-joliet-file-name.textfile"
+        }
+      ]
+    },
+    {
+      "file": "libarchive/iso/test_read_format_iso_multi_extent.iso.Z",
+      "producer": "from libarchive 3.8.11's tests",
+      "command": "libarchive/test/test_read_format_iso_multi_extent.iso.Z.uu at v3.8.11, uudecoded",
+      "chain": "compress → iso",
+      "password": null,
+      "utc_mtimes": false,
+      "hardlinks": 0,
+      "symlinks": 0,
+      "7z_test": "ok",
+      "entries": [
+        {
+          "path": "file",
+          "kind": "file",
+          "size": 262280,
+          "sha256": "5fcbfb1f3f1ea2e735f39187d91a6f8bc193e3d689a8c8539660c22bc4ccc24e"
+        }
+      ]
+    },
+    {
+      "file": "libarchive/iso/test_read_format_iso_rockridge.iso.Z",
+      "producer": "from libarchive 3.8.11's tests",
+      "command": "libarchive/test/test_read_format_iso_rockridge.iso.Z.uu at v3.8.11, uudecoded",
+      "chain": "compress → iso",
+      "password": null,
+      "utc_mtimes": false,
+      "hardlinks": 0,
+      "symlinks": 6,
+      "note": "7-Zip 26.00 ends symlink3's and symlink6's targets with a /, which this older mkisofs's SL entries don't have; the targets are libarchive's (test_read_format_isorr_compress.c).",
+      "7z_test": "ok",
+      "entries": [
+        {
+          "path": "file",
+          "kind": "file",
+          "size": 12345684,
+          "sha256": "be8246df9f3e322cfe3f54bdf6cceb65a7d8047537c919c6b9ea9020d786c70d"
+        },
+        {
+          "path": "hardlink",
+          "kind": "file",
+          "size": 12345684,
+          "sha256": "be8246df9f3e322cfe3f54bdf6cceb65a7d8047537c919c6b9ea9020d786c70d"
+        },
+        {
+          "path": "symlink",
+          "kind": "symlink",
+          "target": "file"
+        },
+        {
+          "path": "symlink2",
+          "kind": "symlink",
+          "target": "/tmp"
+        },
+        {
+          "path": "symlink3",
+          "kind": "symlink",
+          "target": "/tmp/.."
+        },
+        {
+          "path": "symlink4",
+          "kind": "symlink",
+          "target": ".././../tmp"
+        },
+        {
+          "path": "symlink5",
+          "kind": "symlink",
+          "target": ".///file"
+        },
+        {
+          "path": "symlink6",
+          "kind": "symlink",
+          "target": "/tmp//.."
+        }
+      ]
+    },
+    {
+      "file": "libarchive/iso/test_read_format_iso_rockridge_ce.iso.Z",
+      "producer": "from libarchive 3.8.11's tests",
+      "command": "libarchive/test/test_read_format_iso_rockridge_ce.iso.Z.uu at v3.8.11, uudecoded",
+      "chain": "compress → iso",
+      "password": null,
+      "utc_mtimes": false,
+      "hardlinks": 0,
+      "symlinks": 3,
+      "note": "7-Zip 26.00 doesn't follow the continuation areas (CE) the long names and link targets are in: it lists the names cut to 146 characters and the links empty. The entries are what test_read_format_isorr_ce.c's script makes: \"hello 151\" to \"hello 153\" and 4 080 zero bytes, under names of 151 to 153 a's, and links to them.",
+      "7z_test": "ok",
+      "entries": [
+        {
+          "path": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "kind": "file",
+          "size": 4090,
+          "sha256": "e9477a1fc344ee297ab509f62b55449f3bca5fbd5753ac58ddc9ec55962b2590"
+        },
+        {
+          "path": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "kind": "file",
+          "size": 4090,
+          "sha256": "fe3664d6eed6a7ea39ae5f81e774fd98089d79cc5b3615a702c367bd4132d039"
+        },
+        {
+          "path": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "kind": "file",
+          "size": 4090,
+          "sha256": "1ed9c8cd3b714b093c47f14ddb220ef75314ea1aec13f9653387e781c6c05fc7"
+        },
+        {
+          "path": "sym1",
+          "kind": "symlink",
+          "target": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        {
+          "path": "sym2",
+          "kind": "symlink",
+          "target": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        {
+          "path": "sym3",
+          "kind": "symlink",
+          "target": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      ]
+    },
+    {
+      "file": "libarchive/iso/test_read_format_iso_rockridge_new.iso.Z",
+      "producer": "from libarchive 3.8.11's tests",
+      "command": "libarchive/test/test_read_format_iso_rockridge_new.iso.Z.uu at v3.8.11, uudecoded",
+      "chain": "compress → iso",
+      "password": null,
+      "utc_mtimes": false,
+      "hardlinks": 0,
+      "symlinks": 6,
+      "7z_test": "ok",
+      "entries": [
+        {
+          "path": "file",
+          "kind": "file",
+          "size": 12345684,
+          "sha256": "be8246df9f3e322cfe3f54bdf6cceb65a7d8047537c919c6b9ea9020d786c70d"
+        },
+        {
+          "path": "hardlink",
+          "kind": "file",
+          "size": 12345684,
+          "sha256": "be8246df9f3e322cfe3f54bdf6cceb65a7d8047537c919c6b9ea9020d786c70d"
+        },
+        {
+          "path": "symlink",
+          "kind": "symlink",
+          "target": "file"
+        },
+        {
+          "path": "symlink2",
+          "kind": "symlink",
+          "target": "/tmp/"
+        },
+        {
+          "path": "symlink3",
+          "kind": "symlink",
+          "target": "/tmp/../"
+        },
+        {
+          "path": "symlink4",
+          "kind": "symlink",
+          "target": ".././../tmp/"
+        },
+        {
+          "path": "symlink5",
+          "kind": "symlink",
+          "target": ".///file"
+        },
+        {
+          "path": "symlink6",
+          "kind": "symlink",
+          "target": "/tmp//../"
+        }
+      ]
+    },
+    {
+      "file": "libarchive/iso/test_read_format_iso_rockridge_rr_moved.iso.Z",
+      "producer": "from libarchive 3.8.11's tests",
+      "command": "libarchive/test/test_read_format_iso_rockridge_rr_moved.iso.Z.uu at v3.8.11, uudecoded",
+      "chain": "compress → iso",
+      "password": null,
+      "utc_mtimes": false,
+      "hardlinks": 0,
+      "symlinks": 0,
+      "note": "Rock Ridge relocated dir1/…/dir7/dir8 to rr_moved/dir8 (CL, PL and RE entries). 7-Zip 26.00 lists it there, with an empty file where it belongs; the paths here are libarchive's (test_read_format_isorr_rr_moved.c), which put it back, with 7-Zip's bytes.",
+      "7z_test": "ok",
+      "entries": [
+        {
+          "path": "file",
+          "kind": "file",
+          "size": 12345684,
+          "sha256": "be8246df9f3e322cfe3f54bdf6cceb65a7d8047537c919c6b9ea9020d786c70d"
+        },
+        {
+          "path": "dir1/dir2/dir3/dir4/dir5/dir6/dir7/dir8/dir9/dir10/deep",
+          "kind": "file",
+          "size": 12345684,
+          "sha256": "be8246df9f3e322cfe3f54bdf6cceb65a7d8047537c919c6b9ea9020d786c70d"
+        }
+      ]
+    },
+    {
+      "file": "libarchive/iso/test_read_format_iso_rockridge_cl_re_control.iso.Z",
+      "producer": "from libarchive 3.8.11's tests",
+      "command": "libarchive/test/test_read_format_iso_rockridge_cl_re_control.iso.Z.uu at v3.8.11, uudecoded",
+      "chain": "compress → iso",
+      "password": null,
+      "utc_mtimes": false,
+      "hardlinks": 0,
+      "symlinks": 0,
+      "note": "rr_moved/B is marked relocated (RE), but no folder points at it (no CL), so it stays in rr_moved, as 7-Zip lists it; libarchive's test_read_format_iso_rockridge_cl_re_cycle.c reads it to the end.",
+      "7z_test": "ok",
+      "entries": [
+        {
+          "path": "rr_moved/B/A",
+          "kind": "file",
+          "size": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      ]
+    },
+    {
+      "file": "libarchive/iso/test_read_format_iso_xorriso.iso.Z",
+      "producer": "from libarchive 3.8.11's tests",
+      "command": "libarchive/test/test_read_format_iso_xorriso.iso.Z.uu at v3.8.11, uudecoded",
+      "chain": "compress → iso",
+      "password": null,
+      "utc_mtimes": false,
+      "hardlinks": 0,
+      "symlinks": 1,
+      "7z_test": "ok",
+      "entries": [
+        {
+          "path": "dir/file2",
+          "kind": "file",
+          "size": 7,
+          "sha256": "167112362adb3b2041c11f7337437872f9d821e57e8c3edd68d87a1d0babd0f5"
+        },
+        {
+          "path": "dir/file3",
+          "kind": "file",
+          "size": 7,
+          "sha256": "d14f73ffe9efb30f7e7ca5bda314561e07c1e2bb94e2692f9979b2bbe19de341"
+        },
+        {
+          "path": "dir2/file4",
+          "kind": "file",
+          "size": 7,
+          "sha256": "a6f961466f137118d0c7b1e0454abb88480df2bcf7ab40e6c5c2f1e25e0cfa6c"
+        },
+        {
+          "path": "empty",
+          "kind": "file",
+          "size": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "path": "file",
+          "kind": "file",
+          "size": 6,
+          "sha256": "5891b5b522d5df086d0ff0b110fbd9d21bb4fc7163af34d08286a2e846f6be03"
+        },
+        {
+          "path": "hardlink",
+          "kind": "file",
+          "size": 6,
+          "sha256": "5891b5b522d5df086d0ff0b110fbd9d21bb4fc7163af34d08286a2e846f6be03"
+        },
+        {
+          "path": "symlink",
+          "kind": "symlink",
+          "target": "file"
+        }
+      ]
+    },
+    {
+      "file": "libarchive/iso/test_fuzz_1.iso.Z",
+      "producer": "from libarchive 3.8.11's tests",
+      "command": "libarchive/test/test_fuzz_1.iso.Z.uu at v3.8.11, uudecoded",
+      "chain": "compress → iso",
+      "password": null,
+      "utc_mtimes": false,
+      "hardlinks": 0,
+      "symlinks": 0,
+      "note": "test_fuzz.c's seed: 203 folders nested one in another, which the test mutates.",
+      "7z_test": "ok",
+      "entries": []
+    },
+    {
       "file": "libarchive/lzop/test_compat_lzop_1.tar.lzo",
       "producer": "from libarchive 3.8.11's tests",
       "command": "libarchive/test/test_compat_lzop_1.tar.lzo.uu at v3.8.11, uudecoded",
@@ -5778,6 +6333,1918 @@
           "kind": "file",
           "size": 16,
           "sha256": "efd1bd5224d891288126fa406f21bc70ec94339b4c2913c4230070d05fda2159"
+        }
+      ]
+    },
+    {
+      "file": "squashfs/gzip.squashfs",
+      "producer": "mksquashfs 4.6.1 (squashfs-tools, Ubuntu 24.04 in WSL)",
+      "command": "mksquashfs src gzip.squashfs -b 4K -all-root -comp gzip -xattrs-add user.beezip=1 -p \"/devs/null C ... 1 3\" -p \"/devs/fifo I ... f\"",
+      "chain": "squashfs",
+      "password": null,
+      "utc_mtimes": true,
+      "hardlinks": 1,
+      "symlinks": 2,
+      "others": 2,
+      "7z_test": "ok",
+      "entries": [
+        {
+          "path": "docs/blocks.bin",
+          "kind": "file",
+          "size": 13788,
+          "sha256": "e75a0c8f14cd120fda8275f85bc43378ec783c7c8b94342c419de15912d55637"
+        },
+        {
+          "path": "docs/deep/er/deep.txt",
+          "kind": "file",
+          "size": 5,
+          "sha256": "64896f89fd11190013b70103e603a1c5826e56b7fb7d2197ab279b0690043599"
+        },
+        {
+          "path": "docs/hard-hello",
+          "kind": "file",
+          "size": 15,
+          "sha256": "a357597dcc1f4c3d10721860b7d1f354c8c409c918c15321d4a9709bed42f804"
+        },
+        {
+          "path": "docs/link-to-hello",
+          "kind": "symlink",
+          "target": "../hello.txt"
+        },
+        {
+          "path": "docs/long-link",
+          "kind": "symlink",
+          "target": "x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/t"
+        },
+        {
+          "path": "docs/sparse.bin",
+          "kind": "file",
+          "size": 12292,
+          "sha256": "f15d4ab54a034a95c79ec83df78c839e13c89369e6c77152d6c13bf59c2b256d"
+        },
+        {
+          "path": "empty.txt",
+          "kind": "file",
+          "size": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "path": "hello.txt",
+          "kind": "file",
+          "size": 15,
+          "sha256": "a357597dcc1f4c3d10721860b7d1f354c8c409c918c15321d4a9709bed42f804"
+        },
+        {
+          "path": "random.bin",
+          "kind": "file",
+          "size": 3000,
+          "sha256": "02bda134d27e78bee3044b2f493ba8a5696382eccdfbd396fab0d930500d6b12"
+        },
+        {
+          "path": "ünïcödé/名前.txt",
+          "kind": "file",
+          "size": 16,
+          "sha256": "efd1bd5224d891288126fa406f21bc70ec94339b4c2913c4230070d05fda2159"
+        },
+        {
+          "path": "devs/fifo",
+          "kind": "other"
+        },
+        {
+          "path": "devs/null",
+          "kind": "other"
+        }
+      ]
+    },
+    {
+      "file": "squashfs/gzip-1.squashfs",
+      "producer": "mksquashfs 4.6.1 (squashfs-tools, Ubuntu 24.04 in WSL)",
+      "command": "mksquashfs src gzip-1.squashfs -b 4K -all-root -comp gzip -Xcompression-level 1 -xattrs-add user.beezip=1 -p \"/devs/null C ... 1 3\" -p \"/devs/fifo I ... f\"",
+      "chain": "squashfs",
+      "password": null,
+      "utc_mtimes": true,
+      "hardlinks": 1,
+      "symlinks": 2,
+      "others": 2,
+      "7z_test": "ok",
+      "entries": [
+        {
+          "path": "docs/blocks.bin",
+          "kind": "file",
+          "size": 13788,
+          "sha256": "e75a0c8f14cd120fda8275f85bc43378ec783c7c8b94342c419de15912d55637"
+        },
+        {
+          "path": "docs/deep/er/deep.txt",
+          "kind": "file",
+          "size": 5,
+          "sha256": "64896f89fd11190013b70103e603a1c5826e56b7fb7d2197ab279b0690043599"
+        },
+        {
+          "path": "docs/hard-hello",
+          "kind": "file",
+          "size": 15,
+          "sha256": "a357597dcc1f4c3d10721860b7d1f354c8c409c918c15321d4a9709bed42f804"
+        },
+        {
+          "path": "docs/link-to-hello",
+          "kind": "symlink",
+          "target": "../hello.txt"
+        },
+        {
+          "path": "docs/long-link",
+          "kind": "symlink",
+          "target": "x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/t"
+        },
+        {
+          "path": "docs/sparse.bin",
+          "kind": "file",
+          "size": 12292,
+          "sha256": "f15d4ab54a034a95c79ec83df78c839e13c89369e6c77152d6c13bf59c2b256d"
+        },
+        {
+          "path": "empty.txt",
+          "kind": "file",
+          "size": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "path": "hello.txt",
+          "kind": "file",
+          "size": 15,
+          "sha256": "a357597dcc1f4c3d10721860b7d1f354c8c409c918c15321d4a9709bed42f804"
+        },
+        {
+          "path": "random.bin",
+          "kind": "file",
+          "size": 3000,
+          "sha256": "02bda134d27e78bee3044b2f493ba8a5696382eccdfbd396fab0d930500d6b12"
+        },
+        {
+          "path": "ünïcödé/名前.txt",
+          "kind": "file",
+          "size": 16,
+          "sha256": "efd1bd5224d891288126fa406f21bc70ec94339b4c2913c4230070d05fda2159"
+        },
+        {
+          "path": "devs/fifo",
+          "kind": "other"
+        },
+        {
+          "path": "devs/null",
+          "kind": "other"
+        }
+      ]
+    },
+    {
+      "file": "squashfs/gzip-tailends.squashfs",
+      "producer": "mksquashfs 4.6.1 (squashfs-tools, Ubuntu 24.04 in WSL)",
+      "command": "mksquashfs src gzip-tailends.squashfs -b 4K -all-root -comp gzip -tailends -xattrs-add user.beezip=1 -p \"/devs/null C ... 1 3\" -p \"/devs/fifo I ... f\"",
+      "chain": "squashfs",
+      "password": null,
+      "utc_mtimes": true,
+      "hardlinks": 1,
+      "symlinks": 2,
+      "others": 2,
+      "7z_test": "ok",
+      "entries": [
+        {
+          "path": "docs/blocks.bin",
+          "kind": "file",
+          "size": 13788,
+          "sha256": "e75a0c8f14cd120fda8275f85bc43378ec783c7c8b94342c419de15912d55637"
+        },
+        {
+          "path": "docs/deep/er/deep.txt",
+          "kind": "file",
+          "size": 5,
+          "sha256": "64896f89fd11190013b70103e603a1c5826e56b7fb7d2197ab279b0690043599"
+        },
+        {
+          "path": "docs/hard-hello",
+          "kind": "file",
+          "size": 15,
+          "sha256": "a357597dcc1f4c3d10721860b7d1f354c8c409c918c15321d4a9709bed42f804"
+        },
+        {
+          "path": "docs/link-to-hello",
+          "kind": "symlink",
+          "target": "../hello.txt"
+        },
+        {
+          "path": "docs/long-link",
+          "kind": "symlink",
+          "target": "x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/t"
+        },
+        {
+          "path": "docs/sparse.bin",
+          "kind": "file",
+          "size": 12292,
+          "sha256": "f15d4ab54a034a95c79ec83df78c839e13c89369e6c77152d6c13bf59c2b256d"
+        },
+        {
+          "path": "empty.txt",
+          "kind": "file",
+          "size": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "path": "hello.txt",
+          "kind": "file",
+          "size": 15,
+          "sha256": "a357597dcc1f4c3d10721860b7d1f354c8c409c918c15321d4a9709bed42f804"
+        },
+        {
+          "path": "random.bin",
+          "kind": "file",
+          "size": 3000,
+          "sha256": "02bda134d27e78bee3044b2f493ba8a5696382eccdfbd396fab0d930500d6b12"
+        },
+        {
+          "path": "ünïcödé/名前.txt",
+          "kind": "file",
+          "size": 16,
+          "sha256": "efd1bd5224d891288126fa406f21bc70ec94339b4c2913c4230070d05fda2159"
+        },
+        {
+          "path": "devs/fifo",
+          "kind": "other"
+        },
+        {
+          "path": "devs/null",
+          "kind": "other"
+        }
+      ]
+    },
+    {
+      "file": "squashfs/gzip-nofrag.squashfs",
+      "producer": "mksquashfs 4.6.1 (squashfs-tools, Ubuntu 24.04 in WSL)",
+      "command": "mksquashfs src gzip-nofrag.squashfs -b 4K -all-root -comp gzip -no-fragments -xattrs-add user.beezip=1 -p \"/devs/null C ... 1 3\" -p \"/devs/fifo I ... f\"",
+      "chain": "squashfs",
+      "password": null,
+      "utc_mtimes": true,
+      "hardlinks": 1,
+      "symlinks": 2,
+      "others": 2,
+      "7z_test": "ok",
+      "entries": [
+        {
+          "path": "docs/blocks.bin",
+          "kind": "file",
+          "size": 13788,
+          "sha256": "e75a0c8f14cd120fda8275f85bc43378ec783c7c8b94342c419de15912d55637"
+        },
+        {
+          "path": "docs/deep/er/deep.txt",
+          "kind": "file",
+          "size": 5,
+          "sha256": "64896f89fd11190013b70103e603a1c5826e56b7fb7d2197ab279b0690043599"
+        },
+        {
+          "path": "docs/hard-hello",
+          "kind": "file",
+          "size": 15,
+          "sha256": "a357597dcc1f4c3d10721860b7d1f354c8c409c918c15321d4a9709bed42f804"
+        },
+        {
+          "path": "docs/link-to-hello",
+          "kind": "symlink",
+          "target": "../hello.txt"
+        },
+        {
+          "path": "docs/long-link",
+          "kind": "symlink",
+          "target": "x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/t"
+        },
+        {
+          "path": "docs/sparse.bin",
+          "kind": "file",
+          "size": 12292,
+          "sha256": "f15d4ab54a034a95c79ec83df78c839e13c89369e6c77152d6c13bf59c2b256d"
+        },
+        {
+          "path": "empty.txt",
+          "kind": "file",
+          "size": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "path": "hello.txt",
+          "kind": "file",
+          "size": 15,
+          "sha256": "a357597dcc1f4c3d10721860b7d1f354c8c409c918c15321d4a9709bed42f804"
+        },
+        {
+          "path": "random.bin",
+          "kind": "file",
+          "size": 3000,
+          "sha256": "02bda134d27e78bee3044b2f493ba8a5696382eccdfbd396fab0d930500d6b12"
+        },
+        {
+          "path": "ünïcödé/名前.txt",
+          "kind": "file",
+          "size": 16,
+          "sha256": "efd1bd5224d891288126fa406f21bc70ec94339b4c2913c4230070d05fda2159"
+        },
+        {
+          "path": "devs/fifo",
+          "kind": "other"
+        },
+        {
+          "path": "devs/null",
+          "kind": "other"
+        }
+      ]
+    },
+    {
+      "file": "squashfs/uncompressed.squashfs",
+      "producer": "mksquashfs 4.6.1 (squashfs-tools, Ubuntu 24.04 in WSL)",
+      "command": "mksquashfs src uncompressed.squashfs -b 4K -all-root -comp gzip -no-compression -xattrs-add user.beezip=1 -p \"/devs/null C ... 1 3\" -p \"/devs/fifo I ... f\"",
+      "chain": "squashfs",
+      "password": null,
+      "utc_mtimes": true,
+      "hardlinks": 1,
+      "symlinks": 2,
+      "others": 2,
+      "7z_test": "ok",
+      "entries": [
+        {
+          "path": "docs/blocks.bin",
+          "kind": "file",
+          "size": 13788,
+          "sha256": "e75a0c8f14cd120fda8275f85bc43378ec783c7c8b94342c419de15912d55637"
+        },
+        {
+          "path": "docs/deep/er/deep.txt",
+          "kind": "file",
+          "size": 5,
+          "sha256": "64896f89fd11190013b70103e603a1c5826e56b7fb7d2197ab279b0690043599"
+        },
+        {
+          "path": "docs/hard-hello",
+          "kind": "file",
+          "size": 15,
+          "sha256": "a357597dcc1f4c3d10721860b7d1f354c8c409c918c15321d4a9709bed42f804"
+        },
+        {
+          "path": "docs/link-to-hello",
+          "kind": "symlink",
+          "target": "../hello.txt"
+        },
+        {
+          "path": "docs/long-link",
+          "kind": "symlink",
+          "target": "x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/t"
+        },
+        {
+          "path": "docs/sparse.bin",
+          "kind": "file",
+          "size": 12292,
+          "sha256": "f15d4ab54a034a95c79ec83df78c839e13c89369e6c77152d6c13bf59c2b256d"
+        },
+        {
+          "path": "empty.txt",
+          "kind": "file",
+          "size": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "path": "hello.txt",
+          "kind": "file",
+          "size": 15,
+          "sha256": "a357597dcc1f4c3d10721860b7d1f354c8c409c918c15321d4a9709bed42f804"
+        },
+        {
+          "path": "random.bin",
+          "kind": "file",
+          "size": 3000,
+          "sha256": "02bda134d27e78bee3044b2f493ba8a5696382eccdfbd396fab0d930500d6b12"
+        },
+        {
+          "path": "ünïcödé/名前.txt",
+          "kind": "file",
+          "size": 16,
+          "sha256": "efd1bd5224d891288126fa406f21bc70ec94339b4c2913c4230070d05fda2159"
+        },
+        {
+          "path": "devs/fifo",
+          "kind": "other"
+        },
+        {
+          "path": "devs/null",
+          "kind": "other"
+        }
+      ]
+    },
+    {
+      "file": "squashfs/xz.squashfs",
+      "producer": "mksquashfs 4.6.1 (squashfs-tools, Ubuntu 24.04 in WSL)",
+      "command": "mksquashfs src xz.squashfs -b 4K -all-root -comp xz -xattrs-add user.beezip=1 -p \"/devs/null C ... 1 3\" -p \"/devs/fifo I ... f\"",
+      "chain": "squashfs",
+      "password": null,
+      "utc_mtimes": true,
+      "hardlinks": 1,
+      "symlinks": 2,
+      "others": 2,
+      "7z_test": "ok",
+      "entries": [
+        {
+          "path": "docs/blocks.bin",
+          "kind": "file",
+          "size": 13788,
+          "sha256": "e75a0c8f14cd120fda8275f85bc43378ec783c7c8b94342c419de15912d55637"
+        },
+        {
+          "path": "docs/deep/er/deep.txt",
+          "kind": "file",
+          "size": 5,
+          "sha256": "64896f89fd11190013b70103e603a1c5826e56b7fb7d2197ab279b0690043599"
+        },
+        {
+          "path": "docs/hard-hello",
+          "kind": "file",
+          "size": 15,
+          "sha256": "a357597dcc1f4c3d10721860b7d1f354c8c409c918c15321d4a9709bed42f804"
+        },
+        {
+          "path": "docs/link-to-hello",
+          "kind": "symlink",
+          "target": "../hello.txt"
+        },
+        {
+          "path": "docs/long-link",
+          "kind": "symlink",
+          "target": "x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/t"
+        },
+        {
+          "path": "docs/sparse.bin",
+          "kind": "file",
+          "size": 12292,
+          "sha256": "f15d4ab54a034a95c79ec83df78c839e13c89369e6c77152d6c13bf59c2b256d"
+        },
+        {
+          "path": "empty.txt",
+          "kind": "file",
+          "size": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "path": "hello.txt",
+          "kind": "file",
+          "size": 15,
+          "sha256": "a357597dcc1f4c3d10721860b7d1f354c8c409c918c15321d4a9709bed42f804"
+        },
+        {
+          "path": "random.bin",
+          "kind": "file",
+          "size": 3000,
+          "sha256": "02bda134d27e78bee3044b2f493ba8a5696382eccdfbd396fab0d930500d6b12"
+        },
+        {
+          "path": "ünïcödé/名前.txt",
+          "kind": "file",
+          "size": 16,
+          "sha256": "efd1bd5224d891288126fa406f21bc70ec94339b4c2913c4230070d05fda2159"
+        },
+        {
+          "path": "devs/fifo",
+          "kind": "other"
+        },
+        {
+          "path": "devs/null",
+          "kind": "other"
+        }
+      ]
+    },
+    {
+      "file": "squashfs/xz-bcj.squashfs",
+      "producer": "mksquashfs 4.6.1 (squashfs-tools, Ubuntu 24.04 in WSL)",
+      "command": "mksquashfs src xz-bcj.squashfs -b 4K -all-root -comp xz -Xbcj x86 -xattrs-add user.beezip=1 -p \"/devs/null C ... 1 3\" -p \"/devs/fifo I ... f\"",
+      "chain": "squashfs",
+      "password": null,
+      "utc_mtimes": true,
+      "hardlinks": 1,
+      "symlinks": 2,
+      "others": 2,
+      "7z_test": "ok",
+      "entries": [
+        {
+          "path": "docs/blocks.bin",
+          "kind": "file",
+          "size": 13788,
+          "sha256": "e75a0c8f14cd120fda8275f85bc43378ec783c7c8b94342c419de15912d55637"
+        },
+        {
+          "path": "docs/deep/er/deep.txt",
+          "kind": "file",
+          "size": 5,
+          "sha256": "64896f89fd11190013b70103e603a1c5826e56b7fb7d2197ab279b0690043599"
+        },
+        {
+          "path": "docs/hard-hello",
+          "kind": "file",
+          "size": 15,
+          "sha256": "a357597dcc1f4c3d10721860b7d1f354c8c409c918c15321d4a9709bed42f804"
+        },
+        {
+          "path": "docs/link-to-hello",
+          "kind": "symlink",
+          "target": "../hello.txt"
+        },
+        {
+          "path": "docs/long-link",
+          "kind": "symlink",
+          "target": "x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/t"
+        },
+        {
+          "path": "docs/sparse.bin",
+          "kind": "file",
+          "size": 12292,
+          "sha256": "f15d4ab54a034a95c79ec83df78c839e13c89369e6c77152d6c13bf59c2b256d"
+        },
+        {
+          "path": "empty.txt",
+          "kind": "file",
+          "size": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "path": "hello.txt",
+          "kind": "file",
+          "size": 15,
+          "sha256": "a357597dcc1f4c3d10721860b7d1f354c8c409c918c15321d4a9709bed42f804"
+        },
+        {
+          "path": "random.bin",
+          "kind": "file",
+          "size": 3000,
+          "sha256": "02bda134d27e78bee3044b2f493ba8a5696382eccdfbd396fab0d930500d6b12"
+        },
+        {
+          "path": "ünïcödé/名前.txt",
+          "kind": "file",
+          "size": 16,
+          "sha256": "efd1bd5224d891288126fa406f21bc70ec94339b4c2913c4230070d05fda2159"
+        },
+        {
+          "path": "devs/fifo",
+          "kind": "other"
+        },
+        {
+          "path": "devs/null",
+          "kind": "other"
+        }
+      ]
+    },
+    {
+      "file": "squashfs/lzma.squashfs",
+      "producer": "mksquashfs 4.6.1 (squashfs-tools, Ubuntu 24.04 in WSL)",
+      "command": "mksquashfs src lzma.squashfs -b 4K -all-root -comp lzma -xattrs-add user.beezip=1 -p \"/devs/null C ... 1 3\" -p \"/devs/fifo I ... f\"",
+      "chain": "squashfs",
+      "password": null,
+      "utc_mtimes": true,
+      "hardlinks": 1,
+      "symlinks": 2,
+      "others": 2,
+      "7z_test": "ok",
+      "entries": [
+        {
+          "path": "docs/blocks.bin",
+          "kind": "file",
+          "size": 13788,
+          "sha256": "e75a0c8f14cd120fda8275f85bc43378ec783c7c8b94342c419de15912d55637"
+        },
+        {
+          "path": "docs/deep/er/deep.txt",
+          "kind": "file",
+          "size": 5,
+          "sha256": "64896f89fd11190013b70103e603a1c5826e56b7fb7d2197ab279b0690043599"
+        },
+        {
+          "path": "docs/hard-hello",
+          "kind": "file",
+          "size": 15,
+          "sha256": "a357597dcc1f4c3d10721860b7d1f354c8c409c918c15321d4a9709bed42f804"
+        },
+        {
+          "path": "docs/link-to-hello",
+          "kind": "symlink",
+          "target": "../hello.txt"
+        },
+        {
+          "path": "docs/long-link",
+          "kind": "symlink",
+          "target": "x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/t"
+        },
+        {
+          "path": "docs/sparse.bin",
+          "kind": "file",
+          "size": 12292,
+          "sha256": "f15d4ab54a034a95c79ec83df78c839e13c89369e6c77152d6c13bf59c2b256d"
+        },
+        {
+          "path": "empty.txt",
+          "kind": "file",
+          "size": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "path": "hello.txt",
+          "kind": "file",
+          "size": 15,
+          "sha256": "a357597dcc1f4c3d10721860b7d1f354c8c409c918c15321d4a9709bed42f804"
+        },
+        {
+          "path": "random.bin",
+          "kind": "file",
+          "size": 3000,
+          "sha256": "02bda134d27e78bee3044b2f493ba8a5696382eccdfbd396fab0d930500d6b12"
+        },
+        {
+          "path": "ünïcödé/名前.txt",
+          "kind": "file",
+          "size": 16,
+          "sha256": "efd1bd5224d891288126fa406f21bc70ec94339b4c2913c4230070d05fda2159"
+        },
+        {
+          "path": "devs/fifo",
+          "kind": "other"
+        },
+        {
+          "path": "devs/null",
+          "kind": "other"
+        }
+      ]
+    },
+    {
+      "file": "squashfs/lzo.squashfs",
+      "producer": "mksquashfs 4.6.1 (squashfs-tools, Ubuntu 24.04 in WSL)",
+      "command": "mksquashfs src lzo.squashfs -b 4K -all-root -comp lzo -xattrs-add user.beezip=1 -p \"/devs/null C ... 1 3\" -p \"/devs/fifo I ... f\"",
+      "chain": "squashfs",
+      "password": null,
+      "utc_mtimes": true,
+      "hardlinks": 1,
+      "symlinks": 2,
+      "others": 2,
+      "7z_test": "ok",
+      "entries": [
+        {
+          "path": "docs/blocks.bin",
+          "kind": "file",
+          "size": 13788,
+          "sha256": "e75a0c8f14cd120fda8275f85bc43378ec783c7c8b94342c419de15912d55637"
+        },
+        {
+          "path": "docs/deep/er/deep.txt",
+          "kind": "file",
+          "size": 5,
+          "sha256": "64896f89fd11190013b70103e603a1c5826e56b7fb7d2197ab279b0690043599"
+        },
+        {
+          "path": "docs/hard-hello",
+          "kind": "file",
+          "size": 15,
+          "sha256": "a357597dcc1f4c3d10721860b7d1f354c8c409c918c15321d4a9709bed42f804"
+        },
+        {
+          "path": "docs/link-to-hello",
+          "kind": "symlink",
+          "target": "../hello.txt"
+        },
+        {
+          "path": "docs/long-link",
+          "kind": "symlink",
+          "target": "x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/t"
+        },
+        {
+          "path": "docs/sparse.bin",
+          "kind": "file",
+          "size": 12292,
+          "sha256": "f15d4ab54a034a95c79ec83df78c839e13c89369e6c77152d6c13bf59c2b256d"
+        },
+        {
+          "path": "empty.txt",
+          "kind": "file",
+          "size": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "path": "hello.txt",
+          "kind": "file",
+          "size": 15,
+          "sha256": "a357597dcc1f4c3d10721860b7d1f354c8c409c918c15321d4a9709bed42f804"
+        },
+        {
+          "path": "random.bin",
+          "kind": "file",
+          "size": 3000,
+          "sha256": "02bda134d27e78bee3044b2f493ba8a5696382eccdfbd396fab0d930500d6b12"
+        },
+        {
+          "path": "ünïcödé/名前.txt",
+          "kind": "file",
+          "size": 16,
+          "sha256": "efd1bd5224d891288126fa406f21bc70ec94339b4c2913c4230070d05fda2159"
+        },
+        {
+          "path": "devs/fifo",
+          "kind": "other"
+        },
+        {
+          "path": "devs/null",
+          "kind": "other"
+        }
+      ]
+    },
+    {
+      "file": "squashfs/lz4.squashfs",
+      "producer": "mksquashfs 4.6.1 (squashfs-tools, Ubuntu 24.04 in WSL)",
+      "command": "mksquashfs src lz4.squashfs -b 4K -all-root -comp lz4 -xattrs-add user.beezip=1 -p \"/devs/null C ... 1 3\" -p \"/devs/fifo I ... f\"",
+      "chain": "squashfs",
+      "password": null,
+      "utc_mtimes": true,
+      "hardlinks": 1,
+      "symlinks": 2,
+      "others": 2,
+      "7z_test": "can't open it",
+      "entries": [
+        {
+          "path": "docs/blocks.bin",
+          "kind": "file",
+          "size": 13788,
+          "sha256": "e75a0c8f14cd120fda8275f85bc43378ec783c7c8b94342c419de15912d55637"
+        },
+        {
+          "path": "docs/deep/er/deep.txt",
+          "kind": "file",
+          "size": 5,
+          "sha256": "64896f89fd11190013b70103e603a1c5826e56b7fb7d2197ab279b0690043599"
+        },
+        {
+          "path": "docs/hard-hello",
+          "kind": "file",
+          "size": 15,
+          "sha256": "a357597dcc1f4c3d10721860b7d1f354c8c409c918c15321d4a9709bed42f804"
+        },
+        {
+          "path": "docs/link-to-hello",
+          "kind": "symlink",
+          "target": "../hello.txt"
+        },
+        {
+          "path": "docs/long-link",
+          "kind": "symlink",
+          "target": "x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/t"
+        },
+        {
+          "path": "docs/sparse.bin",
+          "kind": "file",
+          "size": 12292,
+          "sha256": "f15d4ab54a034a95c79ec83df78c839e13c89369e6c77152d6c13bf59c2b256d"
+        },
+        {
+          "path": "empty.txt",
+          "kind": "file",
+          "size": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "path": "hello.txt",
+          "kind": "file",
+          "size": 15,
+          "sha256": "a357597dcc1f4c3d10721860b7d1f354c8c409c918c15321d4a9709bed42f804"
+        },
+        {
+          "path": "random.bin",
+          "kind": "file",
+          "size": 3000,
+          "sha256": "02bda134d27e78bee3044b2f493ba8a5696382eccdfbd396fab0d930500d6b12"
+        },
+        {
+          "path": "ünïcödé/名前.txt",
+          "kind": "file",
+          "size": 16,
+          "sha256": "efd1bd5224d891288126fa406f21bc70ec94339b4c2913c4230070d05fda2159"
+        },
+        {
+          "path": "devs/fifo",
+          "kind": "other"
+        },
+        {
+          "path": "devs/null",
+          "kind": "other"
+        }
+      ],
+      "note": "7-Zip 26.00 can't open lz4 squashfs; the expected entries come from unsquashfs 4.6.1"
+    },
+    {
+      "file": "squashfs/lz4hc.squashfs",
+      "producer": "mksquashfs 4.6.1 (squashfs-tools, Ubuntu 24.04 in WSL)",
+      "command": "mksquashfs src lz4hc.squashfs -b 4K -all-root -comp lz4 -Xhc -xattrs-add user.beezip=1 -p \"/devs/null C ... 1 3\" -p \"/devs/fifo I ... f\"",
+      "chain": "squashfs",
+      "password": null,
+      "utc_mtimes": true,
+      "hardlinks": 1,
+      "symlinks": 2,
+      "others": 2,
+      "7z_test": "can't open it",
+      "entries": [
+        {
+          "path": "docs/blocks.bin",
+          "kind": "file",
+          "size": 13788,
+          "sha256": "e75a0c8f14cd120fda8275f85bc43378ec783c7c8b94342c419de15912d55637"
+        },
+        {
+          "path": "docs/deep/er/deep.txt",
+          "kind": "file",
+          "size": 5,
+          "sha256": "64896f89fd11190013b70103e603a1c5826e56b7fb7d2197ab279b0690043599"
+        },
+        {
+          "path": "docs/hard-hello",
+          "kind": "file",
+          "size": 15,
+          "sha256": "a357597dcc1f4c3d10721860b7d1f354c8c409c918c15321d4a9709bed42f804"
+        },
+        {
+          "path": "docs/link-to-hello",
+          "kind": "symlink",
+          "target": "../hello.txt"
+        },
+        {
+          "path": "docs/long-link",
+          "kind": "symlink",
+          "target": "x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/t"
+        },
+        {
+          "path": "docs/sparse.bin",
+          "kind": "file",
+          "size": 12292,
+          "sha256": "f15d4ab54a034a95c79ec83df78c839e13c89369e6c77152d6c13bf59c2b256d"
+        },
+        {
+          "path": "empty.txt",
+          "kind": "file",
+          "size": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "path": "hello.txt",
+          "kind": "file",
+          "size": 15,
+          "sha256": "a357597dcc1f4c3d10721860b7d1f354c8c409c918c15321d4a9709bed42f804"
+        },
+        {
+          "path": "random.bin",
+          "kind": "file",
+          "size": 3000,
+          "sha256": "02bda134d27e78bee3044b2f493ba8a5696382eccdfbd396fab0d930500d6b12"
+        },
+        {
+          "path": "ünïcödé/名前.txt",
+          "kind": "file",
+          "size": 16,
+          "sha256": "efd1bd5224d891288126fa406f21bc70ec94339b4c2913c4230070d05fda2159"
+        },
+        {
+          "path": "devs/fifo",
+          "kind": "other"
+        },
+        {
+          "path": "devs/null",
+          "kind": "other"
+        }
+      ],
+      "note": "7-Zip 26.00 can't open lz4 squashfs; the expected entries come from unsquashfs 4.6.1"
+    },
+    {
+      "file": "squashfs/zstd.squashfs",
+      "producer": "mksquashfs 4.6.1 (squashfs-tools, Ubuntu 24.04 in WSL)",
+      "command": "mksquashfs src zstd.squashfs -b 4K -all-root -comp zstd -xattrs-add user.beezip=1 -p \"/devs/null C ... 1 3\" -p \"/devs/fifo I ... f\"",
+      "chain": "squashfs",
+      "password": null,
+      "utc_mtimes": true,
+      "hardlinks": 1,
+      "symlinks": 2,
+      "others": 2,
+      "7z_test": "ok",
+      "entries": [
+        {
+          "path": "docs/blocks.bin",
+          "kind": "file",
+          "size": 13788,
+          "sha256": "e75a0c8f14cd120fda8275f85bc43378ec783c7c8b94342c419de15912d55637"
+        },
+        {
+          "path": "docs/deep/er/deep.txt",
+          "kind": "file",
+          "size": 5,
+          "sha256": "64896f89fd11190013b70103e603a1c5826e56b7fb7d2197ab279b0690043599"
+        },
+        {
+          "path": "docs/hard-hello",
+          "kind": "file",
+          "size": 15,
+          "sha256": "a357597dcc1f4c3d10721860b7d1f354c8c409c918c15321d4a9709bed42f804"
+        },
+        {
+          "path": "docs/link-to-hello",
+          "kind": "symlink",
+          "target": "../hello.txt"
+        },
+        {
+          "path": "docs/long-link",
+          "kind": "symlink",
+          "target": "x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/x/t"
+        },
+        {
+          "path": "docs/sparse.bin",
+          "kind": "file",
+          "size": 12292,
+          "sha256": "f15d4ab54a034a95c79ec83df78c839e13c89369e6c77152d6c13bf59c2b256d"
+        },
+        {
+          "path": "empty.txt",
+          "kind": "file",
+          "size": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "path": "hello.txt",
+          "kind": "file",
+          "size": 15,
+          "sha256": "a357597dcc1f4c3d10721860b7d1f354c8c409c918c15321d4a9709bed42f804"
+        },
+        {
+          "path": "random.bin",
+          "kind": "file",
+          "size": 3000,
+          "sha256": "02bda134d27e78bee3044b2f493ba8a5696382eccdfbd396fab0d930500d6b12"
+        },
+        {
+          "path": "ünïcödé/名前.txt",
+          "kind": "file",
+          "size": 16,
+          "sha256": "efd1bd5224d891288126fa406f21bc70ec94339b4c2913c4230070d05fda2159"
+        },
+        {
+          "path": "devs/fifo",
+          "kind": "other"
+        },
+        {
+          "path": "devs/null",
+          "kind": "other"
+        }
+      ]
+    },
+    {
+      "file": "squashfs/latin1.squashfs",
+      "producer": "mksquashfs 4.6.1 (squashfs-tools, Ubuntu 24.04 in WSL)",
+      "command": "mksquashfs latin1 latin1.squashfs -all-root (a file named caf\\xe9.txt, in Latin-1)",
+      "chain": "squashfs",
+      "password": null,
+      "utc_mtimes": true,
+      "hardlinks": 0,
+      "symlinks": 0,
+      "others": 0,
+      "7z_test": "ok",
+      "entries": [
+        {
+          "path": "café.txt",
+          "kind": "file",
+          "size": 5,
+          "sha256": "9e4efed0ff1dbcf37240f82e1aad6c763eb9331434d2b394a6441abbbe3634eb"
+        }
+      ],
+      "encoding": "cp1252"
+    },
+    {
+      "file": "dmg/apfs-udbz.dmg",
+      "producer": "hdiutil on macOS 26.7.2 (25G332), GitHub macos-latest, make-dmg.yml run 42362026482 (https://github.com/JoshClose/BeeZip/actions/runs/42362026482)",
+      "command": "hdiutil create -quiet -srcfolder tree -volname BeeZip APFS -fs APFS -format UDBZ apfs-udbz.dmg",
+      "chain": "dmg",
+      "password": null,
+      "utc_mtimes": true,
+      "hardlinks": 0,
+      "symlinks": 1,
+      "filesystem": "APFS",
+      "note": "Entries are what macOS shows on the volume, attached read-only, from its root; HFS+ names composed (NFC). The journal and HFS+ private folders are hidden by macOS. Hard links are listed as files with their data, as fstool reads them.",
+      "7z_test": "ok",
+      "entries": [
+        {
+          "path": "blocks.txt",
+          "kind": "file",
+          "size": 329000,
+          "sha256": "0cf0d38a194a247921af6da6ab57f0b906e6ef9b8ea082c48f2c2eda0d85f796"
+        },
+        {
+          "path": "empty.txt",
+          "kind": "file",
+          "size": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "path": "link-to-readme",
+          "kind": "symlink",
+          "target": "readme.txt"
+        },
+        {
+          "path": "random.bin",
+          "kind": "file",
+          "size": 70000,
+          "sha256": "0ba64ff889c0ec4153e81ec8db03485ed75fe98af4cf61b46d7d8f9d3b25d3af"
+        },
+        {
+          "path": "readme.txt",
+          "kind": "file",
+          "size": 1680,
+          "sha256": "2b6c87ecfbdee89a023c07e8dcd07cf23b368f815589aa37229e20b82950afaf"
+        },
+        {
+          "path": "tool.sh",
+          "kind": "file",
+          "size": 22,
+          "sha256": "724e35ceba33f19eb96aba93c9b438e6ca266b0332120636ee9337696a6ff082"
+        },
+        {
+          "path": "Ünïcödé café 日本.txt",
+          "kind": "file",
+          "size": 16,
+          "sha256": "efd1bd5224d891288126fa406f21bc70ec94339b4c2913c4230070d05fda2159"
+        },
+        {
+          "path": "sub/nested/deep.txt",
+          "kind": "file",
+          "size": 24,
+          "sha256": "cf0974faeb4f8f89ae668ec798e283ab680de3f8799caeb0006cdcc7d10d8523"
+        }
+      ]
+    },
+    {
+      "file": "dmg/apfs-udro.dmg",
+      "producer": "hdiutil on macOS 26.7.2 (25G332), GitHub macos-latest, make-dmg.yml run 42362026482 (https://github.com/JoshClose/BeeZip/actions/runs/42362026482)",
+      "command": "hdiutil create -quiet -srcfolder tree -volname BeeZip APFS -fs APFS -format UDRO apfs-udro.dmg",
+      "chain": "dmg",
+      "password": null,
+      "utc_mtimes": true,
+      "hardlinks": 0,
+      "symlinks": 1,
+      "filesystem": "APFS",
+      "note": "Entries are what macOS shows on the volume, attached read-only, from its root; HFS+ names composed (NFC). The journal and HFS+ private folders are hidden by macOS. Hard links are listed as files with their data, as fstool reads them.",
+      "7z_test": "ok",
+      "entries": [
+        {
+          "path": "blocks.txt",
+          "kind": "file",
+          "size": 329000,
+          "sha256": "0cf0d38a194a247921af6da6ab57f0b906e6ef9b8ea082c48f2c2eda0d85f796"
+        },
+        {
+          "path": "empty.txt",
+          "kind": "file",
+          "size": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "path": "link-to-readme",
+          "kind": "symlink",
+          "target": "readme.txt"
+        },
+        {
+          "path": "random.bin",
+          "kind": "file",
+          "size": 70000,
+          "sha256": "0ba64ff889c0ec4153e81ec8db03485ed75fe98af4cf61b46d7d8f9d3b25d3af"
+        },
+        {
+          "path": "readme.txt",
+          "kind": "file",
+          "size": 1680,
+          "sha256": "2b6c87ecfbdee89a023c07e8dcd07cf23b368f815589aa37229e20b82950afaf"
+        },
+        {
+          "path": "tool.sh",
+          "kind": "file",
+          "size": 22,
+          "sha256": "724e35ceba33f19eb96aba93c9b438e6ca266b0332120636ee9337696a6ff082"
+        },
+        {
+          "path": "Ünïcödé café 日本.txt",
+          "kind": "file",
+          "size": 16,
+          "sha256": "efd1bd5224d891288126fa406f21bc70ec94339b4c2913c4230070d05fda2159"
+        },
+        {
+          "path": "sub/nested/deep.txt",
+          "kind": "file",
+          "size": 24,
+          "sha256": "cf0974faeb4f8f89ae668ec798e283ab680de3f8799caeb0006cdcc7d10d8523"
+        }
+      ]
+    },
+    {
+      "file": "dmg/apfs-udzo.dmg",
+      "producer": "hdiutil on macOS 26.7.2 (25G332), GitHub macos-latest, make-dmg.yml run 42362026482 (https://github.com/JoshClose/BeeZip/actions/runs/42362026482)",
+      "command": "hdiutil create -quiet -srcfolder tree -volname BeeZip APFS -fs APFS -format UDZO apfs-udzo.dmg",
+      "chain": "dmg",
+      "password": null,
+      "utc_mtimes": true,
+      "hardlinks": 0,
+      "symlinks": 1,
+      "filesystem": "APFS",
+      "note": "Entries are what macOS shows on the volume, attached read-only, from its root; HFS+ names composed (NFC). The journal and HFS+ private folders are hidden by macOS. Hard links are listed as files with their data, as fstool reads them.",
+      "7z_test": "ok",
+      "entries": [
+        {
+          "path": "blocks.txt",
+          "kind": "file",
+          "size": 329000,
+          "sha256": "0cf0d38a194a247921af6da6ab57f0b906e6ef9b8ea082c48f2c2eda0d85f796"
+        },
+        {
+          "path": "empty.txt",
+          "kind": "file",
+          "size": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "path": "link-to-readme",
+          "kind": "symlink",
+          "target": "readme.txt"
+        },
+        {
+          "path": "random.bin",
+          "kind": "file",
+          "size": 70000,
+          "sha256": "0ba64ff889c0ec4153e81ec8db03485ed75fe98af4cf61b46d7d8f9d3b25d3af"
+        },
+        {
+          "path": "readme.txt",
+          "kind": "file",
+          "size": 1680,
+          "sha256": "2b6c87ecfbdee89a023c07e8dcd07cf23b368f815589aa37229e20b82950afaf"
+        },
+        {
+          "path": "tool.sh",
+          "kind": "file",
+          "size": 22,
+          "sha256": "724e35ceba33f19eb96aba93c9b438e6ca266b0332120636ee9337696a6ff082"
+        },
+        {
+          "path": "Ünïcödé café 日本.txt",
+          "kind": "file",
+          "size": 16,
+          "sha256": "efd1bd5224d891288126fa406f21bc70ec94339b4c2913c4230070d05fda2159"
+        },
+        {
+          "path": "sub/nested/deep.txt",
+          "kind": "file",
+          "size": 24,
+          "sha256": "cf0974faeb4f8f89ae668ec798e283ab680de3f8799caeb0006cdcc7d10d8523"
+        }
+      ]
+    },
+    {
+      "file": "dmg/apfs-ulfo.dmg",
+      "producer": "hdiutil on macOS 26.7.2 (25G332), GitHub macos-latest, make-dmg.yml run 42362026482 (https://github.com/JoshClose/BeeZip/actions/runs/42362026482)",
+      "command": "hdiutil create -quiet -srcfolder tree -volname BeeZip APFS -fs APFS -format ULFO apfs-ulfo.dmg",
+      "chain": "dmg",
+      "password": null,
+      "utc_mtimes": true,
+      "hardlinks": 0,
+      "symlinks": 1,
+      "filesystem": "APFS",
+      "note": "Entries are what macOS shows on the volume, attached read-only, from its root; HFS+ names composed (NFC). The journal and HFS+ private folders are hidden by macOS. Hard links are listed as files with their data, as fstool reads them.",
+      "7z_test": "ok",
+      "entries": [
+        {
+          "path": "blocks.txt",
+          "kind": "file",
+          "size": 329000,
+          "sha256": "0cf0d38a194a247921af6da6ab57f0b906e6ef9b8ea082c48f2c2eda0d85f796"
+        },
+        {
+          "path": "empty.txt",
+          "kind": "file",
+          "size": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "path": "link-to-readme",
+          "kind": "symlink",
+          "target": "readme.txt"
+        },
+        {
+          "path": "random.bin",
+          "kind": "file",
+          "size": 70000,
+          "sha256": "0ba64ff889c0ec4153e81ec8db03485ed75fe98af4cf61b46d7d8f9d3b25d3af"
+        },
+        {
+          "path": "readme.txt",
+          "kind": "file",
+          "size": 1680,
+          "sha256": "2b6c87ecfbdee89a023c07e8dcd07cf23b368f815589aa37229e20b82950afaf"
+        },
+        {
+          "path": "tool.sh",
+          "kind": "file",
+          "size": 22,
+          "sha256": "724e35ceba33f19eb96aba93c9b438e6ca266b0332120636ee9337696a6ff082"
+        },
+        {
+          "path": "Ünïcödé café 日本.txt",
+          "kind": "file",
+          "size": 16,
+          "sha256": "efd1bd5224d891288126fa406f21bc70ec94339b4c2913c4230070d05fda2159"
+        },
+        {
+          "path": "sub/nested/deep.txt",
+          "kind": "file",
+          "size": 24,
+          "sha256": "cf0974faeb4f8f89ae668ec798e283ab680de3f8799caeb0006cdcc7d10d8523"
+        }
+      ]
+    },
+    {
+      "file": "dmg/apfs-ulmo.dmg",
+      "producer": "hdiutil on macOS 26.7.2 (25G332), GitHub macos-latest, make-dmg.yml run 42362026482 (https://github.com/JoshClose/BeeZip/actions/runs/42362026482)",
+      "command": "hdiutil create -quiet -srcfolder tree -volname BeeZip APFS -fs APFS -format ULMO apfs-ulmo.dmg",
+      "chain": "dmg",
+      "password": null,
+      "utc_mtimes": true,
+      "hardlinks": 0,
+      "symlinks": 1,
+      "filesystem": "APFS",
+      "note": "Entries are what macOS shows on the volume, attached read-only, from its root; HFS+ names composed (NFC). The journal and HFS+ private folders are hidden by macOS. Hard links are listed as files with their data, as fstool reads them.",
+      "7z_test": "ok",
+      "entries": [
+        {
+          "path": "blocks.txt",
+          "kind": "file",
+          "size": 329000,
+          "sha256": "0cf0d38a194a247921af6da6ab57f0b906e6ef9b8ea082c48f2c2eda0d85f796"
+        },
+        {
+          "path": "empty.txt",
+          "kind": "file",
+          "size": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "path": "link-to-readme",
+          "kind": "symlink",
+          "target": "readme.txt"
+        },
+        {
+          "path": "random.bin",
+          "kind": "file",
+          "size": 70000,
+          "sha256": "0ba64ff889c0ec4153e81ec8db03485ed75fe98af4cf61b46d7d8f9d3b25d3af"
+        },
+        {
+          "path": "readme.txt",
+          "kind": "file",
+          "size": 1680,
+          "sha256": "2b6c87ecfbdee89a023c07e8dcd07cf23b368f815589aa37229e20b82950afaf"
+        },
+        {
+          "path": "tool.sh",
+          "kind": "file",
+          "size": 22,
+          "sha256": "724e35ceba33f19eb96aba93c9b438e6ca266b0332120636ee9337696a6ff082"
+        },
+        {
+          "path": "Ünïcödé café 日本.txt",
+          "kind": "file",
+          "size": 16,
+          "sha256": "efd1bd5224d891288126fa406f21bc70ec94339b4c2913c4230070d05fda2159"
+        },
+        {
+          "path": "sub/nested/deep.txt",
+          "kind": "file",
+          "size": 24,
+          "sha256": "cf0974faeb4f8f89ae668ec798e283ab680de3f8799caeb0006cdcc7d10d8523"
+        }
+      ]
+    },
+    {
+      "file": "dmg/hfs-apm-udzo.dmg",
+      "producer": "hdiutil on macOS 26.7.2 (25G332), GitHub macos-latest, make-dmg.yml run 42362026482 (https://github.com/JoshClose/BeeZip/actions/runs/42362026482)",
+      "command": "hdiutil create -quiet -srcfolder tree -volname BeeZip HFS -fs HFS+ -format UDZO -layout SPUD hfs-apm-udzo.dmg",
+      "chain": "dmg",
+      "password": null,
+      "utc_mtimes": true,
+      "hardlinks": 0,
+      "symlinks": 1,
+      "filesystem": "HFS+",
+      "note": "Entries are what macOS shows on the volume, attached read-only, from its root; HFS+ names composed (NFC). The journal and HFS+ private folders are hidden by macOS. Hard links are listed as files with their data, as fstool reads them.",
+      "7z_test": "ok",
+      "entries": [
+        {
+          "path": "Ünïcödé café 日本.txt",
+          "kind": "file",
+          "size": 16,
+          "sha256": "efd1bd5224d891288126fa406f21bc70ec94339b4c2913c4230070d05fda2159"
+        },
+        {
+          "path": "blocks.txt",
+          "kind": "file",
+          "size": 329000,
+          "sha256": "0cf0d38a194a247921af6da6ab57f0b906e6ef9b8ea082c48f2c2eda0d85f796"
+        },
+        {
+          "path": "empty.txt",
+          "kind": "file",
+          "size": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "path": "link-to-readme",
+          "kind": "symlink",
+          "target": "readme.txt"
+        },
+        {
+          "path": "random.bin",
+          "kind": "file",
+          "size": 70000,
+          "sha256": "0ba64ff889c0ec4153e81ec8db03485ed75fe98af4cf61b46d7d8f9d3b25d3af"
+        },
+        {
+          "path": "readme.txt",
+          "kind": "file",
+          "size": 1680,
+          "sha256": "2b6c87ecfbdee89a023c07e8dcd07cf23b368f815589aa37229e20b82950afaf"
+        },
+        {
+          "path": "tool.sh",
+          "kind": "file",
+          "size": 22,
+          "sha256": "724e35ceba33f19eb96aba93c9b438e6ca266b0332120636ee9337696a6ff082"
+        },
+        {
+          "path": "sub/nested/deep.txt",
+          "kind": "file",
+          "size": 24,
+          "sha256": "cf0974faeb4f8f89ae668ec798e283ab680de3f8799caeb0006cdcc7d10d8523"
+        }
+      ]
+    },
+    {
+      "file": "dmg/hfs-decmpfs-udzo.dmg",
+      "producer": "hdiutil on macOS 26.7.2 (25G332), GitHub macos-latest, make-dmg.yml run 42362026482 (https://github.com/JoshClose/BeeZip/actions/runs/42362026482)",
+      "command": "hdiutil convert -quiet hfs-rw.dmg -format UDZO -o hfs-decmpfs-udzo.dmg",
+      "chain": "dmg",
+      "password": null,
+      "utc_mtimes": true,
+      "hardlinks": 0,
+      "symlinks": 1,
+      "filesystem": "HFS+",
+      "note": "Entries are what macOS shows on the volume, attached read-only, from its root; HFS+ names composed (NFC). The journal and HFS+ private folders are hidden by macOS. Hard links are listed as files with their data, as fstool reads them.",
+      "7z_test": "errors: ERROR: Data Error : BeeZip HFS decmpfs\\LZVN\\large.txt",
+      "entries": [
+        {
+          "path": "LZFSE/large.txt",
+          "kind": "file",
+          "size": 248000,
+          "sha256": "42cce527b9c721ec52aaf2784be699d4cb269394dfa0f8e157b860c1fcc86742",
+          "decmpfs": 12
+        },
+        {
+          "path": "LZFSE/small.txt",
+          "kind": "file",
+          "size": 2000,
+          "sha256": "aefe3a2e2e5daa1c0e3eac6be2475931ee0ea98be06817549525eebc893ea3de",
+          "decmpfs": 11
+        },
+        {
+          "path": "LZVN/large.txt",
+          "kind": "file",
+          "size": 248000,
+          "sha256": "42cce527b9c721ec52aaf2784be699d4cb269394dfa0f8e157b860c1fcc86742",
+          "decmpfs": 8
+        },
+        {
+          "path": "LZVN/small.txt",
+          "kind": "file",
+          "size": 2000,
+          "sha256": "aefe3a2e2e5daa1c0e3eac6be2475931ee0ea98be06817549525eebc893ea3de",
+          "decmpfs": 7
+        },
+        {
+          "path": "ZLIB/large.txt",
+          "kind": "file",
+          "size": 248000,
+          "sha256": "42cce527b9c721ec52aaf2784be699d4cb269394dfa0f8e157b860c1fcc86742",
+          "decmpfs": 4
+        },
+        {
+          "path": "ZLIB/small.txt",
+          "kind": "file",
+          "size": 2000,
+          "sha256": "aefe3a2e2e5daa1c0e3eac6be2475931ee0ea98be06817549525eebc893ea3de",
+          "decmpfs": 3
+        },
+        {
+          "path": "ditto/large.txt",
+          "kind": "file",
+          "size": 248000,
+          "sha256": "42cce527b9c721ec52aaf2784be699d4cb269394dfa0f8e157b860c1fcc86742",
+          "decmpfs": 8
+        },
+        {
+          "path": "ditto/small.txt",
+          "kind": "file",
+          "size": 2000,
+          "sha256": "aefe3a2e2e5daa1c0e3eac6be2475931ee0ea98be06817549525eebc893ea3de"
+        },
+        {
+          "path": "plain/Ünïcödé café 日本.txt",
+          "kind": "file",
+          "size": 16,
+          "sha256": "efd1bd5224d891288126fa406f21bc70ec94339b4c2913c4230070d05fda2159"
+        },
+        {
+          "path": "plain/blocks.txt",
+          "kind": "file",
+          "size": 329000,
+          "sha256": "0cf0d38a194a247921af6da6ab57f0b906e6ef9b8ea082c48f2c2eda0d85f796"
+        },
+        {
+          "path": "plain/empty.txt",
+          "kind": "file",
+          "size": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "path": "plain/hard-readme",
+          "kind": "file",
+          "size": 1680,
+          "sha256": "2b6c87ecfbdee89a023c07e8dcd07cf23b368f815589aa37229e20b82950afaf"
+        },
+        {
+          "path": "plain/link-to-readme",
+          "kind": "symlink",
+          "target": "readme.txt"
+        },
+        {
+          "path": "plain/random.bin",
+          "kind": "file",
+          "size": 70000,
+          "sha256": "0ba64ff889c0ec4153e81ec8db03485ed75fe98af4cf61b46d7d8f9d3b25d3af"
+        },
+        {
+          "path": "plain/readme.txt",
+          "kind": "file",
+          "size": 1680,
+          "sha256": "2b6c87ecfbdee89a023c07e8dcd07cf23b368f815589aa37229e20b82950afaf"
+        },
+        {
+          "path": "plain/tool.sh",
+          "kind": "file",
+          "size": 22,
+          "sha256": "724e35ceba33f19eb96aba93c9b438e6ca266b0332120636ee9337696a6ff082"
+        },
+        {
+          "path": "plain/sub/nested/deep.txt",
+          "kind": "file",
+          "size": 24,
+          "sha256": "cf0974faeb4f8f89ae668ec798e283ab680de3f8799caeb0006cdcc7d10d8523"
+        }
+      ]
+    },
+    {
+      "file": "dmg/hfs-none-udzo.dmg",
+      "producer": "hdiutil on macOS 26.7.2 (25G332), GitHub macos-latest, make-dmg.yml run 42362026482 (https://github.com/JoshClose/BeeZip/actions/runs/42362026482)",
+      "command": "hdiutil create -quiet -srcfolder tree -volname BeeZip HFS -fs HFS+ -format UDZO -layout NONE hfs-none-udzo.dmg",
+      "chain": "dmg",
+      "password": null,
+      "utc_mtimes": true,
+      "hardlinks": 0,
+      "symlinks": 1,
+      "filesystem": "HFS+",
+      "note": "Entries are what macOS shows on the volume, attached read-only, from its root; HFS+ names composed (NFC). The journal and HFS+ private folders are hidden by macOS. Hard links are listed as files with their data, as fstool reads them.",
+      "7z_test": "ok",
+      "entries": [
+        {
+          "path": "Ünïcödé café 日本.txt",
+          "kind": "file",
+          "size": 16,
+          "sha256": "efd1bd5224d891288126fa406f21bc70ec94339b4c2913c4230070d05fda2159"
+        },
+        {
+          "path": "blocks.txt",
+          "kind": "file",
+          "size": 329000,
+          "sha256": "0cf0d38a194a247921af6da6ab57f0b906e6ef9b8ea082c48f2c2eda0d85f796"
+        },
+        {
+          "path": "empty.txt",
+          "kind": "file",
+          "size": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "path": "link-to-readme",
+          "kind": "symlink",
+          "target": "readme.txt"
+        },
+        {
+          "path": "random.bin",
+          "kind": "file",
+          "size": 70000,
+          "sha256": "0ba64ff889c0ec4153e81ec8db03485ed75fe98af4cf61b46d7d8f9d3b25d3af"
+        },
+        {
+          "path": "readme.txt",
+          "kind": "file",
+          "size": 1680,
+          "sha256": "2b6c87ecfbdee89a023c07e8dcd07cf23b368f815589aa37229e20b82950afaf"
+        },
+        {
+          "path": "tool.sh",
+          "kind": "file",
+          "size": 22,
+          "sha256": "724e35ceba33f19eb96aba93c9b438e6ca266b0332120636ee9337696a6ff082"
+        },
+        {
+          "path": "sub/nested/deep.txt",
+          "kind": "file",
+          "size": 24,
+          "sha256": "cf0974faeb4f8f89ae668ec798e283ab680de3f8799caeb0006cdcc7d10d8523"
+        }
+      ]
+    },
+    {
+      "file": "dmg/hfs-udbz.dmg",
+      "producer": "hdiutil on macOS 26.7.2 (25G332), GitHub macos-latest, make-dmg.yml run 42362026482 (https://github.com/JoshClose/BeeZip/actions/runs/42362026482)",
+      "command": "hdiutil create -quiet -srcfolder tree -volname BeeZip HFS -fs HFS+ -format UDBZ hfs-udbz.dmg",
+      "chain": "dmg",
+      "password": null,
+      "utc_mtimes": true,
+      "hardlinks": 0,
+      "symlinks": 1,
+      "filesystem": "HFS+",
+      "note": "Entries are what macOS shows on the volume, attached read-only, from its root; HFS+ names composed (NFC). The journal and HFS+ private folders are hidden by macOS. Hard links are listed as files with their data, as fstool reads them.",
+      "7z_test": "ok",
+      "entries": [
+        {
+          "path": "Ünïcödé café 日本.txt",
+          "kind": "file",
+          "size": 16,
+          "sha256": "efd1bd5224d891288126fa406f21bc70ec94339b4c2913c4230070d05fda2159"
+        },
+        {
+          "path": "blocks.txt",
+          "kind": "file",
+          "size": 329000,
+          "sha256": "0cf0d38a194a247921af6da6ab57f0b906e6ef9b8ea082c48f2c2eda0d85f796"
+        },
+        {
+          "path": "empty.txt",
+          "kind": "file",
+          "size": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "path": "link-to-readme",
+          "kind": "symlink",
+          "target": "readme.txt"
+        },
+        {
+          "path": "random.bin",
+          "kind": "file",
+          "size": 70000,
+          "sha256": "0ba64ff889c0ec4153e81ec8db03485ed75fe98af4cf61b46d7d8f9d3b25d3af"
+        },
+        {
+          "path": "readme.txt",
+          "kind": "file",
+          "size": 1680,
+          "sha256": "2b6c87ecfbdee89a023c07e8dcd07cf23b368f815589aa37229e20b82950afaf"
+        },
+        {
+          "path": "tool.sh",
+          "kind": "file",
+          "size": 22,
+          "sha256": "724e35ceba33f19eb96aba93c9b438e6ca266b0332120636ee9337696a6ff082"
+        },
+        {
+          "path": "sub/nested/deep.txt",
+          "kind": "file",
+          "size": 24,
+          "sha256": "cf0974faeb4f8f89ae668ec798e283ab680de3f8799caeb0006cdcc7d10d8523"
+        }
+      ]
+    },
+    {
+      "file": "dmg/hfs-udco.dmg",
+      "producer": "hdiutil on macOS 26.7.2 (25G332), GitHub macos-latest, make-dmg.yml run 42362026482 (https://github.com/JoshClose/BeeZip/actions/runs/42362026482)",
+      "command": "hdiutil create -quiet -srcfolder tree -volname BeeZip HFS -fs HFS+ -format UDCO hfs-udco.dmg",
+      "chain": "dmg",
+      "password": null,
+      "utc_mtimes": true,
+      "hardlinks": 0,
+      "symlinks": 1,
+      "filesystem": "HFS+",
+      "note": "Entries are what macOS shows on the volume, attached read-only, from its root; HFS+ names composed (NFC). The journal and HFS+ private folders are hidden by macOS. Hard links are listed as files with their data, as fstool reads them.",
+      "7z_test": "ok",
+      "entries": [
+        {
+          "path": "Ünïcödé café 日本.txt",
+          "kind": "file",
+          "size": 16,
+          "sha256": "efd1bd5224d891288126fa406f21bc70ec94339b4c2913c4230070d05fda2159"
+        },
+        {
+          "path": "blocks.txt",
+          "kind": "file",
+          "size": 329000,
+          "sha256": "0cf0d38a194a247921af6da6ab57f0b906e6ef9b8ea082c48f2c2eda0d85f796"
+        },
+        {
+          "path": "empty.txt",
+          "kind": "file",
+          "size": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "path": "link-to-readme",
+          "kind": "symlink",
+          "target": "readme.txt"
+        },
+        {
+          "path": "random.bin",
+          "kind": "file",
+          "size": 70000,
+          "sha256": "0ba64ff889c0ec4153e81ec8db03485ed75fe98af4cf61b46d7d8f9d3b25d3af"
+        },
+        {
+          "path": "readme.txt",
+          "kind": "file",
+          "size": 1680,
+          "sha256": "2b6c87ecfbdee89a023c07e8dcd07cf23b368f815589aa37229e20b82950afaf"
+        },
+        {
+          "path": "tool.sh",
+          "kind": "file",
+          "size": 22,
+          "sha256": "724e35ceba33f19eb96aba93c9b438e6ca266b0332120636ee9337696a6ff082"
+        },
+        {
+          "path": "sub/nested/deep.txt",
+          "kind": "file",
+          "size": 24,
+          "sha256": "cf0974faeb4f8f89ae668ec798e283ab680de3f8799caeb0006cdcc7d10d8523"
+        }
+      ]
+    },
+    {
+      "file": "dmg/hfs-udro.dmg",
+      "producer": "hdiutil on macOS 26.7.2 (25G332), GitHub macos-latest, make-dmg.yml run 42362026482 (https://github.com/JoshClose/BeeZip/actions/runs/42362026482)",
+      "command": "hdiutil create -quiet -srcfolder tree -volname BeeZip HFS -fs HFS+ -format UDRO hfs-udro.dmg",
+      "chain": "dmg",
+      "password": null,
+      "utc_mtimes": true,
+      "hardlinks": 0,
+      "symlinks": 1,
+      "filesystem": "HFS+",
+      "note": "Entries are what macOS shows on the volume, attached read-only, from its root; HFS+ names composed (NFC). The journal and HFS+ private folders are hidden by macOS. Hard links are listed as files with their data, as fstool reads them.",
+      "7z_test": "ok",
+      "entries": [
+        {
+          "path": "Ünïcödé café 日本.txt",
+          "kind": "file",
+          "size": 16,
+          "sha256": "efd1bd5224d891288126fa406f21bc70ec94339b4c2913c4230070d05fda2159"
+        },
+        {
+          "path": "blocks.txt",
+          "kind": "file",
+          "size": 329000,
+          "sha256": "0cf0d38a194a247921af6da6ab57f0b906e6ef9b8ea082c48f2c2eda0d85f796"
+        },
+        {
+          "path": "empty.txt",
+          "kind": "file",
+          "size": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "path": "link-to-readme",
+          "kind": "symlink",
+          "target": "readme.txt"
+        },
+        {
+          "path": "random.bin",
+          "kind": "file",
+          "size": 70000,
+          "sha256": "0ba64ff889c0ec4153e81ec8db03485ed75fe98af4cf61b46d7d8f9d3b25d3af"
+        },
+        {
+          "path": "readme.txt",
+          "kind": "file",
+          "size": 1680,
+          "sha256": "2b6c87ecfbdee89a023c07e8dcd07cf23b368f815589aa37229e20b82950afaf"
+        },
+        {
+          "path": "tool.sh",
+          "kind": "file",
+          "size": 22,
+          "sha256": "724e35ceba33f19eb96aba93c9b438e6ca266b0332120636ee9337696a6ff082"
+        },
+        {
+          "path": "sub/nested/deep.txt",
+          "kind": "file",
+          "size": 24,
+          "sha256": "cf0974faeb4f8f89ae668ec798e283ab680de3f8799caeb0006cdcc7d10d8523"
+        }
+      ]
+    },
+    {
+      "file": "dmg/hfs-udzo.dmg",
+      "producer": "hdiutil on macOS 26.7.2 (25G332), GitHub macos-latest, make-dmg.yml run 42362026482 (https://github.com/JoshClose/BeeZip/actions/runs/42362026482)",
+      "command": "hdiutil create -quiet -srcfolder tree -volname BeeZip HFS -fs HFS+ -format UDZO hfs-udzo.dmg",
+      "chain": "dmg",
+      "password": null,
+      "utc_mtimes": true,
+      "hardlinks": 0,
+      "symlinks": 1,
+      "filesystem": "HFS+",
+      "note": "Entries are what macOS shows on the volume, attached read-only, from its root; HFS+ names composed (NFC). The journal and HFS+ private folders are hidden by macOS. Hard links are listed as files with their data, as fstool reads them.",
+      "7z_test": "ok",
+      "entries": [
+        {
+          "path": "Ünïcödé café 日本.txt",
+          "kind": "file",
+          "size": 16,
+          "sha256": "efd1bd5224d891288126fa406f21bc70ec94339b4c2913c4230070d05fda2159"
+        },
+        {
+          "path": "blocks.txt",
+          "kind": "file",
+          "size": 329000,
+          "sha256": "0cf0d38a194a247921af6da6ab57f0b906e6ef9b8ea082c48f2c2eda0d85f796"
+        },
+        {
+          "path": "empty.txt",
+          "kind": "file",
+          "size": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "path": "link-to-readme",
+          "kind": "symlink",
+          "target": "readme.txt"
+        },
+        {
+          "path": "random.bin",
+          "kind": "file",
+          "size": 70000,
+          "sha256": "0ba64ff889c0ec4153e81ec8db03485ed75fe98af4cf61b46d7d8f9d3b25d3af"
+        },
+        {
+          "path": "readme.txt",
+          "kind": "file",
+          "size": 1680,
+          "sha256": "2b6c87ecfbdee89a023c07e8dcd07cf23b368f815589aa37229e20b82950afaf"
+        },
+        {
+          "path": "tool.sh",
+          "kind": "file",
+          "size": 22,
+          "sha256": "724e35ceba33f19eb96aba93c9b438e6ca266b0332120636ee9337696a6ff082"
+        },
+        {
+          "path": "sub/nested/deep.txt",
+          "kind": "file",
+          "size": 24,
+          "sha256": "cf0974faeb4f8f89ae668ec798e283ab680de3f8799caeb0006cdcc7d10d8523"
+        }
+      ]
+    },
+    {
+      "file": "dmg/hfs-ulfo.dmg",
+      "producer": "hdiutil on macOS 26.7.2 (25G332), GitHub macos-latest, make-dmg.yml run 42362026482 (https://github.com/JoshClose/BeeZip/actions/runs/42362026482)",
+      "command": "hdiutil create -quiet -srcfolder tree -volname BeeZip HFS -fs HFS+ -format ULFO hfs-ulfo.dmg",
+      "chain": "dmg",
+      "password": null,
+      "utc_mtimes": true,
+      "hardlinks": 0,
+      "symlinks": 1,
+      "filesystem": "HFS+",
+      "note": "Entries are what macOS shows on the volume, attached read-only, from its root; HFS+ names composed (NFC). The journal and HFS+ private folders are hidden by macOS. Hard links are listed as files with their data, as fstool reads them.",
+      "7z_test": "ok",
+      "entries": [
+        {
+          "path": "Ünïcödé café 日本.txt",
+          "kind": "file",
+          "size": 16,
+          "sha256": "efd1bd5224d891288126fa406f21bc70ec94339b4c2913c4230070d05fda2159"
+        },
+        {
+          "path": "blocks.txt",
+          "kind": "file",
+          "size": 329000,
+          "sha256": "0cf0d38a194a247921af6da6ab57f0b906e6ef9b8ea082c48f2c2eda0d85f796"
+        },
+        {
+          "path": "empty.txt",
+          "kind": "file",
+          "size": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "path": "link-to-readme",
+          "kind": "symlink",
+          "target": "readme.txt"
+        },
+        {
+          "path": "random.bin",
+          "kind": "file",
+          "size": 70000,
+          "sha256": "0ba64ff889c0ec4153e81ec8db03485ed75fe98af4cf61b46d7d8f9d3b25d3af"
+        },
+        {
+          "path": "readme.txt",
+          "kind": "file",
+          "size": 1680,
+          "sha256": "2b6c87ecfbdee89a023c07e8dcd07cf23b368f815589aa37229e20b82950afaf"
+        },
+        {
+          "path": "tool.sh",
+          "kind": "file",
+          "size": 22,
+          "sha256": "724e35ceba33f19eb96aba93c9b438e6ca266b0332120636ee9337696a6ff082"
+        },
+        {
+          "path": "sub/nested/deep.txt",
+          "kind": "file",
+          "size": 24,
+          "sha256": "cf0974faeb4f8f89ae668ec798e283ab680de3f8799caeb0006cdcc7d10d8523"
+        }
+      ]
+    },
+    {
+      "file": "dmg/hfs-ulmo.dmg",
+      "producer": "hdiutil on macOS 26.7.2 (25G332), GitHub macos-latest, make-dmg.yml run 42362026482 (https://github.com/JoshClose/BeeZip/actions/runs/42362026482)",
+      "command": "hdiutil create -quiet -srcfolder tree -volname BeeZip HFS -fs HFS+ -format ULMO hfs-ulmo.dmg",
+      "chain": "dmg",
+      "password": null,
+      "utc_mtimes": true,
+      "hardlinks": 0,
+      "symlinks": 1,
+      "filesystem": "HFS+",
+      "note": "Entries are what macOS shows on the volume, attached read-only, from its root; HFS+ names composed (NFC). The journal and HFS+ private folders are hidden by macOS. Hard links are listed as files with their data, as fstool reads them.",
+      "7z_test": "ok",
+      "entries": [
+        {
+          "path": "Ünïcödé café 日本.txt",
+          "kind": "file",
+          "size": 16,
+          "sha256": "efd1bd5224d891288126fa406f21bc70ec94339b4c2913c4230070d05fda2159"
+        },
+        {
+          "path": "blocks.txt",
+          "kind": "file",
+          "size": 329000,
+          "sha256": "0cf0d38a194a247921af6da6ab57f0b906e6ef9b8ea082c48f2c2eda0d85f796"
+        },
+        {
+          "path": "empty.txt",
+          "kind": "file",
+          "size": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "path": "link-to-readme",
+          "kind": "symlink",
+          "target": "readme.txt"
+        },
+        {
+          "path": "random.bin",
+          "kind": "file",
+          "size": 70000,
+          "sha256": "0ba64ff889c0ec4153e81ec8db03485ed75fe98af4cf61b46d7d8f9d3b25d3af"
+        },
+        {
+          "path": "readme.txt",
+          "kind": "file",
+          "size": 1680,
+          "sha256": "2b6c87ecfbdee89a023c07e8dcd07cf23b368f815589aa37229e20b82950afaf"
+        },
+        {
+          "path": "tool.sh",
+          "kind": "file",
+          "size": 22,
+          "sha256": "724e35ceba33f19eb96aba93c9b438e6ca266b0332120636ee9337696a6ff082"
+        },
+        {
+          "path": "sub/nested/deep.txt",
+          "kind": "file",
+          "size": 24,
+          "sha256": "cf0974faeb4f8f89ae668ec798e283ab680de3f8799caeb0006cdcc7d10d8523"
         }
       ]
     }

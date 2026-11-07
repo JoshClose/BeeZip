@@ -12,6 +12,10 @@ cargo-fuzz = true
 # Its own workspace: cargo-fuzz needs nightly, and the main workspace is pinned to stable.
 [workspace]
 
+# The main workspace's patched hadris-iso (docs/M5.md §5.9), so the fuzzers read what BeeZip ships.
+[patch.crates-io]
+hadris-iso = { path = "../vendor/hadris-iso" }
+
 [dependencies]
 beezip-core = { path = "../crates/beezip-core" }
 beezip-menu = { path = "../crates/beezip-menu" }
@@ -117,6 +121,27 @@ bench = false
 [[bin]]
 name = "lzh"
 path = "fuzz_targets/lzh.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "iso"
+path = "fuzz_targets/iso.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "squashfs"
+path = "fuzz_targets/squashfs.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "dmg"
+path = "fuzz_targets/dmg.rs"
 test = false
 doc = false
 bench = false

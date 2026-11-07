@@ -1075,7 +1075,7 @@ impl ArchiveWriter for CpioWriter<'_> {
         })
     }
 
-    fn finish(mut self: Box<Self>) -> Result<()> {
+    fn finish(mut self: Box<Self>, _: &mut dyn Ctx) -> Result<()> {
         let trailer = Header {
             kind: Kind::Newc,
             ino: 0,
@@ -1321,6 +1321,7 @@ mod tests {
                 modified: None,
                 unix_mode: Some(0o600),
                 dos_attrs: None,
+                source: None,
             };
             let big = NewEntry {
                 size: 5 << 30,
@@ -1342,7 +1343,7 @@ mod tests {
             };
             w.add(&link, &mut io::empty(), &mut cx).unwrap();
             assert!(w.add(&file("short", 9), &mut &b"abc"[..], &mut cx).is_err());
-            w.finish().unwrap();
+            w.finish(&mut cx).unwrap();
         }
         // The short file left a header behind; read up to it.
         assert_eq!(buf.len() % 4, 0);

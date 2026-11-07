@@ -65,7 +65,7 @@ const MTIME: u64 = 1_767_225_600;
 #[test]
 fn every_fixture_reads_correctly() {
     let all = manifest();
-    assert_eq!(all.len(), 169, "the manifest lists every fixture");
+    assert_eq!(all.len(), 213, "the manifest lists every fixture");
     let mut failures = Vec::new();
     for fx in &all {
         let file = fx["file"].as_str().unwrap();
@@ -103,11 +103,14 @@ fn check(fx: &Value) -> Result<(), String> {
     let count = |pred: fn(&EntryKind) -> bool| entries.iter().filter(|e| pred(&e.kind)).count();
     let hardlinks = count(|k| matches!(k, EntryKind::Hardlink { .. }));
     let symlinks = count(|k| matches!(k, EntryKind::Symlink { .. }));
+    // Devices and FIFOs (squashfs's), listed as `other` and skipped when extracting.
+    let others = count(|k| matches!(k, EntryKind::Other));
     if hardlinks as u64 != fx["hardlinks"].as_u64().unwrap()
         || symlinks as u64 != fx["symlinks"].as_u64().unwrap()
+        || others as u64 != fx["others"].as_u64().unwrap_or(0)
     {
         return Err(format!(
-            "{hardlinks} hard links and {symlinks} symlinks listed"
+            "{hardlinks} hard links, {symlinks} symlinks and {others} others listed"
         ));
     }
     for want in expected {
@@ -145,7 +148,7 @@ fn check(fx: &Value) -> Result<(), String> {
                     return Err(format!("`{p}` has size {:?}", e.size));
                 }
             }
-            ("file", EntryKind::Hardlink { .. }) => {}
+            ("file", EntryKind::Hardlink { .. }) | ("other", EntryKind::Other) => {}
             (k, kind) => return Err(format!("`{p}` is {kind:?}, expected {k}")),
         }
     }
@@ -193,9 +196,14 @@ fn check(fx: &Value) -> Result<(), String> {
     let refused: Vec<_> = report
         .skipped
         .iter()
-        .filter(|s| s.reason != SkipReason::LinksDisabled)
+        .filter(|s| {
+            !matches!(
+                s.reason,
+                SkipReason::LinksDisabled | SkipReason::Unsupported
+            )
+        })
         .collect();
-    if !refused.is_empty() || report.skipped.len() != symlinks {
+    if !refused.is_empty() || report.skipped.len() != symlinks + others {
         return Err(format!("skipped {:?}", report.skipped));
     }
     for want in expected.iter().filter(|w| w["kind"] == "file") {
@@ -400,6 +408,54 @@ fn broken_fixtures_fail_as_they_should() {
         ("delharc/broken/regression-fuzz-10-1.bin", garbage),
         ("delharc/broken/unlha32-lh2.lzh", unsupported),
         ("linux/broken/ar-thin.a", unsupported),
+        // Listed with its real size; BeeZip doesn't decompress zisofs.
+        (
+            "libarchive/iso/broken/test_read_format_iso_zisofs.iso.Z",
+            Fails::With(&[beezip_core::ErrorKind::UnsupportedOperation]),
+        ),
+        (
+            "libarchive/iso/broken/test_read_format_iso_joliet_overlong.iso.Z",
+            Fails::Reads,
+        ),
+        // The Joliet root loops back on itself: hadris reads it as empty.
+        (
+            "libarchive/iso/broken/test_read_format_iso_joliet_utf16be_cycle.iso.Z",
+            Fails::Reads,
+        ),
+        (
+            "libarchive/iso/broken/test_read_format_iso_joliet_utf16be_overflow.iso",
+            Fails::Reads,
+        ),
+        (
+            "libarchive/iso/broken/test_read_format_iso_rockridge_ce_loop.iso.Z",
+            corrupt,
+        ),
+        (
+            "libarchive/iso/broken/test_read_format_iso_rockridge_ce_overflow.iso.Z",
+            corrupt,
+        ),
+        // Relocations that point at each other are listed where they're stored.
+        (
+            "libarchive/iso/broken/test_read_format_iso_rockridge_cl_re_cycle.iso.Z",
+            Fails::Reads,
+        ),
+        (
+            "libarchive/iso/broken/test_read_format_iso_rockridge_sl_leak.iso",
+            corrupt,
+        ),
+        (
+            "libarchive/iso/broken/test_read_format_iso_rockridge_zf_overflow.iso",
+            corrupt,
+        ),
+        (
+            "libarchive/iso/broken/test_read_format_iso_zisofs_overflow.iso",
+            corrupt,
+        ),
+        // APFS files compressed into a resource fork, which fstool doesn't reach.
+        (
+            "dmg/broken/apfs-decmpfs-udzo.dmg",
+            Fails::With(&[beezip_core::ErrorKind::UnsupportedOperation]),
+        ),
     ];
     let mut failures = Vec::new();
     for (file, want) in cases {

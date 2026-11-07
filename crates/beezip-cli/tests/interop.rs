@@ -5,6 +5,9 @@
 //!   missing 7-Zip fails instead of skipping.
 //! - Unix: GNU tar lists and extracts BeeZip's tars, and BeeZip reads GNU tar's, including a
 //!   `--sparse` archive of a file with holes. `BEEZIP_REQUIRE_GNU_TAR=1` makes GNU tar required.
+//! - Linux: lzop, uncompress, cpio, ar, xorriso and unsquashfs read what BeeZip writes
+//!   (`BEEZIP_REQUIRE_LINUX_TOOLS=1`). With `BEEZIP_IMAGES_OUT=<dir>`, the ISO and DMG it wrote
+//!   are left there with their files' hashes, for CI's macOS job to mount (docs/M5.md §10).
 
 #![allow(clippy::unwrap_used, clippy::expect_used, dead_code)]
 
@@ -229,6 +232,8 @@ mod seven_zip {
             "cpio.Z",
             "ar",
             "cab",
+            "iso",
+            "dmg",
         ] {
             if !have.contains(needs(kind)) {
                 eprintln!("7-Zip doesn't read {kind}; not tested");
@@ -245,12 +250,19 @@ mod seven_zip {
             assert!(seven(&exe, &["t", &name], root.path()), "7z t {name}");
             tested.push(name);
         }
+        // squashfs in every compressor 7-Zip 26.00 reads: it can't open lz4 images.
+        for method in ["gzip", "xz", "zstd", "lzo"] {
+            let name = format!("{method}.squashfs");
+            beezip(&["create", &name, "tree", "-m", method], root.path());
+            assert!(seven(&exe, &["t", &name], root.path()), "7z t {name}");
+            tested.push(name);
+        }
         // This 7-Zip lacks lzip, lz4, brotli and snappy; one with them tests 44.
         assert!(tested.len() >= 36, "{tested:?}");
     }
 
-    /// cpio, ar, CAB and `.Z` from BeeZip extract to the same bytes in 7-Zip, and CABs in
-    /// Windows' `expand.exe` too (docs/M5.md §10).
+    /// cpio, ar, CAB, `.Z` and the disk images from BeeZip extract to the same bytes in 7-Zip,
+    /// and CABs in Windows' `expand.exe` too (docs/M5.md §10).
     #[test]
     fn m5_archives_extract_identically_elsewhere() {
         let Some(exe) = seven_zip() else { return };
@@ -264,6 +276,10 @@ mod seven_zip {
             ("t.ar", vec![]),
             ("s.cab", vec!["-m", "store"]),
             ("m.cab", vec!["-m", "mszip"]),
+            ("t.iso", vec![]),
+            ("t.squashfs", vec![]),
+            ("x.squashfs", vec!["-m", "xz"]),
+            ("t.dmg", vec![]),
         ] {
             let mut a = vec!["create", name, "tree"];
             a.extend(args);
@@ -284,6 +300,25 @@ mod seven_zip {
                 seven(&exe, &["x", &inner, &out], root.path()),
                 "7z x {inner}"
             );
+            if name.ends_with(".dmg") {
+                // 7-Zip puts a DMG's files in a folder named after the volume, and keeps HFS+'s
+                // decomposed names: the ASCII paths must match, and every file's bytes.
+                let got = hashes(&dest.join("t").join("tree"));
+                let ascii = |m: &BTreeMap<String, String>| -> BTreeMap<String, String> {
+                    m.iter()
+                        .filter(|(p, _)| p.is_ascii())
+                        .map(|(p, h)| (p.clone(), h.clone()))
+                        .collect()
+                };
+                assert_eq!(ascii(&got), ascii(&want), "{name} in 7-Zip");
+                let sums = |m: &BTreeMap<String, String>| {
+                    let mut v: Vec<String> = m.values().cloned().collect();
+                    v.sort();
+                    v
+                };
+                assert_eq!(sums(&got), sums(&want), "{name}'s bytes in 7-Zip");
+                continue;
+            }
             let mut got = hashes(&dest.join("tree"));
             let mut want = want.clone();
             if name.ends_with(".ar") {
@@ -894,5 +929,93 @@ mod linux_tools {
             None,
         );
         assert_eq!(got, readme);
+    }
+
+    /// xorriso and unsquashfs read BeeZip's ISO and squashfs images: every file listed, and
+    /// extracted to the same bytes. With `BEEZIP_IMAGES_OUT`, the ISO and a DMG are kept for
+    /// macOS, beside `hashes.json` (path → SHA-256 of every file of the tree).
+    #[test]
+    fn linux_tools_read_beezip_images() {
+        let var = "BEEZIP_REQUIRE_LINUX_TOOLS";
+        let (Some(xorriso), Some(unsquashfs)) = (
+            require(found("xorriso", "-version"), var, "xorriso"),
+            require(found("unsquashfs", "-version"), var, "unsquashfs"),
+        ) else {
+            return;
+        };
+        let root = tempfile::tempdir().unwrap();
+        make_tree(root.path());
+        let want = hashes(&root.path().join("tree"));
+
+        // ISO: Rock Ridge's names, as xorriso finds them, and its extraction.
+        beezip(&["create", "t.iso", "tree"], root.path());
+        let found = run(
+            &xorriso,
+            &["-indev", "t.iso", "-find", "/", "-type", "f"],
+            root.path(),
+            None,
+        );
+        let found = String::from_utf8_lossy(&found).into_owned();
+        for path in want.keys() {
+            assert!(
+                found.contains(&format!("'/tree/{path}'")),
+                "{path} in {found}"
+            );
+        }
+        let dest = root.path().join("x-iso");
+        run(
+            &xorriso,
+            &[
+                "-osirrox",
+                "on",
+                "-indev",
+                "t.iso",
+                "-extract",
+                "/",
+                dest.to_str().unwrap(),
+            ],
+            root.path(),
+            None,
+        );
+        assert_eq!(hashes(&dest.join("tree")), want, "t.iso in xorriso");
+
+        // squashfs, in each compressor: the superblock, the listing and the files.
+        for method in ["gzip", "xz", "zstd", "lz4", "lzo"] {
+            let name = format!("t-{method}.squashfs");
+            beezip(&["create", &name, "tree", "-m", method], root.path());
+            let sb = run(&unsquashfs, &["-s", &name], root.path(), None);
+            let sb = String::from_utf8_lossy(&sb).into_owned();
+            assert!(
+                sb.contains(&format!("Compression {method}")),
+                "{name}: {sb}"
+            );
+            let listing = run(&unsquashfs, &["-l", &name], root.path(), None);
+            let listing = String::from_utf8_lossy(&listing).into_owned();
+            for path in want.keys() {
+                assert!(
+                    listing.contains(&format!("squashfs-root/tree/{path}")),
+                    "{path} in {name}: {listing}"
+                );
+            }
+            let dest = root.path().join(format!("x-{method}"));
+            run(
+                &unsquashfs,
+                &["-q", "-d", dest.to_str().unwrap(), &name],
+                root.path(),
+                None,
+            );
+            assert_eq!(hashes(&dest.join("tree")), want, "{name} in unsquashfs");
+        }
+
+        if let Some(out) = std::env::var_os("BEEZIP_IMAGES_OUT") {
+            let out = PathBuf::from(out);
+            std::fs::create_dir_all(&out).unwrap();
+            beezip(&["create", "t.dmg", "tree"], root.path());
+            for name in ["t.iso", "t.dmg"] {
+                std::fs::copy(root.path().join(name), out.join(name)).unwrap();
+            }
+            let json = serde_json::to_string_pretty(&want).unwrap();
+            std::fs::write(out.join("hashes.json"), json).unwrap();
+        }
     }
 }

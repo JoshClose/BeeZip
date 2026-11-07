@@ -1,21 +1,26 @@
 //! Archive formats: ZIP, TAR and the one-entry stream view of a bare compressed file
-//! (docs/M1.md §3.4), 7z and RAR (docs/M3.md), and cpio, ar, deb, RPM, CAB and LHA (docs/M5.md §5).
+//! (docs/M1.md §3.4), 7z and RAR (docs/M3.md), cpio, ar, deb, RPM, CAB and LHA, and the disk
+//! images ISO, squashfs and DMG (docs/M5.md §5).
 
 pub mod ar;
 pub mod cab;
 pub mod cpio;
 pub mod deb;
+pub mod dmg;
+pub mod iso;
 pub mod lzh;
 pub mod rar;
 pub mod rpm;
 pub mod sevenz;
 pub mod sevenz_header;
+pub mod squashfs;
 pub mod stream;
 pub mod tar;
+pub mod udif;
 pub mod zip;
 pub mod zip_edit;
 
-use std::{any::Any, collections::BTreeSet, fmt, io::Read, time::SystemTime};
+use std::{any::Any, collections::BTreeSet, fmt, io::Read, path::PathBuf, time::SystemTime};
 
 use globset::{GlobBuilder, GlobSet, GlobSetBuilder};
 
@@ -38,12 +43,17 @@ pub enum FormatId {
     Cab,
     /// LHA, also called LZH.
     Lzh,
+    /// An ISO 9660 image, with Joliet and Rock Ridge, or UDF.
+    Iso,
+    Squashfs,
+    /// An Apple disk image (UDIF), listed by the HFS+ or APFS volume inside.
+    Dmg,
     /// A bare compressed file, seen as an archive with one entry.
     Stream,
 }
 
 impl FormatId {
-    pub const ALL: [FormatId; 11] = [
+    pub const ALL: [FormatId; 14] = [
         Self::Zip,
         Self::Tar,
         Self::SevenZ,
@@ -54,6 +64,9 @@ impl FormatId {
         Self::Rpm,
         Self::Cab,
         Self::Lzh,
+        Self::Iso,
+        Self::Squashfs,
+        Self::Dmg,
         Self::Stream,
     ];
 
@@ -70,6 +83,9 @@ impl FormatId {
             Self::Rpm => "rpm",
             Self::Cab => "cab",
             Self::Lzh => "lzh",
+            Self::Iso => "iso",
+            Self::Squashfs => "squashfs",
+            Self::Dmg => "dmg",
         }
     }
 
@@ -86,6 +102,9 @@ impl FormatId {
             Self::Rpm => "RPM package",
             Self::Cab => "Cabinet",
             Self::Lzh => "LHA",
+            Self::Iso => "ISO image",
+            Self::Squashfs => "squashfs image",
+            Self::Dmg => "Apple disk image",
         }
     }
 
@@ -106,6 +125,9 @@ impl FormatId {
             Self::Rpm => &rpm::Rpm,
             Self::Cab => &cab::Cab,
             Self::Lzh => &lzh::Lzh,
+            Self::Iso => &iso::Iso,
+            Self::Squashfs => &squashfs::Squashfs,
+            Self::Dmg => &dmg::Dmg,
         }
     }
 }
@@ -431,6 +453,10 @@ pub struct NewEntry {
     pub modified: Option<SystemTime>,
     pub unix_mode: Option<u32>,
     pub dos_attrs: Option<u32>,
+    /// The file on disk the entry comes from, when there is one (`ops::plan`'s); `None` for
+    /// entries decoded from another archive. Writers that take files by path read it themselves
+    /// ([`ArchiveWriter::reads_sources`]).
+    pub source: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -505,6 +531,13 @@ pub trait ArchiveWriter {
         true
     }
 
+    /// The writer reads each file from its [`NewEntry::source`] itself, when it has one, so
+    /// [`ArchiveWriter::add`] is given an empty reader for those: ISO and squashfs, whose
+    /// libraries read every file only when the image is written (docs/M5.md §5.9, §5.10).
+    fn reads_sources(&self) -> bool {
+        false
+    }
+
     fn add(&mut self, entry: &NewEntry, data: &mut dyn Read, cx: &mut dyn Ctx) -> Result<()>;
 
     /// Copies whichever of `keep` it can without decoding them, from `source` when that is a
@@ -541,7 +574,9 @@ pub trait ArchiveWriter {
         Ok(())
     }
 
-    fn finish(self: Box<Self>) -> Result<()>;
+    /// Completes the archive. The disk images do most of their work here, reporting progress
+    /// and checking for cancellation through `cx`.
+    fn finish(self: Box<Self>, cx: &mut dyn Ctx) -> Result<()>;
 }
 
 #[cfg(test)]
