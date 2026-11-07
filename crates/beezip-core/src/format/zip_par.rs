@@ -107,7 +107,11 @@ pub(super) fn extract(
     workers: usize,
 ) -> Result<()> {
     RUNS.fetch_add(1, Ordering::Relaxed);
-    let mut meter = Meter::new(r.source.counter.clone(), Some(r.source.size));
+    // Progress has a count of its own: the source's follows the read position (a seek sets it),
+    // and workers read all over the file. Workers add what they read; entries done on the job's
+    // thread add their packed size.
+    let progress = Counter::new();
+    let mut meter = Meter::new(progress.clone(), Some(r.source.size));
     meter.entries_total = Some(r.entries.len() as u64);
 
     // Every decision, in archive order.
@@ -119,7 +123,7 @@ pub(super) fn extract(
         if !sel.matches(entry) {
             continue;
         }
-        meter.entries_done = i as u64;
+        // Planning names the entry but doesn't count it: entries are done when written.
         meter.current = Some(entry.path.clone());
         let planned = sink.plan(entry, &mut MeteredCtx::new(cx, &meter))?;
         let Some(file) = planned else {
@@ -164,6 +168,7 @@ pub(super) fn extract(
         done: &done,
         stop: &stop,
         warnings: &warnings,
+        progress: &progress,
     };
     std::thread::scope(|s| {
         for _ in 0..workers.min(order.len()) {
@@ -224,6 +229,7 @@ pub(super) fn extract(
         };
         drop(data);
         sink.wrote(n);
+        progress.add(entry.packed_size.unwrap_or(0));
         meter.entries_done += 1;
     }
     meter.entries_done = r.entries.len() as u64;
@@ -248,6 +254,7 @@ struct Shared<'a> {
     done: &'a AtomicUsize,
     stop: &'a AtomicBool,
     warnings: &'a Mutex<Vec<String>>,
+    progress: &'a Counter,
 }
 
 impl Shared<'_> {
@@ -282,7 +289,7 @@ impl Shared<'_> {
                 Counted {
                     inner: (&mut input).take(span.data_end - span.data),
                     own: own.clone(),
-                    progress: source.counter.clone(),
+                    progress: self.progress.clone(),
                 },
             );
             let decoded: Box<dyn Read + Send + '_> = match codec {
