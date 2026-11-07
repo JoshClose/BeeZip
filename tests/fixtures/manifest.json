@@ -1740,6 +1740,150 @@
       ]
     },
     {
+      "file": "7z-descriptors.zip",
+      "producer": "7-Zip 26.00",
+      "command": "7z.exe a -tzip -so stdout.zip tree > 7z-descriptors.zip",
+      "chain": "zip",
+      "password": null,
+      "utc_mtimes": false,
+      "hardlinks": 0,
+      "symlinks": 0,
+      "entries": [
+        {
+          "path": "tree/hello.txt",
+          "kind": "file",
+          "size": 15,
+          "sha256": "a357597dcc1f4c3d10721860b7d1f354c8c409c918c15321d4a9709bed42f804"
+        },
+        {
+          "path": "tree/empty.txt",
+          "kind": "file",
+          "size": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "path": "tree/docs/readme.md",
+          "kind": "file",
+          "size": 1361,
+          "sha256": "a5b3d4f901e77563523daf6184faf17e828ec768deb25c1f0bd86ed74755aeb3"
+        },
+        {
+          "path": "tree/data/random.bin",
+          "kind": "file",
+          "size": 4096,
+          "sha256": "2d69f59f2f34c120efe7563c6e9d3ebac31879b8a53d78faa06f55075cba9ef0"
+        },
+        {
+          "path": "tree/ünïcödé/名前.txt",
+          "kind": "file",
+          "size": 16,
+          "sha256": "efd1bd5224d891288126fa406f21bc70ec94339b4c2913c4230070d05fda2159"
+        },
+        {
+          "path": "tree/deep/directory-with-a-long-name-0123456789/another-long-directory-name-abcdefghij/file-with-a-long-name-past-100-characters.txt",
+          "kind": "file",
+          "size": 12,
+          "sha256": "362a2156f3de3a9debe2c4816f14732163876818db0b3080953b620ba0ab7bed"
+        }
+      ]
+    },
+    {
+      "file": "7z-lzma-zipcrypto.zip",
+      "producer": "7-Zip 26.00",
+      "command": "7z.exe a -tzip -mm=LZMA -mem=ZipCrypto -pbeezip 7z-lzma-zipcrypto.zip tree",
+      "chain": "zip",
+      "password": "beezip",
+      "utc_mtimes": false,
+      "hardlinks": 0,
+      "symlinks": 0,
+      "entries": [
+        {
+          "path": "tree/hello.txt",
+          "kind": "file",
+          "size": 15,
+          "sha256": "a357597dcc1f4c3d10721860b7d1f354c8c409c918c15321d4a9709bed42f804"
+        },
+        {
+          "path": "tree/empty.txt",
+          "kind": "file",
+          "size": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "path": "tree/docs/readme.md",
+          "kind": "file",
+          "size": 1361,
+          "sha256": "a5b3d4f901e77563523daf6184faf17e828ec768deb25c1f0bd86ed74755aeb3"
+        },
+        {
+          "path": "tree/data/random.bin",
+          "kind": "file",
+          "size": 4096,
+          "sha256": "2d69f59f2f34c120efe7563c6e9d3ebac31879b8a53d78faa06f55075cba9ef0"
+        },
+        {
+          "path": "tree/ünïcödé/名前.txt",
+          "kind": "file",
+          "size": 16,
+          "sha256": "efd1bd5224d891288126fa406f21bc70ec94339b4c2913c4230070d05fda2159"
+        },
+        {
+          "path": "tree/deep/directory-with-a-long-name-0123456789/another-long-directory-name-abcdefghij/file-with-a-long-name-past-100-characters.txt",
+          "kind": "file",
+          "size": 12,
+          "sha256": "362a2156f3de3a9debe2c4816f14732163876818db0b3080953b620ba0ab7bed"
+        }
+      ]
+    },
+    {
+      "file": "python-zip64.zip",
+      "producer": "Python 3.14.10 zipfile",
+      "command": "zipfile, each entry written with force_zip64=True",
+      "chain": "zip",
+      "password": null,
+      "utc_mtimes": false,
+      "hardlinks": 0,
+      "symlinks": 0,
+      "entries": [
+        {
+          "path": "tree/hello.txt",
+          "kind": "file",
+          "size": 15,
+          "sha256": "a357597dcc1f4c3d10721860b7d1f354c8c409c918c15321d4a9709bed42f804"
+        },
+        {
+          "path": "tree/empty.txt",
+          "kind": "file",
+          "size": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "path": "tree/docs/readme.md",
+          "kind": "file",
+          "size": 1361,
+          "sha256": "a5b3d4f901e77563523daf6184faf17e828ec768deb25c1f0bd86ed74755aeb3"
+        },
+        {
+          "path": "tree/data/random.bin",
+          "kind": "file",
+          "size": 4096,
+          "sha256": "2d69f59f2f34c120efe7563c6e9d3ebac31879b8a53d78faa06f55075cba9ef0"
+        },
+        {
+          "path": "tree/ünïcödé/名前.txt",
+          "kind": "file",
+          "size": 16,
+          "sha256": "efd1bd5224d891288126fa406f21bc70ec94339b4c2913c4230070d05fda2159"
+        },
+        {
+          "path": "tree/deep/directory-with-a-long-name-0123456789/another-long-directory-name-abcdefghij/file-with-a-long-name-past-100-characters.txt",
+          "kind": "file",
+          "size": 12,
+          "sha256": "362a2156f3de3a9debe2c4816f14732163876818db0b3080953b620ba0ab7bed"
+        }
+      ]
+    },
+    {
       "file": "dotnet.zip",
       "producer": ".NET 10.0.14 (PowerShell 7.6.9 Compress-Archive)",
       "command": "Compress-Archive -Path tree -DestinationPath dotnet.zip",

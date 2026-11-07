@@ -1,0 +1,49 @@
+Open an archive's file with its default app (Windows' "Open with" dialog when there is
+none). The entry is extracted, with the archive's Mark of the Web, into a folder of its own
+under `%TEMP%/BeeZip/open`, so two entries of one name don't collide; folders there older
+than a day are deleted as it goes. Programs run as they would from Explorer: SmartScreen sees
+the mark.
+
+Usage: beezip open [OPTIONS] <ARCHIVE> <ENTRY>
+
+Arguments:
+  <ARCHIVE>
+          The archive
+
+  <ENTRY>
+          The file inside it, as listed
+
+Options:
+  -p, --password <PASSWORD>
+          The password, if the entry is encrypted
+
+      --name-encoding <ENCODING>
+          How names stored as bytes are read, so `entry` matches them as listed [default: from
+          config, `auto`]
+          
+          [possible values: auto, utf-8, cp437, cp850, cp852, cp866, cp874, cp932, cp936, cp949,
+          cp950, cp1250, cp1251, cp1252, cp1253, cp1254, cp1255, cp1256, cp1257, cp1258, koi8-r,
+          koi8-u, iso-8859-1, iso-8859-2, iso-8859-5, iso-8859-7, euc-jp, gb18030]
+
+      --launch[=<LAUNCH>]
+          Open the extracted file; `false` only extracts it, for the caller to open [default: true]
+          
+          [possible values: true, false]
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+Global options:
+      --output <FORMAT>
+          How to print results; ndjson streams every job event
+
+          Possible values:
+          - human:  Text for people
+          - json:   One JSON document on stdout: the output, or `{"error": {...}}`
+          - ndjson: Every job event as a JSON line on stdout, ending with `Finished`, `Failed` or
+            `Cancelled`
+          
+          [default: human]
+
+  -q, --quiet
+          No progress bars or info messages; warnings still print

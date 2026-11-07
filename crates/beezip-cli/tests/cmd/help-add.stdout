@@ -1,0 +1,104 @@
+Add files and folders to an archive (zip, 7z, tar and tar under any codec). Each input is
+stored under its own name, as `archive.create` stores them, in `dir` if given. The archive
+isn't written in place: a new one is written beside it and swapped in, so a failed or
+cancelled add leaves it as it was. Entries that stay are copied without decoding. An archive
+whose entries are encrypted needs a password for the new files, unless `unencrypted`.
+
+Usage: beezip add [OPTIONS] <ARCHIVE> <INPUTS>...
+
+Arguments:
+  <ARCHIVE>
+          The archive to add to
+
+  <INPUTS>...
+          Files and folders to add
+
+Options:
+      --dir <DIR>
+          The folder inside the archive to add into [default: the top]
+
+      --overwrite <OVERWRITE>
+          What to do when the archive has an entry with a new file's path (ignoring case on
+          Windows): `ask`, `always` (replace it), `never` (keep it), `newer` (replace it if the file
+          is newer) or `rename` (add the file as `a (1).txt`) [default: from config, `ask`]
+
+          Possible values:
+          - ask:    Ask (in a terminal or the app); fail with `Conflict` when nobody can be asked
+          - always
+          - never
+          - rename: Write `name (1).ext` instead
+          - newer:  Replace only if the entry is newer
+
+  -m, --method <METHOD>
+          The compression method for the new files and any 7z block encoded again: for zip `store`,
+          `deflate` (the default), `bzip2`, `zstd`, `xz` or `ppmd`; for 7z `lzma2` (the default),
+          `lzma`, `ppmd`, `bzip2`, `deflate` or `copy`. A tar keeps its codec
+          
+          [possible values: store, deflate, bzip2, zstd, xz, ppmd, lzma2, lzma, copy]
+
+  -l, --level <LEVEL>
+          The compression level, for the new files, or a compressed tar's stream
+
+      --threads <THREADS>
+          Compression threads for codecs that have them; 0 is one per core [default: from config]
+
+  -p, --password <PASSWORD>
+          Encrypt the new files with this password (zip, 7z). It also reads a 7z whose names are
+          encrypted
+
+      --encryption <ENCRYPTION>
+          How to encrypt a zip's new files [default: aes256]. Zip only
+
+          Possible values:
+          - aes256:    AES-256, the default
+          - zipcrypto: The legacy scheme, for tools such as Windows Explorer that can't read AES.
+            Weak
+
+      --unencrypted[=<UNENCRYPTED>]
+          Add the new files in the clear to an archive whose entries are encrypted
+          
+          [possible values: true, false]
+
+      --solid[=<SOLID>]
+          Compress the new files together in solid blocks [default: true]. 7z only
+          
+          [possible values: true, false]
+
+      --exclude <PATTERN>
+          Leave out files and folders matching these patterns
+
+  -L, --follow-links[=<FOLLOW_LINKS>]
+          Store what symlinks point to instead of the links
+          
+          [possible values: true, false]
+
+      --name-encoding <ENCODING>
+          How names stored as bytes are read, so `dir` matches them as listed [default: from config,
+          `auto`]
+          
+          [possible values: auto, utf-8, cp437, cp850, cp852, cp866, cp874, cp932, cp936, cp949,
+          cp950, cp1250, cp1251, cp1252, cp1253, cp1254, cp1255, cp1256, cp1257, cp1258, koi8-r,
+          koi8-u, iso-8859-1, iso-8859-2, iso-8859-5, iso-8859-7, euc-jp, gb18030]
+
+      --dry-run[=<DRY_RUN>]
+          Show what would change without writing anything
+          
+          [possible values: true, false]
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+Global options:
+      --output <FORMAT>
+          How to print results; ndjson streams every job event
+
+          Possible values:
+          - human:  Text for people
+          - json:   One JSON document on stdout: the output, or `{"error": {...}}`
+          - ndjson: Every job event as a JSON line on stdout, ending with `Finished`, `Failed` or
+            `Cancelled`
+          
+          [default: human]
+
+  -q, --quiet
+          No progress bars or info messages; warnings still print

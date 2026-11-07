@@ -30,6 +30,198 @@ platform: string,
 profile: string, };
 
 /**
+ * Add files and folders to an archive (zip, 7z, tar and tar under any codec). Each input is
+ * stored under its own name, as `archive.create` stores them, in `dir` if given. The archive
+ * isn't written in place: a new one is written beside it and swapped in, so a failed or
+ * cancelled add leaves it as it was. Entries that stay are copied without decoding. An archive
+ * whose entries are encrypted needs a password for the new files, unless `unencrypted`.
+ */
+export type ArchiveAddInput = {
+/**
+ * The archive to add to.
+ */
+archive: string,
+/**
+ * Files and folders to add.
+ */
+inputs: Array<string>,
+/**
+ * The folder inside the archive to add into [default: the top].
+ */
+dir?: string,
+/**
+ * What to do when the archive has an entry with a new file's path (ignoring case on
+ * Windows): `ask`, `always` (replace it), `never` (keep it), `newer` (replace it if the
+ * file is newer) or `rename` (add the file as `a (1).txt`) [default: from config, `ask`].
+ */
+overwrite?: OverwritePolicy,
+/**
+ * The compression method for the new files and any 7z block encoded again: for zip
+ * `store`, `deflate` (the default), `bzip2`, `zstd`, `xz` or `ppmd`; for 7z `lzma2` (the
+ * default), `lzma`, `ppmd`, `bzip2`, `deflate` or `copy`. A tar keeps its codec.
+ */
+method?: MethodName,
+/**
+ * The compression level, for the new files, or a compressed tar's stream.
+ */
+level?: number,
+/**
+ * Compression threads for codecs that have them; 0 is one per core [default: from config].
+ */
+threads?: number,
+/**
+ * Encrypt the new files with this password (zip, 7z). It also reads a 7z whose names are
+ * encrypted.
+ */
+password?: Secret,
+/**
+ * How to encrypt a zip's new files [default: aes256]. Zip only.
+ */
+encryption?: EncryptionName,
+/**
+ * Add the new files in the clear to an archive whose entries are encrypted.
+ */
+unencrypted?: boolean,
+/**
+ * Compress the new files together in solid blocks [default: true]. 7z only.
+ */
+solid?: boolean,
+/**
+ * Leave out files and folders matching these patterns.
+ */
+exclude?: Array<string>,
+/**
+ * Store what symlinks point to instead of the links.
+ */
+follow_links?: boolean,
+/**
+ * How names stored as bytes are read, so `dir` matches them as listed [default: from
+ * config, `auto`].
+ */
+name_encoding?: NameEncoding,
+/**
+ * Show what would change without writing anything.
+ */
+dry_run?: boolean, };
+
+/**
+ * Write an archive's entries to a new archive in another format, or with other options: zip,
+ * 7z, tar, or tar under a codec, from any archive BeeZip reads (RAR and split archives
+ * included). The source isn't changed. Entries are copied without decoding when the formats
+ * match and no option asks for something else (`a.tar.gz` → `a.tar.zst` keeps every tar
+ * entry, encoding the stream again). An encrypted source needs `new_password` or `decrypt`:
+ * encryption is never dropped silently. What the new format can't hold is left out and
+ * reported in `skipped`; hard links become files where the format has none.
+ */
+export type ArchiveConvertInput = {
+/**
+ * The archive to convert.
+ */
+archive: string,
+/**
+ * The archive to write.
+ */
+output: string,
+/**
+ * Entries to convert (a folder takes everything under it). All when none are given.
+ */
+entries?: Array<string>,
+/**
+ * Only entries matching these patterns.
+ */
+glob?: Array<string>,
+/**
+ * Leave out entries matching these patterns.
+ */
+exclude?: Array<string>,
+/**
+ * The new archive's format [default: from the output's extension].
+ */
+format?: ArchiveFormatName,
+/**
+ * The compression method, as for `archive.create`.
+ */
+method?: MethodName,
+/**
+ * The compression level; `formats.list` shows each codec's and method's range.
+ */
+level?: number,
+/**
+ * Compression threads for codecs that have them; 0 is one per core [default: from config].
+ */
+threads?: number,
+/**
+ * The source's password, if it is encrypted.
+ */
+password?: Secret,
+/**
+ * Encrypt the new archive with this password (zip, 7z).
+ */
+new_password?: Secret,
+/**
+ * How to encrypt a new zip [default: aes256]. Zip only.
+ */
+encryption?: EncryptionName,
+/**
+ * Encrypt the new 7z's names too [default: true with a password]. 7z only.
+ */
+encrypt_headers?: boolean,
+/**
+ * Write an encrypted source's entries in the clear.
+ */
+decrypt?: boolean,
+/**
+ * Compress files together in solid blocks [default: true]. 7z only.
+ */
+solid?: boolean,
+/**
+ * Split the new archive into volumes of this size: `<output>.001`, `.002`…
+ */
+volume_size?: ByteSize,
+/**
+ * Replace the output if it exists.
+ */
+overwrite?: boolean,
+/**
+ * How the source's names stored as bytes are read [default: from config, `auto`].
+ */
+name_encoding?: NameEncoding,
+/**
+ * Show what would be written without writing anything.
+ */
+dry_run?: boolean, };
+
+export type ArchiveConvertOutput = { path: string, format: ArchiveFormatName, files: number, dirs: number, links: number,
+/**
+ * The source's size.
+ */
+bytes_in: number, bytes_out: number,
+/**
+ * `bytes_out / bytes_in`.
+ */
+ratio: number,
+/**
+ * Entries copied as they were, without decoding.
+ */
+copied: number,
+/**
+ * Entries decoded and encoded again.
+ */
+recompressed: number,
+/**
+ * Entries the new format can't hold, left out.
+ */
+skipped: Array<ConvertSkipped>, dry_run: boolean,
+/**
+ * The entries a dry run would write.
+ */
+plan: Array<string> | null,
+/**
+ * The volumes written, first part first, when the archive was split.
+ */
+volumes: Array<string> | null, };
+
+/**
  * Create an archive from files and folders. Each input is stored under its own name (`src/`
  * becomes `src/…`). The format comes from `format` or the output's extension (`.zip`, `.tar`,
  * `.tar.zst`, `.tgz`…). The archive is written to a temporary file and renamed into place, so a
@@ -323,6 +515,81 @@ export type ArchiveListOutput = { entries: Array<EntryInfo>,
 total: number, offset: number, has_more: boolean, };
 
 /**
+ * Remove entries from an archive (zip, 7z, tar and tar under any codec). A folder takes
+ * everything under it. A new archive is written beside the old one and swapped in, so a failed
+ * or cancelled removal leaves it as it was; the entries that stay are copied without decoding,
+ * except the rest of a 7z solid block that loses one, which is encoded again. Fails with
+ * `NotFound` when nothing matches.
+ */
+export type ArchiveRemoveInput = {
+/**
+ * The archive.
+ */
+archive: string,
+/**
+ * Entries to remove (a folder takes everything under it).
+ */
+entries?: Array<string>,
+/**
+ * Also remove entries matching these patterns. Without `/` a pattern matches a name at any
+ * depth (`*.tmp`); with `/` the whole path (`build/**\/*.o`).
+ */
+glob?: Array<string>,
+/**
+ * Keep entries matching these patterns, even if `entries` or `glob` take them.
+ */
+exclude?: Array<string>,
+/**
+ * The password, if entry names need one (a 7z with encrypted names), or a 7z block that is
+ * encoded again does.
+ */
+password?: Secret,
+/**
+ * How names stored as bytes are read, so `entries` match them as listed [default: from
+ * config, `auto`].
+ */
+name_encoding?: NameEncoding,
+/**
+ * Show what would be removed without writing anything.
+ */
+dry_run?: boolean, };
+
+/**
+ * Rename an entry of an archive, or a folder and everything under it (zip, 7z, tar and tar
+ * under any codec). `to` is the new full path, so a rename can also move an entry. The new
+ * name mustn't be taken, unless only its case differs. Entries are copied without decoding,
+ * encrypted ones included; renamed names are stored in UTF-8. A new archive is written beside
+ * the old one and swapped in.
+ */
+export type ArchiveRenameInput = {
+/**
+ * The archive.
+ */
+archive: string,
+/**
+ * The entry or folder to rename, as listed (a folder may exist only as the parent of
+ * entries).
+ */
+from: string,
+/**
+ * Its new full path inside the archive.
+ */
+to: string,
+/**
+ * The password, if entry names need one (a 7z with encrypted names).
+ */
+password?: Secret,
+/**
+ * How names stored as bytes are read, so `from` matches them as listed [default: from
+ * config, `auto`].
+ */
+name_encoding?: NameEncoding,
+/**
+ * Show what would be renamed without writing anything.
+ */
+dry_run?: boolean, };
+
+/**
  * Test an archive's integrity: read every entry to the end, checking CRCs and codec checksums.
  * Fails with `Corrupt`, listing the damaged entries in `details`.
  */
@@ -367,6 +634,17 @@ volumes: boolean,
  * An entry can be read without decoding the ones before it.
  */
 random_access: boolean, };
+
+/**
+ * One change of a dry run: `path` is the entry's path afterwards (or the one removed); `from`
+ * is the old path of a rename, or the file on disk being added.
+ */
+export type Change = { action: ChangeAction, path: string, from: string | null, };
+
+/**
+ * What happens to an entry, in a dry run's plan.
+ */
+export type ChangeAction = "add" | "replace" | "remove" | "rename" | "skip";
 
 /**
  * The classic menu's keys.
@@ -455,12 +733,17 @@ cli: string | null, };
 /**
  * Every setting, as `config.toml` holds it. A missing key has its default.
  */
-export type Config = { extract: ExtractConfig, names: NamesConfig, create: CreateConfig,
+export type Config = { extract: ExtractConfig, edit: EditConfig, names: NamesConfig, create: CreateConfig,
 /**
  * Default levels by codec name (`zstd`, `gzip`…) or zip and 7z method (`deflate`,
  * `lzma2`…). A codec or method missing here uses its own default.
  */
 levels: { [key in string]: number }, stream: StreamConfig, limits: LimitsConfig, mcp: McpConfig, shell: ShellConfig, jobs: JobsConfig, desktop: DesktopConfig, };
+
+/**
+ * An entry the new archive couldn't hold.
+ */
+export type ConvertSkipped = { path: string, reason: string, };
 
 export type CreateConfig = {
 /**
@@ -473,6 +756,48 @@ export type DesktopConfig = {
  * Light or dark, or as Windows is set.
  */
 theme: Theme, };
+
+/**
+ * Changing archives in place (docs/M5.md §7).
+ */
+export type EditConfig = {
+/**
+ * What to do when a file being added has the path of an entry already in the archive.
+ */
+overwrite: OverwritePolicy, };
+
+/**
+ * What `archive.add`, `archive.remove` and `archive.rename` return.
+ */
+export type EditOutput = { path: string, format: ArchiveFormatName, added: number,
+/**
+ * Entries replaced by a file of the same path.
+ */
+replaced: number, removed: number, renamed: number,
+/**
+ * Files not added because an entry was there (the `never` and `newer` policies, or a skip).
+ */
+skipped: number,
+/**
+ * How many entries the archive has now.
+ */
+entries: number,
+/**
+ * Entries copied as they were, without decoding.
+ */
+copied: number,
+/**
+ * Entries decoded and encoded again: a changed 7z block's, or a compressed tar's.
+ */
+recompressed: number, bytes_before: number, bytes_after: number,
+/**
+ * New files added in the clear to an archive whose entries are encrypted (`unencrypted`).
+ */
+unencrypted: number, dry_run: boolean,
+/**
+ * For a dry run, each change.
+ */
+plan: Array<Change> | null, };
 
 /**
  * What a command may do to the outside world. It drives the MCP hints, the sandbox and the
@@ -513,6 +838,43 @@ modified: string | null, crc32: number | null, method: string | null, encrypted:
 target: string | null, };
 
 export type EntryKindName = "file" | "dir" | "symlink" | "hardlink" | "other";
+
+/**
+ * Open an archive's file with its default app (Windows' "Open with" dialog when there is
+ * none). The entry is extracted, with the archive's Mark of the Web, into a folder of its own
+ * under `%TEMP%\BeeZip\open`, so two entries of one name don't collide; folders there older
+ * than a day are deleted as it goes. Programs run as they would from Explorer: SmartScreen sees
+ * the mark.
+ */
+export type EntryOpenInput = {
+/**
+ * The archive.
+ */
+archive: string,
+/**
+ * The file inside it, as listed.
+ */
+entry: string,
+/**
+ * The password, if the entry is encrypted.
+ */
+password?: Secret,
+/**
+ * How names stored as bytes are read, so `entry` matches them as listed [default: from
+ * config, `auto`].
+ */
+name_encoding?: NameEncoding,
+/**
+ * Open the extracted file; `false` only extracts it, for the caller to open [default:
+ * true].
+ */
+launch?: boolean, };
+
+export type EntryOpenOutput = {
+/**
+ * The extracted file.
+ */
+path: string, launched: boolean, };
 
 /**
  * Read part of one entry without extracting it, as text, hex or base64. An offset is reached
@@ -863,7 +1225,7 @@ current: string | null, };
 /**
  * A question a job needs answered before it can continue.
  */
-export type Prompt = { "kind": "Password", entry: string | null, } | { "kind": "Overwrite", path: string, };
+export type Prompt = { "kind": "Password", entry: string | null, } | { "kind": "Overwrite", path: string, archive?: string, };
 
 /**
  * A front end's answer to a `Prompt`.
@@ -1258,6 +1620,24 @@ export type CommandMap = {
   /** Show the BeeZip version and build information. */
   "app.version": { input: AppVersionInput; output: AppVersionOutput };
   /**
+   * Add files and folders to an archive (zip, 7z, tar and tar under any codec). Each input is
+   * stored under its own name, as `archive.create` stores them, in `dir` if given. The archive
+   * isn't written in place: a new one is written beside it and swapped in, so a failed or
+   * cancelled add leaves it as it was. Entries that stay are copied without decoding. An archive
+   * whose entries are encrypted needs a password for the new files, unless `unencrypted`.
+   */
+  "archive.add": { input: ArchiveAddInput; output: EditOutput };
+  /**
+   * Write an archive's entries to a new archive in another format, or with other options: zip,
+   * 7z, tar, or tar under a codec, from any archive BeeZip reads (RAR and split archives
+   * included). The source isn't changed. Entries are copied without decoding when the formats
+   * match and no option asks for something else (`a.tar.gz` → `a.tar.zst` keeps every tar
+   * entry, encoding the stream again). An encrypted source needs `new_password` or `decrypt`:
+   * encryption is never dropped silently. What the new format can't hold is left out and
+   * reported in `skipped`; hard links become files where the format has none.
+   */
+  "archive.convert": { input: ArchiveConvertInput; output: ArchiveConvertOutput };
+  /**
    * Create an archive from files and folders. Each input is stored under its own name (`src/`
    * becomes `src/…`). The format comes from `format` or the output's extension (`.zip`, `.tar`,
    * `.tar.zst`, `.tgz`…). The archive is written to a temporary file and renamed into place, so a
@@ -1282,6 +1662,22 @@ export type CommandMap = {
    */
   "archive.list": { input: ArchiveListInput; output: ArchiveListOutput };
   /**
+   * Remove entries from an archive (zip, 7z, tar and tar under any codec). A folder takes
+   * everything under it. A new archive is written beside the old one and swapped in, so a failed
+   * or cancelled removal leaves it as it was; the entries that stay are copied without decoding,
+   * except the rest of a 7z solid block that loses one, which is encoded again. Fails with
+   * `NotFound` when nothing matches.
+   */
+  "archive.remove": { input: ArchiveRemoveInput; output: EditOutput };
+  /**
+   * Rename an entry of an archive, or a folder and everything under it (zip, 7z, tar and tar
+   * under any codec). `to` is the new full path, so a rename can also move an entry. The new
+   * name mustn't be taken, unless only its case differs. Entries are copied without decoding,
+   * encrypted ones included; renamed names are stored in UTF-8. A new archive is written beside
+   * the old one and swapped in.
+   */
+  "archive.rename": { input: ArchiveRenameInput; output: EditOutput };
+  /**
    * Test an archive's integrity: read every entry to the end, checking CRCs and codec checksums.
    * Fails with `Corrupt`, listing the damaged entries in `details`.
    */
@@ -1291,6 +1687,14 @@ export type CommandMap = {
    * out (`omitted` names them): the copied command asks for them in the terminal.
    */
   "cli.line": { input: CliLineInput; output: CliLineOutput };
+  /**
+   * Open an archive's file with its default app (Windows' "Open with" dialog when there is
+   * none). The entry is extracted, with the archive's Mark of the Web, into a folder of its own
+   * under `%TEMP%\BeeZip\open`, so two entries of one name don't collide; folders there older
+   * than a day are deleted as it goes. Programs run as they would from Explorer: SmartScreen sees
+   * the mark.
+   */
+  "entry.open": { input: EntryOpenInput; output: EntryOpenOutput };
   /**
    * Read part of one entry without extracting it, as text, hex or base64. An offset is reached
    * by decoding up to it, since a compressed entry can't seek.

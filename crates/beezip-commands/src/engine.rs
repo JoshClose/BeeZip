@@ -1,12 +1,13 @@
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     panic::{self, AssertUnwindSafe},
     path::PathBuf,
     sync::{
-        Arc, Mutex, MutexGuard, PoisonError, RwLock,
+        Arc, Condvar, Mutex, MutexGuard, PoisonError, RwLock,
         atomic::{AtomicU64, Ordering},
     },
     thread::JoinHandle,
+    time::Duration,
 };
 
 use schemars::JsonSchema;
@@ -37,6 +38,69 @@ struct Inner {
     jobs: Mutex<HashMap<JobId, Running>>,
     live: Arc<Live>,
     cache: Arc<ArchiveCache>,
+    locks: Arc<EditLocks>,
+}
+
+/// One edit per archive at a time in this process (docs/M5.md §7.7): a second edit of the same
+/// archive waits for the first. Reads aren't held up. Between processes, the swap's stamp check
+/// fails the later edit with `Conflict`.
+#[derive(Default)]
+pub struct EditLocks {
+    held: Mutex<HashSet<PathBuf>>,
+    freed: Condvar,
+}
+
+/// An archive being edited; dropping it lets the next edit of it go ahead.
+pub struct EditGuard {
+    locks: Arc<EditLocks>,
+    path: PathBuf,
+}
+
+impl Drop for EditGuard {
+    fn drop(&mut self) {
+        self.locks
+            .held
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .remove(&self.path);
+        self.locks.freed.notify_all();
+    }
+}
+
+impl EditLocks {
+    /// Takes the archive at `path` (canonical), waiting while another edit has it; `waiting` is
+    /// called once if it has to wait. A cancelled job stops waiting.
+    pub(crate) fn acquire(
+        self: &Arc<Self>,
+        path: &std::path::Path,
+        cancelled: &dyn Fn() -> bool,
+        waiting: &mut dyn FnMut(),
+    ) -> Result<EditGuard, CmdError> {
+        let mut held = self.held.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut told = false;
+        while held.contains(path) {
+            if cancelled() {
+                return Err(CmdError::cancelled());
+            }
+            if !told {
+                told = true;
+                drop(held);
+                waiting();
+                held = self.held.lock().unwrap_or_else(PoisonError::into_inner);
+                continue;
+            }
+            held = self
+                .freed
+                .wait_timeout(held, Duration::from_millis(100))
+                .unwrap_or_else(PoisonError::into_inner)
+                .0;
+        }
+        held.insert(path.to_path_buf());
+        Ok(EditGuard {
+            locks: Arc::clone(self),
+            path: path.to_path_buf(),
+        })
+    }
 }
 
 /// The config and policy jobs start with. A job takes a snapshot of both when it starts;
@@ -172,6 +236,7 @@ impl Engine {
                     shell_app: options.shell_app,
                 }),
                 cache: Arc::new(ArchiveCache::new()),
+                locks: Arc::new(EditLocks::default()),
             }),
         }
     }
@@ -323,6 +388,7 @@ fn execute(inner: &Inner, job: JobSetup, args: Value) -> Result<Value, CmdError>
         policy,
         Arc::clone(&inner.live),
         Some(Arc::clone(&inner.cache)),
+        Some(Arc::clone(&inner.locks)),
     );
     let result = if cancel.is_cancelled() {
         Err(CmdError::cancelled())

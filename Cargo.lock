@@ -335,6 +335,7 @@ dependencies = [
  "clap",
  "dirs",
  "filetime",
+ "open",
  "schemars 1.2.3",
  "serde",
  "serde_json",

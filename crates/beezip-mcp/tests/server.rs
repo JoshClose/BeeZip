@@ -67,6 +67,7 @@ impl Command for Ask {
         for _ in 0..input.times.unwrap_or(1) {
             match cx.prompt(Prompt::Overwrite {
                 path: input.path.clone(),
+                archive: None,
             })? {
                 PromptReply::Overwrite { choice } => answers.push(format!("{choice:?}")),
                 _ => return Err(CmdError::cancelled()),
@@ -700,6 +701,10 @@ async fn read_only_offers_no_write_tools() {
     for writer in [
         "archive_extract",
         "archive_create",
+        "archive_add",
+        "archive_remove",
+        "archive_rename",
+        "archive_convert",
         "stream_compress",
         "test_write",
     ] {
@@ -776,4 +781,62 @@ async fn pages_and_reads_are_capped() {
     let read = output(&r);
     assert_eq!(read["bytes_read"], MAX_READ_BYTES);
     assert_eq!(read["eof"], false);
+}
+
+// ---------------------------------------------------------------------------------------------
+// Editing (docs/M5.md §7.9)
+
+#[tokio::test]
+async fn edits_are_destructive_tools_confined_to_the_roots() {
+    let (_dir, root) = sandbox();
+    let h = connect(rooted(&root.join("a")), TestClient::new(), false).await;
+    let tools = h.client.list_all_tools().await.unwrap();
+    let tool = |n: &str| tools.iter().find(|t| t.name == n).cloned();
+    for n in ["archive_add", "archive_remove", "archive_rename"] {
+        let t = tool(n).unwrap_or_else(|| panic!("{n} is listed"));
+        let hints = t.annotations.unwrap();
+        assert_eq!(hints.destructive_hint, Some(true), "{n}");
+    }
+    let convert = tool("archive_convert").unwrap();
+    assert_eq!(convert.annotations.unwrap().destructive_hint, Some(false));
+    assert!(
+        tool("entry_open").is_none(),
+        "entry.open is hidden from MCP"
+    );
+
+    // An archive outside the root can't be changed; one inside can.
+    let outside = root.join("b").join("x.zip");
+    let inside = root.join("a").join("x.zip");
+    for p in [&outside, &inside] {
+        std::fs::copy(fixture("thirdparty/7z-deflate.zip"), p).unwrap();
+    }
+    let before = std::fs::read(&outside).unwrap();
+    let args = |p: &Path| json!({ "archive": p, "entries": ["tree/hello.txt"] });
+    let r = h
+        .client
+        .call_tool(call("archive_remove", args(&outside)))
+        .await
+        .unwrap();
+    assert_eq!(error(&r).0, "OutsideSandbox");
+    assert_eq!(std::fs::read(&outside).unwrap(), before);
+    let r = h
+        .client
+        .call_tool(call("archive_remove", args(&inside)))
+        .await
+        .unwrap();
+    assert_eq!(output(&r)["removed"], 1);
+    // Adding to an encrypted archive without a password asks the model for one, never the user.
+    let enc = root.join("a").join("enc.zip");
+    std::fs::copy(fixture("thirdparty/7z-aes256.zip"), &enc).unwrap();
+    let new = root.join("b").join("new.txt");
+    std::fs::write(&new, "new").unwrap();
+    let r = h
+        .client
+        .call_tool(call(
+            "archive_add",
+            json!({ "archive": enc, "inputs": [new] }),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(error(&r).0, "PasswordRequired");
 }

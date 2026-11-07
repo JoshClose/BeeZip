@@ -12,7 +12,11 @@ use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 use crate::{
-    CmdError, ErrorCode, cache::ArchiveCache, config::Config, engine::Live, policy::Policy,
+    CmdError, ErrorCode,
+    cache::ArchiveCache,
+    config::Config,
+    engine::{EditGuard, EditLocks, Live},
+    policy::Policy,
     wire::Secret,
 };
 
@@ -39,8 +43,16 @@ pub enum LogLevel {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
 #[serde(tag = "kind")]
 pub enum Prompt {
-    Password { entry: Option<String> },
-    Overwrite { path: String },
+    Password {
+        entry: Option<String>,
+    },
+    /// A file in the way: on disk, or, with `archive`, an entry of that archive (`archive.add`).
+    Overwrite {
+        path: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        archive: Option<String>,
+    },
 }
 
 /// A front end's answer to a `Prompt`.
@@ -106,9 +118,19 @@ impl Interactor for NonInteractive {
                 ErrorCode::PasswordRequired,
                 "a password is required; pass it as the `password` argument",
             ),
-            Prompt::Overwrite { path } => CmdError::new(
+            Prompt::Overwrite {
+                path,
+                archive: None,
+            } => CmdError::new(
                 ErrorCode::Conflict,
                 format!("`{path}` already exists; pass an `overwrite` policy"),
+            ),
+            Prompt::Overwrite {
+                path,
+                archive: Some(archive),
+            } => CmdError::new(
+                ErrorCode::Conflict,
+                format!("`{path}` is already in {archive}; pass an `overwrite` policy"),
             ),
         })
     }
@@ -157,9 +179,11 @@ pub struct JobCtx {
     /// A password reached the reader, which may keep it; the archive cache won't take it back.
     password_used: bool,
     cache: Option<Arc<ArchiveCache>>,
+    locks: Arc<EditLocks>,
 }
 
 impl JobCtx {
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
         id: JobId,
         cancel: CancelToken,
@@ -168,6 +192,7 @@ impl JobCtx {
         policy: Arc<Policy>,
         live: Arc<Live>,
         cache: Option<Arc<ArchiveCache>>,
+        locks: Option<Arc<EditLocks>>,
     ) -> Self {
         Self {
             id,
@@ -184,7 +209,25 @@ impl JobCtx {
             password_prompts: 0,
             password_used: false,
             cache,
+            locks: locks.unwrap_or_default(),
         }
+    }
+
+    /// Waits until no other job of this engine is editing the archive at `path` (canonical),
+    /// then holds it until the guard drops (docs/M5.md §7.7).
+    pub fn edit_lock(&self, path: &Path) -> Result<EditGuard, CmdError> {
+        let name = path.file_name().map_or_else(
+            || path.display().to_string(),
+            |n| n.to_string_lossy().into_owned(),
+        );
+        let cancel = self.cancel.clone();
+        self.locks
+            .acquire(path, &|| cancel.is_cancelled(), &mut || {
+                self.log(
+                    LogLevel::Info,
+                    format!("Waiting for another change to {name}"),
+                );
+            })
     }
 
     pub fn id(&self) -> JobId {
@@ -356,10 +399,31 @@ impl beezip_core::Ctx for JobCtx {
     }
 
     fn overwrite(&mut self, existing: &Path) -> beezip_core::Result<beezip_core::OverwriteChoice> {
+        self.ask_overwrite(existing.display().to_string(), None)
+    }
+
+    fn overwrite_entry(
+        &mut self,
+        archive: &Path,
+        entry: &str,
+    ) -> beezip_core::Result<beezip_core::OverwriteChoice> {
+        let name = archive.file_name().map_or_else(
+            || archive.display().to_string(),
+            |n| n.to_string_lossy().into_owned(),
+        );
+        self.ask_overwrite(entry.to_owned(), Some(name))
+    }
+}
+
+impl JobCtx {
+    /// Asks about a file in the way, or an entry already in `archive`.
+    fn ask_overwrite(
+        &mut self,
+        path: String,
+        archive: Option<String>,
+    ) -> beezip_core::Result<beezip_core::OverwriteChoice> {
         use beezip_core::{Error, OverwriteChoice as C};
-        let reply = self.prompt(Prompt::Overwrite {
-            path: existing.display().to_string(),
-        });
+        let reply = self.prompt(Prompt::Overwrite { path, archive });
         match reply {
             Ok(PromptReply::Overwrite { choice }) => Ok(match choice {
                 OverwriteChoice::Replace => C::Replace,

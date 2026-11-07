@@ -1,5 +1,5 @@
-//! Whole operations on top of the readers, writers and sinks: create, extract and test. The
-//! commands in `beezip-commands` call these.
+//! Whole operations on top of the readers, writers and sinks: create, extract and test, and
+//! the edits and convert of [`crate::edit`]. The commands in `beezip-commands` call these.
 
 use std::{
     fs::{self, File},
@@ -22,6 +22,8 @@ use crate::{
     source::{OpenOptions, open},
     volume::VolumeWriter,
 };
+
+pub use crate::edit::{convert, edit, rewrite};
 
 /// The archive kinds BeeZip writes: zip, 7z, tar, and tar under one codec.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -128,7 +130,7 @@ pub fn create_writer(spec: &WriteSpec, out: Box<dyn WriteSeek>) -> Result<Box<dy
             opts,
         } => {
             let w = Box::new(BufWriter::with_capacity(BUF_SIZE, out));
-            Box::new(TarWriter::new(c.codec().encoder(w, opts)?))
+            Box::new(TarWriter::compressed(c.codec().encoder(w, opts)?))
         }
     })
 }
@@ -322,68 +324,10 @@ pub fn create(
     let mut meter = Meter::new(counter.clone(), Some(total));
     meter.entries_total = Some(planned.len() as u64);
     let mut report = CreateReport::default();
-    let open = |p: &Planned| -> Result<Box<dyn Read>> {
-        let file = File::open(&p.source)
-            .map_err(|e| Error::io(format!("reading {}", p.source.display()), &e))?;
-        Ok(Box::new(CountingReader::new(file, counter.clone())))
-    };
-    // A solid writer gets non-empty files in groups of up to its block limit (7z, §3.3);
-    // everything else goes one entry at a time, in plan order.
-    let limit = writer.solid_block_limit();
-    let mut group: Vec<usize> = Vec::new();
-    let mut group_bytes = 0u64;
-    let flush = |group: &mut Vec<usize>,
-                 writer: &mut Box<dyn ArchiveWriter>,
-                 meter: &mut Meter,
-                 cx: &mut dyn Ctx|
-     -> Result<()> {
-        let Some(&first) = group.first() else {
-            return Ok(());
-        };
-        meter.entries_done = first as u64;
-        meter.current = Some(planned[first].entry.path.clone());
-        let entries: Vec<NewEntry> = group.iter().map(|&i| planned[i].entry.clone()).collect();
-        let mut opener = |k: usize| open(&planned[group[k]]);
-        let mut mcx = MeteredCtx::new(cx, meter);
-        writer.add_solid(&entries, &mut opener, &mut mcx)?;
-        group.clear();
-        Ok(())
-    };
-    for (i, p) in planned.iter().enumerate() {
-        cx.check()?;
-        if let Some(limit) = limit
-            && p.entry.kind == NewKind::File
-            && p.entry.size > 0
-        {
-            if !group.is_empty() && group_bytes.saturating_add(p.entry.size) > limit {
-                flush(&mut group, &mut writer, &mut meter, cx)?;
-                group_bytes = 0;
-            }
-            group.push(i);
-            group_bytes += p.entry.size;
-            report.files += 1;
-            continue;
-        }
-        meter.entries_done = i as u64;
-        meter.current = Some(p.entry.path.clone());
-        let mut mcx = MeteredCtx::new(cx, &meter);
-        match p.entry.kind {
-            NewKind::File => {
-                let mut r = open(p)?;
-                writer.add(&p.entry, &mut r, &mut mcx)?;
-                report.files += 1;
-            }
-            NewKind::Dir => {
-                writer.add(&p.entry, &mut io::empty(), &mut mcx)?;
-                report.dirs += 1;
-            }
-            NewKind::Symlink { .. } => {
-                writer.add(&p.entry, &mut io::empty(), &mut mcx)?;
-                report.links += 1;
-            }
-        }
-    }
-    flush(&mut group, &mut writer, &mut meter, cx)?;
+    let added = add_planned(&mut *writer, &planned, &counter, &mut meter, 0, cx)?;
+    report.files = added.files;
+    report.dirs = added.dirs;
+    report.links = added.links;
     writer.finish()?;
     meter.entries_done = planned.len() as u64;
     MeteredCtx::new(cx, &meter).report();
@@ -405,6 +349,89 @@ pub fn create(
         }
     }
     Ok(report)
+}
+
+/// How many of each kind [`add_planned`] wrote.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Added {
+    pub files: u64,
+    pub dirs: u64,
+    pub links: u64,
+}
+
+/// Adds `planned` to `writer`, reading each file from disk through `counter`. A solid writer
+/// gets non-empty files in groups of up to its block limit (7z, docs/M3.md §3.3); everything
+/// else goes one entry at a time, in plan order. `first` is the progress count before them.
+pub fn add_planned(
+    writer: &mut dyn ArchiveWriter,
+    planned: &[Planned],
+    counter: &Counter,
+    meter: &mut Meter,
+    first: u64,
+    cx: &mut dyn Ctx,
+) -> Result<Added> {
+    let mut added = Added::default();
+    let open = |p: &Planned| -> Result<Box<dyn Read>> {
+        let file = File::open(&p.source)
+            .map_err(|e| Error::io(format!("reading {}", p.source.display()), &e))?;
+        Ok(Box::new(CountingReader::new(file, counter.clone())))
+    };
+    let limit = writer.solid_block_limit();
+    let mut group: Vec<usize> = Vec::new();
+    let mut group_bytes = 0u64;
+    let flush = |group: &mut Vec<usize>,
+                 writer: &mut dyn ArchiveWriter,
+                 meter: &mut Meter,
+                 cx: &mut dyn Ctx|
+     -> Result<()> {
+        let Some(&at) = group.first() else {
+            return Ok(());
+        };
+        meter.entries_done = first + at as u64;
+        meter.current = Some(planned[at].entry.path.clone());
+        let entries: Vec<NewEntry> = group.iter().map(|&i| planned[i].entry.clone()).collect();
+        let mut opener = |k: usize| open(&planned[group[k]]);
+        let mut mcx = MeteredCtx::new(cx, meter);
+        writer.add_solid(&entries, &mut opener, &mut mcx)?;
+        group.clear();
+        Ok(())
+    };
+    for (i, p) in planned.iter().enumerate() {
+        cx.check()?;
+        if let Some(limit) = limit
+            && p.entry.kind == NewKind::File
+            && p.entry.size > 0
+        {
+            if !group.is_empty() && group_bytes.saturating_add(p.entry.size) > limit {
+                flush(&mut group, writer, meter, cx)?;
+                group_bytes = 0;
+            }
+            group.push(i);
+            group_bytes += p.entry.size;
+            added.files += 1;
+            continue;
+        }
+        meter.entries_done = first + i as u64;
+        meter.current = Some(p.entry.path.clone());
+        let mut mcx = MeteredCtx::new(cx, meter);
+        match p.entry.kind {
+            NewKind::File => {
+                let mut r = open(p)?;
+                writer.add(&p.entry, &mut r, &mut mcx)?;
+                added.files += 1;
+            }
+            NewKind::Dir => {
+                writer.add(&p.entry, &mut io::empty(), &mut mcx)?;
+                added.dirs += 1;
+            }
+            NewKind::Symlink { .. } => {
+                writer.add(&p.entry, &mut io::empty(), &mut mcx)?;
+                added.links += 1;
+            }
+        }
+    }
+    flush(&mut group, writer, meter, cx)?;
+    Ok(added)
 }
 
 /// Where `create` writes: one partial file, or a volume set of them.

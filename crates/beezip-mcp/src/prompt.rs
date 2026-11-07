@@ -45,11 +45,24 @@ pub fn password_required() -> CmdError {
 pub fn unanswerable(prompt: &Prompt) -> CmdError {
     match prompt {
         Prompt::Password { .. } => password_required(),
-        Prompt::Overwrite { path } => CmdError::new(
+        Prompt::Overwrite {
+            path,
+            archive: None,
+        } => CmdError::new(
             ErrorCode::Conflict,
             format!(
                 "`{path}` already exists; pass `overwrite` (always, never, rename or newer) to \
                  say what to do with existing files"
+            ),
+        ),
+        Prompt::Overwrite {
+            path,
+            archive: Some(archive),
+        } => CmdError::new(
+            ErrorCode::Conflict,
+            format!(
+                "`{path}` is already in {archive}; pass `overwrite` (always, never, rename or \
+                 newer) to say what to do with entries already there"
             ),
         ),
     }
@@ -57,12 +70,16 @@ pub fn unanswerable(prompt: &Prompt) -> CmdError {
 
 /// The elicitation form for a question, or `None` for one that is never elicited.
 pub fn form(prompt: &Prompt) -> Option<ElicitRequestParams> {
-    let Prompt::Overwrite { path } = prompt else {
+    let Prompt::Overwrite { path, archive } = prompt else {
         return None;
+    };
+    let message = match archive {
+        Some(a) => format!("`{path}` is already in {a}. Replace it?"),
+        None => format!("`{path}` already exists. Replace it?"),
     };
     Some(ElicitRequestParams::FormElicitationParams {
         meta: None,
-        message: format!("`{path}` already exists. Replace it?"),
+        message,
         requested_schema: overwrite_schema(),
     })
 }
@@ -115,7 +132,21 @@ mod tests {
     fn overwrite() -> Prompt {
         Prompt::Overwrite {
             path: "C:\\out\\a.txt".to_owned(),
+            archive: None,
         }
+    }
+
+    #[test]
+    fn an_entry_already_in_an_archive_says_so() {
+        let p = Prompt::Overwrite {
+            path: "docs/a.txt".to_owned(),
+            archive: Some("a.zip".to_owned()),
+        };
+        let Some(ElicitRequestParams::FormElicitationParams { message, .. }) = form(&p) else {
+            panic!("an overwrite question has a form");
+        };
+        assert_eq!(message, "`docs/a.txt` is already in a.zip. Replace it?");
+        assert!(unanswerable(&p).message.contains("is already in a.zip"));
     }
 
     #[test]

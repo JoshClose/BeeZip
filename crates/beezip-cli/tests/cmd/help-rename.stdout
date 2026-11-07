@@ -1,0 +1,53 @@
+Rename an entry of an archive, or a folder and everything under it (zip, 7z, tar and tar
+under any codec). `to` is the new full path, so a rename can also move an entry. The new
+name mustn't be taken, unless only its case differs. Entries are copied without decoding,
+encrypted ones included; renamed names are stored in UTF-8. A new archive is written beside
+the old one and swapped in.
+
+Usage: beezip rename [OPTIONS] <ARCHIVE> <FROM> <TO>
+
+Arguments:
+  <ARCHIVE>
+          The archive
+
+  <FROM>
+          The entry or folder to rename, as listed (a folder may exist only as the parent of
+          entries)
+
+  <TO>
+          Its new full path inside the archive
+
+Options:
+  -p, --password <PASSWORD>
+          The password, if entry names need one (a 7z with encrypted names)
+
+      --name-encoding <ENCODING>
+          How names stored as bytes are read, so `from` matches them as listed [default: from
+          config, `auto`]
+          
+          [possible values: auto, utf-8, cp437, cp850, cp852, cp866, cp874, cp932, cp936, cp949,
+          cp950, cp1250, cp1251, cp1252, cp1253, cp1254, cp1255, cp1256, cp1257, cp1258, koi8-r,
+          koi8-u, iso-8859-1, iso-8859-2, iso-8859-5, iso-8859-7, euc-jp, gb18030]
+
+      --dry-run[=<DRY_RUN>]
+          Show what would be renamed without writing anything
+          
+          [possible values: true, false]
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+Global options:
+      --output <FORMAT>
+          How to print results; ndjson streams every job event
+
+          Possible values:
+          - human:  Text for people
+          - json:   One JSON document on stdout: the output, or `{"error": {...}}`
+          - ndjson: Every job event as a JSON line on stdout, ending with `Finished`, `Failed` or
+            `Cancelled`
+          
+          [default: human]
+
+  -q, --quiet
+          No progress bars or info messages; warnings still print

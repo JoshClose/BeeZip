@@ -2,6 +2,7 @@ config.toml
 
 create.threads              0
 desktop.theme               system
+edit.overwrite              ask
 extract.links               false
 extract.mark_of_the_web     all
 extract.overwrite           ask

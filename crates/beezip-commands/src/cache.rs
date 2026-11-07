@@ -309,6 +309,25 @@ impl ArchiveCache {
         }
     }
 
+    /// Drops `path`'s (canonical) reader and listings, after an edit swapped the archive
+    /// (docs/M5.md §7.7). A copy lent out now fails its freshness check when it comes back.
+    pub fn evict(&self, path: &Path) {
+        let mut evicted = Vec::new();
+        {
+            let mut state = self.state();
+            let mut i = 0;
+            while i < state.slots.len() {
+                let k = &state.slots[i].key;
+                if k.path == path || k.stamps.iter().any(|s| s.path == path) {
+                    evicted.push(state.slots.swap_remove(i));
+                } else {
+                    i += 1;
+                }
+            }
+        }
+        drop(evicted);
+    }
+
     /// Empties it, closing every reader.
     pub fn clear(&self) {
         let slots = std::mem::take(&mut self.state().slots);

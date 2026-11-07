@@ -46,10 +46,14 @@ impl Interactor for TtyInteractor {
                     Err(_) => Ok(PromptReply::Cancel),
                 }
             }
-            Prompt::Overwrite { path } => {
+            Prompt::Overwrite { path, archive } => {
                 let items: Vec<&str> = CHOICES.iter().map(|(label, _)| *label).collect();
+                let question = match archive {
+                    Some(a) => format!("{path} is already in {a}"),
+                    None => format!("{path} already exists"),
+                };
                 match Select::with_theme(&theme)
-                    .with_prompt(format!("{path} already exists"))
+                    .with_prompt(question)
                     .items(&items)
                     .default(0)
                     .interact_opt()
@@ -80,9 +84,16 @@ impl Interactor for CliNonInteractive {
                 )
                 .with_details(serde_json::json!({ "param": "password" }))
             }
-            Prompt::Overwrite { path } => CmdError::new(
+            Prompt::Overwrite { path, archive } => CmdError::new(
                 ErrorCode::Conflict,
-                format!("`{path}` already exists; pass --overwrite always|never|rename|newer"),
+                match archive {
+                    Some(a) => format!(
+                        "`{path}` is already in {a}; pass --overwrite always|never|rename|newer"
+                    ),
+                    None => format!(
+                        "`{path}` already exists; pass --overwrite always|never|rename|newer"
+                    ),
+                },
             ),
         })
     }
