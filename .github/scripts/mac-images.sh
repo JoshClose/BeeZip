@@ -42,13 +42,14 @@ for img in "$dir"/*.iso "$dir"/*.dmg; do
     case "$img" in
     *.dmg)
         hdiutil verify "$img"
-        # The volume's device: the line of `hdiutil attach` that names an HFS+ partition (the
-        # whole disk, for an image without a partition map).
+        # The volume's device: the line of `hdiutil attach` that names an HFS+ partition, or the
+        # whole disk for an image without a partition map (BeeZip's), whose line names nothing.
         out="$(hdiutil attach -readonly -nobrowse -nomount "$img")"
         echo "$out"
-        dev="$(echo "$out" | awk '/Apple_HFS/ { print $1; exit }')"
         disk="$(echo "$out" | awk 'NR == 1 { print $1 }')"
-        [ -n "$dev" ] || { echo "no HFS+ volume in $img" >&2; exit 1; }
+        dev="$(echo "$out" | awk '/Apple_HFS/ { print $1; exit }')"
+        dev="${dev:-$disk}"
+        [ -n "$dev" ] || { echo "hdiutil attached no disk for $img" >&2; exit 1; }
         sudo fsck_hfs -n "$dev"
         hdiutil detach "$disk"
         ;;
