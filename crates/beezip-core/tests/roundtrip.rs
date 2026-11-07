@@ -567,7 +567,7 @@ proptest! {
 /// Every writable kind is covered above.
 #[test]
 fn every_kind_is_tested() {
-    assert_eq!(beezip_core::ArchiveKind::all().count(), 28);
+    assert_eq!(beezip_core::ArchiveKind::all().count(), 31);
 }
 
 #[test]

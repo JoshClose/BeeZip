@@ -233,6 +233,7 @@ mod seven_zip {
             "ar",
             "cab",
             "iso",
+            "dmg",
         ] {
             if !have.contains(needs(kind)) {
                 eprintln!("7-Zip doesn't read {kind}; not tested");
@@ -278,6 +279,7 @@ mod seven_zip {
             ("t.iso", vec![]),
             ("t.squashfs", vec![]),
             ("x.squashfs", vec!["-m", "xz"]),
+            ("t.dmg", vec![]),
         ] {
             let mut a = vec!["create", name, "tree"];
             a.extend(args);
@@ -298,6 +300,25 @@ mod seven_zip {
                 seven(&exe, &["x", &inner, &out], root.path()),
                 "7z x {inner}"
             );
+            if name.ends_with(".dmg") {
+                // 7-Zip puts a DMG's files in a folder named after the volume, and keeps HFS+'s
+                // decomposed names: the ASCII paths must match, and every file's bytes.
+                let got = hashes(&dest.join("t").join("tree"));
+                let ascii = |m: &BTreeMap<String, String>| -> BTreeMap<String, String> {
+                    m.iter()
+                        .filter(|(p, _)| p.is_ascii())
+                        .map(|(p, h)| (p.clone(), h.clone()))
+                        .collect()
+                };
+                assert_eq!(ascii(&got), ascii(&want), "{name} in 7-Zip");
+                let sums = |m: &BTreeMap<String, String>| {
+                    let mut v: Vec<String> = m.values().cloned().collect();
+                    v.sort();
+                    v
+                };
+                assert_eq!(sums(&got), sums(&want), "{name}'s bytes in 7-Zip");
+                continue;
+            }
             let mut got = hashes(&dest.join("tree"));
             let mut want = want.clone();
             if name.ends_with(".ar") {
