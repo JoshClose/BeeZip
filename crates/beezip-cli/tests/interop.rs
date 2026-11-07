@@ -249,6 +249,13 @@ mod seven_zip {
             assert!(seven(&exe, &["t", &name], root.path()), "7z t {name}");
             tested.push(name);
         }
+        // squashfs in every compressor 7-Zip 26.00 reads: it can't open lz4 images.
+        for method in ["gzip", "xz", "zstd", "lzo"] {
+            let name = format!("{method}.squashfs");
+            beezip(&["create", &name, "tree", "-m", method], root.path());
+            assert!(seven(&exe, &["t", &name], root.path()), "7z t {name}");
+            tested.push(name);
+        }
         // This 7-Zip lacks lzip, lz4, brotli and snappy; one with them tests 44.
         assert!(tested.len() >= 36, "{tested:?}");
     }
@@ -269,6 +276,8 @@ mod seven_zip {
             ("s.cab", vec!["-m", "store"]),
             ("m.cab", vec!["-m", "mszip"]),
             ("t.iso", vec![]),
+            ("t.squashfs", vec![]),
+            ("x.squashfs", vec!["-m", "xz"]),
         ] {
             let mut a = vec!["create", name, "tree"];
             a.extend(args);

@@ -1161,6 +1161,8 @@ fn iso_cyclic() -> anyhow::Result<Vec<u8>> {
     }
     img[b + 2..b + 18].copy_from_slice(&field);
     Ok(img)
+}
+
 /// A squashfs node; the first is the root.
 enum Sq {
     /// Its entries: a name (bytes, any bytes) and the node it names.
