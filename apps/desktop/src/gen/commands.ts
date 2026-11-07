@@ -453,7 +453,13 @@ locked: boolean,
 /**
  * RAR: has a recovery record, for repairing damage.
  */
-recovery_record: boolean, };
+recovery_record: boolean,
+/**
+ * Why `archive.add`, `archive.remove` and `archive.rename` would refuse the archive: its
+ * format, a volume set, a self-extracting archive, a read-only file. `null` when they
+ * wouldn't.
+ */
+not_editable: string | null, };
 
 /**
  * List an archive's entries. Without `flat`, one folder level at a time (the root, or `dir`),
@@ -942,7 +948,12 @@ export type Existing = { path: string,
 /**
  * A free name beside it, for keeping both: `a (1).zip`.
  */
-keep_both: string, };
+keep_both: string,
+/**
+ * `archive.add` can add to it: it's an archive BeeZip edits, not a volume set, a
+ * self-extracting archive or a read-only file (docs/M5.md §9).
+ */
+can_add: boolean, };
 
 export type ExtractConfig = {
 /**
@@ -1530,8 +1541,8 @@ export type Step = { "kind": "run",
  */
 title: string, command: string, args: JsonValue,
 /**
- * The archive an add item would write is there already. The window asks whether to
- * replace it (`overwrite`) or keep both.
+ * The archive an add item would write is there already. The window asks whether to add
+ * to it (`archive.add`, when `can_add`), replace it (`overwrite`) or keep both.
  */
 existing?: Existing, } | { "kind": "open", paths: Array<string>, } | { "kind": "extract_dialog", archive: string, } | { "kind": "create_dialog", inputs: Array<string>, } | { "kind": "failed", title: string, error: CmdError, };
 

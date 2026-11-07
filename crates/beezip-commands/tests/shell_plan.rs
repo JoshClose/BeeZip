@@ -166,13 +166,15 @@ fn add_items_name_the_archive_as_the_menu_does() {
     assert_eq!(steps[0]["args"]["inputs"], json!([p(&a), p(&b)]));
     assert!(steps[0].get("existing").is_none());
 
-    // An archive that's there: the window asks, and knows a free name for keeping both.
+    // An archive that's there: the window asks, and knows a free name for keeping both. An
+    // empty file isn't an archive, so nothing can be added to it.
     touch(&work.join("work.zip"));
     touch(&work.join("work (1).zip"));
     let steps = plan("add-zip", &[&a, &b]).unwrap();
     assert_eq!(
         steps[0]["existing"],
-        json!({ "path": p(&work.join("work.zip")), "keep_both": p(&work.join("work (2).zip")) })
+        json!({ "path": p(&work.join("work.zip")), "keep_both": p(&work.join("work (2).zip")),
+                "can_add": false })
     );
     touch(&work.join("work.tar.zst"));
     let steps = plan("add-tar-zst", &[&a, &b]).unwrap();
@@ -180,6 +182,51 @@ fn add_items_name_the_archive_as_the_menu_does() {
         steps[0]["existing"]["keep_both"],
         p(&work.join("work (1).tar.zst"))
     );
+}
+
+fn thirdparty(name: &str) -> std::path::PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../tests/fixtures/thirdparty")
+        .join(name)
+}
+
+#[test]
+fn an_existing_archive_can_be_added_to_when_an_edit_could() {
+    // docs/M5.md §9: `can_add` follows archive.add's own refusals.
+    let dir = tempfile::tempdir().unwrap();
+    let a = touch(&dir.path().join("a.txt")).to_path_buf();
+    let can_add = |fixture: &str, ext: &str| {
+        let archive = dir.path().join(format!("a{ext}"));
+        std::fs::copy(thirdparty(fixture), &archive).unwrap();
+        let item = match ext {
+            ".zip" => "add-zip",
+            ".7z" => "add-7z",
+            _ => "add-tar-zst",
+        };
+        let steps = plan(item, &[&a]).unwrap();
+        std::fs::remove_file(&archive).unwrap();
+        steps[0]["existing"]["can_add"].as_bool().unwrap()
+    };
+    assert!(can_add("7z-deflate.zip", ".zip"));
+    assert!(can_add("7z-zipcrypto.zip", ".zip"), "encrypted entries");
+    assert!(can_add("7z-lzma2-mt.7z", ".7z"));
+    assert!(can_add("bsdtar.tar.zst", ".tar.zst"));
+    // Names encrypted: the job window asks for the password when it adds.
+    assert!(can_add("7z-aes-mhe.7z", ".7z"));
+    // Self-extracting, and not an archive BeeZip writes.
+    assert!(!can_add("7z-sfx.exe", ".7z"));
+    assert!(!can_add("7z-readme.md.gz", ".zip"));
+
+    let archive = dir.path().join("a.zip");
+    std::fs::copy(thirdparty("7z-deflate.zip"), &archive).unwrap();
+    let mut perms = std::fs::metadata(&archive).unwrap().permissions();
+    perms.set_readonly(true);
+    std::fs::set_permissions(&archive, perms.clone()).unwrap();
+    let steps = plan("add-zip", &[&a]).unwrap();
+    #[allow(clippy::permissions_set_readonly_false)]
+    perms.set_readonly(false);
+    std::fs::set_permissions(&archive, perms).unwrap();
+    assert_eq!(steps[0]["existing"]["can_add"], false, "read-only");
 }
 
 #[test]

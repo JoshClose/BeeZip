@@ -152,6 +152,29 @@ fn archive_info_counts() {
 }
 
 #[test]
+fn archive_info_says_why_an_archive_cant_be_edited() {
+    // docs/M5.md §8.1: the desktop disables its edit commands with these reasons.
+    let info = |name: &str| run("archive.info", json!({ "archive": fx(name) })).unwrap();
+    assert_eq!(
+        info("thirdparty/7z-deflate.zip")["not_editable"],
+        Value::Null
+    );
+    assert_eq!(
+        info("thirdparty/bsdtar.tar.zst")["not_editable"],
+        Value::Null
+    );
+    for (name, why) in [
+        ("thirdparty/7z-split.7z.001", "split into volumes"),
+        ("thirdparty/7z-sfx.exe", "self-extracting"),
+        ("thirdparty/7z-readme.md.gz", "compressed file"),
+    ] {
+        let out = info(name);
+        let reason = out["not_editable"].as_str().unwrap_or_default();
+        assert!(reason.contains(why), "{name}: {out}");
+    }
+}
+
+#[test]
 fn archive_list_levels_paging_and_globs() {
     let archive = fx("thirdparty/bsdtar.tar.gz");
     let top = run("archive.list", json!({ "archive": archive })).unwrap();

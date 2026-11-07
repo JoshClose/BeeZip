@@ -1350,6 +1350,49 @@ fn split_sfx_rar_and_read_only_formats_are_refused() {
     }
 }
 
+/// `edit::refusal` on `archive`, as a front end asks before offering the edit commands.
+fn refusal(archive: &Path) -> Option<String> {
+    let mut cx = SimpleCtx::new();
+    let mut opened = open(archive, &OpenOptions::default(), &mut cx).unwrap();
+    beezip_core::edit::refusal(archive, &mut opened, &mut cx).unwrap()
+}
+
+#[test]
+fn refusals_are_known_before_an_edit_runs() {
+    // The same reasons `edit` gives (docs/M5.md §8.1, §9).
+    for name in [
+        "7z-split.7z.001",
+        "7z-sfx.exe",
+        "rars/ext_time_rar420.rar",
+        "7z-readme.md.gz",
+    ] {
+        let path = thirdparty(name);
+        let e = edit(&path, &remove(&["anything"])).unwrap_err();
+        assert_eq!(
+            refusal(&path).as_deref(),
+            Some(e.message.as_str()),
+            "{name}"
+        );
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let src = dir.path().join("src");
+    tree(&src, &[("a.txt", b"a")]);
+    for kind in KINDS {
+        let archive = dir.path().join(format!("x.{}", ext(kind)));
+        create(&archive, kind, &src);
+        assert_eq!(refusal(&archive), None, "{kind:?}");
+    }
+    let archive = dir.path().join("x.zip");
+    let mut perms = fs::metadata(&archive).unwrap().permissions();
+    perms.set_readonly(true);
+    fs::set_permissions(&archive, perms.clone()).unwrap();
+    let found = refusal(&archive);
+    #[allow(clippy::permissions_set_readonly_false)]
+    perms.set_readonly(false);
+    fs::set_permissions(&archive, perms).unwrap();
+    assert_eq!(found.as_deref(), Some("x.zip is read-only"));
+}
+
 #[test]
 fn a_zip_with_two_entries_of_one_name_is_refused() {
     let dir = tempfile::tempdir().unwrap();
