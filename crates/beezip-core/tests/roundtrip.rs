@@ -16,6 +16,7 @@ use beezip_core::{
     CodecId, CreateOptions, EncodeOpts, FsOptions, OpenOptions, Selection, SimpleCtx, WriteSpec,
     format::{
         cab::{CabMethod, CabWriteOptions},
+        dmg::DmgWriteOptions,
         sevenz::{SevenZMethod, SevenZWriteOptions},
         squashfs::{SquashfsMethod, SquashfsWriteOptions},
         zip::{ZipEncryption, ZipMethod, ZipWriteOptions},
@@ -526,6 +527,40 @@ proptest! {
     fn sz_lzma2_volumes(tree in tree()) {
         let spec = sevenz(SevenZMethod::Lzma2, true, Some(PW), true);
         round_trip_with("7z", &spec, Some(PW), Some(1024), &tree)?;
+    }
+}
+
+/// HFS+ holds times up to 2040-02-06 06:28:15 UTC: a tree for a DMG keeps to them.
+fn hfs_times(nodes: Vec<Node>) -> Vec<Node> {
+    const HFS_LAST: u64 = u32::MAX as u64 - 2_082_844_800;
+    nodes
+        .into_iter()
+        .map(|n| match n {
+            Node::File { name, data, mtime } => Node::File {
+                name,
+                data,
+                mtime: mtime.min(HFS_LAST),
+            },
+            Node::Dir {
+                name,
+                children,
+                mtime,
+            } => Node::Dir {
+                name,
+                children: hfs_times(children),
+                mtime: mtime.min(HFS_LAST),
+            },
+        })
+        .collect()
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(cases()))]
+    /// An HFS+ volume in UDZO: names (composed again from HFS+'s decomposed ones), bytes and
+    /// times come back.
+    #[test]
+    fn dmg(tree in tree().prop_map(hfs_times)) {
+        round_trip("dmg", &WriteSpec::Dmg(DmgWriteOptions::default()), None, &tree)?;
     }
 }
 

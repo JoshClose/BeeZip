@@ -16,6 +16,7 @@ pub mod sevenz_header;
 pub mod squashfs;
 pub mod stream;
 pub mod tar;
+pub mod udif;
 pub mod zip;
 pub mod zip_edit;
 
