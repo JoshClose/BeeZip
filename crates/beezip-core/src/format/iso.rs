@@ -382,7 +382,7 @@ fn list(
                 .modified()
                 .and_then(|t| from_unix(t.unix_seconds(), t.nanoseconds())),
             crc32: None,
-            method,
+            method: method.map(Into::into),
             encrypted: false,
             unix_mode: posix.then(|| file_type | (m.permissions().bits() & 0o7777)),
             dos_attrs: None,
@@ -644,9 +644,9 @@ impl ArchiveReader for IsoReader {
     }
 
     fn info(&mut self, _: &mut dyn Ctx) -> Result<ArchiveInfo> {
-        let mut methods = vec![self.tree];
+        let mut methods = vec![self.tree.into()];
         if !self.zisofs.is_empty() {
-            methods.push("zisofs");
+            methods.push("zisofs".into());
         }
         Ok(ArchiveInfo {
             format: FormatId::Iso,
@@ -661,6 +661,7 @@ impl ArchiveReader for IsoReader {
             encrypted_headers: false,
             locked: false,
             recovery_record: false,
+            external: None,
         })
     }
 

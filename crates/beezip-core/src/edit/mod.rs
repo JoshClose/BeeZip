@@ -337,6 +337,11 @@ pub fn editable(name: &str, opened: &mut Opened, cx: &mut dyn Ctx) -> Result<Arc
                  rebuild the whole image. Convert it (`beezip convert`), or extract it and create \
                  it again."
             ),
+            FormatId::External(k) => format!(
+                "BeeZip reads {name} ({}) through 7-Zip, and doesn't change what it reads that \
+                 way. Convert it (`beezip convert`), or extract it.",
+                k.display_name()
+            ),
             other => format!("BeeZip doesn't edit {} archives", other.display_name()),
         }));
     }

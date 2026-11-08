@@ -1,0 +1,48 @@
+
+7-Zip 26.00 (x64) : Copyright (c) 1999-2026 Igor Pavlov : 2026-02-12
+
+Scanning the drive for archives:
+1 file, 100000 bytes (98 KiB)
+
+Listing archive: C:/samples/chm-truncated.chm
+
+--
+Path = C:/samples/chm-truncated.chm
+Type = Chm
+ERRORS:
+Unexpected end of archive
+Physical Size = 367239
+
+----------
+Path = 
+Size = 0
+Method = 
+Block = 0
+
+Path = /#IDXHDR
+Size = 4096
+Method = 
+Block = 1
+
+Path = /#ITBITS
+Size = 0
+Method = Copy
+Block = 0
+
+Path = /#STRINGS
+Size = 21227
+Method = 
+Block = 1
+
+Path = /#SYSTEM
+Size = 4287
+Method = Copy
+Block = 0
+
+Path = /#TOCIDX
+Size = 27472
+Method = 
+Block = 1
+
+
+Errors: 1

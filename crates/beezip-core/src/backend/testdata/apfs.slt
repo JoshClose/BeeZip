@@ -1,0 +1,284 @@
+
+7-Zip 26.00 (x64) : Copyright (c) 1999-2026 Igor Pavlov : 2026-02-12
+
+Scanning the drive for archives:
+1 file, 10981376 bytes (11 MiB)
+
+Listing archive: C:/samples/4.apfs
+
+--
+Path = C:/samples/4.apfs
+Type = APFS
+Physical Size = 10981376
+Name = BeeZip APFS.apfs
+ID = c93420ec14c14d54b5b50827dbdfb303
+Cluster Size = 4096
+Created = 2026-11-07 10:00:52.163644499Z
+Modified = 2026-11-07 10:00:53.952290124Z
+Comment = 
+{
+block_size: 4096
+fs_index: 0
+volume_name: BeeZip APFS
+vol_uuid: 9ee4e29a4de044a698e1f3e3914332fc
+incompatible_features: CASE_INSENSITIVE
+fs_alloc_count: 108
+num_files: 7
+num_directories: 2
+num_symlinks: 1
+num_other_fsobjects: 0
+Num_Attr_Streams: 0
+num_snapshots: 0
+total_blocks_alloced: 103
+total_blocks_freed: 0
+unmounted: 2026-11-07 04:00:53.952292624
+last_modified: 2026-11-07 04:00:53.932680583
+formatted_by: newfs_apfs (2811.160.7.702.4)
+  timestamp: 2026-11-07 04:00:52.163644499
+  last_xid: 2
+modified_by[0]: apfs_kext (2811.160.7.702.4)
+  timestamp: 2026-11-07 04:00:53.952290124
+  last_xid: 4
+}
+
+----------
+Path = empty.txt
+Size = 0
+Packed Size = 0
+Mode = -rw-r--r--
+Modified = 2026-01-01 00:00:00.000000000Z
+Created = 2026-01-01 00:00:00.000000000Z
+Accessed = 2026-01-01 00:00:00.000000000Z
+Metadata Changed = 2026-11-07 10:00:52.785396541Z
+Added Time = 2026-11-07 10:00:52.785168749Z
+Method = 
+iNode = 16
+Links = 1
+Symbolic Link = 
+User ID = 501
+Group ID = 20
+Characteristics = NO_RSRC_FORK
+Alternate Stream = -
+Parent iNode = 2
+Primary Name = empty.txt
+Generation = 1
+Written Size = 
+Read Size = 
+BSD Flags = 
+
+Path = link-to-readme
+Size = 11
+Packed Size = 11
+Mode = lrwxr-xr-x
+Modified = 2026-11-07 10:00:52.785493541Z
+Created = 2026-11-07 10:00:52.785493541Z
+Accessed = 2026-11-07 10:00:52.785493541Z
+Metadata Changed = 2026-11-07 10:00:52.785554333Z
+Added Time = 2026-11-07 10:00:52.785493541Z
+Method = symlink
+iNode = 17
+Links = 1
+Symbolic Link = readme.txt
+User ID = 501
+Group ID = 20
+Characteristics = NO_RSRC_FORK
+Alternate Stream = -
+Parent iNode = 2
+Primary Name = link-to-readme
+Generation = 1
+Written Size = 
+Read Size = 
+BSD Flags = 
+
+Path = blocks.txt
+Size = 329000
+Packed Size = 331776
+Mode = -rw-r--r--
+Modified = 2026-01-01 00:00:00.000000000Z
+Created = 2026-01-01 00:00:00.000000000Z
+Accessed = 2026-01-01 00:00:00.000000000Z
+Metadata Changed = 2026-11-07 10:00:52.786486833Z
+Added Time = 2026-11-07 10:00:52.785621208Z
+Method = 
+iNode = 18
+Links = 1
+Symbolic Link = 
+User ID = 501
+Group ID = 20
+Characteristics = NO_RSRC_FORK
+Alternate Stream = -
+Parent iNode = 2
+Primary Name = blocks.txt
+Generation = 4
+Written Size = 329000
+Read Size = 0
+BSD Flags = 
+
+Path = tool.sh
+Size = 22
+Packed Size = 4096
+Mode = -rwxr-xr-x
+Modified = 2026-01-01 00:00:00.000000000Z
+Created = 2026-01-01 00:00:00.000000000Z
+Accessed = 2026-01-01 00:00:00.000000000Z
+Metadata Changed = 2026-11-07 10:00:52.786705833Z
+Added Time = 2026-11-07 10:00:52.786581541Z
+Method = 
+iNode = 19
+Links = 1
+Symbolic Link = 
+User ID = 501
+Group ID = 20
+Characteristics = NO_RSRC_FORK
+Alternate Stream = -
+Parent iNode = 2
+Primary Name = tool.sh
+Generation = 2
+Written Size = 22
+Read Size = 0
+BSD Flags = 
+
+Path = sub
+Size = 
+Packed Size = 
+Mode = drwxr-xr-x
+Modified = 2026-01-01 00:00:00.000000000Z
+Created = 2026-01-01 00:00:00.000000000Z
+Accessed = 2026-01-01 00:00:00.000000000Z
+Metadata Changed = 2026-11-07 10:00:52.787187208Z
+Added Time = 2026-11-07 10:00:52.786757124Z
+Method = 
+iNode = 20
+Links = 
+Symbolic Link = 
+User ID = 501
+Group ID = 20
+Characteristics = NO_RSRC_FORK
+Alternate Stream = -
+Parent iNode = 2
+Primary Name = sub
+Generation = 2
+Written Size = 
+Read Size = 
+BSD Flags = 
+
+Path = Ünïcödé café 日本.txt
+Size = 16
+Packed Size = 4096
+Mode = -rw-r--r--
+Modified = 2026-01-01 00:00:00.000000000Z
+Created = 2026-01-01 00:00:00.000000000Z
+Accessed = 2026-01-01 00:00:00.000000000Z
+Metadata Changed = 2026-11-07 10:00:52.787383333Z
+Added Time = 2026-11-07 10:00:52.787258624Z
+Method = 
+iNode = 23
+Links = 1
+Symbolic Link = 
+User ID = 501
+Group ID = 20
+Characteristics = NO_RSRC_FORK
+Alternate Stream = -
+Parent iNode = 2
+Primary Name = Ünïcödé café 日本.txt
+Generation = 2
+Written Size = 16
+Read Size = 0
+BSD Flags = 
+
+Path = readme.txt
+Size = 1680
+Packed Size = 4096
+Mode = -rw-r--r--
+Modified = 2026-01-01 00:00:00.000000000Z
+Created = 2026-01-01 00:00:00.000000000Z
+Accessed = 2026-01-01 00:00:00.000000000Z
+Metadata Changed = 2026-11-07 10:00:52.787613833Z
+Added Time = 2026-11-07 10:00:52.787455708Z
+Method = 
+iNode = 24
+Links = 1
+Symbolic Link = 
+User ID = 501
+Group ID = 20
+Characteristics = NO_RSRC_FORK
+Alternate Stream = -
+Parent iNode = 2
+Primary Name = readme.txt
+Generation = 2
+Written Size = 1680
+Read Size = 0
+BSD Flags = 
+
+Path = random.bin
+Size = 70000
+Packed Size = 73728
+Mode = -rw-r--r--
+Modified = 2026-01-01 00:00:00.000000000Z
+Created = 2026-01-01 00:00:00.000000000Z
+Accessed = 2026-01-01 00:00:00.000000000Z
+Metadata Changed = 2026-11-07 10:00:52.787922499Z
+Added Time = 2026-11-07 10:00:52.787703124Z
+Method = 
+iNode = 25
+Links = 1
+Symbolic Link = 
+User ID = 501
+Group ID = 20
+Characteristics = NO_RSRC_FORK
+Alternate Stream = -
+Parent iNode = 2
+Primary Name = random.bin
+Generation = 2
+Written Size = 70000
+Read Size = 0
+BSD Flags = 
+
+Path = sub/nested
+Size = 
+Packed Size = 
+Mode = drwxr-xr-x
+Modified = 2026-01-01 00:00:00.000000000Z
+Created = 2026-01-01 00:00:00.000000000Z
+Accessed = 2026-01-01 00:00:00.000000000Z
+Metadata Changed = 2026-11-07 10:00:52.787169749Z
+Added Time = 2026-11-07 10:00:52.786859874Z
+Method = 
+iNode = 21
+Links = 
+Symbolic Link = 
+User ID = 501
+Group ID = 20
+Characteristics = NO_RSRC_FORK
+Alternate Stream = -
+Parent iNode = 20
+Primary Name = nested
+Generation = 3
+Written Size = 
+Read Size = 
+BSD Flags = 
+
+Path = sub/nested/deep.txt
+Size = 24
+Packed Size = 4096
+Mode = -rw-r--r--
+Modified = 2026-01-01 00:00:00.000000000Z
+Created = 2026-01-01 00:00:00.000000000Z
+Accessed = 2026-01-01 00:00:00.000000000Z
+Metadata Changed = 2026-11-07 10:00:52.787122624Z
+Added Time = 2026-11-07 10:00:52.786951958Z
+Method = 
+iNode = 22
+Links = 1
+Symbolic Link = 
+User ID = 501
+Group ID = 20
+Characteristics = NO_RSRC_FORK
+Alternate Stream = -
+Parent iNode = 21
+Primary Name = deep.txt
+Generation = 2
+Written Size = 24
+Read Size = 0
+BSD Flags = 
+

@@ -949,7 +949,7 @@ fn list(inner: &mut Inner, source: &Source, cx: &mut dyn Ctx) -> Result<(Vec<Ent
             }
             InodeKind::File(f) => {
                 entry.size = Some(f.size);
-                entry.method = method;
+                entry.method = method.map(Into::into);
                 entry.unix_mode = Some(S_IFREG | perms);
                 match files.get(&de.inode) {
                     Some(&first) => {
@@ -998,7 +998,7 @@ impl ArchiveReader for SquashfsReader {
         Ok(ArchiveInfo {
             format: FormatId::Squashfs,
             codecs: self.source.codecs.clone(),
-            methods: vec![self.inner.sb.compressor.name()],
+            methods: vec![self.inner.sb.compressor.name().into()],
             comment: None,
             encryption: Encryption::None,
             solid: false,
@@ -1008,6 +1008,7 @@ impl ArchiveReader for SquashfsReader {
             encrypted_headers: false,
             locked: false,
             recovery_record: false,
+            external: None,
         })
     }
 

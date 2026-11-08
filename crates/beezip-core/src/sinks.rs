@@ -25,6 +25,8 @@ pub struct TestReport {
     pub bytes: u64,
     pub errors: Vec<EntryError>,
     pub errors_total: u64,
+    /// What the test could and couldn't check: a disk image stores no checksums of its files.
+    pub note: Option<String>,
 }
 
 impl TestReport {

@@ -1,0 +1,10 @@
+
+ERROR: C:/samples/msi-truncated.msi : C:/samples/msi-truncated.msi
+Open ERROR: Cannot open the file as [Compound] archive
+
+
+ERRORS:
+Headers Error
+WARNINGS:
+There are data after the end of archive
+

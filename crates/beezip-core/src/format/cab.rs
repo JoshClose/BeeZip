@@ -558,7 +558,7 @@ fn build(
                 date: f.date,
                 time: f.time,
             });
-            e.method = Some(method_name(kind));
+            e.method = Some(method_name(kind).into());
             e.dos_attrs = Some(u32::from(f.attrs & ATTR_KEPT));
             entries.push(e);
             files.push(FileAt {
@@ -800,6 +800,7 @@ impl ArchiveReader for CabReader {
                 methods.push(m);
             }
         }
+        let methods = methods.into_iter().map(Into::into).collect();
         // A compressed folder of several files is solid: one stream for all of them.
         let mut per_folder = vec![0u64; self.set.folders.len()];
         for f in self.set.files.iter().filter(|f| f.size > 0) {
@@ -825,6 +826,7 @@ impl ArchiveReader for CabReader {
             encrypted_headers: false,
             locked: false,
             recovery_record: false,
+            external: None,
         })
     }
 
@@ -2414,7 +2416,7 @@ mod tests {
         raw.kind = METHOD_QUANTUM | (21 << 8);
         let mut r = open(&raw.write(dir.path(), "q.cab")).unwrap();
         let entries = r.entries(&mut SimpleCtx::new()).unwrap();
-        assert_eq!(entries[0].method, Some("Quantum"));
+        assert_eq!(entries[0].method.as_deref(), Some("Quantum"));
         let err = r.open_entry(0, &mut SimpleCtx::new()).err().unwrap();
         assert_eq!(err.kind, ErrorKind::UnsupportedFormat);
         assert_eq!(err.message, "Quantum compression isn't supported");

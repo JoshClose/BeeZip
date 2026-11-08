@@ -1,0 +1,64 @@
+
+7-Zip 26.00 (x64) : Copyright (c) 1999-2026 Igor Pavlov : 2026-02-12
+
+Scanning the drive for archives:
+1 file, 26017792 bytes (25 MiB)
+
+Listing archive: C:/samples/gpt-fat-ext4.vmdk
+
+--
+Path = C:/samples/gpt-fat-ext4.vmdk
+Type = VMDK
+Physical Size = 26017792
+Total Physical Size = 26017792
+Method = "monolithicSparse"
+Cluster Size = 65536
+Headers Size = 65536
+ID = 84a034e3
+Name = gpt-fat-ext4.vmdk
+Comment = 
+{
+# Disk DescriptorFile
+version=1
+CID=84a034e3
+parentCID=ffffffff
+createType="monolithicSparse"
+
+# Extent description
+RW 286720 SPARSE "gpt-fat-ext4.vmdk"
+
+# The Disk Data Base
+#DDB
+
+ddb.virtualHWVersion = "4"
+ddb.geometry.cylinders = "284"
+ddb.geometry.heads = "16"
+ddb.geometry.sectors = "63"
+ddb.adapterType = "ide"
+ddb.toolsVersion = "2147483647"
+}
+----
+Size = 146800640
+Packed Size = 25952256
+--
+Path = gpt-fat-ext4.gpt
+Type = GPT
+Physical Size = 146800640
+Sector Size = 512
+ID = 0BC96D9B-D3F0-4ED2-B746-7111D8562D5B
+
+----------
+Path = 0.data.fat
+Size = 67108864
+File System = Windows BDP
+Characteristics = 
+Offset = 1048576
+ID = FBB461CA-075E-4025-B7B8-CA704183B0B5
+
+Path = 1.linux.img
+Size = 67108864
+File System = Linux Data
+Characteristics = 
+Offset = 68157440
+ID = BC564A47-4263-49B4-B414-2B3C04E2E702
+

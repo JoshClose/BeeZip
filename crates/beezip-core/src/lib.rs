@@ -4,6 +4,7 @@
 //! safe-extraction rules all live here. Core has no serde, schemars or ts-rs: `beezip-commands`
 //! owns every wire type and converts (docs/M1.md §3.1).
 
+pub mod backend;
 pub mod bench;
 pub mod codec;
 pub mod ctx;
@@ -21,6 +22,7 @@ pub mod source;
 pub mod time;
 pub mod volume;
 
+pub use backend::{External, SevenZipOptions};
 pub use codec::{Codec, CodecId, EncodeOpts, FinishWrite, Levels};
 pub use ctx::{Ctx, Meter, MeteredCtx, OverwriteChoice, Progress, SimpleCtx};
 pub use detect::{Confidence, Detection, Layer, LayerKind, Probe, detect_bytes, detect_path};

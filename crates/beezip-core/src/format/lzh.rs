@@ -13,7 +13,10 @@
 //! - **The CRC-16** of each file is checked when its data has been read.
 //! - **LHA SFX** executables are found through detection's overlay scan.
 
-use std::io::{self, BufReader, Read, Seek, SeekFrom};
+use std::{
+    borrow::Cow,
+    io::{self, BufReader, Read, Seek, SeekFrom},
+};
 
 use delharc::{LhaDecodeReader, LhaHeader, header::TimestampResult};
 
@@ -224,7 +227,7 @@ fn entry_for(id: usize, h: &LhaHeader, nd: &NameDecoding, clock: &mut DosClock) 
         packed_size: is_file.then_some(h.compressed_size),
         modified: modified(h, clock),
         crc32: None,
-        method: method_name(&h.compression),
+        method: method_name(&h.compression).map(Into::into),
         encrypted: false,
         unix_mode: h.parse_unix_permissions().map(|p| u32::from(p.bits())),
         dos_attrs: Some(u32::from(h.msdos_attrs.bits())),
@@ -383,15 +386,15 @@ impl ArchiveReader for LzhReader {
     }
 
     fn info(&mut self, _: &mut dyn Ctx) -> Result<ArchiveInfo> {
-        let mut methods: Vec<&'static str> = Vec::new();
+        let mut methods: Vec<Cow<'static, str>> = Vec::new();
         for m in self
             .entries
             .iter()
             .filter(|e| e.is_file())
-            .filter_map(|e| e.method)
+            .filter_map(|e| e.method.as_ref())
         {
-            if !methods.contains(&m) {
-                methods.push(m);
+            if !methods.contains(m) {
+                methods.push(m.clone());
             }
         }
         Ok(ArchiveInfo {
@@ -407,6 +410,7 @@ impl ArchiveReader for LzhReader {
             encrypted_headers: false,
             locked: false,
             recovery_record: false,
+            external: None,
         })
     }
 

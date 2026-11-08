@@ -58,7 +58,7 @@ impl StreamReader {
         entry.packed_size = Some(source.size);
         entry.size = size_hint(&source);
         entry.modified = source.modified;
-        entry.method = source.codecs.last().map(|c| c.name());
+        entry.method = source.codecs.last().map(|c| c.name().into());
         Ok(Self {
             source,
             entries: vec![entry],
@@ -147,6 +147,7 @@ impl ArchiveReader for StreamReader {
             encrypted_headers: false,
             locked: false,
             recovery_record: false,
+            external: None,
         })
     }
 

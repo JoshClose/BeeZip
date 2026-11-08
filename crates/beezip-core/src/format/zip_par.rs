@@ -77,7 +77,7 @@ pub(super) fn workers(r: &ZipReader, sel: &Selection) -> usize {
         .filter(|e| {
             e.kind == EntryKind::File
                 && !e.encrypted
-                && worker_codec(e.method).is_some()
+                && worker_codec(e.method.as_deref()).is_some()
                 && sel.matches(e)
         })
         .count();
@@ -143,7 +143,8 @@ pub(super) fn extract(
         let work = if entry.encrypted {
             None
         } else {
-            worker_codec(entry.method).and_then(|codec| r.span(i).map(|span| (span, codec)))
+            worker_codec(entry.method.as_deref())
+                .and_then(|codec| r.span(i).map(|span| (span, codec)))
         };
         jobs.push(Job {
             id: i,

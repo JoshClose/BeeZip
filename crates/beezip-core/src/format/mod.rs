@@ -1,6 +1,7 @@
 //! Archive formats: ZIP, TAR and the one-entry stream view of a bare compressed file
 //! (docs/M1.md §3.4), 7z and RAR (docs/M3.md), cpio, ar, deb, RPM, CAB and LHA, and the disk
-//! images ISO, squashfs and DMG (docs/M5.md §5).
+//! images ISO, squashfs and DMG (docs/M5.md §5), and the formats 7-Zip reads for BeeZip
+//! (docs/M6.md §3).
 
 pub mod ar;
 pub mod cab;
@@ -20,12 +21,15 @@ pub mod udif;
 pub mod zip;
 pub mod zip_edit;
 
-use std::{any::Any, collections::BTreeSet, fmt, io::Read, path::PathBuf, time::SystemTime};
+use std::{
+    any::Any, borrow::Cow, collections::BTreeSet, fmt, io::Read, path::PathBuf, time::SystemTime,
+};
 
 use globset::{GlobBuilder, GlobSet, GlobSetBuilder};
 
 use crate::{
     CodecId, Ctx, Error, Result,
+    backend::External,
     detect::{Confidence, Probe},
 };
 
@@ -50,10 +54,13 @@ pub enum FormatId {
     Dmg,
     /// A bare compressed file, seen as an archive with one entry.
     Stream,
+    /// A format the installed 7-Zip reads (docs/M6.md §3).
+    External(External),
 }
 
 impl FormatId {
-    pub const ALL: [FormatId; 14] = [
+    /// BeeZip's own formats first, so they win a tie with a 7-Zip one.
+    pub const ALL: [FormatId; 31] = [
         Self::Zip,
         Self::Tar,
         Self::SevenZ,
@@ -68,6 +75,23 @@ impl FormatId {
         Self::Squashfs,
         Self::Dmg,
         Self::Stream,
+        Self::External(External::Wim),
+        Self::External(External::Chm),
+        Self::External(External::Msi),
+        Self::External(External::Nsis),
+        Self::External(External::Vhdx),
+        Self::External(External::Vhd),
+        Self::External(External::Vmdk),
+        Self::External(External::Qcow2),
+        Self::External(External::Vdi),
+        Self::External(External::Fat),
+        Self::External(External::Ntfs),
+        Self::External(External::Ext),
+        Self::External(External::Hfs),
+        Self::External(External::Apfs),
+        Self::External(External::Cramfs),
+        Self::External(External::Gpt),
+        Self::External(External::Mbr),
     ];
 
     pub const fn name(self) -> &'static str {
@@ -86,6 +110,7 @@ impl FormatId {
             Self::Iso => "iso",
             Self::Squashfs => "squashfs",
             Self::Dmg => "dmg",
+            Self::External(k) => k.name(),
         }
     }
 
@@ -105,6 +130,7 @@ impl FormatId {
             Self::Iso => "ISO image",
             Self::Squashfs => "squashfs image",
             Self::Dmg => "Apple disk image",
+            Self::External(k) => k.display_name(),
         }
     }
 
@@ -128,6 +154,15 @@ impl FormatId {
             Self::Iso => &iso::Iso,
             Self::Squashfs => &squashfs::Squashfs,
             Self::Dmg => &dmg::Dmg,
+            Self::External(k) => k.format(),
+        }
+    }
+
+    /// The 7-Zip format, when the installed 7-Zip reads it for BeeZip.
+    pub const fn external(self) -> Option<External> {
+        match self {
+            Self::External(k) => Some(k),
+            _ => None,
         }
     }
 }
@@ -209,7 +244,8 @@ pub struct Entry {
     pub packed_size: Option<u64>,
     pub modified: Option<SystemTime>,
     pub crc32: Option<u32>,
-    pub method: Option<&'static str>,
+    /// The compression method's name. 7-Zip's (`LZX:15`) are owned, the rest static.
+    pub method: Option<Cow<'static, str>>,
     pub encrypted: bool,
     pub unix_mode: Option<u32>,
     pub dos_attrs: Option<u32>,
@@ -252,7 +288,7 @@ pub struct ArchiveInfo {
     pub format: FormatId,
     pub codecs: Vec<CodecId>,
     /// Compression methods used by the entries, e.g. `["Deflate", "Store"]`.
-    pub methods: Vec<&'static str>,
+    pub methods: Vec<Cow<'static, str>>,
     pub comment: Option<String>,
     pub encryption: Encryption,
     pub solid: bool,
@@ -268,6 +304,8 @@ pub struct ArchiveInfo {
     pub locked: bool,
     /// RAR: has a recovery record.
     pub recovery_record: bool,
+    /// What the 7-Zip backend adds, for the formats it reads.
+    pub external: Option<crate::backend::ExternalInfo>,
 }
 
 /// Which entries an operation applies to (docs/M1.md §4.3). Paths use `/`, and a directory
@@ -446,6 +484,14 @@ pub trait ArchiveReader: Send {
     /// One entry's data, by id. Entries of formats without random access are reached by
     /// decoding from the start.
     fn open_entry(&mut self, id: usize, cx: &mut dyn Ctx) -> Result<Box<dyn Read + '_>>;
+
+    /// Tests the archive its own way, when it has one: the 7-Zip backend runs `7z t`
+    /// (docs/M6.md §3.5). `None`, the default, has `archive.test` read every entry through a
+    /// [`crate::TestSink`].
+    fn test(&mut self, cx: &mut dyn Ctx) -> Option<Result<crate::TestReport>> {
+        let _ = cx;
+        None
+    }
 }
 
 /// An entry to add to a new archive.

@@ -708,7 +708,7 @@ fn walk(
             };
             let mut e = Entry::new(entries.len(), rel_path, kind);
             e.size = size;
-            e.method = method;
+            e.method = method.map(Into::into);
             e.modified = attrs
                 .as_ref()
                 .map(|a| a.mtime)
@@ -872,7 +872,7 @@ impl ArchiveReader for DmgReader {
         Ok(ArchiveInfo {
             format: FormatId::Dmg,
             codecs: self.source.codecs.clone(),
-            methods: self.image.methods(),
+            methods: self.image.methods().into_iter().map(Into::into).collect(),
             comment: None,
             encryption: Encryption::None,
             solid: false,
@@ -882,6 +882,7 @@ impl ArchiveReader for DmgReader {
             encrypted_headers: false,
             locked: false,
             recovery_record: false,
+            external: None,
         })
     }
 
@@ -1517,8 +1518,9 @@ mod tests {
             .iter()
             .find(|e| e.path == "forked")
             .unwrap()
-            .method;
-        assert_eq!(method, Some("decmpfs zlib"));
+            .method
+            .clone();
+        assert_eq!(method.as_deref(), Some("decmpfs zlib"));
         assert_eq!(
             read(&mut r, "odd").unwrap_err().kind,
             ErrorKind::UnsupportedOperation

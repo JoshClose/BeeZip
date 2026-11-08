@@ -1,0 +1,299 @@
+
+7-Zip 26.00 (x64) : Copyright (c) 1999-2026 Igor Pavlov : 2026-02-12
+
+Scanning the drive for archives:
+1 file, 8388608 bytes (8192 KiB)
+
+Listing archive: C:/samples/ext4-evil.img
+
+--
+Path = C:/samples/ext4-evil.img
+Type = Ext
+Physical Size = 8388608
+Cluster Size = 4096
+Free Space = 3579904
+Modified = 2026-11-07 13:40:44Z
+Created = 2026-11-07 13:40:44Z
+Last Check Time = 2026-11-07 13:40:44Z
+Host OS = Linux
+Revision = 1
+inode Size = 256
+Code Page = UTF-8
+Label = BeeZipEvil
+ID = 16f52cb397754f2ca201853da6f1dd5d
+Characteristics = HAS_JOURNAL EXT_ATTR RESIZE_INODE DIR_INDEX
+Incompatible Features = FILETYPE EXTENTS 64BIT FLEX_BG
+Readonly-compatible Features = SPARSE_SUPER LARGE_FILE HUGE_FILE DIR_NLINK EXTRA_ISIZE METADATA_CSUM
+Written KiB = 4241
+
+----------
+Path = lost+found
+Folder = +
+Size = 
+Packed Size = 
+Mode = drwx------
+Modified = 2026-11-07 13:40:44.000000000Z
+Created = 2026-11-07 13:40:44.000000000Z
+Accessed = 2026-11-07 13:40:44.000000000Z
+iNode = 11
+Links = 2
+Symbolic Link = 
+Characteristics = EXTENTS
+User ID = 0
+Group ID = 0
+
+Path = ...
+Folder = -
+Size = 7
+Packed Size = 4096
+Mode = -rw-r--r--
+Modified = 2026-11-07 13:40:42.000000000Z
+Created = 2026-11-07 13:40:44.000000000Z
+Accessed = 2026-11-07 13:40:42.000000000Z
+iNode = 12
+Links = 1
+Symbolic Link = 
+Characteristics = EXTENTS
+User ID = 0
+Group ID = 0
+
+Path = CON
+Folder = -
+Size = 4
+Packed Size = 4096
+Mode = -rw-r--r--
+Modified = 2026-11-07 13:40:42.000000000Z
+Created = 2026-11-07 13:40:44.000000000Z
+Accessed = 2026-11-07 13:40:42.000000000Z
+iNode = 13
+Links = 1
+Symbolic Link = 
+Characteristics = EXTENTS
+User ID = 0
+Group ID = 0
+
+Path = [x].txt
+Folder = -
+Size = 8
+Packed Size = 4096
+Mode = -rw-r--r--
+Modified = 2026-11-07 13:40:42.000000000Z
+Created = 2026-11-07 13:40:44.000000000Z
+Accessed = 2026-11-07 13:40:42.000000000Z
+iNode = 14
+Links = 1
+Symbolic Link = 
+Characteristics = EXTENTS
+User ID = 0
+Group ID = 0
+
+Path = a*b?.txt
+Folder = -
+Size = 5
+Packed Size = 4096
+Mode = -rw-r--r--
+Modified = 2026-11-07 13:40:42.000000000Z
+Created = 2026-11-07 13:40:44.000000000Z
+Accessed = 2026-11-07 13:40:42.000000000Z
+iNode = 15
+Links = 1
+Symbolic Link = 
+Characteristics = EXTENTS
+User ID = 0
+Group ID = 0
+
+Path = ads:like.txt
+Folder = -
+Size = 6
+Packed Size = 4096
+Mode = -rw-r--r--
+Modified = 2026-11-07 13:40:42.000000000Z
+Created = 2026-11-07 13:40:44.000000000Z
+Accessed = 2026-11-07 13:40:42.000000000Z
+iNode = 16
+Links = 1
+Symbolic Link = 
+Characteristics = EXTENTS
+User ID = 0
+Group ID = 0
+
+Path = aux.txt
+Folder = -
+Size = 4
+Packed Size = 4096
+Mode = -rw-r--r--
+Modified = 2026-11-07 13:40:42.000000000Z
+Created = 2026-11-07 13:40:44.000000000Z
+Accessed = 2026-11-07 13:40:42.000000000Z
+iNode = 17
+Links = 1
+Symbolic Link = 
+Characteristics = EXTENTS
+User ID = 0
+Group ID = 0
+
+Path = back_slash.txt
+Folder = -
+Size = 5
+Packed Size = 4096
+Mode = -rw-r--r--
+Modified = 2026-11-07 13:40:42.000000000Z
+Created = 2026-11-07 13:40:44.000000000Z
+Accessed = 2026-11-07 13:40:42.000000000Z
+iNode = 18
+Links = 1
+Symbolic Link = 
+Characteristics = EXTENTS
+User ID = 0
+Group ID = 0
+
+Path = ctlx.txt
+Folder = -
+Size = 4
+Packed Size = 4096
+Mode = -rw-r--r--
+Modified = 2026-11-07 13:40:42.000000000Z
+Created = 2026-11-07 13:40:44.000000000Z
+Accessed = 2026-11-07 13:40:42.000000000Z
+iNode = 19
+Links = 1
+Symbolic Link = 
+Characteristics = EXTENTS
+User ID = 0
+Group ID = 0
+
+Path = dir
+Folder = +
+Size = 
+Packed Size = 
+Mode = drwxr-xr-x
+Modified = 2026-11-07 13:40:42.000000000Z
+Created = 2026-11-07 13:40:44.000000000Z
+Accessed = 2026-11-07 13:40:42.000000000Z
+iNode = 20
+Links = 2
+Symbolic Link = 
+Characteristics = EXTENTS
+User ID = 0
+Group ID = 0
+
+Path = dirlink
+Folder = +
+Size = 3
+Packed Size = 0
+Mode = lrwxrwxrwx
+Modified = 2026-11-07 13:40:42.000000000Z
+Created = 2026-11-07 13:40:44.000000000Z
+Accessed = 2026-11-07 13:40:42.000000000Z
+iNode = 22
+Links = 1
+Symbolic Link = dir
+Characteristics = 
+User ID = 0
+Group ID = 0
+
+Path = escape-abs
+Folder = -
+Size = 11
+Packed Size = 0
+Mode = lrwxrwxrwx
+Modified = 2026-11-07 13:40:42.000000000Z
+Created = 2026-11-07 13:40:44.000000000Z
+Accessed = 2026-11-07 13:40:42.000000000Z
+iNode = 23
+Links = 1
+Symbolic Link = /etc/passwd
+Characteristics = 
+User ID = 0
+Group ID = 0
+
+Path = escape-drive
+Folder = -
+Size = 18
+Packed Size = 0
+Mode = lrwxrwxrwx
+Modified = 2026-11-07 13:40:42.000000000Z
+Created = 2026-11-07 13:40:44.000000000Z
+Accessed = 2026-11-07 13:40:42.000000000Z
+iNode = 24
+Links = 1
+Symbolic Link = C:/Windows/win.ini
+Characteristics = 
+User ID = 0
+Group ID = 0
+
+Path = escape-rel
+Folder = -
+Size = 27
+Packed Size = 0
+Mode = lrwxrwxrwx
+Modified = 2026-11-07 13:40:42.000000000Z
+Created = 2026-11-07 13:40:44.000000000Z
+Accessed = 2026-11-07 13:40:42.000000000Z
+iNode = 25
+Links = 1
+Symbolic Link = ../../../../Windows/win.ini
+Characteristics = 
+User ID = 0
+Group ID = 0
+
+Path = trail 
+Folder = -
+Size = 6
+Packed Size = 4096
+Mode = -rw-r--r--
+Modified = 2026-11-07 13:40:42.000000000Z
+Created = 2026-11-07 13:40:44.000000000Z
+Accessed = 2026-11-07 13:40:42.000000000Z
+iNode = 26
+Links = 1
+Symbolic Link = 
+Characteristics = EXTENTS
+User ID = 0
+Group ID = 0
+
+Path = trail.
+Folder = -
+Size = 6
+Packed Size = 4096
+Mode = -rw-r--r--
+Modified = 2026-11-07 13:40:42.000000000Z
+Created = 2026-11-07 13:40:44.000000000Z
+Accessed = 2026-11-07 13:40:42.000000000Z
+iNode = 27
+Links = 1
+Symbolic Link = 
+Characteristics = EXTENTS
+User ID = 0
+Group ID = 0
+
+Path = dir/inside.txt
+Folder = -
+Size = 8
+Packed Size = 4096
+Mode = -rw-r--r--
+Modified = 2026-11-07 13:40:42.000000000Z
+Created = 2026-11-07 13:40:44.000000000Z
+Accessed = 2026-11-07 13:40:42.000000000Z
+iNode = 21
+Links = 1
+Symbolic Link = 
+Characteristics = EXTENTS
+User ID = 0
+Group ID = 0
+
+Path = [SYS]/Journal
+Folder = -
+Size = 4194304
+Packed Size = 4194304
+Mode = -rw-------
+Modified = 2026-11-07 13:40:44.000000000Z
+Created = 2026-11-07 13:40:44.000000000Z
+Accessed = 2026-11-07 13:40:44.000000000Z
+iNode = 8
+Links = 1
+Symbolic Link = 
+Characteristics = EXTENTS
+User ID = 0
+Group ID = 0
+
