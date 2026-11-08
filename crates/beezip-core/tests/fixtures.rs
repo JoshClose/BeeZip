@@ -93,7 +93,7 @@ const MTIME: u64 = 1_767_225_600;
 #[test]
 fn every_fixture_reads_correctly() {
     let all = manifest();
-    assert_eq!(all.len(), 238, "the manifest lists every fixture");
+    assert_eq!(all.len(), 298, "the manifest lists every fixture");
     let mut failures = Vec::new();
     for fx in &all {
         let file = fx["file"].as_str().unwrap();
@@ -466,6 +466,11 @@ fn broken_fixtures_fail_as_they_should() {
     let unsupported = Fails::With(&[UnsupportedFormat]);
     // Fuzzed headers that detection doesn't take for the format at all.
     let garbage = Fails::With(&[Corrupt, UnsupportedFormat]);
+    // A method BeeZip doesn't decode, refused when the entry is read.
+    let refused = Fails::With(&[
+        beezip_core::ErrorKind::UnsupportedOperation,
+        UnsupportedFormat,
+    ]);
     let cases = [
         // lzxd 0.2.7 decodes a match reaching before the stream's start as zeros instead of
         // failing, and a cabinet has no checksum of its decoded data (the upstream list).
@@ -563,6 +568,16 @@ fn broken_fixtures_fail_as_they_should() {
             "dmg/broken/apfs-decmpfs-udzo.dmg",
             Fails::With(&[beezip_core::ErrorKind::UnsupportedOperation]),
         ),
+        // unarc-rs's samples (unarc/README.md): CRCs wrong on purpose.
+        ("unarc/broken/wrongcrc32.arj", corrupt),
+        ("unarc/broken/wrongcrc16.zoo", corrupt),
+        ("unarc/broken/wrongcrc16.arc", corrupt),
+        // Their one file is `../license`: zoo stored its folder as `..`.
+        ("unarc/zoo/high_per.zoo", Fails::Unsafe),
+        ("unarc/zoo/store.zoo", Fails::Unsafe),
+        // PAK's distilled and crushed methods, which BeeZip refuses (docs/M6.md §4.1).
+        ("unarc/arc/license.pak", refused),
+        ("unarc/arc/license_crushed.pak", refused),
     ];
     let mut failures = Vec::new();
     for (file, want) in cases {

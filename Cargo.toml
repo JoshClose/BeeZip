@@ -99,6 +99,11 @@ backhand   = { version = "=0.25.5", default-features = false, features = ["error
 # HFS+, HFSX and APFS inside DMGs, and the HFS+ writer. Named only by format/dmg.rs.
 fstool     = { version = "=0.5.2", default-features = false, features = ["hfs-plus", "apfs"] }
 lzfse_rust = "=0.2.1"   # DMG chunks and Apple-compressed (decmpfs) files
+# M6 formats (docs/M6.md §1, §4, §5). quick-xml reads XAR's table of contents; its API changed
+# in every minor from 0.38 to 0.42, so it's pinned exactly (already in the lock through Tauri).
+quick-xml = "=0.42.0"
+md-5      = "0.11.0"    # XAR's MD5 checksums
+sha1      = "0.11.0"    # XAR's SHA-1 checksums, the default; already in the lock
 # M4 Explorer integration (docs/M4.md §1): the same windows 0.62.2 that Tauri already builds, so
 # one copy serves the shell DLL, the commands and the app. Features are chosen per crate.
 windows          = "=0.62.2"

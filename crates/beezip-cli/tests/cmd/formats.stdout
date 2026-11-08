@@ -13,6 +13,12 @@ Archive formats
   iso      ISO image        yes   yes     yes    -        yes     .iso
   squashfs squashfs image   yes   yes     yes    -        yes     .squashfs .sqfs .snap
   dmg      Apple disk image yes   yes     yes    -        yes     .dmg
+  arj      ARJ              yes   yes     -      -        -       .arj
+  ace      ACE              yes   yes     -      -        -       .ace .cba
+  zoo      ZOO              yes   yes     -      -        -       .zoo
+  arc      ARC              yes   yes     -      -        -       .arc
+  pkg      macOS package    yes   yes     -      -        -       .pkg .mpkg
+  xar      XAR              yes   yes     -      -        -       .xar
   stream   compressed file  yes   yes     -      -        -       
 
 Read through 7-Zip 25.01 or newer, list and extract: turned off in Settings

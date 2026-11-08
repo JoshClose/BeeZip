@@ -728,6 +728,88 @@ mod seven_zip {
         }
         assert!(checked >= 40, "{checked} fixtures checked");
     }
+
+    /// BeeZip extracts the ARJ and XAR fixtures 7-Zip reads as `7z x` does: the same bytes
+    /// (docs/M6.md §10). Not compared: ARJ volume sets, which 7-Zip reads a part at a time;
+    /// garbled ARJs, which it doesn't decode; times, since it reads a Unix-host ARJ's as DOS
+    /// times; and in a XAR, what it gets wrong (planning's item 8): names in base64, which it
+    /// leaves encoded, and hard links, which it extracts empty.
+    #[test]
+    fn arj_and_xar_fixtures_extract_like_7z_x() {
+        let Some(exe) = seven_zip() else { return };
+        let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures");
+        let text = std::fs::read_to_string(fixtures.join("manifest.json")).unwrap();
+        let manifest: serde_json::Value = serde_json::from_str(&text).unwrap();
+        let root = tempfile::tempdir().unwrap();
+        let (mut checked, mut files) = (0, 0);
+        for (n, fx) in manifest["fixtures"].as_array().unwrap().iter().enumerate() {
+            let chain = fx["chain"].as_str().unwrap();
+            let tested_ok = fx["7z_test"].as_str().is_some_and(|t| t.starts_with("ok"));
+            if !matches!(chain, "arj" | "xar") || !tested_ok || !fx["password"].is_null() {
+                continue;
+            }
+            let file = fx["file"].as_str().unwrap();
+            let path = fixtures.join("thirdparty").join(file);
+            if path.with_extension("a01").is_file() {
+                continue;
+            }
+            let ours = root.path().join(format!("b{n}"));
+            let out = Command::new(env!("CARGO_BIN_EXE_beezip"))
+                .args([
+                    "x",
+                    &path.display().to_string(),
+                    "-o",
+                    &ours.display().to_string(),
+                ])
+                .current_dir(root.path())
+                .env("BEEZIP_CONFIG", "no-such-beezip-config.toml")
+                .output()
+                .unwrap();
+            // Links are off by default: a fixture with symlinks skips them and exits 14.
+            let links_skipped =
+                out.status.code() == Some(14) && fx["symlinks"].as_u64().unwrap_or(0) > 0;
+            assert!(
+                out.status.success() || links_skipped,
+                "beezip x {file}: {}",
+                String::from_utf8_lossy(&out.stderr)
+            );
+            let theirs = root.path().join(format!("s{n}"));
+            let _ = Command::new(&exe)
+                .args([
+                    "x",
+                    "-y",
+                    &format!("-o{}", theirs.display()),
+                    &path.display().to_string(),
+                ])
+                .output()
+                .unwrap();
+
+            let ours_files = hashes(&ours);
+            let theirs_files = hashes(&theirs);
+            assert!(!ours_files.is_empty(), "{file}: BeeZip extracted nothing");
+            let empty = hashes_of(b"");
+            for (rel, sum) in &ours_files {
+                match theirs_files.get(rel) {
+                    Some(t) if t == sum => files += 1,
+                    // 7-Zip extracts a XAR hard link empty.
+                    Some(t) if chain == "xar" && *t == empty => {}
+                    // A name 7-Zip left in base64.
+                    None if chain == "xar" => {}
+                    _ => panic!("{file}: `{rel}` differs from 7z x"),
+                }
+            }
+            checked += 1;
+        }
+        assert!(checked >= 20, "{checked} fixtures checked");
+        assert!(files >= 100, "{files} files compared");
+    }
+
+    fn hashes_of(data: &[u8]) -> String {
+        Sha256::digest(data)
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect()
+    }
 }
 
 /// One file's SHA-256.

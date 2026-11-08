@@ -16,10 +16,11 @@ use crate::{
     backend::{SevenZipOptions, SevenZipReader},
     detect::{Detection, detect_path},
     format::{
-        ArchiveReader, FormatId, ar::ArReader, cab::CabReader, cpio::CpioReader, deb::DebReader,
-        dmg::DmgReader, iso::IsoReader, lzh::LzhReader, rar::RarReader, rpm::RpmReader,
-        sevenz::SevenZReader, squashfs::SquashfsReader, stream::StreamReader, tar::TarReader,
-        zip::ZipReader,
+        ArchiveReader, FormatId, ace::AceReader, ar::ArReader, arc::ArcReader, arj::ArjReader,
+        cab::CabReader, cpio::CpioReader, deb::DebReader, dmg::DmgReader, iso::IsoReader,
+        lzh::LzhReader, pkg::PkgReader, rar::RarReader, rpm::RpmReader, sevenz::SevenZReader,
+        squashfs::SquashfsReader, stream::StreamReader, tar::TarReader, xar::XarReader,
+        zip::ZipReader, zoo::ZooReader,
     },
     io::{BUF_SIZE, Counter, CountingReader},
     limits::{Budget, Guarded, RatioGuard},
@@ -361,6 +362,12 @@ pub fn open(path: &Path, opts: &OpenOptions, cx: &mut dyn Ctx) -> Result<Opened>
             FormatId::Iso => Box::new(IsoReader::open(source, cx)?),
             FormatId::Squashfs => Box::new(SquashfsReader::open(source, cx)?),
             FormatId::Dmg => Box::new(DmgReader::open(source, cx)?),
+            FormatId::Arj => Box::new(ArjReader::open(source, cx)?),
+            FormatId::Ace => Box::new(AceReader::open(source, cx)?),
+            FormatId::Zoo => Box::new(ZooReader::open(source, cx)?),
+            FormatId::Arc => Box::new(ArcReader::open(source, cx)?),
+            FormatId::Pkg => Box::new(PkgReader::open(source, cx)?),
+            FormatId::Xar => Box::new(XarReader::open(source, cx)?),
             FormatId::External(kind) => {
                 Box::new(SevenZipReader::open(source, kind, &opts.seven_zip, cx)?)
             }

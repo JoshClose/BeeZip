@@ -159,3 +159,38 @@ path = "fuzz_targets/sevenzip_listing.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "arj"
+path = "fuzz_targets/arj.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "ace"
+path = "fuzz_targets/ace.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "zoo"
+path = "fuzz_targets/zoo.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "arc"
+path = "fuzz_targets/arc.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "xar"
+path = "fuzz_targets/xar.rs"
+test = false
+doc = false
+bench = false

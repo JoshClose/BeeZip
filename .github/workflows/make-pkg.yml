@@ -1,0 +1,28 @@
+name: Make pkg fixtures
+# pkgbuild's and productbuild's packages of BeeZip's fixture tree (docs/M6.md §10), made on a Mac
+# since nobody here has one: a component package with the default compression, with --compression
+# legacy and with --compression latest (an Apple Archive payload), and product archives of two of
+# them, each with what `pkgutil --expand` and `--expand-full` make of it.
+# tests/fixtures/make-pkg.sh says what the artifact holds; tests/fixtures/merge-pkg.py puts the
+# packages in tests/fixtures/thirdparty/pkg/macos/ and their records, with the run's id, in the
+# manifest. A workflow_dispatch workflow runs only once it's on the default branch (make-dmg.yml
+# was first run from a push to its branch instead).
+on:
+  workflow_dispatch:
+permissions: { contents: read }
+
+jobs:
+  make:
+    runs-on: macos-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - name: Make the packages
+        run: bash tests/fixtures/make-pkg.sh "$RUNNER_TEMP/pkg-fixtures"
+      - name: Keep them
+        uses: actions/upload-artifact@v7
+        with:
+          name: pkg-fixtures
+          path: ${{ runner.temp }}/pkg-fixtures
+          if-no-files-found: error
+          retention-days: 30

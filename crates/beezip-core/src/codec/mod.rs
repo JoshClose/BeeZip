@@ -4,7 +4,8 @@
 
 mod brotli;
 mod bzip2;
-mod compress;
+/// Also ZOO's and ARC's LZW and CRC-16 (docs/M6.md §4).
+pub(crate) mod compress;
 mod deflate;
 pub(crate) mod deflate_par;
 mod gzip;

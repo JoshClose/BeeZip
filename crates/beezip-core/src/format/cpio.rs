@@ -201,7 +201,7 @@ impl Header {
     }
 
     /// The group a newc or crc member belongs to when it shares its inode.
-    fn link_key(&self) -> Option<(u64, u64, u64)> {
+    pub(crate) fn link_key(&self) -> Option<(u64, u64, u64)> {
         let shared = matches!(self.kind, Kind::Newc | Kind::Crc)
             && self.mode & S_IFMT == S_IFREG
             && self.nlink > 1;
@@ -285,6 +285,12 @@ impl<R: Read> Members<R> {
     /// The current member's data. Reading past it gives nothing.
     pub fn data(&mut self) -> MemberData<'_, R> {
         MemberData { m: self }
+    }
+
+    /// The stream, after what has been read of it: what follows the trailer, for a macOS
+    /// package to read its payload to the end (pkg.rs).
+    pub fn into_inner(self) -> R {
+        self.r
     }
 
     /// The next member's header, or `None` after the trailer. `stripped` gives a stripped

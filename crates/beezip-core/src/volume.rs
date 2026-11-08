@@ -8,6 +8,8 @@
 //! - **RAR sets** (`a.part1.rar`…, or `a.rar`, `a.r00`, `a.r01`…) are separate archives that
 //!   UnRAR opens one after another itself. BeeZip only names them, to find the first part and
 //!   to report the set.
+//! - **ARJ and ACE sets** (`a.arj`, `a.a01`…; `a.ace`, `a.c00`…, docs/M6.md §4) are named the
+//!   way old RAR sets are, and their readers open the parts one after another.
 //! - [`VolumeWriter`] writes `<output>.001`, `.002`… as partial files, each `volume_size` bytes
 //!   but the last, and renames them into place on [`VolumeWriter::finish`].
 
@@ -32,7 +34,50 @@ pub enum SetKind {
     RarParts,
     /// `name.rar`, `name.r00`, `name.r01`…
     RarOld,
+    /// `name.arj`, `name.a01`, `name.a02`…
+    Arj,
+    /// `name.ace`, `name.c00`, `name.c01`…
+    Ace,
 }
+
+/// A set named by letter and two digits after its first part: `x.rar`, `x.r00`… `x.r99`,
+/// `x.s00`…, and ARJ's and ACE's the same way.
+#[derive(Debug, Clone, Copy)]
+struct Lettered {
+    kind: SetKind,
+    /// The first part's extension.
+    first: &'static str,
+    /// The second part's letter and number.
+    letter: u8,
+    from: u8,
+    /// The last letter used before the names run out.
+    last: u8,
+}
+
+const LETTERED: [Lettered; 3] = [
+    Lettered {
+        kind: SetKind::RarOld,
+        first: "rar",
+        letter: b'r',
+        from: 0,
+        last: b'z',
+    },
+    // ARJ goes `.a01`… `.a99`; past that it uses `.100`, which is a numbered part's name.
+    Lettered {
+        kind: SetKind::Arj,
+        first: "arj",
+        letter: b'a',
+        from: 1,
+        last: b'a',
+    },
+    Lettered {
+        kind: SetKind::Ace,
+        first: "ace",
+        letter: b'c',
+        from: 0,
+        last: b'z',
+    },
+];
 
 /// A set of volumes, first part first.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -65,36 +110,45 @@ fn rar_part_name(name: &str) -> Option<(&str, u64, usize)> {
     Some((&name[..at], digits.parse().ok()?, digits.len()))
 }
 
-/// `(stem, index)` for old-style RAR volumes: `stem.rar` is 0, `stem.r00` is 1, `stem.r99`
-/// is 100, `stem.s00` is 101…
-fn rar_old_name(name: &str) -> Option<(&str, u64)> {
+/// `(set, stem, index)` for a lettered set's part: `stem.rar` is 0, `stem.r00` is 1, `stem.r99`
+/// is 100, `stem.s00` is 101…; `stem.arj` is 0, `stem.a01` is 1.
+fn lettered_name(name: &str) -> Option<(Lettered, &str, u64)> {
     let (stem, ext) = name.rsplit_once('.')?;
     if stem.is_empty() {
         return None;
     }
     let ext = ext.to_ascii_lowercase();
-    if ext == "rar" {
-        return Some((stem, 0));
-    }
     let b = ext.as_bytes();
-    if b.len() == 3
-        && (b'r'..=b'z').contains(&b[0])
-        && b[1].is_ascii_digit()
-        && b[2].is_ascii_digit()
-    {
-        let n = u64::from(b[0] - b'r') * 100 + u64::from((b[1] - b'0') * 10 + (b[2] - b'0'));
-        return Some((stem, n + 1));
-    }
-    None
+    LETTERED.into_iter().find_map(|l| {
+        if ext == l.first {
+            return Some((l, stem, 0));
+        }
+        if b.len() == 3
+            && (l.letter..=l.last).contains(&b[0])
+            && b[1].is_ascii_digit()
+            && b[2].is_ascii_digit()
+        {
+            let n =
+                u64::from(b[0] - l.letter) * 100 + u64::from((b[1] - b'0') * 10 + (b[2] - b'0'));
+            let from = u64::from(l.from);
+            return (n >= from).then(|| (l, stem, n - from + 1));
+        }
+        None
+    })
 }
 
-fn rar_old_part(stem: &str, index: u64) -> String {
+/// Part `index` of a lettered set, or `None` past its last name.
+fn lettered_part(l: Lettered, stem: &str, index: u64) -> Option<String> {
     if index == 0 {
-        return format!("{stem}.rar");
+        return Some(format!("{stem}.{}", l.first));
     }
-    let n = index - 1;
-    let letter = char::from(b'r' + u8::try_from(n / 100).unwrap_or(8).min(8));
-    format!("{stem}.{letter}{:02}", n % 100)
+    let n = index - 1 + u64::from(l.from);
+    let letter = u64::from(l.letter) + n / 100;
+    if letter > u64::from(l.last) {
+        return None;
+    }
+    let letter = char::from(u8::try_from(letter).ok()?);
+    Some(format!("{stem}.{letter}{:02}", n % 100))
 }
 
 fn file_name(path: &Path) -> Option<String> {
@@ -110,7 +164,7 @@ pub fn find_set(path: &Path) -> Result<Option<VolumeSet>> {
     let dir = path.parent().unwrap_or(Path::new(""));
     if let Some((base, number, digits)) = numbered_name(&name) {
         let part = |n: u64| dir.join(format!("{base}.{n:0digits$}"));
-        let parts = consecutive(|n| part(n + 1));
+        let parts = consecutive(|n| Some(part(n + 1)));
         let found = parts.len() as u64;
         if found < number || later_part_exists(dir, base, found + 1) {
             return Err(missing(found + 1, base));
@@ -123,7 +177,7 @@ pub fn find_set(path: &Path) -> Result<Option<VolumeSet>> {
     }
     if let Some((stem, number, digits)) = rar_part_name(&name) {
         let part = |n: u64| dir.join(format!("{stem}.part{n:0digits$}.rar"));
-        let parts = consecutive(|n| part(n + 1));
+        let parts = consecutive(|n| Some(part(n + 1)));
         if (parts.len() as u64) < number {
             return Err(missing(parts.len() as u64 + 1, &format!("{stem}.rar")));
         }
@@ -134,27 +188,28 @@ pub fn find_set(path: &Path) -> Result<Option<VolumeSet>> {
             name,
         }));
     }
-    if let Some((stem, index)) = rar_old_name(&name) {
-        let parts = consecutive(|n| dir.join(rar_old_part(stem, n)));
+    if let Some((l, stem, index)) = lettered_name(&name) {
+        let parts = consecutive(|n| lettered_part(l, stem, n).map(|p| dir.join(p)));
         if index == 0 && parts.len() < 2 {
             return Ok(None);
         }
+        let first = format!("{stem}.{}", l.first);
         if (parts.len() as u64) <= index {
-            return Err(missing(parts.len() as u64 + 1, &format!("{stem}.rar")));
+            return Err(missing(parts.len() as u64 + 1, &first));
         }
         return Ok(Some(VolumeSet {
-            kind: SetKind::RarOld,
+            kind: l.kind,
             parts,
-            name: format!("{stem}.rar"),
+            name: first,
         }));
     }
     Ok(None)
 }
 
 /// Paths `part(0)`, `part(1)`… while they are files.
-fn consecutive(part: impl Fn(u64) -> PathBuf) -> Vec<PathBuf> {
+fn consecutive(part: impl Fn(u64) -> Option<PathBuf>) -> Vec<PathBuf> {
     (0..)
-        .map(part)
+        .map_while(part)
         .take_while(|p| p.is_file())
         .collect::<Vec<_>>()
 }
@@ -552,15 +607,58 @@ mod tests {
         assert_eq!(rar_part_name("x.part02.rar"), Some(("x", 2, 2)));
         assert_eq!(rar_part_name("x.PART1.RAR"), Some(("x", 1, 1)));
         assert_eq!(rar_part_name("x.rar"), None);
-        assert_eq!(rar_old_name("x.rar"), Some(("x", 0)));
-        assert_eq!(rar_old_name("x.r00"), Some(("x", 1)));
-        assert_eq!(rar_old_name("x.s01"), Some(("x", 102)));
-        assert_eq!(rar_old_part("x", 0), "x.rar");
-        assert_eq!(rar_old_part("x", 1), "x.r00");
-        assert_eq!(rar_old_part("x", 101), "x.s00");
-        for i in 0..300 {
-            assert_eq!(rar_old_name(&rar_old_part("x", i)), Some(("x", i)));
+        fn name(n: &str) -> Option<(SetKind, &str, u64)> {
+            lettered_name(n).map(|(l, stem, i)| (l.kind, stem, i))
         }
+        assert_eq!(name("x.rar"), Some((SetKind::RarOld, "x", 0)));
+        assert_eq!(name("x.r00"), Some((SetKind::RarOld, "x", 1)));
+        assert_eq!(name("x.s01"), Some((SetKind::RarOld, "x", 102)));
+        assert_eq!(name("x.ARJ"), Some((SetKind::Arj, "x", 0)));
+        assert_eq!(name("x.a01"), Some((SetKind::Arj, "x", 1)));
+        assert_eq!(name("x.a00"), None);
+        assert_eq!(name("x.b01"), None);
+        assert_eq!(name("x.ace"), Some((SetKind::Ace, "x", 0)));
+        assert_eq!(name("x.c00"), Some((SetKind::Ace, "x", 1)));
+        assert_eq!(name("x.d00"), Some((SetKind::Ace, "x", 101)));
+        let [rar, arj, ace] = LETTERED;
+        assert_eq!(lettered_part(rar, "x", 0).unwrap(), "x.rar");
+        assert_eq!(lettered_part(rar, "x", 1).unwrap(), "x.r00");
+        assert_eq!(lettered_part(rar, "x", 101).unwrap(), "x.s00");
+        assert_eq!(lettered_part(arj, "x", 1).unwrap(), "x.a01");
+        assert_eq!(lettered_part(arj, "x", 99).unwrap(), "x.a99");
+        assert_eq!(lettered_part(arj, "x", 100), None);
+        assert_eq!(lettered_part(ace, "x", 1).unwrap(), "x.c00");
+        for l in LETTERED {
+            for i in 0..300 {
+                let Some(part) = lettered_part(l, "x", i) else {
+                    continue;
+                };
+                let (k, stem, j) = lettered_name(&part).unwrap();
+                assert_eq!((k.kind, stem, j), (l.kind, "x", i), "{part}");
+            }
+        }
+    }
+
+    #[test]
+    fn arj_and_ace_sets() {
+        let d = tempfile::tempdir().unwrap();
+        touch(
+            d.path(),
+            &["v.arj", "v.a01", "v.a02", "w.ace", "w.c00", "lone.arj"],
+        );
+        let set = find_set(&d.path().join("v.a02")).unwrap().unwrap();
+        assert_eq!(set.kind, SetKind::Arj);
+        assert_eq!(set.parts.len(), 3);
+        assert_eq!(set.name, "v.arj");
+        let set = find_set(&d.path().join("w.ace")).unwrap().unwrap();
+        assert_eq!(set.kind, SetKind::Ace);
+        assert_eq!(set.parts.len(), 2);
+        assert_eq!(find_set(&d.path().join("lone.arj")).unwrap(), None);
+        touch(d.path(), &["gap.arj", "gap.a02"]);
+        assert_eq!(
+            find_set(&d.path().join("gap.a02")).unwrap_err().kind,
+            ErrorKind::NotFound
+        );
     }
 
     #[test]

@@ -328,6 +328,20 @@ pub fn editable(name: &str, opened: &mut Opened, cx: &mut dyn Ctx) -> Result<Arc
             FormatId::Lzh => {
                 format!("{name} is an LHA archive, which BeeZip reads but doesn't write")
             }
+            FormatId::Arj | FormatId::Ace | FormatId::Arc => format!(
+                "{name} is an {} archive, which BeeZip reads but doesn't write",
+                format.display_name()
+            ),
+            FormatId::Zoo => {
+                format!("{name} is a ZOO archive, which BeeZip reads but doesn't write")
+            }
+            FormatId::Xar => {
+                format!("{name} is a XAR archive, which BeeZip reads but doesn't write")
+            }
+            FormatId::Pkg => format!(
+                "{name} is a macOS package, which BeeZip reads but doesn't write: building one is \
+                 pkgbuild's job"
+            ),
             FormatId::Cab => format!(
                 "{name} is a cabinet, which BeeZip creates but doesn't edit. Convert it \
                  (`beezip convert`), or extract it and create it again."

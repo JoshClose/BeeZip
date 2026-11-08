@@ -36,11 +36,14 @@ lz4_flex.workspace = true
 lzokay.workspace = true
 lzxd.workspace = true
 lzma-rust2.workspace = true
+md-5.workspace = true
 sevenz-rust2.workspace = true
+sha1.workspace = true
 # xz blocks checked with SHA-256 (docs/M6.md §6.4); already built for lzma-rust2's xz.
 sha2.workspace = true
 memchr.workspace = true
 oem_cp.workspace = true
+quick-xml.workspace = true
 snap.workspace = true
 tar.workspace = true
 tempfile.workspace = true

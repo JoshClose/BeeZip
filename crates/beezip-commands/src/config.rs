@@ -128,8 +128,8 @@ pub enum MarkOfTheWeb {
 }
 
 /// How names stored as bytes are read: zip names without the UTF-8 flag, tar names outside pax
-/// records, cpio, ar, LHA and squashfs names, CAB names without the UTF-8 flag, ISO names
-/// outside Joliet (docs/M5.md §6).
+/// records, cpio, ar, LHA, ARJ, ACE, ZOO, ARC and squashfs names, CAB names without the UTF-8
+/// flag, ISO names outside Joliet (docs/M5.md §6).
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema, TS)]
 #[serde(default)]
 pub struct NamesConfig {

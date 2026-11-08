@@ -319,7 +319,8 @@ mod tests {
         for want in [
             "zip", "7z", "rar", "tar", "gz", "tgz", "bz2", "tbz2", "xz", "txz", "zst", "tzst",
             "lz", "tlz", "lzma", "lz4", "br", "sz", "cbz", "cb7", "cbr", "001", "cpio", "ar",
-            "deb", "udeb", "rpm", "lzh", "lha", "z", "taz", "lzo", "tzo",
+            "deb", "udeb", "rpm", "lzh", "lha", "z", "taz", "lzo", "tzo", "arj", "ace", "cba",
+            "zoo", "arc", "pkg", "mpkg", "xar",
         ] {
             assert!(exts.contains(&want), "{want} is missing from {exts:?}");
         }

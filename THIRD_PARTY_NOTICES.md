@@ -73,6 +73,97 @@ BeeZip reads and writes ISO 9660 (with Joliet and Rock Ridge), squashfs and DMG,
 | `intl` | MIT | Unicode case folding and normalization, for `fstool`'s APFS names |
 | `lzfse_rust` | MIT OR Apache-2.0 | LZFSE, for DMG chunks and Apple-compressed files |
 
+## ARJ, ACE, ZOO, ARC, XAR and macOS packages
+
+BeeZip reads these formats with its own code (docs/M6.md §4, §5). Its ARJ, ACE and ZOO readers began as the `arj`, `ace` and `zoo` modules of unarc-rs 0.8.1 (https://github.com/mkrueger/unarc-rs, MIT OR Apache-2.0, taken under MIT), rewritten into BeeZip's source; unarc-rs isn't a dependency. Its ACE module is itself a port of acefile 0.6 (https://github.com/droe/acefile, BSD-2-Clause), whose tables BeeZip's ACE cipher and decoder carry. The ARC and XAR readers are BeeZip's own.
+
+| Crate | License | What it is |
+|---|---|---|
+| `quick-xml` | MIT | XAR's table of contents |
+| `md-5`, `sha1` | MIT OR Apache-2.0 | XAR's MD5 and SHA-1 checksums |
+
+unarc-rs's license, as BeeZip takes it:
+
+```text
+MIT License
+
+Copyright (c) Mike Krüger
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
+acefile's license, in full:
+
+```text
+# License and copyright
+
+## Copyright
+
+Copyright (c) 2017-2026, Daniel Roethlisberger and contributors.
+All rights reserved.
+Licensed under the 2-clause BSD license contained herein.
+
+
+## Contributions
+
+By contributing to the software, the contributor releases their
+contribution under the license and copyright terms herein.  While
+contributors retain copyright to their contributions, they grant the
+main copyright holder of the software the irrevocable, transferable
+right to relicense the software as a whole or in part, including their
+contributions, under different open source licenses than the one
+contained herein.
+
+
+## License
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions
+are met:
+
+1. Redistributions of source code must retain the above copyright
+   notice, this list of conditions, and the following disclaimer.
+
+2. Redistributions in binary form must reproduce the above copyright
+   notice, this list of conditions and the following disclaimer in the
+   documentation and/or other materials provided with the distribution.
+
+THIS SOFTWARE IS PROVIDED BY THE AUTHOR ``AS IS'' AND ANY EXPRESS OR
+IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
+OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.
+IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT,
+INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
+NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
+THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+
+## Note
+
+The ACE archive format and ACE compression and decompression
+algorithms have been designed by Marcel Lemke.  The above copyright
+notice and license does not constitute a claim of intellectual property
+over ACE technology beyond the copyright of this python implementation.
+```
+
 ## UnRAR
 
 BeeZip reads RAR archives with UnRAR 7.1.0 by Alexander Roshal, compiled into BeeZip through the `unrar_sys` crate (whose own bindings are MIT OR Apache-2.0). BeeZip only extracts RAR archives; it can't create them, and UnRAR's code is not used to do so. The UnRAR source BeeZip builds is the copy `unrar_sys` 0.5.8 vendors, which carries that crate's patches. Its license, in full:

@@ -365,8 +365,8 @@ links?: boolean,
 password?: Secret,
 /**
  * How names stored as bytes are read: zip names without the UTF-8 flag, tar names outside
- * pax records, cpio, ar, LHA and squashfs names, CAB names without the UTF-8 flag, ISO
- * names outside Joliet [default: from config, `auto`].
+ * pax records, cpio, ar, LHA, ARJ, ACE, ZOO, ARC and squashfs names, CAB names without the
+ * UTF-8 flag, ISO names outside Joliet [default: from config, `auto`].
  */
 name_encoding?: NameEncoding,
 /**
@@ -408,8 +408,8 @@ archive: string,
 password?: Secret,
 /**
  * How names stored as bytes are read: zip names without the UTF-8 flag, tar names outside
- * pax records, cpio, ar, LHA and squashfs names, CAB names without the UTF-8 flag, ISO
- * names outside Joliet [default: from config, `auto`].
+ * pax records, cpio, ar, LHA, ARJ, ACE, ZOO, ARC and squashfs names, CAB names without the
+ * UTF-8 flag, ISO names outside Joliet [default: from config, `auto`].
  */
 name_encoding?: NameEncoding, };
 
@@ -533,8 +533,8 @@ kind?: KindFilter,
 password?: Secret,
 /**
  * How names stored as bytes are read: zip names without the UTF-8 flag, tar names outside
- * pax records, cpio, ar, LHA and squashfs names, CAB names without the UTF-8 flag, ISO
- * names outside Joliet [default: from config, `auto`].
+ * pax records, cpio, ar, LHA, ARJ, ACE, ZOO, ARC and squashfs names, CAB names without the
+ * UTF-8 flag, ISO names outside Joliet [default: from config, `auto`].
  */
 name_encoding?: NameEncoding, };
 
@@ -635,8 +635,8 @@ archive: string,
 password?: Secret,
 /**
  * How names stored as bytes are read: zip names without the UTF-8 flag, tar names outside
- * pax records, cpio, ar, LHA and squashfs names, CAB names without the UTF-8 flag, ISO
- * names outside Joliet [default: from config, `auto`].
+ * pax records, cpio, ar, LHA, ARJ, ACE, ZOO, ARC and squashfs names, CAB names without the
+ * UTF-8 flag, ISO names outside Joliet [default: from config, `auto`].
  */
 name_encoding?: NameEncoding, };
 
@@ -1055,8 +1055,8 @@ encoding?: TextEncoding,
 password?: Secret,
 /**
  * How names stored as bytes are read: zip names without the UTF-8 flag, tar names outside
- * pax records, cpio, ar, LHA and squashfs names, CAB names without the UTF-8 flag, ISO
- * names outside Joliet [default: from config, `auto`].
+ * pax records, cpio, ar, LHA, ARJ, ACE, ZOO, ARC and squashfs names, CAB names without the
+ * UTF-8 flag, ISO names outside Joliet [default: from config, `auto`].
  */
 name_encoding?: NameEncoding, };
 
@@ -1338,17 +1338,19 @@ export type MethodName = "store" | "deflate" | "bzip2" | "zstd" | "xz" | "ppmd" 
 
 /**
  * How names stored as bytes are read (docs/M5.md §6): zip names without the UTF-8 flag, tar
- * names outside pax records, cpio, ar, LHA and squashfs names, CAB names without the UTF-8 flag, ISO names outside Joliet. `auto` reads them as UTF-8 when they are valid UTF-8, otherwise in
- * the system's code page (the OEM one for zip, as Explorer reads them). The others are code
- * pages: `cp932` is Japanese (Shift-JIS), `cp936` Simplified Chinese (GBK), `cp949` Korean,
- * `cp950` Traditional Chinese (Big5), `cp866` and `cp1251` Cyrillic, `cp437` and `cp850` DOS.
+ * names outside pax records, cpio, ar, LHA, ARJ, ACE, ZOO, ARC and squashfs names, CAB names
+ * without the UTF-8 flag, ISO names outside Joliet. `auto` reads them as UTF-8 when they are
+ * valid UTF-8, otherwise in the system's code page (the OEM one for zip, as Explorer reads them,
+ * and for ARJ, ACE, ZOO and ARC). The others are code pages: `cp932` is Japanese (Shift-JIS),
+ * `cp936` Simplified Chinese (GBK), `cp949` Korean, `cp950` Traditional Chinese (Big5), `cp866`
+ * and `cp1251` Cyrillic, `cp437` and `cp850` DOS.
  */
 export type NameEncoding = "auto" | "utf-8" | "cp437" | "cp850" | "cp852" | "cp866" | "cp874" | "cp932" | "cp936" | "cp949" | "cp950" | "cp1250" | "cp1251" | "cp1252" | "cp1253" | "cp1254" | "cp1255" | "cp1256" | "cp1257" | "cp1258" | "koi8-r" | "koi8-u" | "iso-8859-1" | "iso-8859-2" | "iso-8859-5" | "iso-8859-7" | "euc-jp" | "gb18030";
 
 /**
  * How names stored as bytes are read: zip names without the UTF-8 flag, tar names outside pax
- * records, cpio, ar, LHA and squashfs names, CAB names without the UTF-8 flag, ISO names
- * outside Joliet (docs/M5.md §6).
+ * records, cpio, ar, LHA, ARJ, ACE, ZOO, ARC and squashfs names, CAB names without the UTF-8
+ * flag, ISO names outside Joliet (docs/M5.md §6).
  */
 export type NamesConfig = {
 /**
