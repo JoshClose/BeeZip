@@ -60,8 +60,24 @@ jobs:
           Import-Certificate -FilePath target/dev-cert/BeeZip-Dev.cer -CertStoreLocation Cert:\LocalMachine\TrustedPeople | Out-Null
       - name: Installer (debug) with the signed package, which also runs tsc and vite build
         run: cargo xtask dist --debug --sign-dev
+      - uses: taiki-e/install-action@v2    # cargo-about's own 0.9.3 release build, made with its `cli` feature
+        with: { tool: cargo-about@0.9.3 }
+      - name: Third-party notices are current, with the npm packages vite build listed (docs/M6.md §9.1)
+        run: cargo xtask notices --check
+      - name: Every program in the installer is signed, nsExec.dll included (docs/M6.md §9.2)
+        run: pwsh -NoProfile -File .github/scripts/signed-setup.ps1 target/dist/debug/bundle/nsis/*-setup.exe -Subject 'CN=BeeZip Dev'
+      - name: The winget manifest, from this installer, passes winget validate (docs/M6.md §9.6)
+        run: |
+          cargo xtask winget --local
+          pwsh -NoProfile -File .github/scripts/winget-validate.ps1 "$(find target/winget/manifests -name BeeZip.BeeZip.yaml -printf '%h')"
       - name: Explorer's Windows 11 menu, end to end (docs/M4.md §10)
         run: pwsh -NoProfile -File .github/scripts/shell-modern.ps1
+      - name: A reinstall and an uninstall while beezip mcp holds the CLI (docs/M6.md §9.3)
+        run: pwsh -NoProfile -File .github/scripts/locked-cli.ps1
+      - name: tauri-driver, for the end-to-end test
+        run: cargo install --locked tauri-driver --version 2.1.0
+      - name: End to end through WebDriver, an archive opened by a second launch right away (docs/M6.md §8.1, §10)
+        run: pwsh -NoProfile -File .github/scripts/e2e.ps1
       - name: BeeZip's own installer, read through 7-Zip as an NSIS installer (docs/M6.md §10)
         run: bash .github/scripts/nsis-setup.sh
       - name: Keep the installer
