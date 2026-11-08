@@ -28,7 +28,8 @@ if (-not $have -or $have -lt [version]'1.12') {
   New-Item -ItemType Directory -Force $dir | Out-Null
   foreach ($name in $files.Keys) {
     $path = Join-Path $dir $name
-    Invoke-WebRequest -Uri "$base/$name" -OutFile $path
+    # GitHub's downloads time out now and then (a 504 seen on CI).
+    Invoke-WebRequest -Uri "$base/$name" -OutFile $path -MaximumRetryCount 4 -RetryIntervalSec 15
     $hash = (Get-FileHash -Algorithm SHA256 $path).Hash
     if ($hash -ne $files[$name]) { Fail "$name's SHA-256 is $hash" }
   }

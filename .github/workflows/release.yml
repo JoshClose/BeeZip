@@ -98,7 +98,7 @@ jobs:
           # The runner's Windows SDK has signtool 10.0.26100, new enough; the dlib needs .NET 10,
           # which the runner has. sign.ps1 checks signtool's version.
           $zip = Join-Path $env:RUNNER_TEMP 'artifact-signing-client.zip'
-          Invoke-WebRequest -Uri https://api.nuget.org/v3-flatcontainer/microsoft.artifactsigning.client/1.0.151/microsoft.artifactsigning.client.1.0.151.nupkg -OutFile $zip
+          Invoke-WebRequest -Uri https://api.nuget.org/v3-flatcontainer/microsoft.artifactsigning.client/1.0.151/microsoft.artifactsigning.client.1.0.151.nupkg -OutFile $zip -MaximumRetryCount 4 -RetryIntervalSec 15
           $hash = (Get-FileHash -Algorithm SHA256 $zip).Hash
           if ($hash -ne '35375A4BC4E1102DA729FC3D8D9925F774C3BAAE6B8B7FF6398D948CA9AB0D8A') { Write-Host "::error::the package's SHA-256 is $hash"; exit 1 }
           $dir = Join-Path $env:RUNNER_TEMP 'artifact-signing-client'

@@ -20,7 +20,7 @@ $version = (Get-ItemProperty $client -Name pv).pv
 if (-not $version) { Fail "no WebView2 runtime version under $client" }
 Write-Host "WebView2 $version"
 $zip = Join-Path $work 'edgedriver_win64.zip'
-Invoke-WebRequest "https://msedgedriver.microsoft.com/$version/edgedriver_win64.zip" -OutFile $zip
+Invoke-WebRequest "https://msedgedriver.microsoft.com/$version/edgedriver_win64.zip" -OutFile $zip -MaximumRetryCount 4 -RetryIntervalSec 15
 Expand-Archive $zip (Join-Path $work 'edgedriver')
 $native = Join-Path $work 'edgedriver\msedgedriver.exe'
 # tauri-driver starts the native driver with its port only; this wrapper adds a verbose log.
