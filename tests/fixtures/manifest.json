@@ -8703,10 +8703,6 @@
           "mtime": "2026-01-01T00:00:00.000000000Z"
         },
         {
-          "path": "[SYSTEM]/.",
-          "kind": "folder"
-        },
-        {
           "path": "[SYSTEM]/$Bitmap",
           "kind": "file",
           "size": 40,
@@ -8850,7 +8846,7 @@
           "target": "nested"
         }
       ],
-      "note": "Entries are what 7-Zip 26.00 lists (`7z l -slt -sccUTF-8 -scsUTF-8 -slmu -slsl -sns-`), its pseudo entries included, with the bytes `7z x -sns-` extracts; an empty folder is an entry of kind `folder`, and a hard link is listed as a second file. utc_mtimes is false: mtime.txt is 2024-05-06T07:08:09.123456789Z; each file's `mtime` is the time 7-Zip lists, in UTC. [SYSTEM]/… are 7-Zip's views of the metadata files and [SYSTEM]/. the root folder's own record (a folder). The symlinks are NTFS symlink reparse points, listed with `Link` and attribute L; readme.txt (and its hard link) has an alternate data stream, `hidden`, which -sns- leaves out of the listing and the extraction."
+      "note": "Entries are what 7-Zip 26.00 lists (`7z l -slt -sccUTF-8 -scsUTF-8 -slmu -slsl -sns-`), its pseudo entries included, with the bytes `7z x -sns-` extracts; an empty folder is an entry of kind `folder`, and a hard link is listed as a second file. utc_mtimes is false: mtime.txt is 2024-05-06T07:08:09.123456789Z; each file's `mtime` is the time 7-Zip lists, in UTC. [SYSTEM]/… are 7-Zip's views of the metadata files; 7-Zip 26.00 also lists [SYSTEM]/., the root folder's own record, which 26.05 doesn't and the record leaves out. The symlinks are NTFS symlink reparse points, listed with `Link` and attribute L; readme.txt (and its hard link) has an alternate data stream, `hidden`, which -sns- leaves out of the listing and the extraction."
     },
     {
       "file": "7zip/cramfs.img",
@@ -9118,10 +9114,6 @@
           "mtime": "2026-01-01T00:00:00.000000000Z"
         },
         {
-          "path": "[SYSTEM]/.",
-          "kind": "folder"
-        },
-        {
           "path": "[SYSTEM]/$Bitmap",
           "kind": "file",
           "size": 40,
@@ -9265,7 +9257,7 @@
           "target": "nested"
         }
       ],
-      "note": "Entries are what 7-Zip 26.00 lists (`7z l -slt -sccUTF-8 -scsUTF-8 -slmu -slsl -sns-`), its pseudo entries included, with the bytes `7z x -sns-` extracts; an empty folder is an entry of kind `folder`, and a hard link is listed as a second file. utc_mtimes is false: mtime.txt is 2024-05-06T07:08:09.123456789Z; each file's `mtime` is the time 7-Zip lists, in UTC. 7-Zip opens GPT > NTFS: a disk with one partition shows that partition's files. [SYSTEM]/… are 7-Zip's views of the metadata files and [SYSTEM]/. the root folder's own record (a folder). The symlinks are NTFS symlink reparse points, listed with `Link` and attribute L; readme.txt (and its hard link) has an alternate data stream, `hidden`, which -sns- leaves out of the listing and the extraction."
+      "note": "Entries are what 7-Zip 26.00 lists (`7z l -slt -sccUTF-8 -scsUTF-8 -slmu -slsl -sns-`), its pseudo entries included, with the bytes `7z x -sns-` extracts; an empty folder is an entry of kind `folder`, and a hard link is listed as a second file. utc_mtimes is false: mtime.txt is 2024-05-06T07:08:09.123456789Z; each file's `mtime` is the time 7-Zip lists, in UTC. 7-Zip opens GPT > NTFS: a disk with one partition shows that partition's files. [SYSTEM]/… are 7-Zip's views of the metadata files; 7-Zip 26.00 also lists [SYSTEM]/., the root folder's own record, which 26.05 doesn't and the record leaves out. The symlinks are NTFS symlink reparse points, listed with `Link` and attribute L; readme.txt (and its hard link) has an alternate data stream, `hidden`, which -sns- leaves out of the listing and the extraction."
     },
     {
       "file": "7zip/gpt-fat-ext4.qcow2",
@@ -9596,10 +9588,6 @@
           "mtime": "2026-01-01T00:00:00.000000000Z"
         },
         {
-          "path": "[SYSTEM]/.",
-          "kind": "folder"
-        },
-        {
           "path": "[SYSTEM]/$Bitmap",
           "kind": "file",
           "size": 40,
@@ -9743,7 +9731,7 @@
           "target": "nested"
         }
       ],
-      "note": "Entries are what 7-Zip 26.00 lists (`7z l -slt -sccUTF-8 -scsUTF-8 -slmu -slsl -sns-`), its pseudo entries included, with the bytes `7z x -sns-` extracts; an empty folder is an entry of kind `folder`, and a hard link is listed as a second file. utc_mtimes is false: mtime.txt is 2024-05-06T07:08:09.123456789Z; each file's `mtime` is the time 7-Zip lists, in UTC. 7-Zip opens VHDX > GPT > NTFS. The disk is a whole number of KiB: 7-Zip 26.00 can't open a VHDX of a disk an odd number of sectors long. [SYSTEM]/… are 7-Zip's views of the metadata files and [SYSTEM]/. the root folder's own record (a folder). The symlinks are NTFS symlink reparse points, listed with `Link` and attribute L; readme.txt (and its hard link) has an alternate data stream, `hidden`, which -sns- leaves out of the listing and the extraction."
+      "note": "Entries are what 7-Zip 26.00 lists (`7z l -slt -sccUTF-8 -scsUTF-8 -slmu -slsl -sns-`), its pseudo entries included, with the bytes `7z x -sns-` extracts; an empty folder is an entry of kind `folder`, and a hard link is listed as a second file. utc_mtimes is false: mtime.txt is 2024-05-06T07:08:09.123456789Z; each file's `mtime` is the time 7-Zip lists, in UTC. 7-Zip opens VHDX > GPT > NTFS. The disk is a whole number of KiB: 7-Zip 26.00 can't open a VHDX of a disk an odd number of sectors long. [SYSTEM]/… are 7-Zip's views of the metadata files; 7-Zip 26.00 also lists [SYSTEM]/., the root folder's own record, which 26.05 doesn't and the record leaves out. The symlinks are NTFS symlink reparse points, listed with `Link` and attribute L; readme.txt (and its hard link) has an alternate data stream, `hidden`, which -sns- leaves out of the listing and the extraction."
     },
     {
       "file": "7zip/wimlib.wim",
@@ -10484,10 +10472,6 @@
       "7z_test": "ok",
       "entries": [
         {
-          "path": "BeeZip HFS/.HFS+ Private Directory Data\r",
-          "kind": "folder"
-        },
-        {
           "path": "BeeZip HFS/blocks.txt",
           "kind": "file",
           "size": 329000,
@@ -10546,7 +10530,7 @@
           "mtime": "2026-01-01T00:00:00.000000000Z"
         }
       ],
-      "note": "Entries are what 7-Zip 26.00 lists (`7z l -slt -sccUTF-8 -scsUTF-8 -slmu -slsl -sns-`), its pseudo entries included, with the bytes `7z x -sns-` extracts; an empty folder is an entry of kind `folder`, and a hard link is listed as a second file. Every file's time is 2026-01-01T00:00:00Z; each file's `mtime` is the time 7-Zip lists, in UTC. 7-Zip puts the volume's name (BeeZip HFS) above its files, lists names decomposed (NFD) as HFS+ stores them, and lists the private folders: `.HFS+ Private Directory Data\\r` (its name ends in a CR) and `[HFS+ Private Data]` (stored with four NULs in front). The symlink has mode l and no link key: its target is its data."
+      "note": "Entries are what 7-Zip 26.00 lists (`7z l -slt -sccUTF-8 -scsUTF-8 -slmu -slsl -sns-`), its pseudo entries included, with the bytes `7z x -sns-` extracts; an empty folder is an entry of kind `folder`, and a hard link is listed as a second file. Every file's time is 2026-01-01T00:00:00Z; each file's `mtime` is the time 7-Zip lists, in UTC. 7-Zip puts the volume's name (BeeZip HFS) above its files, lists names decomposed (NFD) as HFS+ stores them, and lists the private folders: `[HFS+ Private Data]` (stored with four NULs in front), and `.HFS+ Private Directory Data` with a CR at its end, which 7-Zip 26.00 lists as it is and 26.05 with `_`, so the record leaves it out. The symlink has mode l and no link key: its target is its data."
     },
     {
       "file": "7zip/dmg-apfs.apfs",

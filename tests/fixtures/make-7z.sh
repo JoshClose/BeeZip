@@ -709,6 +709,11 @@ def entries_of(path):
     for e, kind, target in classify(levels, raw):
         name = e['Path']
         if kind == 'folder':
+            # Two empty pseudo folders 7-Zip lists differently from one version to the next are
+            # left out: NTFS's root record, `[SYSTEM]/.` (26.00; gone in 26.05), and a name with a
+            # CR, which 26.00 lists as it is and 26.05 with `_` (HFS+'s private folder).
+            if name.rsplit('/', 1)[-1] == '.' or any(ord(c) < 0x20 for c in name):
+                continue
             if name not in parents:
                 entries.append({'path': name, 'kind': 'folder'})
             continue
@@ -787,8 +792,8 @@ NO_TIMES = {
 FAT = (' mcopy copied link-to-readme as a file and skipped sub/link-to-nested (FAT has no links); mtools '
        '4.0.43 keeps only the low 16 bits of a character outside the BMP, so bee-🐝.txt (U+1F41D) is stored as '
        'bee-<U+F41D>.txt.')
-NTFS = (' [SYSTEM]/… are 7-Zip\'s views of the metadata files and [SYSTEM]/. the root folder\'s own record '
-        '(a folder). The symlinks are NTFS symlink reparse points, listed with `Link` and attribute L; '
+NTFS = (' [SYSTEM]/… are 7-Zip\'s views of the metadata files; 7-Zip 26.00 also lists [SYSTEM]/., the root '
+        'folder\'s own record, which 26.05 doesn\'t and the record leaves out. The symlinks are NTFS symlink reparse points, listed with `Link` and attribute L; '
         'readme.txt (and its hard link) has an alternate data stream, `hidden`, which -sns- leaves out of '
         'the listing and the extraction.')
 PARTS = (' 7-Zip opens the disk\'s levels itself and stops at a disk with several partitions, which it lists '
@@ -923,8 +928,9 @@ def dmg_check(src, prefix):
     return check
 record('dmg-hfs.hfs', PRODUCER['dmg'], '7z e -tdmg dmg/hfs-udro.dmg 4.hfs (the HFS+ volume, as it is in the DMG)',
        ' 7-Zip puts the volume\'s name (BeeZip HFS) above its files, lists names decomposed (NFD) as HFS+ stores '
-       'them, and lists the private folders: `.HFS+ Private Directory Data\\r` (its name ends in a CR) and '
-       '`[HFS+ Private Data]` (stored with four NULs in front). The symlink has mode l and no link key: its '
+       'them, and lists the private folders: `[HFS+ Private Data]` (stored with four NULs in front), and '
+       '`.HFS+ Private Directory Data` with a CR at its end, which 7-Zip 26.00 lists as it is and 26.05 with `_`, '
+       'so the record leaves it out. The symlink has mode l and no link key: its '
        'target is its data.', dmg_check('dmg/hfs-udro.dmg', 'BeeZip HFS/'))
 record('dmg-apfs.apfs', PRODUCER['dmg'], '7z e -tdmg dmg/apfs-udro.dmg 4.apfs (the APFS container, as it is in the DMG)',
        ' 7-Zip lists no Folder key: a folder has no size. The symlink is listed with size 11, its target and a NUL.',
