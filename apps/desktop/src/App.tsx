@@ -20,6 +20,7 @@ import { ReportDialog } from "./features/jobs/ReportDialog";
 import { loadCommands, Palette, type PaletteAction, takesOnlyArchive } from "./features/palette/Palette";
 import { FormDialog } from "./features/palette/SchemaForm";
 import { Prompts } from "./features/prompts/Prompts";
+import { UpdateBanner } from "./features/update/UpdateBanner";
 import { Welcome } from "./features/welcome/Welcome";
 import { activeTab, archiveArgs, useArchives } from "./lib/archives";
 import { useCloseGuard } from "./lib/closeGuard";
@@ -31,9 +32,10 @@ import { useJobs } from "./lib/jobs";
 import { type EntryChanged, entryChanged } from "./lib/opened";
 import { type DropZone, dropPaths, dropZone, isArchive } from "./lib/drop";
 import { themeActions, useTheme } from "./lib/settings";
-import { type OpenDialog, startup } from "./lib/startup";
+import { launched, type OpenDialog, startup } from "./lib/startup";
 import { toastError, toastInfo, useToasts } from "./lib/toasts";
 import { useUi } from "./lib/ui";
+import { useUpdate } from "./lib/updates";
 
 /** Paths from the command line, a second instance, or the Open dialog: each archive in a tab. */
 export async function openPaths(paths: string[]) {
@@ -127,6 +129,8 @@ export default function App() {
     for (const w of s.warnings) toastInfo("config.toml", w);
     void openPaths(s.paths).then(() => s.dialog && openDialog(s.dialog));
     loadCommands().then(setCommands, () => {});
+    // At most once a day, unless Settings turned it off (docs/M6.md §8.2).
+    void useUpdate.getState().check(false);
   }, []);
 
   useEffect(() => {
@@ -139,6 +143,11 @@ export default function App() {
     const dialogs = listen<OpenDialog>("open-dialog", (e) => void openDialog(e.payload));
     // An entry opened in its app changed (docs/M5.md §8.3).
     const changed = listen<EntryChanged>("entry-changed", (e) => entryChanged(e.payload));
+    // What a second BeeZip.exe forwarded before these listened (docs/M6.md §8.1).
+    void Promise.all([paths, dialogs])
+      .then(launched)
+      .then((q) => openPaths(q.paths).then(() => q.dialog && openDialog(q.dialog)))
+      .catch((e) => toastError(e, "Opening"));
     return () => {
       void paths.then((f) => f());
       void dialogs.then((f) => f());
@@ -230,6 +239,7 @@ export default function App() {
   return (
     <div className="flex h-full flex-col">
       <TabStrip onOpen={() => void chooseArchives()} onNew={newArchive} />
+      <UpdateBanner />
       {tab ? (
         <Browser key={tab.id} tab={tab} />
       ) : (

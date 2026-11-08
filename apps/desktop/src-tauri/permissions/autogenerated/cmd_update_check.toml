@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-cmd-update-check"
+description = "Enables the cmd_update_check command without any pre-configured scope."
+commands.allow = ["cmd_update_check"]
+
+[[permission]]
+identifier = "deny-cmd-update-check"
+description = "Denies the cmd_update_check command without any pre-configured scope."
+commands.deny = ["cmd_update_check"]

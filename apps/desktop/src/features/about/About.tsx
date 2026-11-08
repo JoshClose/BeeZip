@@ -1,15 +1,61 @@
-// About BeeZip: the version, the formats, the licenses and the third-party notices, which Vite
-// imports from the repository at build time.
+// About BeeZip: the version and "Check for updates", the formats, the licenses and the
+// third-party notices, which Vite imports from the repository at build time.
 import { useEffect, useState } from "react";
-import notices from "../../../../../THIRD_PARTY_NOTICES.md?raw";
 import { Button } from "../../components/ui/button";
 import { Dialog } from "../../components/ui/dialog";
 import type { AppVersionOutput } from "../../gen/commands";
 import { run } from "../../lib/engine";
 import { useFormats } from "../../lib/formats";
+import { useUpdate } from "../../lib/updates";
 
 function yes(v: boolean) {
   return v ? "Yes" : "";
+}
+
+// The notices are some 400 KB: a chunk of their own, loaded when the page opens (docs/M6.md §9.1).
+function Notices() {
+  const [text, setText] = useState<string>();
+  useEffect(() => {
+    import("../../../../../THIRD_PARTY_NOTICES.md?raw").then(
+      (m) => setText(m.default),
+      () => setText("The notices couldn't be loaded. THIRD_PARTY_NOTICES.md is next to BeeZip.exe."),
+    );
+  }, []);
+  return (
+    <pre className="selectable max-h-72 overflow-auto rounded-[5px] bg-sunken p-3 font-mono text-[11.5px] whitespace-pre-wrap">{text ?? "Loading…"}</pre>
+  );
+}
+
+/** "Check for updates": asks GitHub now, whatever the setting and the day (docs/M6.md §8.2). */
+function UpdateCheck() {
+  const checked = useUpdate((s) => s.checked);
+  const checking = useUpdate((s) => s.checking);
+  const error = useUpdate((s) => s.error);
+  const check = useUpdate((s) => s.check);
+  const [asked, setAsked] = useState(false);
+  let answer = "";
+  if (checking) answer = "Checking…";
+  else if (asked && error) answer = error;
+  else if (asked && checked?.status === "up_to_date") answer = `BeeZip ${checked.version} is the newest version.`;
+  else if (asked && checked?.status === "available") answer = `BeeZip ${checked.version} is available: the banner above the tabs installs it.`;
+  else if (asked && checked?.status === "off") answer = checked.reason;
+  return (
+    <div className="flex items-center gap-3">
+      <Button
+        size="sm"
+        disabled={checking}
+        onClick={() => {
+          setAsked(true);
+          void check(true);
+        }}
+      >
+        Check for updates
+      </Button>
+      <span role="status" aria-label="Update check" className="text-muted">
+        {answer}
+      </span>
+    </div>
+  );
 }
 
 export function About({ onClose }: { onClose: () => void }) {
@@ -33,6 +79,7 @@ export function About({ onClose }: { onClose: () => void }) {
           )}{" "}
           Licensed under MIT or Apache-2.0, at your choice.
         </p>
+        <UpdateCheck />
         <section>
           <h3 className="mb-1.5 font-semibold">Formats</h3>
           <table className="w-full text-left">
@@ -64,7 +111,7 @@ export function About({ onClose }: { onClose: () => void }) {
         </section>
         <section>
           <h3 className="mb-1.5 font-semibold">Third-party notices</h3>
-          <pre className="selectable max-h-72 overflow-auto rounded-[5px] bg-sunken p-3 font-mono text-[11.5px] whitespace-pre-wrap">{notices}</pre>
+          <Notices />
         </section>
       </div>
     </Dialog>

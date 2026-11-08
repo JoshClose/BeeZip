@@ -882,7 +882,7 @@ export type Config = { extract: ExtractConfig, edit: EditConfig, names: NamesCon
  * Default levels by codec name (`zstd`, `gzip`…) or zip and 7z method (`deflate`,
  * `lzma2`…). A codec or method missing here uses its own default.
  */
-levels: { [key in string]: number }, stream: StreamConfig, limits: LimitsConfig, mcp: McpConfig, shell: ShellConfig, jobs: JobsConfig, desktop: DesktopConfig, seven_zip: SevenZipConfig, };
+levels: { [key in string]: number }, stream: StreamConfig, limits: LimitsConfig, mcp: McpConfig, shell: ShellConfig, jobs: JobsConfig, desktop: DesktopConfig, seven_zip: SevenZipConfig, updates: UpdatesConfig, };
 
 /**
  * An entry the new archive couldn't hold.
@@ -1844,6 +1844,16 @@ export type Surfaces = { cli: boolean, gui: boolean, mcp: boolean, };
 export type TextEncoding = "text" | "hex" | "base64";
 
 export type Theme = "system" | "light" | "dark";
+
+/**
+ * The desktop app's updates (docs/M6.md §8.2). The CLI and MCP never check.
+ */
+export type UpdatesConfig = {
+/**
+ * Look for a new release on GitHub when BeeZip starts, at most once a day. An update is
+ * only downloaded and installed when you click it.
+ */
+check: boolean, };
 
 /** Every command's input and output types, by command name. */
 export type CommandMap = {

@@ -1,5 +1,5 @@
-// The settings page (docs/M4.md §7.4): config.toml's settings, each saved as it changes, and
-// Explorer's menu.
+// The settings page (docs/M4.md §7.4): config.toml's settings, each saved as it changes,
+// Explorer's menu, and updates (docs/M6.md §8.2).
 import { openPath, revealItemInDir } from "@tauri-apps/plugin-opener";
 import { FileCog, FolderOpen } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -234,6 +234,12 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
                 label="Close the window after a success where nothing was skipped or renamed"
                 onCommit={(v) => save("jobs.close_when_done", v)}
               />
+            </Setting>
+          </Section>
+
+          <Section title="Updates" description="BeeZip asks GitHub for its newest release. An update is downloaded and installed only when you click it.">
+            <Setting label="Look for updates" error={errors["updates.check"]}>
+              <CheckSetting checked={s.updates.check} label="When BeeZip starts, at most once a day" onCommit={(v) => save("updates.check", v)} />
             </Setting>
           </Section>
 

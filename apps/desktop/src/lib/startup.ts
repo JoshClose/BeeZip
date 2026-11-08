@@ -1,3 +1,4 @@
+import { invoke } from "@tauri-apps/api/core";
 import type { Step, Theme } from "../gen/commands";
 
 /** A dialog the main window opens by itself, for a click on Explorer's menu (src-tauri/src/open.rs). */
@@ -34,4 +35,15 @@ declare global {
 
 export function startup(): Startup {
   return { paths: [], cli: "beezip", warnings: [], theme: "system", ...window.__BEEZIP__ };
+}
+
+/** Archives and a dialog forwarded before the main window listened (src-tauri/src/open.rs). */
+export type Launched = { paths: string[]; dialog: OpenDialog | null };
+
+/**
+ * Tells Rust the page now listens for `open-paths` and `open-dialog`, and takes what a second
+ * BeeZip.exe forwarded before that (docs/M6.md §8.1).
+ */
+export function launched(): Promise<Launched> {
+  return invoke<Launched>("cmd_launched");
 }

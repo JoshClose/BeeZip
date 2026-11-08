@@ -19,6 +19,9 @@
     "allow-cmd-run",
     "allow-cmd-cancel",
     "allow-cmd-respond",
-    "allow-cmd-list"
+    "allow-cmd-list",
+    "allow-cmd-launched",
+    "allow-cmd-update-check",
+    "allow-cmd-update-install"
   ]
 }

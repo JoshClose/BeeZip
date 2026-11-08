@@ -5,7 +5,13 @@
 //!
 //! A new window's page gets its startup data through an initialization script, so it has them
 //! before any listener could miss an event. A main window that already exists gets them as the
-//! `open-paths` and `open-dialog` events.
+//! `open-paths` and `open-dialog` events, once its page listens for them: until then they wait
+//! in [`Pending`], which the page drains with `cmd_launched` (docs/M6.md §8.1). Explorer starts
+//! one `BeeZip.exe` per file when several are opened at once, so the second often arrives while
+//! the first is still starting.
+//!
+//! Windows are created on the main thread only, so a forwarded launch can't race `setup` into
+//! building a second main window.
 
 use std::{
     path::{Path, PathBuf},
@@ -58,6 +64,61 @@ pub struct Startup {
 
 /// The config's warnings, until the first main window takes them.
 pub struct Warnings(pub Mutex<Vec<String>>);
+
+/// What forwarded launches asked of the main window before its page listened for it.
+#[derive(Debug, Default)]
+pub struct Pending(Mutex<Queued>);
+
+/// Archives and a dialog for the main window's page, as `cmd_launched` returns them.
+#[derive(Debug, Default, PartialEq, Eq, Serialize)]
+pub struct Queued {
+    /// The page listens: events go straight to it.
+    #[serde(skip)]
+    ready: bool,
+    pub paths: Vec<PathBuf>,
+    pub dialog: Option<OpenDialog>,
+}
+
+impl Pending {
+    fn lock(&self) -> std::sync::MutexGuard<'_, Queued> {
+        self.0.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// A new main window's page doesn't listen yet.
+    pub fn not_ready(&self) {
+        self.lock().ready = false;
+    }
+
+    /// Hands `paths` and `dialog` to `send` if the page listens, or keeps them for it. Under the
+    /// lock, so nothing slips between the page's drain and an event.
+    pub fn deliver(
+        &self,
+        paths: Vec<PathBuf>,
+        dialog: Option<OpenDialog>,
+        send: impl FnOnce(Vec<PathBuf>, Option<OpenDialog>),
+    ) {
+        let mut q = self.lock();
+        if q.ready {
+            send(paths, dialog);
+        } else {
+            q.paths.extend(paths);
+            if dialog.is_some() {
+                q.dialog = dialog;
+            }
+        }
+    }
+
+    /// The page listens now: what waited for it, and events from here on.
+    pub fn drain(&self) -> Queued {
+        let mut q = self.lock();
+        q.ready = true;
+        Queued {
+            ready: true,
+            paths: std::mem::take(&mut q.paths),
+            dialog: q.dialog.take(),
+        }
+    }
+}
 
 /// What a launch asks for.
 #[derive(Debug, Default, PartialEq, Eq)]
@@ -167,7 +228,8 @@ pub fn startup_script(
     format!("window.__BEEZIP__ = {json};")
 }
 
-/// Builds the main window (`create: false` in tauri.conf.json) with its startup data.
+/// Builds the main window (`create: false` in tauri.conf.json) with its startup data. On the
+/// main thread only.
 pub fn create_main_window(
     app: &AppHandle,
     paths: Vec<PathBuf>,
@@ -181,20 +243,36 @@ pub fn create_main_window(
         .find(|w| w.label == MAIN)
         .cloned()
         .unwrap_or_default();
+    if let Some(pending) = app.try_state::<Pending>() {
+        pending.not_ready();
+    }
     WebviewWindowBuilder::from_config(app, &config)?
         .initialization_script(startup_script(app, paths, dialog, None))
         .build()?;
     Ok(())
 }
 
-/// Carries out a launch: plans a job request, then opens or reuses the windows its steps need.
-/// A plain launch shows the main window.
-pub fn launch(app: &AppHandle, launch: Launch) -> tauri::Result<()> {
-    let mut routed = match &launch.job {
+/// The request file of a `--job` launch, unless it's gone: the updater restarts BeeZip with
+/// the arguments it had, and the menu's request was deleted when first read. A launch whose
+/// request is gone is a plain launch (docs/M6.md §9.3).
+pub fn request_file(launch: &Launch) -> Option<&Path> {
+    let gone = |f: &Path| matches!(std::fs::symlink_metadata(f), Err(e) if e.kind() == std::io::ErrorKind::NotFound);
+    launch.job.as_deref().filter(|f| !gone(f))
+}
+
+/// Plans a launch, on any thread: reads and plans a job request. [`show`] carries it out.
+pub fn plan(app: &AppHandle, launch: Launch) -> Routed {
+    let mut routed = match request_file(&launch) {
         Some(file) => job::route(job::plan(&app.state::<Engine>(), file)),
         None => Routed::default(),
     };
     routed.open.extend(launch.paths);
+    routed
+}
+
+/// Carries out a planned launch, on the main thread: opens or reuses the windows its steps
+/// need. A plain launch shows the main window.
+pub fn show(app: &AppHandle, mut routed: Routed) -> tauri::Result<()> {
     let job_steps = std::mem::take(&mut routed.job);
     let job_window = !job_steps.is_empty();
     if job_window {
@@ -208,12 +286,15 @@ pub fn launch(app: &AppHandle, launch: Launch) -> tauri::Result<()> {
     if app.get_webview_window(MAIN).is_none() {
         return create_main_window(app, routed.open, routed.dialog);
     }
-    if !routed.open.is_empty() {
-        let _ = app.emit_to(MAIN, OPEN_PATHS, &routed.open);
-    }
-    if let Some(dialog) = &routed.dialog {
-        let _ = app.emit_to(MAIN, OPEN_DIALOG, dialog);
-    }
+    app.state::<Pending>()
+        .deliver(routed.open, routed.dialog, |paths, dialog| {
+            if !paths.is_empty() {
+                let _ = app.emit_to(MAIN, OPEN_PATHS, &paths);
+            }
+            if let Some(dialog) = &dialog {
+                let _ = app.emit_to(MAIN, OPEN_DIALOG, dialog);
+            }
+        });
     focus_main(app)
 }
 
@@ -226,13 +307,21 @@ fn focus_main(app: &AppHandle) -> tauri::Result<()> {
     Ok(())
 }
 
-/// A second `BeeZip.exe` started and handed over its arguments. Windows are built on another
-/// thread: building one inside this callback, on the main thread, would deadlock (WebView2).
+/// A second `BeeZip.exe` started and handed over its arguments. Its request is planned on
+/// another thread, and its windows built from the event loop: building one inside this callback
+/// would deadlock (WebView2), and `run_on_main_thread` called from here would run at once.
 pub fn forward(app: &AppHandle, args: &[String], cwd: &str) {
     let request = parse_args(args, Path::new(cwd));
     let app = app.clone();
     std::thread::spawn(move || {
-        if let Err(e) = launch(&app, request) {
+        let routed = plan(&app, request);
+        let handle = app.clone();
+        let posted = app.run_on_main_thread(move || {
+            if let Err(e) = show(&handle, routed) {
+                eprintln!("BeeZip: a forwarded launch failed: {e}");
+            }
+        });
+        if let Err(e) = posted {
             eprintln!("BeeZip: a forwarded launch failed: {e}");
         }
     });
@@ -299,6 +388,55 @@ mod tests {
             parse_args(&args(&["BeeZip.exe", "--job"]), &cwd),
             Launch::default()
         );
+    }
+
+    #[test]
+    fn a_launch_whose_request_is_gone_is_a_plain_launch() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("x.json");
+        let launch = Launch {
+            paths: Vec::new(),
+            job: Some(file.clone()),
+        };
+        assert_eq!(request_file(&launch), None);
+        std::fs::write(&file, "{}").unwrap();
+        assert_eq!(request_file(&launch), Some(file.as_path()));
+        assert_eq!(request_file(&Launch::default()), None);
+    }
+
+    #[test]
+    fn launches_wait_until_the_page_listens() {
+        let pending = Pending::default();
+        let sent = std::cell::RefCell::new(Vec::new());
+        let send = |paths: Vec<PathBuf>, dialog: Option<OpenDialog>| {
+            sent.borrow_mut().push((paths, dialog));
+        };
+        pending.deliver(vec!["a.zip".into()], None, send);
+        let extract = OpenDialog::Extract {
+            paths: vec!["c.7z".into()],
+        };
+        pending.deliver(vec!["b.zip".into()], Some(extract.clone()), send);
+        assert!(sent.borrow().is_empty(), "nobody listens yet");
+
+        let drained = pending.drain();
+        assert_eq!(drained.paths, [PathBuf::from("a.zip"), "b.zip".into()]);
+        assert_eq!(drained.dialog, Some(extract));
+        assert_eq!(
+            serde_json::to_value(&drained).unwrap(),
+            serde_json::json!({
+                "paths": ["a.zip", "b.zip"],
+                "dialog": { "dialog": "extract", "paths": ["c.7z"] }
+            })
+        );
+        assert_eq!(pending.drain().paths, Vec::<PathBuf>::new());
+
+        // Once it listens, launches go straight through, until a new main window starts.
+        pending.deliver(vec!["d.zip".into()], None, send);
+        assert_eq!(sent.borrow().len(), 1);
+        pending.not_ready();
+        pending.deliver(vec!["e.zip".into()], None, send);
+        assert_eq!(sent.borrow().len(), 1);
+        assert_eq!(pending.drain().paths, [PathBuf::from("e.zip")]);
     }
 
     #[test]

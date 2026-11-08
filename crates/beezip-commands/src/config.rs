@@ -47,6 +47,9 @@
 //!
 //! [desktop]
 //! theme = "system"           # system | light | dark
+//!
+//! [updates]                  # the desktop app only; the CLI and MCP never check (docs/M6.md §8.2)
+//! check = true               # look for a new release on GitHub at most once a day
 //! ```
 //!
 //! The types here are also the wire shape `settings.get` returns, so they derive serde,
@@ -86,6 +89,7 @@ pub struct Config {
     pub jobs: JobsConfig,
     pub desktop: DesktopConfig,
     pub seven_zip: SevenZipConfig,
+    pub updates: UpdatesConfig,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema, TS)]
@@ -314,6 +318,21 @@ impl SevenZipConfig {
 pub struct DesktopConfig {
     /// Light or dark, or as Windows is set.
     pub theme: Theme,
+}
+
+/// The desktop app's updates (docs/M6.md §8.2). The CLI and MCP never check.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(default)]
+pub struct UpdatesConfig {
+    /// Look for a new release on GitHub when BeeZip starts, at most once a day. An update is
+    /// only downloaded and installed when you click it.
+    pub check: bool,
+}
+
+impl Default for UpdatesConfig {
+    fn default() -> Self {
+        Self { check: true }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema, TS)]
@@ -552,6 +571,9 @@ close_when_done = false
 
 [desktop]
 theme = "dark"
+
+[updates]
+check = false
 "#;
         let (c, w) = parse(text);
         let c = c.unwrap();
@@ -560,6 +582,7 @@ theme = "dark"
         assert!(!c.shell.items.test && !c.shell.items.add_tar_zst && c.shell.items.open);
         assert!(!c.jobs.close_when_done);
         assert_eq!(c.desktop.theme, Theme::Dark);
+        assert!(!c.updates.check);
         assert_eq!(
             c.mcp.roots,
             [PathBuf::from(r"C:\work"), PathBuf::from("/srv/drop")]
@@ -610,6 +633,7 @@ theme = "dark"
             "jobs.close_when_done",
             "desktop.theme",
             "names.encoding",
+            "updates.check",
         ] {
             assert!(keys.iter().any(|x| x == k), "{k} in {keys:?}");
         }
@@ -622,6 +646,7 @@ theme = "dark"
         assert_eq!(flat["desktop.theme"], "system");
         assert_eq!(flat["names.encoding"], "auto");
         assert_eq!(flat["shell.items.test"], true);
+        assert_eq!(flat["updates.check"], true);
     }
 
     #[test]

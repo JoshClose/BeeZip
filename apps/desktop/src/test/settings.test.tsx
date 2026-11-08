@@ -37,6 +37,7 @@ const settings: Config = {
   jobs: { close_when_done: true },
   desktop: { theme: "system" },
   seven_zip: { path: null, enabled: true },
+  updates: { check: true },
 };
 
 const got = (patch: Partial<SettingsGetOutput> = {}): SettingsGetOutput => ({
@@ -102,6 +103,16 @@ describe("the settings page", () => {
     await user.click(screen.getByRole("checkbox", { name: "Open these formats through 7-Zip" }));
     await waitFor(() => expect(fake.calls).toContainEqual({ name: "settings.set", args: { set: { "seven_zip.enabled": false } } }));
     expect(await screen.findByText(/Turned off/)).toBeInTheDocument();
+  });
+
+  it("turns the daily update check off (docs/M6.md §8.2)", async () => {
+    fake.handlers.set("settings.set", () => ({ ...got(), settings: { ...settings, updates: { check: false } }, changed: ["updates.check"] }));
+    const user = userEvent.setup();
+    render(<SettingsDialog onClose={() => {}} />);
+    const box = await screen.findByRole("checkbox", { name: "When BeeZip starts, at most once a day" });
+    expect(box).toBeChecked();
+    await user.click(box);
+    await waitFor(() => expect(fake.calls).toContainEqual({ name: "settings.set", args: { set: { "updates.check": false } } }));
   });
 
   it("saves a change at once", async () => {

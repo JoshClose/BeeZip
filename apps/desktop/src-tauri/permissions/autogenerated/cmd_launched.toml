@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-cmd-launched"
+description = "Enables the cmd_launched command without any pre-configured scope."
+commands.allow = ["cmd_launched"]
+
+[[permission]]
+identifier = "deny-cmd-launched"
+description = "Denies the cmd_launched command without any pre-configured scope."
+commands.deny = ["cmd_launched"]

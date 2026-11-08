@@ -1,5 +1,7 @@
-//! The app's only four Tauri commands (PLAN §1, Desktop). Every BeeZip command goes through
-//! `cmd_run`, so adding a command never touches this file.
+//! The app's Tauri commands (PLAN §1, Desktop). Every BeeZip command goes through `cmd_run`, so
+//! adding a command never touches this file; the others cancel, answer prompts, list commands,
+//! and hand the main window the launches that arrived before it listened. The updater's two
+//! are in update.rs.
 
 use std::sync::Arc;
 
@@ -10,7 +12,11 @@ use serde::Serialize;
 use serde_json::Value;
 use tauri::{State, Window, ipc::Channel};
 
-use crate::{open::MAIN, opened::Opened, prompts::GuiInteractor};
+use crate::{
+    open::{MAIN, Pending, Queued},
+    opened::Opened,
+    prompts::GuiInteractor,
+};
 
 /// Starts command `name` and streams its events to `on_event`. Returns the job id at once.
 #[tauri::command]
@@ -58,6 +64,17 @@ pub fn cmd_respond(
     reply: PromptReply,
 ) -> Result<(), CmdError> {
     gui.respond(job, prompt, reply)
+}
+
+/// The main window's page listens for `open-paths` and `open-dialog` now: the launches that
+/// arrived before, and events from here on (docs/M6.md §8.1). Other windows get nothing.
+#[tauri::command]
+pub fn cmd_launched(window: Window, pending: State<'_, Pending>) -> Queued {
+    if window.label() == MAIN {
+        pending.drain()
+    } else {
+        Queued::default()
+    }
 }
 
 /// A command the page may run, with the input schema the palette builds its form from.
