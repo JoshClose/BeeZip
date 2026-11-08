@@ -12,6 +12,13 @@ use std::{
 
 use anyhow::{Context, bail};
 
+// M6 PR 4 (docs/M6.md §10): each format's cases in a file of its own.
+mod ace;
+mod arc;
+mod arj;
+mod xar;
+mod zoo;
+
 /// Relative to the workspace root.
 pub const DIR: &str = "tests/fixtures/malicious";
 
@@ -56,7 +63,7 @@ pub fn run(check: bool) -> anyhow::Result<()> {
 
 fn corpus() -> anyhow::Result<Vec<(&'static str, Vec<u8>)>> {
     let file = |name: &str, data: &[u8]| ZipFile::stored(name, data);
-    Ok(vec![
+    let mut files = vec![
         // Paths.
         (
             "traversal.zip",
@@ -236,7 +243,13 @@ fn corpus() -> anyhow::Result<Vec<(&'static str, Vec<u8>)>> {
                 },
             ]),
         ),
-    ])
+    ];
+    files.extend(arj::corpus()?);
+    files.extend(ace::corpus()?);
+    files.extend(zoo::corpus()?);
+    files.extend(arc::corpus()?);
+    files.extend(xar::corpus()?);
+    Ok(files)
 }
 
 struct ZipFile {

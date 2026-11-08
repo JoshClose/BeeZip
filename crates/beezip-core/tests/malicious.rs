@@ -14,6 +14,18 @@ use beezip_core::{
     SkipReason, detect_path, open, ops,
 };
 
+// M6 PR 4 (docs/M6.md §10): each format's cases in a file of their own.
+#[path = "malicious/ace.rs"]
+mod ace;
+#[path = "malicious/arc.rs"]
+mod arc;
+#[path = "malicious/arj.rs"]
+mod arj;
+#[path = "malicious/xar.rs"]
+mod xar;
+#[path = "malicious/zoo.rs"]
+mod zoo;
+
 fn corpus(name: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../tests/fixtures/malicious")

@@ -1,0 +1,22 @@
+//! Opens the input as an ARJ archive.
+
+#![no_main]
+
+#[path = "common.rs"]
+mod common;
+
+use beezip_core::{SimpleCtx, format::arj::ArjReader, source::Source};
+use libfuzzer_sys::fuzz_target;
+
+fuzz_target!(|data: &[u8]| {
+    let path = common::scratch(data, "input.arj");
+    let opts = common::open_options();
+    let Ok(source) = Source::new(&path, Vec::new(), &opts) else {
+        return;
+    };
+    let mut cx = SimpleCtx::new();
+    let Ok(mut reader) = ArjReader::open(source, &mut cx) else {
+        return;
+    };
+    common::exercise(&mut reader, &mut cx);
+});
