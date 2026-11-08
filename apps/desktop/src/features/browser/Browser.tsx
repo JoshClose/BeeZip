@@ -57,7 +57,8 @@ export function testArchive(tab: Tab) {
     .getState()
     .track("archive.test", { archive: tab.path, ...archiveArgs(tab) }, { title: `Testing ${tab.name}`, tab: tab.id })
     .then(
-      (out) => toastInfo(`${tab.name} is OK`, `${out.entries} entries, ${formatSize(out.bytes)} checked.`),
+      // A disk image read through 7-Zip stores no checksums: the note says what was checked.
+      (out) => toastInfo(`${tab.name} is OK`, `${out.entries} entries, ${formatSize(out.bytes)} checked.${out.note ? ` ${out.note}` : ""}`),
       (e) => toastError(e, `Testing ${tab.name}`),
     );
 }

@@ -20,7 +20,6 @@ import { ReportDialog } from "./features/jobs/ReportDialog";
 import { loadCommands, Palette, type PaletteAction, takesOnlyArchive } from "./features/palette/Palette";
 import { FormDialog } from "./features/palette/SchemaForm";
 import { Prompts } from "./features/prompts/Prompts";
-import { SettingsDialog } from "./features/settings/Settings";
 import { Welcome } from "./features/welcome/Welcome";
 import { activeTab, archiveArgs, useArchives } from "./lib/archives";
 import { useCloseGuard } from "./lib/closeGuard";
@@ -90,6 +89,9 @@ async function chooseArchives() {
 
 // Loaded when first opened: the chart and its dialog stay out of the start-up bundle.
 const BenchDialog = lazy(() => import("./features/bench/BenchDialog").then((m) => ({ default: m.BenchDialog })));
+// Loaded when first opened, as the Benchmark dialog is: it keeps the first bundle under Vite's
+// 500 kB warning.
+const SettingsDialog = lazy(() => import("./features/settings/Settings").then((m) => ({ default: m.SettingsDialog })));
 
 let started = false;
 
@@ -255,7 +257,11 @@ export default function App() {
       {dialog?.kind === "encoding" && dialogTab && <EncodingDialog tab={dialogTab} onClose={closeDialog} />}
       {dialog?.kind === "about" && <About onClose={closeDialog} />}
       {dialog?.kind === "report" && <ReportDialog title={dialog.title} error={dialog.error} onClose={closeDialog} />}
-      {dialog?.kind === "settings" && <SettingsDialog onClose={closeDialog} />}
+      {dialog?.kind === "settings" && (
+        <Suspense fallback={null}>
+          <SettingsDialog onClose={closeDialog} />
+        </Suspense>
+      )}
       {dialog?.kind === "bench" && (
         <Suspense fallback={null}>
           <BenchDialog file={dialog.file} onClose={closeDialog} />

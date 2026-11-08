@@ -111,6 +111,40 @@ export function NumberSetting({
   );
 }
 
+/** One path. Empty sets it back to its default (`null`). */
+export function PathSetting({
+  id,
+  value,
+  placeholder,
+  onCommit,
+}: {
+  id: string;
+  value: string | null;
+  placeholder?: string;
+  onCommit: (value: string | null) => void;
+}) {
+  const [text, setText] = useState(value ?? "");
+  const { schedule, flush, isPending } = useDelayedCommit(onCommit);
+  useEffect(() => {
+    if (!isPending()) setText(value ?? "");
+  }, [value]);
+  return (
+    <Input
+      id={id}
+      className="min-w-0 flex-1"
+      value={text}
+      placeholder={placeholder}
+      spellCheck={false}
+      onChange={(e) => {
+        setText(e.target.value);
+        const t = e.target.value.trim();
+        schedule(t === "" ? null : t);
+      }}
+      onBlur={flush}
+    />
+  );
+}
+
 /** One path per line. */
 export function PathsSetting({ id, value, onCommit }: { id: string; value: string[]; onCommit: (value: string[]) => void }) {
   const [text, setText] = useState(value.join("\n"));

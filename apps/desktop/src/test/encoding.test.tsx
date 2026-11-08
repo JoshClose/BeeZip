@@ -31,6 +31,10 @@ const info: ArchiveInfoOutput = {
   locked: false,
   recovery_record: false,
   comment: null,
+  backend: null,
+  levels: [],
+  properties: [],
+  notes: [],
 } as unknown as ArchiveInfoOutput;
 
 const tab = () => useArchives.getState().tabs[0];

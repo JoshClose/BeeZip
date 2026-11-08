@@ -14,6 +14,11 @@ export function loadFormats(): Promise<FormatsListOutput> {
   return cached;
 }
 
+/** Drops the cached list, so the next read asks again: whether 7-Zip is there can change. */
+export function forgetFormats() {
+  cached = undefined;
+}
+
 export function useFormats(): FormatsListOutput | undefined {
   const [formats, setFormats] = useState<FormatsListOutput>();
   useEffect(() => {

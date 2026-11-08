@@ -36,6 +36,7 @@ const settings: Config = {
   },
   jobs: { close_when_done: true },
   desktop: { theme: "system" },
+  seven_zip: { path: null, enabled: true },
 };
 
 const got = (patch: Partial<SettingsGetOutput> = {}): SettingsGetOutput => ({
@@ -73,6 +74,34 @@ describe("the settings page", () => {
     expect(screen.getByLabelText("deflate")).toHaveValue("6");
     expect(screen.getByText("6, its own")).toBeInTheDocument();
     expect(screen.getByRole("radio", { name: "System" })).toHaveAttribute("aria-checked", "true");
+  });
+
+  it("says which 7-Zip it found, and saves a path and the switch (docs/M6.md §3.7)", async () => {
+    const found = { name: "7-Zip 26.00", path: "C:\\Program Files\\7-Zip\\7z.exe", found_in: "registry", problem: null, min_version: "25.01" };
+    fake.handlers.set("formats.list", () => ({ ...formats, seven_zip: found }));
+    fake.handlers.set("settings.set", (args) => {
+      const set = (args as { set: Record<string, unknown> }).set;
+      const key = Object.keys(set)[0].replace("seven_zip.", "");
+      return { ...got(), settings: { ...settings, seven_zip: { ...settings.seven_zip, [key]: set[`seven_zip.${key}`] } }, changed: [`seven_zip.${key}`] };
+    });
+    const user = userEvent.setup();
+    render(<SettingsDialog onClose={() => {}} />);
+    expect(await screen.findByText(/Using 7-Zip 26\.00/)).toBeInTheDocument();
+    expect(screen.getByText(/found through 7-Zip's installation/)).toBeInTheDocument();
+
+    // A path that isn't there: formats.list says so, and the page shows it.
+    fake.handlers.set("formats.list", () => ({
+      ...formats,
+      seven_zip: { ...found, name: null, path: null, found_in: null, problem: "not found at D:\\7z.exe" },
+    }));
+    await user.type(screen.getByLabelText("7-Zip program"), "D:\\7z.exe");
+    await user.tab();
+    await waitFor(() => expect(fake.calls).toContainEqual({ name: "settings.set", args: { set: { "seven_zip.path": "D:\\7z.exe" } } }));
+    expect(await screen.findByText(/No 7-Zip to use: not found at D:\\7z\.exe/)).toBeInTheDocument();
+
+    await user.click(screen.getByRole("checkbox", { name: "Open these formats through 7-Zip" }));
+    await waitFor(() => expect(fake.calls).toContainEqual({ name: "settings.set", args: { set: { "seven_zip.enabled": false } } }));
+    expect(await screen.findByText(/Turned off/)).toBeInTheDocument();
   });
 
   it("saves a change at once", async () => {

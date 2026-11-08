@@ -465,7 +465,24 @@ recovery_record: boolean,
  * format, a volume set, a self-extracting archive, a read-only file. `null` when they
  * wouldn't.
  */
-not_editable: string | null, };
+not_editable: string | null,
+/**
+ * The program that reads it, for the formats BeeZip leaves to one: "7-Zip 26.00".
+ */
+backend: string | null,
+/**
+ * The formats 7-Zip opened, outermost first: `["vhdx", "gpt", "ntfs"]`. Empty for
+ * BeeZip's own formats.
+ */
+levels: Array<string>,
+/**
+ * What those levels record: a volume's label, a WIM's images, the cluster size.
+ */
+properties: Array<InfoProperty>,
+/**
+ * Things to know about the archive: an MSI's names are the installer's internal keys.
+ */
+notes: Array<string>, };
 
 /**
  * List an archive's entries. Without `flat`, one folder level at a time (the root, or `dir`),
@@ -627,7 +644,12 @@ export type ArchiveTestOutput = { archive: string, entries: number,
 /**
  * Uncompressed bytes read.
  */
-bytes: number, };
+bytes: number,
+/**
+ * What the test couldn't check: a disk image read through 7-Zip stores no checksums of
+ * its files' data, so its test shows only that every file can be read.
+ */
+note?: string | null, };
 
 /**
  * One codec at one level and thread count.
@@ -860,7 +882,7 @@ export type Config = { extract: ExtractConfig, edit: EditConfig, names: NamesCon
  * Default levels by codec name (`zstd`, `gzip`…) or zip and 7z method (`deflate`,
  * `lzma2`…). A codec or method missing here uses its own default.
  */
-levels: { [key in string]: number }, stream: StreamConfig, limits: LimitsConfig, mcp: McpConfig, shell: ShellConfig, jobs: JobsConfig, desktop: DesktopConfig, };
+levels: { [key in string]: number }, stream: StreamConfig, limits: LimitsConfig, mcp: McpConfig, shell: ShellConfig, jobs: JobsConfig, desktop: DesktopConfig, seven_zip: SevenZipConfig, };
 
 /**
  * An entry the new archive couldn't hold.
@@ -1138,7 +1160,21 @@ methods: Array<MethodInfo>,
 /**
  * Encryption for new archives.
  */
-encryption: Array<string>, };
+encryption: Array<string>,
+/**
+ * The program that reads it, for the formats BeeZip leaves to one: `7-zip`. `null` for
+ * BeeZip's own.
+ */
+backend: string | null,
+/**
+ * Whether it opens here: false while its backend is missing, too old or turned off.
+ */
+available: boolean,
+/**
+ * Explorer's menu offers BeeZip's items on its extensions. The 7-Zip formats' `.img`,
+ * `.exe` and `.msi` are left out (docs/M6.md §3.7).
+ */
+menu: boolean, };
 
 /**
  * List the archive formats and codecs BeeZip reads and writes, with their capabilities,
@@ -1150,7 +1186,24 @@ export type FormatsListOutput = { formats: Array<FormatInfo>, codecs: Array<Code
 /**
  * The `--format` names `archive.create` accepts: `zip`, `tar`, `tar.gz`…
  */
-create: Array<string>, };
+create: Array<string>,
+/**
+ * The 7-Zip found, which the formats with `backend: "7-zip"` need.
+ */
+seven_zip: SevenZipStatus, };
+
+/**
+ * One fact a level of an archive records (docs/M6.md §3.5).
+ */
+export type InfoProperty = {
+/**
+ * The level's format: `ntfs`.
+ */
+level: string,
+/**
+ * 7-Zip's name for it: `Label`, `Cluster Size`.
+ */
+name: string, value: string, };
 
 /**
  * Which menu `shell.install` registers.
@@ -1468,6 +1521,45 @@ warnings: Array<string>,
  * commands that need the config fail until it's fixed.
  */
 error: string | null, };
+
+/**
+ * The installed 7-Zip, which reads WIM and ESD images, CHM, MSI and NSIS installers, and the
+ * disk images and file systems (VHD, VHDX, VMDK, QCOW2, VDI, FAT, NTFS, ext, HFS+, APFS,
+ * CramFS) for BeeZip (docs/M6.md §3).
+ */
+export type SevenZipConfig = {
+/**
+ * The 7-Zip console program to run (`7z.exe`, 25.01 or newer). Empty: BeeZip finds one in
+ * the registry, on PATH or in Program Files.
+ */
+path: string | null,
+/**
+ * Read those formats through 7-Zip. Off, they are still recognised, and opening one says
+ * that 7-Zip is turned off.
+ */
+enabled: boolean, };
+
+/**
+ * The 7-Zip that reads the formats BeeZip leaves to it (docs/M6.md §3.1), as found under the
+ * settings.
+ */
+export type SevenZipStatus = {
+/**
+ * "7-Zip 26.00"; `null` when there's none to run.
+ */
+name: string | null, path: string | null,
+/**
+ * Where it was found: `settings`, `registry`, `PATH` or `Program Files`.
+ */
+found_in: string | null,
+/**
+ * Why there's none to run: not found, too old, turned off.
+ */
+problem: string | null,
+/**
+ * The oldest version BeeZip runs: `25.01`.
+ */
+min_version: string, };
 
 /**
  * Explorer's right-click menu (docs/M4.md §7.2).
