@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use beezip_core::{
     CodecId, FormatCaps, FormatId,
     format::{
@@ -89,6 +91,53 @@ pub struct FormatInfo {
     pub methods: Vec<MethodInfo>,
     /// Encryption for new archives.
     pub encryption: Vec<String>,
+    /// The program that reads it, for the formats BeeZip leaves to one: `7-zip`. `null` for
+    /// BeeZip's own.
+    pub backend: Option<String>,
+    /// Whether it opens here: false while its backend is missing, too old or turned off.
+    pub available: bool,
+    /// Explorer's menu offers BeeZip's items on its extensions. The 7-Zip formats' `.img`,
+    /// `.exe` and `.msi` are left out (docs/M6.md §3.7).
+    pub menu: bool,
+}
+
+/// The 7-Zip that reads the formats BeeZip leaves to it (docs/M6.md §3.1), as found under the
+/// settings.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+pub struct SevenZipStatus {
+    /// "7-Zip 26.00"; `null` when there's none to run.
+    pub name: Option<String>,
+    pub path: Option<PathBuf>,
+    /// Where it was found: `settings`, `registry`, `PATH` or `Program Files`.
+    pub found_in: Option<String>,
+    /// Why there's none to run: not found, too old, turned off.
+    pub problem: Option<String>,
+    /// The oldest version BeeZip runs: `25.01`.
+    pub min_version: String,
+}
+
+impl SevenZipStatus {
+    /// What `find` says under `opts`.
+    pub fn find(opts: &beezip_core::SevenZipOptions) -> Self {
+        let (major, minor) = beezip_core::backend::MIN_VERSION;
+        let min_version = format!("{major}.{minor:02}");
+        match beezip_core::backend::find(opts) {
+            Ok(z) => Self {
+                name: Some(z.name),
+                path: Some(z.exe),
+                found_in: Some(z.found_in.to_owned()),
+                problem: None,
+                min_version,
+            },
+            Err(m) => Self {
+                name: None,
+                path: None,
+                found_in: None,
+                problem: Some(m.reason()),
+                min_version,
+            },
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
@@ -109,6 +158,8 @@ pub struct FormatsListOutput {
     pub codecs: Vec<CodecInfo>,
     /// The `--format` names `archive.create` accepts: `zip`, `tar`, `tar.gz`…
     pub create: Vec<String>,
+    /// The 7-Zip found, which the formats with `backend: "7-zip"` need.
+    pub seven_zip: SevenZipStatus,
 }
 
 pub struct FormatsList;
@@ -125,7 +176,8 @@ impl Command for FormatsList {
     type Input = FormatsListInput;
     type Output = FormatsListOutput;
 
-    fn run(_: FormatsListInput, _: &mut JobCtx) -> Result<FormatsListOutput, CmdError> {
+    fn run(_: FormatsListInput, cx: &mut JobCtx) -> Result<FormatsListOutput, CmdError> {
+        let seven_zip = SevenZipStatus::find(&crate::commands::util::seven_zip(cx));
         let formats = FormatId::ALL
             .into_iter()
             .map(|f| {
@@ -167,6 +219,9 @@ impl Command for FormatsList {
                         FormatId::SevenZ => vec!["aes256".into()],
                         _ => Vec::new(),
                     },
+                    backend: f.external().map(|_| "7-zip".to_owned()),
+                    available: f.external().is_none() || seven_zip.name.is_some(),
+                    menu: f.external().is_none_or(beezip_core::External::in_menu),
                 }
             })
             .collect();
@@ -188,6 +243,7 @@ impl Command for FormatsList {
             formats,
             codecs,
             create: ArchiveKind::all().map(ArchiveKind::name).collect(),
+            seven_zip,
         })
     }
 
@@ -198,7 +254,7 @@ impl Command for FormatsList {
             "  {:<8} {:<16} {:<5} {:<7} {:<6} {:<8} {:<6}  {}\n",
             "ID", "NAME", "LIST", "EXTRACT", "CREATE", "ENCRYPT", "RANDOM", "EXTENSIONS"
         ));
-        for f in &out.formats {
+        for f in out.formats.iter().filter(|f| f.backend.is_none()) {
             s.push_str(&format!(
                 "  {:<8} {:<16} {:<5} {:<7} {:<6} {:<8} {:<6}  {}\n",
                 f.id,
@@ -210,6 +266,28 @@ impl Command for FormatsList {
                 yes(f.caps.random_access),
                 f.extensions.join(" ")
             ));
+        }
+        let z = &out.seven_zip;
+        s.push_str(&match (&z.name, &z.path, &z.problem) {
+            (Some(name), Some(path), _) => {
+                format!(
+                    "\nRead through {name} ({}), list and extract\n",
+                    path.display()
+                )
+            }
+            (_, _, problem) => format!(
+                "\nRead through 7-Zip {} or newer, list and extract: {}\n",
+                z.min_version,
+                problem.as_deref().unwrap_or("not found")
+            ),
+        });
+        for f in out.formats.iter().filter(|f| f.backend.is_some()) {
+            let exts = if f.extensions.is_empty() {
+                "(an installer program)".to_owned()
+            } else {
+                f.extensions.join(" ")
+            };
+            s.push_str(&format!("  {:<8} {:<26} {}\n", f.id, f.name, exts));
         }
         for f in out.formats.iter().filter(|f| !f.methods.is_empty()) {
             let methods: Vec<String> = f

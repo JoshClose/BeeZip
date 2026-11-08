@@ -38,6 +38,10 @@ pub struct ArchiveTestOutput {
     pub entries: u64,
     /// Uncompressed bytes read.
     pub bytes: u64,
+    /// What the test couldn't check: a disk image read through 7-Zip stores no checksums of
+    /// its files' data, so its test shows only that every file can be read.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
 }
 
 pub struct ArchiveTest;
@@ -65,14 +69,23 @@ impl Command for ArchiveTest {
             input.name_encoding,
             cx,
         )?;
-        let mut sink = TestSink::default();
-        match opened.reader.extract(&Selection::all(), &mut sink, cx) {
-            Ok(()) => {}
-            // A stream that breaks part-way (a damaged tar.gz) ends the test as a failure.
-            Err(e) if e.kind == beezip_core::ErrorKind::Corrupt => sink.report.record("", &e),
-            Err(e) => return Err(e.into()),
-        }
-        let report = sink.report;
+        // The 7-Zip backend tests with `7z t`; the rest read every entry.
+        let report = match opened.reader.test(cx) {
+            Some(report) => report?,
+            None => {
+                let mut sink = TestSink::default();
+                match opened.reader.extract(&Selection::all(), &mut sink, cx) {
+                    Ok(()) => {}
+                    // A stream that breaks part-way (a damaged tar.gz) ends the test as a
+                    // failure.
+                    Err(e) if e.kind == beezip_core::ErrorKind::Corrupt => {
+                        sink.report.record("", &e);
+                    }
+                    Err(e) => return Err(e.into()),
+                }
+                sink.report
+            }
+        };
         if !report.ok() {
             let first = &report.errors[0];
             let what = if first.path.is_empty() {
@@ -99,22 +112,29 @@ impl Command for ArchiveTest {
                 "errors_total": report.errors_total,
                 "entries": report.entries,
                 "bytes": report.bytes,
+                "note": report.note,
             })));
         }
         Ok(ArchiveTestOutput {
             archive: input.archive,
             entries: report.entries,
             bytes: report.bytes,
+            note: report.note,
         })
     }
 
     fn human(out: &ArchiveTestOutput) -> Option<String> {
-        Some(format!(
+        let mut text = format!(
             "{}: OK, {} entries, {}",
             out.archive.display(),
             out.entries,
             human_size(out.bytes)
-        ))
+        );
+        if let Some(note) = &out.note {
+            text.push('\n');
+            text.push_str(note);
+        }
+        Some(text)
     }
 }
 

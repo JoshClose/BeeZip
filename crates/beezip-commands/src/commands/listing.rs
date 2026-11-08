@@ -193,11 +193,11 @@ fn kind_of(entries: &[Entry], row: Row) -> EntryKindName {
 /// Folders first, then by `key`; ties go by name (case-insensitively, then exactly), then
 /// archive order (a stable sort). `reverse` turns everything but the folders-first round.
 fn sort(rows: &mut Vec<Row>, entries: &[Entry], implied: &[String], key: SortKey, reverse: bool) {
-    struct Keyed {
+    struct Keyed<'e> {
         row: Row,
         not_dir: bool,
         by: i128,
-        text: &'static str,
+        text: &'e str,
         folded: String,
         name: String,
     }
@@ -206,7 +206,7 @@ fn sort(rows: &mut Vec<Row>, entries: &[Entry], implied: &[String], key: SortKey
         EntryKindName::File | EntryKindName::Hardlink | EntryKindName::Other => 1,
         EntryKindName::Symlink => 2,
     };
-    let mut keyed: Vec<Keyed> = rows
+    let mut keyed: Vec<Keyed<'_>> = rows
         .iter()
         .map(|&row| {
             let kind = kind_of(entries, row);
@@ -232,7 +232,7 @@ fn sort(rows: &mut Vec<Row>, entries: &[Entry], implied: &[String], key: SortKey
                 SortKey::Method => 0,
             };
             let text = match key {
-                SortKey::Method => e.and_then(|e| e.method).unwrap_or(""),
+                SortKey::Method => e.and_then(|e| e.method.as_deref()).unwrap_or(""),
                 _ => "",
             };
             Keyed {
@@ -269,7 +269,7 @@ mod tests {
     fn entry(id: usize, path: &str, kind: EntryKind, size: u64, day: u64) -> Entry {
         let mut e = Entry::new(id, path.into(), kind);
         if matches!(e.kind, EntryKind::File) {
-            e.method = Some(if size > 15 { "Deflate" } else { "Store" });
+            e.method = Some(if size > 15 { "Deflate" } else { "Store" }.into());
             e.crc32 = Some(size as u32);
         }
         e.size = Some(size);

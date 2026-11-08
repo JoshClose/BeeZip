@@ -41,6 +41,10 @@
 //! [jobs]
 //! close_when_done = true     # a job window closes itself after a clean success
 //!
+//! [seven_zip]                # the 7-Zip that reads WIM, MSI and disk images (docs/M6.md §3)
+//! path = 'C:\Tools\7z.exe'   # empty or missing: found in the registry, PATH or Program Files
+//! enabled = true
+//!
 //! [desktop]
 //! theme = "system"           # system | light | dark
 //! ```
@@ -81,6 +85,7 @@ pub struct Config {
     pub shell: ShellConfig,
     pub jobs: JobsConfig,
     pub desktop: DesktopConfig,
+    pub seven_zip: SevenZipConfig,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema, TS)]
@@ -267,6 +272,39 @@ impl Default for JobsConfig {
     fn default() -> Self {
         Self {
             close_when_done: true,
+        }
+    }
+}
+
+/// The installed 7-Zip, which reads WIM and ESD images, CHM, MSI and NSIS installers, and the
+/// disk images and file systems (VHD, VHDX, VMDK, QCOW2, VDI, FAT, NTFS, ext, HFS+, APFS,
+/// CramFS) for BeeZip (docs/M6.md §3).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(default)]
+pub struct SevenZipConfig {
+    /// The 7-Zip console program to run (`7z.exe`, 25.01 or newer). Empty: BeeZip finds one in
+    /// the registry, on PATH or in Program Files.
+    pub path: Option<PathBuf>,
+    /// Read those formats through 7-Zip. Off, they are still recognised, and opening one says
+    /// that 7-Zip is turned off.
+    pub enabled: bool,
+}
+
+impl Default for SevenZipConfig {
+    fn default() -> Self {
+        Self {
+            path: None,
+            enabled: true,
+        }
+    }
+}
+
+impl SevenZipConfig {
+    /// As core takes it: an empty path means "find one".
+    pub fn options(&self) -> beezip_core::SevenZipOptions {
+        beezip_core::SevenZipOptions {
+            path: self.path.clone().filter(|p| !p.as_os_str().is_empty()),
+            enabled: self.enabled,
         }
     }
 }

@@ -61,8 +61,8 @@ pub fn run(check: bool) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// The full contents of `gen_exts.rs`: every extension `formats.list` reports, lowercase and
-/// sorted, and the tar shorthands among the codecs'.
+/// The full contents of `gen_exts.rs`: every extension `formats.list` offers Explorer's menu
+/// on (`menu`), lowercase and sorted, and the tar shorthands among the codecs'.
 pub fn generate_exts() -> anyhow::Result<String> {
     let engine = Engine::new(registry());
     let out = engine
@@ -83,6 +83,7 @@ pub fn generate_exts() -> anyhow::Result<String> {
     let formats = sorted(
         list.formats
             .into_iter()
+            .filter(|f| f.menu)
             .flat_map(|f| f.extensions)
             .collect(),
     );

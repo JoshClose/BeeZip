@@ -14,6 +14,25 @@ Archive formats
   squashfs squashfs image   yes   yes     yes    -        yes     .squashfs .sqfs .snap
   dmg      Apple disk image yes   yes     yes    -        yes     .dmg
   stream   compressed file  yes   yes     -      -        -       
+
+Read through 7-Zip 25.01 or newer, list and extract: turned off in Settings
+  wim      WIM image                  .wim .esd .swm
+  chm      CHM help file              .chm
+  msi      Windows Installer package  .msi .msp .msm
+  nsis     NSIS installer             (an installer program)
+  vhdx     VHDX disk image            .vhdx
+  vhd      VHD disk image             .vhd
+  vmdk     VMDK disk image            .vmdk
+  qcow2    QCOW2 disk image           .qcow2 .qcow
+  vdi      VDI disk image             .vdi
+  fat      FAT image                  .img .ima
+  ntfs     NTFS image                 .img
+  ext      ext2/3/4 image             .img .ext2 .ext3 .ext4
+  hfs      HFS+ image                 .hfs .hfsx
+  apfs     APFS image                 .apfs
+  cramfs   CramFS image               .cramfs .img
+  gpt      GPT disk image             .img .raw
+  mbr      MBR disk image             .img .raw
   zip methods: store, deflate (1-9, 6), bzip2 (1-9, 9), zstd (1-22, 3), xz (0-9, 6), ppmd (1-9, 7)
   7z methods: lzma2 (0-9, 5), lzma (0-9, 5), ppmd (1-9, 6), bzip2 (1-9, 9), deflate (1-9, 6), copy
   cab methods: store, mszip
