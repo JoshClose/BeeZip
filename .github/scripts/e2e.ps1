@@ -76,6 +76,37 @@ if ($code) {
   try { $pages = (Invoke-WebRequest http://127.0.0.1:9333/json -UseBasicParsing -TimeoutSec 5).Content } catch { $pages = "no answer: $_" }
   Write-Host "started on its own, BeeZip is $(if ($app.HasExited) { "gone (exit $($app.ExitCode))" } else { 'running' }); DevTools: $pages"
   Get-Content (Join-Path $work 'app.err'), (Join-Path $work 'app.out') -ErrorAction SilentlyContinue | Select-Object -Last 20
+  Write-Host "this session: $((Get-Process -Id $PID).SessionId), interactive: $([Environment]::UserInteractive)"
+  Write-Host 'its processes:'
+  Descendants $app.Id | ForEach-Object { Write-Host "  $($_.ProcessId) $($_.Name): $($_.CommandLine)" }
+  Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+using System.Text;
+public static class E2eWin {
+    public delegate bool EnumProc(IntPtr h, IntPtr l);
+    [DllImport("user32.dll")] public static extern bool EnumWindows(EnumProc f, IntPtr l);
+    [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern int GetClassName(IntPtr h, StringBuilder s, int n);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern int GetWindowText(IntPtr h, StringBuilder s, int n);
+    [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr h);
+}
+'@
+  $windows = [Collections.Generic.List[string]]::new()
+  [E2eWin]::EnumWindows({
+      param($h, $l)
+      $procId = 0
+      [void][E2eWin]::GetWindowThreadProcessId($h, [ref]$procId)
+      if ($procId -eq $app.Id) {
+        $c = [Text.StringBuilder]::new(256); $t = [Text.StringBuilder]::new(256)
+        [void][E2eWin]::GetClassName($h, $c, 256); [void][E2eWin]::GetWindowText($h, $t, 256)
+        $windows.Add("$c '$t' visible=$([E2eWin]::IsWindowVisible($h))")
+      }
+      $true
+    }, [IntPtr]::Zero) | Out-Null
+  Write-Host "its windows: $($windows -join '; ')"
+  Write-Host 'its WebView2 profile:'
+  Get-ChildItem -Recurse -Depth 2 $env:WEBVIEW2_USER_DATA_FOLDER -ErrorAction SilentlyContinue | Select-Object -First 25 | ForEach-Object { Write-Host "  $($_.FullName.Substring($work.Length))" }
   foreach ($p in @(Descendants $app.Id)) { Stop-Process -Id $p.ProcessId -Force -ErrorAction SilentlyContinue }
   Stop-Process -Id $app.Id -Force -ErrorAction SilentlyContinue
   Fail "the smoke test failed: exit $code"
