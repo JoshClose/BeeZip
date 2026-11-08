@@ -246,10 +246,77 @@ pub fn create_main_window(
     if let Some(pending) = app.try_state::<Pending>() {
         pending.not_ready();
     }
-    WebviewWindowBuilder::from_config(app, &config)?
-        .initialization_script(startup_script(app, paths, dialog, None))
-        .build()?;
+    with_browser_args(
+        WebviewWindowBuilder::from_config(app, &config)?
+            .initialization_script(startup_script(app, paths, dialog, None)),
+    )
+    .build()?;
     Ok(())
+}
+
+/// wry's own WebView2 arguments, which a window's `additional_browser_args` replaces: no mini
+/// menu, no SmartScreen inside the page, and autoplay as Tauri asks for it.
+const WRY_BROWSER_ARGS: &str = "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection \
+                                --autoplay-policy=no-user-gesture-required";
+
+/// The arguments for every window's WebView2: wry's own, with `WEBVIEW2_ADDITIONAL_BROWSER_
+/// ARGUMENTS` merged in when it's set (its `--disable-features` and `--enable-features` lists
+/// joined). WebView2 reads that variable itself, but whether it or the app's arguments win
+/// depends on the runtime: 157 takes the variable's, 156 the app's. msedgedriver drives WebView2
+/// through it (`--remote-debugging-port`), as BeeZip's E2E test does (docs/M6.md §16, PR 5).
+/// `None` when it isn't set: wry's defaults then.
+pub fn browser_args(env: Option<&str>) -> Option<String> {
+    let env = env.map(str::trim).filter(|e| !e.is_empty())?;
+    let mut args: Vec<String> = Vec::new();
+    let mut lists: Vec<(&str, Vec<String>)> = Vec::new();
+    for arg in WRY_BROWSER_ARGS
+        .split_whitespace()
+        .chain(env.split_whitespace())
+    {
+        let list = ["--disable-features=", "--enable-features="]
+            .into_iter()
+            .find(|p| arg.starts_with(p));
+        match list {
+            Some(prefix) => {
+                let at = match lists.iter().position(|(p, _)| *p == prefix) {
+                    Some(at) => at,
+                    None => {
+                        lists.push((prefix, Vec::new()));
+                        args.push(prefix.to_owned());
+                        lists.len() - 1
+                    }
+                };
+                for f in arg[prefix.len()..].split(',').filter(|f| !f.is_empty()) {
+                    if !lists[at].1.iter().any(|x| x == f) {
+                        lists[at].1.push(f.to_owned());
+                    }
+                }
+            }
+            None if !args.iter().any(|a| a == arg) => args.push(arg.to_owned()),
+            None => {}
+        }
+    }
+    Some(
+        args.into_iter()
+            .map(|a| match lists.iter().find(|(p, _)| *p == a) {
+                Some((p, features)) => format!("{p}{}", features.join(",")),
+                None => a,
+            })
+            .collect::<Vec<_>>()
+            .join(" "),
+    )
+}
+
+/// `builder` with [`browser_args`], when `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` is set. Every
+/// window gets the same, as WebView2 needs windows sharing a profile to.
+pub fn with_browser_args<'a, R: tauri::Runtime, M: Manager<R>>(
+    builder: WebviewWindowBuilder<'a, R, M>,
+) -> WebviewWindowBuilder<'a, R, M> {
+    let env = std::env::var("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS").ok();
+    match browser_args(env.as_deref()) {
+        Some(args) => builder.additional_browser_args(&args),
+        None => builder,
+    }
 }
 
 /// The request file of a `--job` launch, unless it's gone: the updater restarts BeeZip with
@@ -387,6 +454,28 @@ mod tests {
         assert_eq!(
             parse_args(&args(&["BeeZip.exe", "--job"]), &cwd),
             Launch::default()
+        );
+    }
+
+    #[test]
+    fn webview2s_variable_is_merged_with_wrys_arguments() {
+        assert_eq!(browser_args(None), None);
+        assert_eq!(browser_args(Some("  ")), None);
+        assert_eq!(
+            browser_args(Some("--remote-debugging-port=9222")).unwrap(),
+            "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection \
+             --autoplay-policy=no-user-gesture-required --remote-debugging-port=9222"
+        );
+        // msedgedriver's, shortened: one --disable-features list, nothing twice.
+        assert_eq!(
+            browser_args(Some(
+                "--disable-features=IgnoreDuplicateNavs,msWebOOUI --remote-debugging-port=0 \
+                 --enable-features=A --enable-features=B --remote-debugging-port=0"
+            ))
+            .unwrap(),
+            "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection,IgnoreDuplicateNavs \
+             --autoplay-policy=no-user-gesture-required --remote-debugging-port=0 \
+             --enable-features=A,B"
         );
     }
 
