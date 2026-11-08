@@ -165,7 +165,11 @@ fn a_tree_round_trips() {
     let mut cx = SimpleCtx::new();
     let info = opened.reader.info(&mut cx).unwrap();
     assert_eq!(info.format, FormatId::Dmg);
-    assert!(info.methods.contains(&"zlib"), "{:?}", info.methods);
+    assert!(
+        info.methods.iter().any(|m| m == "zlib"),
+        "{:?}",
+        info.methods
+    );
     let entries = opened.reader.entries(&mut cx).unwrap().to_vec();
     let by_path: BTreeMap<&str, &beezip_core::Entry> =
         entries.iter().map(|e| (e.path.as_str(), e)).collect();

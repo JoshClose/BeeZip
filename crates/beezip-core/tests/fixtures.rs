@@ -93,7 +93,7 @@ const MTIME: u64 = 1_767_225_600;
 #[test]
 fn every_fixture_reads_correctly() {
     let all = manifest();
-    assert_eq!(all.len(), 213, "the manifest lists every fixture");
+    assert_eq!(all.len(), 238, "the manifest lists every fixture");
     let mut failures = Vec::new();
     for fx in &all {
         let file = fx["file"].as_str().unwrap();
@@ -104,7 +104,28 @@ fn every_fixture_reads_correctly() {
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
+/// Whether a 7-Zip the backend can run is installed, for the fixtures it reads (docs/M6.md §3).
+/// With `BEEZIP_REQUIRE_7Z` or `BEEZIP_REQUIRE_7Z_BACKEND` set to 1 (CI), a missing one fails.
+fn seven_zip_here() -> bool {
+    let found = beezip_core::backend::find(&beezip_core::SevenZipOptions::default());
+    let required = ["BEEZIP_REQUIRE_7Z", "BEEZIP_REQUIRE_7Z_BACKEND"]
+        .iter()
+        .any(|v| std::env::var(v).as_deref() == Ok("1"));
+    match found {
+        Ok(_) => true,
+        Err(m) if required => panic!("the 7-Zip backend's fixtures need 7-Zip: {}", m.reason()),
+        Err(_) => false,
+    }
+}
+
 fn check(fx: &Value) -> Result<(), String> {
+    if fx["backend"] == "7-zip" && !seven_zip_here() {
+        eprintln!(
+            "skipping {}: no 7-Zip 25.01 or newer",
+            fx["file"].as_str().unwrap_or("")
+        );
+        return Ok(());
+    }
     let path = fixtures()
         .join("thirdparty")
         .join(fx["file"].as_str().unwrap());
@@ -128,6 +149,18 @@ fn check(fx: &Value) -> Result<(), String> {
         .entries(&mut cx)
         .map_err(|e| e.to_string())?
         .to_vec();
+    // The formats 7-Zip opened, outermost first (docs/M6.md §3.5).
+    if let Some(levels) = fx["levels"].as_array() {
+        let info = opened.reader.info(&mut cx).map_err(|e| e.to_string())?;
+        let got = info.external.map(|x| x.levels).unwrap_or_default();
+        if got
+            .iter()
+            .map(String::as_str)
+            .ne(levels.iter().filter_map(Value::as_str))
+        {
+            return Err(format!("7-Zip opened {got:?}, expected {levels:?}"));
+        }
+    }
     let count = |pred: fn(&EntryKind) -> bool| entries.iter().filter(|e| pred(&e.kind)).count();
     let hardlinks = count(|k| matches!(k, EntryKind::Hardlink { .. }));
     let symlinks = count(|k| matches!(k, EntryKind::Symlink { .. }));
@@ -172,11 +205,22 @@ fn check(fx: &Value) -> Result<(), String> {
                 }
             }
             ("file", EntryKind::File) => {
-                if e.size != want["size"].as_u64() {
+                // 7-Zip lists an NSIS installer's sizes from its script, as estimates (the
+                // record has what `7z x` writes).
+                if e.size != want["size"].as_u64() && chain != "nsis" {
                     return Err(format!("`{p}` has size {:?}", e.size));
                 }
+                // The time 7-Zip lists, in UTC (`-slmu`).
+                // The record's RFC 3339 in 7-Zip's shape, with a space for the `T`.
+                if let Some(t) = want["mtime"].as_str()
+                    && e.modified != beezip_core::backend::slt::parse_time(&t.replacen('T', " ", 1))
+                {
+                    return Err(format!("`{p}` has time {:?}, not {t}", e.modified));
+                }
             }
-            ("file", EntryKind::Hardlink { .. }) | ("other", EntryKind::Other) => {}
+            ("file", EntryKind::Hardlink { .. })
+            | ("other", EntryKind::Other)
+            | ("folder", EntryKind::Dir) => {}
             (k, kind) => return Err(format!("`{p}` is {kind:?}, expected {k}")),
         }
     }
