@@ -188,11 +188,16 @@ pub fn detect_path(path: &Path, limits: &Limits) -> Result<Detection> {
             det.joined = true;
             Ok(det)
         }
-        // RAR names its own volumes, and UnRAR opens them: detect the first part, and keep
-        // the set only if it is a RAR.
+        // RAR, ARJ and ACE name their own volumes, and their readers open them one by one:
+        // detect the first part, and keep the set only if it is of that format.
         Some(set) => {
             let mut det = detect_file(&set.parts[0], limits)?;
-            if det.format() == Some(FormatId::Rar) {
+            let format = match set.kind {
+                SetKind::Arj => FormatId::Arj,
+                SetKind::Ace => FormatId::Ace,
+                SetKind::RarParts | SetKind::RarOld | SetKind::Numbered => FormatId::Rar,
+            };
+            if det.format() == Some(format) {
                 det.volumes = set.parts;
                 return Ok(det);
             }

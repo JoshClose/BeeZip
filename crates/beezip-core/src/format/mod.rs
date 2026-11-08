@@ -1,15 +1,20 @@
 //! Archive formats: ZIP, TAR and the one-entry stream view of a bare compressed file
 //! (docs/M1.md §3.4), 7z and RAR (docs/M3.md), cpio, ar, deb, RPM, CAB and LHA, and the disk
-//! images ISO, squashfs and DMG (docs/M5.md §5), and the formats 7-Zip reads for BeeZip
-//! (docs/M6.md §3).
+//! images ISO, squashfs and DMG (docs/M5.md §5), ARJ, ACE, ZOO and ARC, XAR and macOS packages
+//! (docs/M6.md §4, §5), and the formats 7-Zip reads for BeeZip (docs/M6.md §3).
 
+pub mod ace;
 pub mod ar;
+pub mod arc;
+pub mod arj;
 pub mod cab;
 pub mod cpio;
 pub mod deb;
 pub mod dmg;
 pub mod iso;
 pub mod lzh;
+pub mod pbzx;
+pub mod pkg;
 pub mod rar;
 pub mod rpm;
 pub mod sevenz;
@@ -18,8 +23,10 @@ pub mod squashfs;
 pub mod stream;
 pub mod tar;
 pub mod udif;
+pub mod xar;
 pub mod zip;
 pub mod zip_edit;
+pub mod zoo;
 
 use std::{
     any::Any, borrow::Cow, collections::BTreeSet, fmt, io::Read, path::PathBuf, time::SystemTime,
@@ -52,6 +59,14 @@ pub enum FormatId {
     Squashfs,
     /// An Apple disk image (UDIF), listed by the HFS+ or APFS volume inside.
     Dmg,
+    Arj,
+    Ace,
+    Zoo,
+    /// SEA's ARC, and PAK's archives in ARC's methods.
+    Arc,
+    /// A macOS flat package: a XAR listed as `pkgutil --expand-full` unpacks it.
+    Pkg,
+    Xar,
     /// A bare compressed file, seen as an archive with one entry.
     Stream,
     /// A format the installed 7-Zip reads (docs/M6.md §3).
@@ -60,7 +75,7 @@ pub enum FormatId {
 
 impl FormatId {
     /// BeeZip's own formats first, so they win a tie with a 7-Zip one.
-    pub const ALL: [FormatId; 31] = [
+    pub const ALL: [FormatId; 37] = [
         Self::Zip,
         Self::Tar,
         Self::SevenZ,
@@ -74,6 +89,13 @@ impl FormatId {
         Self::Iso,
         Self::Squashfs,
         Self::Dmg,
+        Self::Arj,
+        Self::Ace,
+        Self::Zoo,
+        Self::Arc,
+        // Before XAR: a package is a XAR, and sniffs as both.
+        Self::Pkg,
+        Self::Xar,
         Self::Stream,
         Self::External(External::Wim),
         Self::External(External::Chm),
@@ -110,6 +132,12 @@ impl FormatId {
             Self::Iso => "iso",
             Self::Squashfs => "squashfs",
             Self::Dmg => "dmg",
+            Self::Arj => "arj",
+            Self::Ace => "ace",
+            Self::Zoo => "zoo",
+            Self::Arc => "arc",
+            Self::Pkg => "pkg",
+            Self::Xar => "xar",
             Self::External(k) => k.name(),
         }
     }
@@ -130,6 +158,12 @@ impl FormatId {
             Self::Iso => "ISO image",
             Self::Squashfs => "squashfs image",
             Self::Dmg => "Apple disk image",
+            Self::Arj => "ARJ",
+            Self::Ace => "ACE",
+            Self::Zoo => "ZOO",
+            Self::Arc => "ARC",
+            Self::Pkg => "macOS package",
+            Self::Xar => "XAR",
             Self::External(k) => k.display_name(),
         }
     }
@@ -154,6 +188,12 @@ impl FormatId {
             Self::Iso => &iso::Iso,
             Self::Squashfs => &squashfs::Squashfs,
             Self::Dmg => &dmg::Dmg,
+            Self::Arj => &arj::Arj,
+            Self::Ace => &ace::Ace,
+            Self::Zoo => &zoo::Zoo,
+            Self::Arc => &arc::Arc,
+            Self::Pkg => &pkg::Pkg,
+            Self::Xar => &xar::Xar,
             Self::External(k) => k.format(),
         }
     }
