@@ -44,6 +44,7 @@ tauri-build                  = "=2.7.4"
 tauri-plugin-opener          = "=2.7.2"
 tauri-plugin-dialog          = "=2.8.4"   # brings rfd and tauri-plugin-fs
 tauri-plugin-single-instance = "=2.5.5"   # must be the first plugin registered
+tauri-plugin-updater         = "=2.14.1"  # the desktop's updates (docs/M6.md §9.4); driven from Rust only
 
 assert_cmd = "2.2.2"
 predicates = "3.1.4"

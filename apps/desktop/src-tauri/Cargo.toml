@@ -25,9 +25,12 @@ tauri.workspace = true
 tauri-plugin-dialog.workspace = true
 tauri-plugin-opener.workspace = true
 tauri-plugin-single-instance.workspace = true
+tauri-plugin-updater.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true
+# MockRuntime, for the updater's signature test.
+tauri = { workspace = true, features = ["test"] }
 
 # No [profile.release] here: Cargo ignores profiles in workspace members, and the template's
 # `panic = "abort"` would break the engine's catch_unwind. See the workspace Cargo.toml.
