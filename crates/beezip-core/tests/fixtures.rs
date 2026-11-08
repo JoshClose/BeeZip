@@ -180,7 +180,15 @@ fn check(fx: &Value) -> Result<(), String> {
             continue;
         }
         let Some(e) = entries.iter().find(|e| normalize(&e.path) == p) else {
-            return Err(format!("`{p}` isn't listed"));
+            // What is listed beside it, to see how another version of a tool names it.
+            let parent = p.rsplit_once('/').map_or("", |(d, _)| d);
+            let beside: Vec<String> = entries
+                .iter()
+                .map(|e| e.path.clone())
+                .filter(|q| q.rsplit_once('/').map_or("", |(d, _)| d) == parent)
+                .take(20)
+                .collect();
+            return Err(format!("`{p:?}` isn't listed; beside it: {beside:?}"));
         };
         match (want["kind"].as_str().unwrap(), &e.kind) {
             ("symlink", EntryKind::Symlink { target }) => {
