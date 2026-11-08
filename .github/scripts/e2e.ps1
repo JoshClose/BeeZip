@@ -1,7 +1,7 @@
 # The end-to-end smoke test on the Windows runner (docs/M6.md §10): tauri-driver 2.1.0 and the
 # msedgedriver that matches the runner's WebView2, then tests/e2e/smoke.mjs against the BeeZip.exe
-# that `cargo xtask dist --debug` built, with a scratch config and WebView2 profile. Stops only
-# the processes it started, by their ids.
+# that `cargo xtask dist --debug` built, with a scratch config. Stops only the processes it
+# started, by their ids.
 $ErrorActionPreference = 'Stop'
 [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
 function Fail([string]$message) { Write-Host "::error::$message"; exit 1 }
@@ -25,10 +25,11 @@ $native = Join-Path $work 'edgedriver\msedgedriver.exe'
 $driver = (Get-Command tauri-driver -ErrorAction SilentlyContinue).Source
 if (-not $driver) { Fail 'tauri-driver is missing (cargo install --locked tauri-driver --version 2.1.0)' }
 
-# The app's surroundings: a config that never looks for updates, its own WebView2 profile.
+# The app's surroundings: a config that never looks for updates. No WEBVIEW2_USER_DATA_FOLDER:
+# it would override the profile folder msedgedriver gives WebView2, which is where msedgedriver
+# then looks for DevToolsActivePort ("session not created"); the runner's profile is fresh.
 Set-Content (Join-Path $work 'config.toml') "[updates]`ncheck = false`n" -Encoding utf8NoBOM
 $env:BEEZIP_CONFIG = Join-Path $work 'config.toml'
-$env:WEBVIEW2_USER_DATA_FOLDER = Join-Path $work 'webview2'
 $port = 4444
 $env:WD_URL = "http://127.0.0.1:$port"
 

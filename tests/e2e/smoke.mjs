@@ -5,7 +5,7 @@
 //   node tests/e2e/smoke.mjs <BeeZip exe> <archive> <entry the archive lists>...
 //
 // WD_URL is tauri-driver's address (default http://127.0.0.1:4444). The caller sets BEEZIP_CONFIG
-// and a scratch WebView2 profile (.github/scripts/e2e.ps1).
+// to a scratch config (.github/scripts/e2e.ps1).
 //
 // 1. BeeZip starts on its own.
 // 2. A second BeeZip.exe started right away hands it the archive, as Explorer does when several
