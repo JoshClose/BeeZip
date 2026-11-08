@@ -114,6 +114,9 @@ jobs:
           [IO.File]::WriteAllBytes($file, [Convert]::FromBase64String($env:PFX))
           "BEEZIP_SIGN_PFX=$file" >> $env:GITHUB_ENV
 
+      - name: Tauri's NSIS, fetched with retries (Tauri's own single download has failed with a 504)
+        shell: pwsh
+        run: pwsh -NoProfile -File .github/scripts/tauri-nsis.ps1
       - name: Installer (release)
         env:
           BEEZIP_SIGN: ${{ steps.sign.outputs.mode }}

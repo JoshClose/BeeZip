@@ -59,10 +59,14 @@ jobs:
           if ($LASTEXITCODE) { exit 1 }
           Import-Certificate -FilePath target/dev-cert/BeeZip-Dev.cer -CertStoreLocation Cert:\LocalMachine\TrustedPeople | Out-Null
       - name: Tauri's NSIS, kept between runs (its download from GitHub has failed with a 504)
+        id: tauri-tools
         uses: actions/cache@v6
         with:
           path: ~\AppData\Local\tauri
           key: tauri-tools-${{ runner.os }}-cli-2.12.4
+      - name: Tauri's NSIS, fetched with retries when it isn't cached
+        if: steps.tauri-tools.outputs.cache-hit != 'true'
+        run: pwsh -NoProfile -File .github/scripts/tauri-nsis.ps1
       - name: Installer (debug) with the signed package, which also runs tsc and vite build
         run: cargo xtask dist --debug --sign-dev
       - uses: taiki-e/install-action@v2    # cargo-about's own 0.9.3 release build, made with its `cli` feature
