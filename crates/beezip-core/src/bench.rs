@@ -1038,13 +1038,15 @@ mod tests {
     fn memory_is_read() {
         #[cfg(any(windows, target_os = "linux"))]
         assert!(private_bytes() > 0);
-        // 64 MiB touched while measuring shows.
-        let (_, _, mem) = measure(|_| {
-            let v = vec![1u8; 64 << 20];
+        // 128 MiB touched while measuring shows, read at once.
+        let (_, _, mem) = measure(|peak| {
+            let v = vec![1u8; 128 << 20];
             std::hint::black_box(&v);
+            peak.note();
             thread::sleep(Duration::from_millis(5));
         });
-        // Loosely: other tests in this process allocate and free meanwhile.
+        // Loosely: other tests in this process allocate and free meanwhile, which once took a
+        // 64 MiB allocation's reading to 31.9 MiB on CI.
         #[cfg(any(windows, target_os = "linux"))]
         assert!(mem >= 32 << 20, "{mem}");
         let _ = mem;
