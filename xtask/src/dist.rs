@@ -149,6 +149,12 @@ pub fn run(debug: bool, version: Option<&str>, sign_dev: bool) -> anyhow::Result
     if mode != Mode::None {
         config["bundle"]["windows"]["signCommand"] = sign::sign_command(&root);
     }
+    if let Some(at) = null_at(&config, "") {
+        bail!(
+            "the config overlay has a null at {at}, which would delete that key from \
+             tauri.conf.json"
+        );
+    }
     let config_path = dir.join("tauri.dist.json");
     std::fs::write(&config_path, serde_json::to_string_pretty(&config)? + "\n")?;
     println!("wrote {}", config_path.display());
@@ -338,6 +344,26 @@ fn config(
     Ok(config)
 }
 
+/// The path of a `null` in `value`, if it has one. Tauri merges `--config` files into
+/// tauri.conf.json as a JSON merge patch (RFC 7386), where a `null` deletes the key it names.
+fn null_at(value: &Value, path: &str) -> Option<String> {
+    match value {
+        Value::Null => Some(if path.is_empty() {
+            "the top".into()
+        } else {
+            path.into()
+        }),
+        Value::Object(map) => map
+            .iter()
+            .find_map(|(k, v)| null_at(v, &format!("{path}/{k}"))),
+        Value::Array(list) => list
+            .iter()
+            .enumerate()
+            .find_map(|(i, v)| null_at(v, &format!("{path}/{i}"))),
+        _ => None,
+    }
+}
+
 /// Where the updater's public key is kept, once there is one (docs/M6.md §14).
 pub const UPDATER_PUBKEY: &str = "packaging/updater.pub";
 
@@ -359,10 +385,12 @@ fn updater(
         None => None,
     };
     let signs = set(env("TAURI_SIGNING_PRIVATE_KEY")).is_some();
-    let updater = &mut config["plugins"]["updater"];
+    // Only what's set goes in: Tauri merges this file into tauri.conf.json as a JSON merge
+    // patch, where a `null` deletes the key, and an app without `plugins.updater` doesn't start.
+    let mut updater = serde_json::Map::new();
     match &pubkey {
         Some(key) => {
-            updater["pubkey"] = json!(key);
+            updater.insert("pubkey".into(), json!(key));
             println!("the updater checks for updates");
         }
         None if signs => bail!(
@@ -372,9 +400,15 @@ fn updater(
         None => println!("no updater key ({UPDATER_PUBKEY}): this build never checks for updates"),
     }
     if let Some(endpoint) = set(env("BEEZIP_UPDATER_ENDPOINT")) {
-        updater["dangerousInsecureTransportProtocol"] = json!(endpoint.starts_with("http:"));
-        updater["endpoints"] = json!([endpoint]);
+        updater.insert(
+            "dangerousInsecureTransportProtocol".into(),
+            json!(endpoint.starts_with("http:")),
+        );
+        updater.insert("endpoints".into(), json!([endpoint]));
         println!("test build: the updater asks {endpoint}");
+    }
+    if !updater.is_empty() {
+        config["plugins"]["updater"] = Value::Object(updater);
     }
     if signs {
         config["bundle"]["createUpdaterArtifacts"] = json!(true);
@@ -519,7 +553,16 @@ mod tests {
         // No key anywhere: the config is left alone, and signing for the updater is refused.
         let mut config = json!({ "bundle": {} });
         updater(dir.path(), &mut config, &env(&[])).unwrap();
-        assert_eq!(config["plugins"]["updater"], Value::Null);
+        assert_eq!(
+            config,
+            json!({ "bundle": {} }),
+            "nothing added, not even a null"
+        );
+        assert_eq!(null_at(&config, ""), None);
+        assert_eq!(
+            null_at(&json!({ "plugins": { "updater": null } }), ""),
+            Some("/plugins/updater".into())
+        );
         assert!(
             updater(
                 dir.path(),
