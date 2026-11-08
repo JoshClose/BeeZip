@@ -1,0 +1,54 @@
+
+7-Zip 26.00 (x64) : Copyright (c) 1999-2026 Igor Pavlov : 2026-02-12
+
+Scanning the drive for archives:
+1 file, 42496 bytes (42 KiB)
+
+Listing archive: C:/samples/gpt-brace.img
+
+--
+Path = C:/samples/gpt-brace.img
+Type = GPT
+Physical Size = 42496
+Sector Size = 512
+ID = 00000000-0000-0000-0000-000000000063
+----
+Path = 
+{
+0.
+}
+Type = Ext.img
+}
+Size = 4096
+File System = Windows BDP
+Offset = 17408
+ID = 00000000-0000-0000-0000-000000000001
+--
+Path = 0._}_Type = Ext.img
+Type = zip
+WARNINGS:
+There are data after the end of archive
+Physical Size = 121
+Tail Size = 3975
+
+----------
+Path = inner.txt
+Folder = -
+Size = 5
+Packed Size = 5
+Modified = 2024-05-06 13:08:10Z
+Created = 
+Accessed = 
+Attributes =  01800000
+Encrypted = -
+Comment = 
+CRC = 6D310BC9
+Method = Store
+Characteristics = 
+Host OS = FAT
+Version = 20
+Volume Index = 0
+Offset = 0
+
+
+Warnings: 1

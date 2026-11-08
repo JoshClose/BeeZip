@@ -831,6 +831,7 @@ impl ArchiveReader for CpioReader {
             encrypted_headers: false,
             locked: false,
             recovery_record: false,
+            external: None,
         })
     }
 

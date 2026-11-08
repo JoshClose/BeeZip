@@ -80,6 +80,25 @@ pub struct ArchiveInfoOutput {
     /// format, a volume set, a self-extracting archive, a read-only file. `null` when they
     /// wouldn't.
     pub not_editable: Option<String>,
+    /// The program that reads it, for the formats BeeZip leaves to one: "7-Zip 26.00".
+    pub backend: Option<String>,
+    /// The formats 7-Zip opened, outermost first: `["vhdx", "gpt", "ntfs"]`. Empty for
+    /// BeeZip's own formats.
+    pub levels: Vec<String>,
+    /// What those levels record: a volume's label, a WIM's images, the cluster size.
+    pub properties: Vec<InfoProperty>,
+    /// Things to know about the archive: an MSI's names are the installer's internal keys.
+    pub notes: Vec<String>,
+}
+
+/// One fact a level of an archive records (docs/M6.md §3.5).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+pub struct InfoProperty {
+    /// The level's format: `ntfs`.
+    pub level: String,
+    /// 7-Zip's name for it: `Label`, `Cluster Size`.
+    pub name: String,
+    pub value: String,
 }
 
 pub struct ArchiveInfo;
@@ -137,7 +156,7 @@ impl Command for ArchiveInfo {
                     size,
                     packed_size: opened.size,
                     ratio: ratio(size, opened.size),
-                    methods: info.methods.iter().map(|m| (*m).to_owned()).collect(),
+                    methods: info.methods.iter().map(|m| m.to_string()).collect(),
                     encryption: match info.encryption {
                         Encryption::None => EncryptionState::None,
                         Encryption::Some => EncryptionState::Some,
@@ -153,6 +172,27 @@ impl Command for ArchiveInfo {
                     not_editable,
                     comment: info.comment,
                     archive: input.archive,
+                    backend: info.external.as_ref().map(|x| x.backend.clone()),
+                    levels: info
+                        .external
+                        .as_ref()
+                        .map(|x| x.levels.clone())
+                        .unwrap_or_default(),
+                    properties: info
+                        .external
+                        .as_ref()
+                        .map(|x| {
+                            x.properties
+                                .iter()
+                                .map(|p| InfoProperty {
+                                    level: p.level.clone(),
+                                    name: p.name.clone(),
+                                    value: p.value.clone(),
+                                })
+                                .collect()
+                        })
+                        .unwrap_or_default(),
+                    notes: info.external.map(|x| x.notes).unwrap_or_default(),
                 };
                 Ok(out)
             },
@@ -208,6 +248,20 @@ impl Command for ArchiveInfo {
         }
         if let Some(c) = &out.comment {
             s.push_str(&format!("\n  comment: {c}"));
+        }
+        if let Some(b) = &out.backend {
+            s.push_str(&format!("\n  read by {b}: {}", out.levels.join(" > ")));
+        }
+        for p in &out.properties {
+            s.push_str(&format!(
+                "\n  {} {}: {}",
+                p.level,
+                p.name.to_lowercase(),
+                p.value
+            ));
+        }
+        for n in &out.notes {
+            s.push_str(&format!("\n  {n}"));
         }
         Some(s)
     }

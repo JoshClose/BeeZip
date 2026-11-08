@@ -13,6 +13,7 @@
 //!   AES-256 for a password, or ZipCrypto for tools that can't read AES.
 
 use std::{
+    borrow::Cow,
     collections::BTreeSet,
     fs::File,
     io::{self, BufReader, BufWriter, Read, Seek, SeekFrom, Write},
@@ -359,7 +360,7 @@ impl ZipReader {
                 packed_size: Some(f.compressed_size()),
                 modified,
                 crc32: Some(f.crc32()),
-                method: Some(method_name(f.compression())),
+                method: Some(method_name(f.compression()).into()),
                 encrypted: f.encrypted(),
                 unix_mode: if unix { f.unix_mode() } else { None },
                 dos_attrs: (!unix).then(|| f.external_attributes() & 0xFFFF),
@@ -940,11 +941,11 @@ impl ArchiveReader for ZipReader {
     }
 
     fn info(&mut self, _: &mut dyn Ctx) -> Result<ArchiveInfo> {
-        let methods: BTreeSet<&'static str> = self
+        let methods: BTreeSet<Cow<'static, str>> = self
             .entries
             .iter()
             .filter(|e| e.kind == EntryKind::File)
-            .filter_map(|e| e.method)
+            .filter_map(|e| e.method.clone())
             .collect();
         let encrypted = self.entries.iter().filter(|e| e.encrypted).count();
         let files = self
@@ -969,6 +970,7 @@ impl ArchiveReader for ZipReader {
             encrypted_headers: false,
             locked: false,
             recovery_record: false,
+            external: None,
         })
     }
 

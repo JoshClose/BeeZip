@@ -13,6 +13,7 @@ use std::{
 
 use crate::{
     CodecId, Ctx, Error, Limits, Result,
+    backend::{SevenZipOptions, SevenZipReader},
     detect::{Detection, detect_path},
     format::{
         ArchiveReader, FormatId, ar::ArReader, cab::CabReader, cpio::CpioReader, deb::DebReader,
@@ -40,6 +41,8 @@ pub struct OpenOptions {
     /// A zip with fewer files than this to extract is extracted on the job's thread: workers
     /// cost more than they save on a few files. 64; tests lower it.
     pub min_parallel_files: usize,
+    /// The 7-Zip that reads the formats BeeZip leaves to it (docs/M6.md §3.1).
+    pub seven_zip: SevenZipOptions,
 }
 
 impl Default for OpenOptions {
@@ -50,6 +53,7 @@ impl Default for OpenOptions {
             names: NameDecoding::default(),
             threads: 1,
             min_parallel_files: 64,
+            seven_zip: SevenZipOptions::default(),
         }
     }
 }
@@ -72,6 +76,11 @@ impl OpenOptions {
     /// The same, with `threads` workers for reading.
     pub fn with_threads(self, threads: u32) -> Self {
         Self { threads, ..self }
+    }
+
+    /// The same, running the 7-Zip `seven_zip` says.
+    pub fn with_seven_zip(self, seven_zip: SevenZipOptions) -> Self {
+        Self { seven_zip, ..self }
     }
 }
 
@@ -352,6 +361,9 @@ pub fn open(path: &Path, opts: &OpenOptions, cx: &mut dyn Ctx) -> Result<Opened>
             FormatId::Iso => Box::new(IsoReader::open(source, cx)?),
             FormatId::Squashfs => Box::new(SquashfsReader::open(source, cx)?),
             FormatId::Dmg => Box::new(DmgReader::open(source, cx)?),
+            FormatId::External(kind) => {
+                Box::new(SevenZipReader::open(source, kind, &opts.seven_zip, cx)?)
+            }
         })
     })();
     let reader = opened.map_err(|e| if joined { truncated_hint(e, parts) } else { e })?;

@@ -274,7 +274,8 @@ pub fn associations() -> anyhow::Result<Vec<Value>> {
         }
     };
     for f in formats["formats"].as_array().into_iter().flatten() {
-        if f["caps"]["list"] == true {
+        // The formats 7-Zip reads aren't associated (docs/M6.md §3.7).
+        if f["caps"]["list"] == true && f["backend"].is_null() {
             // "ZIP archive", but "Apple disk image" and "Debian package" as they are.
             let name = f["name"].as_str().unwrap_or("");
             let what = if name.ends_with(" image") || name.ends_with(" package") {

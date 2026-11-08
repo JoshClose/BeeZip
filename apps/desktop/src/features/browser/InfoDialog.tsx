@@ -53,6 +53,18 @@ export function InfoDialog({ tab, onClose }: { tab: Tab; onClose: () => void }) 
       {info && (
         <dl className="pb-2">
           <Row label="Format">{info.chain}</Row>
+          {info.backend && (
+            <Row label="Read by">
+              {info.backend}
+              {info.levels.length > 1 && <span className="text-muted"> ({info.levels.join(" › ")})</span>}
+            </Row>
+          )}
+          {info.properties.map((p) => (
+            <Row key={`${p.level}.${p.name}`} label={p.name}>
+              {p.value}
+              {info.levels.length > 1 && <span className="text-muted"> ({p.level})</span>}
+            </Row>
+          ))}
           <Row label="Entries">
             {info.entries.toLocaleString()}: {info.files.toLocaleString()} files, {info.dirs.toLocaleString()} folders, {info.links.toLocaleString()} links
           </Row>
@@ -85,6 +97,11 @@ export function InfoDialog({ tab, onClose }: { tab: Tab; onClose: () => void }) 
               <pre className="font-sans whitespace-pre-wrap">{info.comment}</pre>
             </Row>
           )}
+          {info.notes.map((n) => (
+            <Row key={n} label="Note">
+              {n}
+            </Row>
+          ))}
         </dl>
       )}
       <div className="grid grid-cols-[10rem_1fr] gap-3 border-t border-rule pt-2 pb-1">

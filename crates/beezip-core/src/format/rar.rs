@@ -226,6 +226,7 @@ impl RarReader {
 #[cfg(feature = "rar")]
 mod imp {
     use std::{
+        borrow::Cow,
         collections::BTreeSet,
         io::{self, Read},
         path::PathBuf,
@@ -363,7 +364,7 @@ mod imp {
         };
         e.crc32 = (h.hash_type == beezip_unrar::HASH_CRC32 && e.kind == EntryKind::File)
             .then_some(h.file_crc);
-        e.method = (e.kind == EntryKind::File).then(|| method_name(h));
+        e.method = (e.kind == EntryKind::File).then(|| method_name(h).into());
         e.encrypted = h.is_encrypted();
         match h.host_os {
             beezip_unrar::HOST_UNIX => e.unix_mode = Some(h.file_attr),
@@ -749,11 +750,11 @@ mod imp {
         }
 
         fn info(&mut self, _: &mut dyn Ctx) -> Result<ArchiveInfo> {
-            let methods: BTreeSet<&'static str> = self
+            let methods: BTreeSet<Cow<'static, str>> = self
                 .entries
                 .iter()
                 .filter(|e| e.kind == EntryKind::File)
-                .filter_map(|e| e.method)
+                .filter_map(|e| e.method.clone())
                 .collect();
             let files: Vec<&Entry> = self
                 .entries
@@ -780,6 +781,7 @@ mod imp {
                 encrypted_headers: headers,
                 locked: self.flags & flags::LOCK != 0,
                 recovery_record: self.flags & flags::RECOVERY != 0,
+                external: None,
             })
         }
 

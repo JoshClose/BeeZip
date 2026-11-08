@@ -1,0 +1,284 @@
+
+7-Zip 26.00 (x64) : Copyright (c) 1999-2026 Igor Pavlov : 2026-02-12
+
+Scanning the drive for archives:
+1 file, 67108864 bytes (64 MiB)
+
+Listing archive: C:/samples/ext4.img
+
+--
+Path = C:/samples/ext4.img
+Type = Ext
+Physical Size = 67108864
+Cluster Size = 4096
+Free Space = 46026752
+Modified = 2026-11-07 13:40:43Z
+Created = 2026-11-07 13:40:42Z
+Last Check Time = 2026-11-07 13:40:42Z
+Host OS = Linux
+Revision = 1
+inode Size = 256
+Code Page = UTF-8
+Label = BeeZipExt4
+ID = 57074633223341bcb0165205b45c3f9f
+Characteristics = HAS_JOURNAL EXT_ATTR RESIZE_INODE DIR_INDEX
+Incompatible Features = FILETYPE EXTENTS 64BIT FLEX_BG
+Readonly-compatible Features = SPARSE_SUPER LARGE_FILE HUGE_FILE DIR_NLINK EXTRA_ISIZE METADATA_CSUM
+Written KiB = 16557
+
+----------
+Path = lost+found
+Folder = +
+Size = 
+Packed Size = 
+Mode = drwx------
+Modified = 2026-11-07 13:40:42.000000000Z
+Created = 2026-11-07 13:40:42.000000000Z
+Accessed = 2026-11-07 13:40:42.000000000Z
+iNode = 11
+Links = 2
+Symbolic Link = 
+Characteristics = EXTENTS
+User ID = 0
+Group ID = 0
+
+Path = bee-🐝.txt
+Folder = -
+Size = 6
+Packed Size = 4096
+Mode = -rw-r--r--
+Modified = 2026-11-07 13:40:42.000000000Z
+Created = 2026-11-07 13:40:42.000000000Z
+Accessed = 2026-11-07 13:40:42.000000000Z
+iNode = 12
+Links = 1
+Symbolic Link = 
+Characteristics = EXTENTS
+User ID = 0
+Group ID = 0
+
+Path = big.bin
+Folder = -
+Size = 12582912
+Packed Size = 12582912
+Mode = -rw-r--r--
+Modified = 2026-11-07 13:40:42.000000000Z
+Created = 2026-11-07 13:40:42.000000000Z
+Accessed = 2026-11-07 13:40:42.000000000Z
+iNode = 13
+Links = 1
+Symbolic Link = 
+Characteristics = EXTENTS
+User ID = 0
+Group ID = 0
+
+Path = café-ñandú.txt
+Folder = -
+Size = 9
+Packed Size = 4096
+Mode = -rw-r--r--
+Modified = 2026-11-07 13:40:42.000000000Z
+Created = 2026-11-07 13:40:43.000000000Z
+Accessed = 2026-11-07 13:40:42.000000000Z
+iNode = 14
+Links = 1
+Symbolic Link = 
+Characteristics = EXTENTS
+User ID = 0
+Group ID = 0
+
+Path = empty.txt
+Folder = -
+Size = 0
+Packed Size = 0
+Mode = -rw-r--r--
+Modified = 2026-11-07 13:40:42.000000000Z
+Created = 2026-11-07 13:40:43.000000000Z
+Accessed = 2026-11-07 13:40:42.000000000Z
+iNode = 15
+Links = 1
+Symbolic Link = 
+Characteristics = EXTENTS
+User ID = 0
+Group ID = 0
+
+Path = hard-readme.txt
+Folder = -
+Size = 18
+Packed Size = 4096
+Mode = -rw-r--r--
+Modified = 2026-11-07 13:40:42.000000000Z
+Created = 2026-11-07 13:40:43.000000000Z
+Accessed = 2026-11-07 13:40:42.000000000Z
+iNode = 16
+Links = 2
+Symbolic Link = 
+Characteristics = EXTENTS
+User ID = 0
+Group ID = 0
+
+Path = link-to-readme
+Folder = -
+Size = 10
+Packed Size = 0
+Mode = lrwxrwxrwx
+Modified = 2026-11-07 13:40:42.000000000Z
+Created = 2026-11-07 13:40:43.000000000Z
+Accessed = 2026-11-07 13:40:42.000000000Z
+iNode = 17
+Links = 1
+Symbolic Link = readme.txt
+Characteristics = 
+User ID = 0
+Group ID = 0
+
+Path = mtime.txt
+Folder = -
+Size = 12
+Packed Size = 4096
+Mode = -rw-r--r--
+Modified = 2024-05-06 07:08:09.000000000Z
+Created = 2026-11-07 13:40:43.000000000Z
+Accessed = 2026-11-07 13:40:42.000000000Z
+iNode = 18
+Links = 1
+Symbolic Link = 
+Characteristics = EXTENTS
+User ID = 0
+Group ID = 0
+
+Path = readme.txt
+Folder = -
+Size = 18
+Packed Size = 4096
+Mode = -rw-r--r--
+Modified = 2026-11-07 13:40:42.000000000Z
+Created = 2026-11-07 13:40:43.000000000Z
+Accessed = 2026-11-07 13:40:42.000000000Z
+iNode = 16
+Links = 2
+Symbolic Link = 
+Characteristics = EXTENTS
+User ID = 0
+Group ID = 0
+
+Path = sub
+Folder = +
+Size = 
+Packed Size = 
+Mode = drwxr-xr-x
+Modified = 2026-11-07 13:40:42.000000000Z
+Created = 2026-11-07 13:40:43.000000000Z
+Accessed = 2026-11-07 13:40:42.000000000Z
+iNode = 19
+Links = 3
+Symbolic Link = 
+Characteristics = EXTENTS
+User ID = 0
+Group ID = 0
+
+Path = Ünïcödé dir
+Folder = +
+Size = 
+Packed Size = 
+Mode = drwxr-xr-x
+Modified = 2026-11-07 13:40:42.000000000Z
+Created = 2026-11-07 13:40:43.000000000Z
+Accessed = 2026-11-07 13:40:42.000000000Z
+iNode = 23
+Links = 2
+Symbolic Link = 
+Characteristics = EXTENTS
+User ID = 0
+Group ID = 0
+
+Path = 名前.txt
+Folder = -
+Size = 4
+Packed Size = 4096
+Mode = -rw-r--r--
+Modified = 2026-11-07 13:40:42.000000000Z
+Created = 2026-11-07 13:40:43.000000000Z
+Accessed = 2026-11-07 13:40:42.000000000Z
+iNode = 25
+Links = 1
+Symbolic Link = 
+Characteristics = EXTENTS
+User ID = 0
+Group ID = 0
+
+Path = sub/link-to-nested
+Folder = +
+Size = 6
+Packed Size = 0
+Mode = lrwxrwxrwx
+Modified = 2026-11-07 13:40:42.000000000Z
+Created = 2026-11-07 13:40:43.000000000Z
+Accessed = 2026-11-07 13:40:42.000000000Z
+iNode = 20
+Links = 1
+Symbolic Link = nested
+Characteristics = 
+User ID = 0
+Group ID = 0
+
+Path = sub/nested
+Folder = +
+Size = 
+Packed Size = 
+Mode = drwxr-xr-x
+Modified = 2026-11-07 13:40:42.000000000Z
+Created = 2026-11-07 13:40:43.000000000Z
+Accessed = 2026-11-07 13:40:42.000000000Z
+iNode = 21
+Links = 2
+Symbolic Link = 
+Characteristics = EXTENTS
+User ID = 0
+Group ID = 0
+
+Path = sub/nested/deep.txt
+Folder = -
+Size = 5
+Packed Size = 4096
+Mode = -rw-r--r--
+Modified = 2026-11-07 13:40:42.000000000Z
+Created = 2026-11-07 13:40:43.000000000Z
+Accessed = 2026-11-07 13:40:42.000000000Z
+iNode = 22
+Links = 1
+Symbolic Link = 
+Characteristics = EXTENTS
+User ID = 0
+Group ID = 0
+
+Path = Ünïcödé dir/日本語.txt
+Folder = -
+Size = 2
+Packed Size = 4096
+Mode = -rw-r--r--
+Modified = 2026-11-07 13:40:42.000000000Z
+Created = 2026-11-07 13:40:43.000000000Z
+Accessed = 2026-11-07 13:40:42.000000000Z
+iNode = 24
+Links = 1
+Symbolic Link = 
+Characteristics = EXTENTS
+User ID = 0
+Group ID = 0
+
+Path = [SYS]/Journal
+Folder = -
+Size = 4194304
+Packed Size = 4194304
+Mode = -rw-------
+Modified = 2026-11-07 13:40:42.000000000Z
+Created = 2026-11-07 13:40:42.000000000Z
+Accessed = 2026-11-07 13:40:42.000000000Z
+iNode = 8
+Links = 1
+Symbolic Link = 
+Characteristics = EXTENTS
+User ID = 0
+Group ID = 0
+

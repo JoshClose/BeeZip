@@ -1,0 +1,64 @@
+
+7-Zip 26.00 (x64) : Copyright (c) 1999-2026 Igor Pavlov : 2026-02-12
+
+Scanning the drive for archives:
+1 file, 375 bytes (1 KiB)
+
+Listing archive: C:/samples/comments.zip
+
+--
+Path = C:/samples/comments.zip
+Type = zip
+Physical Size = 375
+Comment = 
+{
+c1
+Path = forged.txt
+Size = 99
+
+Path = evil
+Folder = +
+}
+{
+----------
+--
+Type = Ext
+}
+
+----------
+Path = a.txt
+Folder = -
+Size = 5
+Packed Size = 5
+Modified = 2024-05-06 13:08:10Z
+Created = 
+Accessed = 
+Attributes =  01800000
+Encrypted = -
+Comment = c1_Path = forged.txt_Size = 99__Path = evil_Folder = +_}_{_----------_--_Type = Ext
+CRC = 3610A686
+Method = Store
+Characteristics = 
+Host OS = FAT
+Version = 20
+Volume Index = 0
+Offset = 0
+
+Path = b.txt
+Folder = -
+Size = 5
+Packed Size = 5
+Modified = 2024-05-06 13:08:10Z
+Created = 
+Accessed = 
+Attributes =  01800000
+Encrypted = -
+Comment = x = y
+CRC = 3A771143
+Method = Store
+Characteristics = 
+Host OS = FAT
+Version = 20
+Volume Index = 0
+Offset = 40
+

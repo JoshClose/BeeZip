@@ -1,0 +1,164 @@
+
+7-Zip 26.00 (x64) : Copyright (c) 1999-2026 Igor Pavlov : 2026-02-12
+
+Scanning the drive for archives:
+1 file, 8388608 bytes (8192 KiB)
+
+Listing archive: C:/samples/ext4-evil2.img
+
+--
+Path = C:/samples/ext4-evil2.img
+Type = Ext
+Physical Size = 8388608
+Cluster Size = 4096
+Free Space = 3600384
+Modified = 2026-11-07 13:43:33Z
+Created = 2026-11-07 13:43:33Z
+Last Check Time = 2026-11-07 13:43:33Z
+Host OS = Linux
+Revision = 1
+inode Size = 256
+Code Page = UTF-8
+Label = BeeZipEvil2
+ID = 75cc1b3472f7459a9645bfb7c0c14836
+Characteristics = HAS_JOURNAL EXT_ATTR RESIZE_INODE DIR_INDEX
+Incompatible Features = FILETYPE EXTENTS 64BIT FLEX_BG
+Readonly-compatible Features = SPARSE_SUPER LARGE_FILE HUGE_FILE DIR_NLINK EXTRA_ISIZE METADATA_CSUM
+Written KiB = 4221
+
+----------
+Path = lost+found
+Folder = +
+Size = 
+Packed Size = 
+Mode = drwx------
+Modified = 2026-11-07 13:43:33.000000000Z
+Created = 2026-11-07 13:43:33.000000000Z
+Accessed = 2026-11-07 13:43:33.000000000Z
+iNode = 11
+Links = 2
+Symbolic Link = 
+Characteristics = EXTENTS
+User ID = 0
+Group ID = 0
+
+Path = badutf8.txt
+Folder = -
+Size = 4
+Packed Size = 4096
+Mode = -rw-r--r--
+Modified = 2026-11-07 13:43:33.000000000Z
+Created = 2026-11-07 13:43:33.000000000Z
+Accessed = 2026-11-07 13:43:33.000000000Z
+iNode = 12
+Links = 1
+Symbolic Link = 
+Characteristics = EXTENTS
+User ID = 0
+Group ID = 0
+
+Path = crcarriage.txt
+Folder = -
+Size = 3
+Packed Size = 4096
+Mode = -rw-r--r--
+Modified = 2026-11-07 13:43:33.000000000Z
+Created = 2026-11-07 13:43:33.000000000Z
+Accessed = 2026-11-07 13:43:33.000000000Z
+iNode = 13
+Links = 1
+Symbolic Link = 
+Characteristics = EXTENTS
+User ID = 0
+Group ID = 0
+
+Path = esc[31mred.txt
+Folder = -
+Size = 4
+Packed Size = 4096
+Mode = -rw-r--r--
+Modified = 2026-11-07 13:43:33.000000000Z
+Created = 2026-11-07 13:43:33.000000000Z
+Accessed = 2026-11-07 13:43:33.000000000Z
+iNode = 14
+Links = 1
+Symbolic Link = 
+Characteristics = EXTENTS
+User ID = 0
+Group ID = 0
+
+Path = new_line.txt
+Folder = -
+Size = 3
+Packed Size = 4096
+Mode = -rw-r--r--
+Modified = 2026-11-07 13:43:33.000000000Z
+Created = 2026-11-07 13:43:33.000000000Z
+Accessed = 2026-11-07 13:43:33.000000000Z
+iNode = 15
+Links = 1
+Symbolic Link = 
+Characteristics = EXTENTS
+User ID = 0
+Group ID = 0
+
+Path = plain.txt
+Folder = -
+Size = 4
+Packed Size = 4096
+Mode = -rw-r--r--
+Modified = 2026-11-07 13:43:33.000000000Z
+Created = 2026-11-07 13:43:33.000000000Z
+Accessed = 2026-11-07 13:43:33.000000000Z
+iNode = 16
+Links = 1
+Symbolic Link = 
+Characteristics = EXTENTS
+User ID = 0
+Group ID = 0
+
+Path = tab	here.txt
+Folder = -
+Size = 4
+Packed Size = 4096
+Mode = -rw-r--r--
+Modified = 2026-11-07 13:43:33.000000000Z
+Created = 2026-11-07 13:43:33.000000000Z
+Accessed = 2026-11-07 13:43:33.000000000Z
+iNode = 17
+Links = 1
+Symbolic Link = 
+Characteristics = EXTENTS
+User ID = 0
+Group ID = 0
+
+Path = x__Path = forged.._.._out.txt_Folder = -_Size = 5
+Folder = -
+Size = 6
+Packed Size = 4096
+Mode = -rw-r--r--
+Modified = 2026-11-07 13:43:33.000000000Z
+Created = 2026-11-07 13:43:33.000000000Z
+Accessed = 2026-11-07 13:43:33.000000000Z
+iNode = 18
+Links = 1
+Symbolic Link = 
+Characteristics = EXTENTS
+User ID = 0
+Group ID = 0
+
+Path = [SYS]/Journal
+Folder = -
+Size = 4194304
+Packed Size = 4194304
+Mode = -rw-------
+Modified = 2026-11-07 13:43:33.000000000Z
+Created = 2026-11-07 13:43:33.000000000Z
+Accessed = 2026-11-07 13:43:33.000000000Z
+iNode = 8
+Links = 1
+Symbolic Link = 
+Characteristics = EXTENTS
+User ID = 0
+Group ID = 0
+

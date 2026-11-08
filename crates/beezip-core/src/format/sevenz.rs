@@ -657,7 +657,8 @@ fn make_entry(
             .coders
             .iter()
             .filter_map(|c| coder_name(c.encoder_method_id()))
-            .find(|n| !is_filter_or_aes(n));
+            .find(|n| !is_filter_or_aes(n))
+            .map(Into::into);
         // Only a block of one entry has a packed size of its own.
         let streams = archive.stream_map.file_block_index[info.files.clone()]
             .iter()
@@ -889,7 +890,7 @@ impl ArchiveReader for SevenZReader {
         Ok(ArchiveInfo {
             format: FormatId::SevenZ,
             codecs: self.source.codecs.clone(),
-            methods: methods.into_iter().collect(),
+            methods: methods.into_iter().map(Into::into).collect(),
             comment: None,
             encryption: match encrypted {
                 _ if self.header.encrypted => Encryption::All,
@@ -904,6 +905,7 @@ impl ArchiveReader for SevenZReader {
             encrypted_headers: self.header.encrypted,
             locked: false,
             recovery_record: false,
+            external: None,
         })
     }
 

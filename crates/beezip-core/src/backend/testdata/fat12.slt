@@ -1,0 +1,62 @@
+
+7-Zip 26.00 (x64) : Copyright (c) 1999-2026 Igor Pavlov : 2026-02-12
+
+Scanning the drive for archives:
+1 file, 1474560 bytes (1440 KiB)
+
+Listing archive: C:/samples/fat12.img
+
+--
+Path = C:/samples/fat12.img
+Type = FAT
+Physical Size = 1474560
+File System = FAT12
+Cluster Size = 512
+Free Space = 1456128
+Headers Size = 16896
+Modified = 2026-11-07 19:40:44Z
+Label = BEEZIP12
+Sector Size = 512
+ID = 2781535891
+
+----------
+Path = empty.txt
+Folder = -
+Size = 0
+Packed Size = 0
+Modified = 2026-11-07 19:40:44Z
+Created = 2026-11-07 19:40:44.00Z
+Accessed = 2026-11-07 06:00:00Z
+Attributes = A
+Short Name = empty.txt
+
+Path = mtime.txt
+Folder = -
+Size = 12
+Packed Size = 512
+Modified = 2024-05-06 13:08:08Z
+Created = 2024-05-06 13:08:08.00Z
+Accessed = 2024-05-06 06:00:00Z
+Attributes = A
+Short Name = mtime.txt
+
+Path = readme.txt
+Folder = -
+Size = 18
+Packed Size = 512
+Modified = 2026-11-07 19:40:44Z
+Created = 2026-11-07 19:40:44.00Z
+Accessed = 2026-11-07 06:00:00Z
+Attributes = A
+Short Name = readme.txt
+
+Path = 名前.txt
+Folder = -
+Size = 4
+Packed Size = 512
+Modified = 2026-11-07 19:40:44Z
+Created = 2026-11-07 19:40:44.00Z
+Accessed = 2026-11-07 06:00:00Z
+Attributes = A
+Short Name = __.TXT
+

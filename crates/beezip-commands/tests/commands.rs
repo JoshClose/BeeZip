@@ -101,7 +101,8 @@ fn walkdir(dir: &Path) -> Vec<PathBuf> {
 #[test]
 fn formats_list_has_everything() {
     let out = run("formats.list", json!({})).unwrap();
-    assert_eq!(out["formats"].as_array().unwrap().len(), 14);
+    // BeeZip's own 14 and the 17 the 7-Zip backend reads.
+    assert_eq!(out["formats"].as_array().unwrap().len(), 31);
     assert_eq!(out["codecs"].as_array().unwrap().len(), 13);
     assert_eq!(out["create"].as_array().unwrap().len(), 31);
     let cab = out["formats"]

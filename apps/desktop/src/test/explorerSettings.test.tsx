@@ -36,6 +36,7 @@ const settings: Config = {
   },
   jobs: { close_when_done: true },
   desktop: { theme: "system" },
+  seven_zip: { path: null, enabled: true },
 };
 
 const got = (patch: Partial<Config> = {}): SettingsGetOutput => ({

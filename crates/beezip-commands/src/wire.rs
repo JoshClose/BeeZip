@@ -780,7 +780,7 @@ impl EntryInfo {
             packed_size: e.packed_size,
             modified: e.modified.map(time::rfc3339),
             crc32: e.crc32,
-            method: e.method.map(str::to_owned),
+            method: e.method.as_deref().map(str::to_owned),
             encrypted: e.encrypted,
             target,
         }

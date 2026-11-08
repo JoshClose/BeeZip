@@ -70,7 +70,7 @@ export function outputSummary(command: string, out: unknown): string {
     }
     case "archive.test": {
       const o = out as ArchiveTestOutput;
-      return `All ${plural(o.entries, "entry", "entries")} are OK (${formatSize(o.bytes)} read)`;
+      return `All ${plural(o.entries, "entry", "entries")} are OK (${formatSize(o.bytes)} read)${o.note ? `. ${o.note}` : ""}`;
     }
     case "archive.add":
     case "archive.remove":

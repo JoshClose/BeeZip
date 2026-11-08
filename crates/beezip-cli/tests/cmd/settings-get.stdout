@@ -16,6 +16,8 @@ limits.max_total_bytes      none
 mcp.read_only               false
 mcp.roots                   []
 names.encoding              auto
+seven_zip.enabled           true
+seven_zip.path              none
 shell.cascade               true
 shell.items.add-7z          true
 shell.items.add-tar-zst     true

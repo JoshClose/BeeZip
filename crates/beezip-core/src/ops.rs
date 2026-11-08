@@ -651,6 +651,12 @@ pub fn test(
     cx: &mut dyn Ctx,
 ) -> Result<TestReport> {
     let mut opened = open(archive, open_opts, cx)?;
+    // A reader with a test of its own (7-Zip's `7z t`) tests the whole archive that way.
+    if sel.is_all()
+        && let Some(report) = opened.reader.test(cx)
+    {
+        return report;
+    }
     let mut sink = TestSink::default();
     match opened.reader.extract(sel, &mut sink, cx) {
         Ok(()) => {}

@@ -19,6 +19,7 @@ use file_format::FileFormat;
 
 use crate::{
     CodecId, Error, Limits, Result,
+    backend::{External, sniff::nsis_header},
     codec::{codecs, strip_extension},
     format::{
         FormatId, cab::header_at as cab_header, formats, lzh::header_at as lzh_header,
@@ -272,7 +273,8 @@ pub fn pe_overlay(head: &[u8]) -> Option<u64> {
 }
 
 /// An archive at the overlay of a PE file: its offset and its format layer. 7z, RAR, CAB and LHA
-/// SFX modules put theirs there (docs/M5.md §5.5, §5.6).
+/// SFX modules put theirs there (docs/M5.md §5.5, §5.6), and NSIS its installer's data
+/// (docs/M6.md §3.2).
 fn overlay_archive<R: Read + Seek>(r: &mut R, len: u64) -> Option<(u64, Layer)> {
     r.seek(SeekFrom::Start(0)).ok()?;
     let head = read_prefix(r, HEAD_LEN);
@@ -285,11 +287,15 @@ fn overlay_archive<R: Read + Seek>(r: &mut R, len: u64) -> Option<(u64, Layer)> 
     let start = read_prefix(r, 4096);
     let _ = r.seek(SeekFrom::Start(0));
     let rest = len - at;
-    let (kind, confidence) = sevenz_start_header(&start)
+    let (at, kind, confidence) = sevenz_start_header(&start)
         .map(|c| (FormatId::SevenZ, c))
         .or_else(|| rar_signature(&start).map(|c| (FormatId::Rar, c)))
         .or_else(|| cab_header(&start, Some(rest)).map(|c| (FormatId::Cab, c)))
-        .or_else(|| lzh_header(&start).map(|c| (FormatId::Lzh, c)))?;
+        .or_else(|| lzh_header(&start).map(|c| (FormatId::Lzh, c)))
+        .map(|(kind, c)| (at, kind, c))
+        .or_else(|| {
+            nsis_in(&start, at).map(|(at, c)| (at, FormatId::External(External::Nsis), c))
+        })?;
     Some((
         at,
         Layer {
@@ -297,6 +303,20 @@ fn overlay_archive<R: Read + Seek>(r: &mut R, len: u64) -> Option<(u64, Layer)> 
             confidence,
         },
     ))
+}
+
+/// NSIS's first header in the overlay's first bytes (`start`, read from `at`), and where it is.
+/// NSIS's loader and 7-Zip look for it at every 512-byte boundary of the file; every installer
+/// and uninstaller looked at had it at the overlay's start, but a few boundaries after that cost
+/// nothing more to check.
+fn nsis_in(start: &[u8], at: u64) -> Option<(u64, Confidence)> {
+    let end = at.saturating_add(start.len() as u64);
+    (at.next_multiple_of(512)..end)
+        .step_by(512)
+        .find_map(|pos| {
+            let i = usize::try_from(pos - at).ok()?;
+            nsis_header(start.get(i..)?).map(|c| (pos, c))
+        })
 }
 
 fn read_tail<R: Read + Seek>(file: &mut R, len: u64) -> io::Result<Vec<u8>> {
@@ -426,7 +446,9 @@ fn best_match(probe: &Probe<'_>) -> Option<Layer> {
         let by_ext = ext(f.extensions());
         if let Some(c) = f.sniff(probe) {
             candidates.push((c, by_ext, kind));
-        } else if by_ext {
+        } else if by_ext && f.id().external().is_none() {
+            // The formats 7-Zip reads are claimed by their content only: `.img`, `.raw` and
+            // `.exe` say too little.
             candidates.push((Confidence::Guess, true, kind));
         }
     }
@@ -465,6 +487,7 @@ fn extension_agrees(det: &Detection, name: Option<&str>) -> bool {
         Some(layer) => layer.kind.extensions().iter().any(|e| name.ends_with(e)),
         // Not an archive: the name shouldn't claim to be one, and should fit what it is.
         None => !formats()
+            .filter(|f| f.id().external().is_none())
             .map(|f| f.extensions())
             .chain(codecs().map(|c| c.extensions()))
             .flatten()
@@ -621,5 +644,153 @@ mod tests {
         let det = detect_bytes(b"", None, &Limits::default());
         assert!(det.layers.is_empty());
         assert_eq!(det.label.as_deref(), Some("Empty"));
+    }
+
+    fn format_of(data: &[u8], name: &str) -> Option<FormatId> {
+        detect_bytes(data, Some(name), &Limits::default()).format()
+    }
+
+    fn mbr_sniff(data: &[u8]) -> Option<Confidence> {
+        let probe = Probe {
+            head: &data[..data.len().min(HEAD_LEN)],
+            len: Some(data.len() as u64),
+            ..Probe::default()
+        };
+        crate::backend::sniff::sniff(External::Mbr, &probe)
+    }
+
+    /// A partitioned disk ranks below ISO and the file systems, which can hold a partition
+    /// table too, and a GPT disk's protective MBR is GPT's (docs/M6.md §3.2).
+    #[test]
+    fn disks_rank_below_iso_and_file_systems() {
+        use crate::backend::sniff::images::{fat12, gpt, mbr, ntfs, put32, vhd_footer};
+        let ext = |k| Some(FormatId::External(k));
+
+        // An isohybrid ISO: a partition table for USB sticks, and ISO 9660 at 32 KiB.
+        for mut iso in [mbr(80, &[(0x80, 0x17, 1, 79)]), gpt(80, 512)] {
+            iso[32768] = 1;
+            iso[32769..32774].copy_from_slice(b"CD001");
+            iso[32774] = 1;
+            assert_eq!(format_of(&iso, "x.iso"), Some(FormatId::Iso));
+            assert_eq!(format_of(&iso, "x.img"), Some(FormatId::Iso));
+        }
+
+        // A FAT floppy whose boot sector also passes for a partition table.
+        let mut floppy = fat12();
+        floppy[446] = 0x80;
+        floppy[450] = 0x01;
+        put32(&mut floppy, 454, 1);
+        put32(&mut floppy, 458, 2879);
+        assert_eq!(mbr_sniff(&floppy), Some(Confidence::Likely));
+        assert_eq!(format_of(&floppy, "x.img"), ext(External::Fat));
+
+        let mut volume = ntfs();
+        volume.resize(1 << 20, 0);
+        assert_eq!(format_of(&volume, "x.img"), ext(External::Ntfs));
+
+        // GPT, with a protective MBR and with a hybrid one.
+        assert_eq!(format_of(&gpt(128, 512), "x.img"), ext(External::Gpt));
+        let mut hybrid = gpt(128, 512);
+        put32(&mut hybrid, 458, 63);
+        hybrid[462 + 4] = 0x0C;
+        put32(&mut hybrid, 462 + 8, 64);
+        put32(&mut hybrid, 462 + 12, 64);
+        assert_eq!(mbr_sniff(&hybrid), None);
+        assert_eq!(format_of(&hybrid, "x.img"), ext(External::Gpt));
+
+        let disk = mbr(128, &[(0x80, 0x0C, 8, 120)]);
+        assert_eq!(format_of(&disk, "x.img"), ext(External::Mbr));
+        assert_eq!(format_of(&disk, "disk"), ext(External::Mbr));
+
+        // A fixed VHD is the disk it holds and a footer.
+        let mut vhd = disk.clone();
+        vhd.extend(vhd_footer(2));
+        assert_eq!(format_of(&vhd, "x.vhd"), ext(External::Vhd));
+        assert_eq!(format_of(&vhd, "x.img"), ext(External::Vhd));
+    }
+
+    /// An uncompressed DMG holds a bare HFS+ volume, and stays a DMG.
+    #[test]
+    fn a_dmg_of_an_hfs_volume_is_a_dmg() {
+        let mut dmg = vec![0u8; 8192];
+        dmg[1024..1028].copy_from_slice(b"H+\0\x04");
+        dmg[1024 + 0x28..1024 + 0x2C].copy_from_slice(&4096u32.to_be_bytes());
+        dmg[1024 + 0x2C..1024 + 0x30].copy_from_slice(&2u32.to_be_bytes());
+        let mut koly = vec![0u8; 512];
+        koly[..4].copy_from_slice(b"koly");
+        koly[4..8].copy_from_slice(&4u32.to_be_bytes());
+        koly[8..12].copy_from_slice(&512u32.to_be_bytes());
+        dmg.extend(koly);
+        assert_eq!(
+            format_of(&dmg[..8192], "x.hfs"),
+            Some(FormatId::External(External::Hfs))
+        );
+        assert_eq!(format_of(&dmg, "x.dmg"), Some(FormatId::Dmg));
+        assert_eq!(format_of(&dmg, "x.img"), Some(FormatId::Dmg));
+    }
+
+    /// A Compound File that isn't an installer (a Word document) isn't claimed.
+    #[test]
+    fn an_office_document_is_not_an_installer() {
+        use crate::backend::sniff::images::{WORD, compound};
+        let det = detect_bytes(&compound(WORD, 1, 8), Some("x.doc"), &Limits::default());
+        assert!(det.layers.is_empty(), "{det:?}");
+    }
+
+    /// The least PE image, its one section ending at 0x400, where the overlay starts.
+    fn exe_with_overlay(overlay: &[u8]) -> Vec<u8> {
+        let mut exe = vec![0u8; 0x400];
+        exe[..2].copy_from_slice(b"MZ");
+        exe[0x3C..0x40].copy_from_slice(&0x80u32.to_le_bytes());
+        exe[0x80..0x84].copy_from_slice(b"PE\0\0");
+        exe[0x86..0x88].copy_from_slice(&1u16.to_le_bytes());
+        let section = 0x80 + 24;
+        exe[section + 16..section + 20].copy_from_slice(&0x200u32.to_le_bytes());
+        exe[section + 20..section + 24].copy_from_slice(&0x200u32.to_le_bytes());
+        exe.extend_from_slice(overlay);
+        exe.resize(exe.len() + 0x2000, 0x5A);
+        exe
+    }
+
+    #[test]
+    fn an_nsis_installer_is_found_in_the_overlay() {
+        use crate::backend::sniff::images::nsis;
+        let nsis_layer = Layer {
+            kind: LayerKind::Format(FormatId::External(External::Nsis)),
+            confidence: Confidence::Certain,
+        };
+        let det = detect_bytes(
+            &exe_with_overlay(&nsis(0)),
+            Some("setup.exe"),
+            &Limits::default(),
+        );
+        assert_eq!(det.layers, [nsis_layer]);
+        assert!(det.sfx);
+        assert_eq!(det.offset, 0x400);
+        assert!(det.extension_agrees);
+
+        // An uninstaller, its header a boundary further on.
+        let mut later = vec![0u8; 512];
+        later.extend(nsis(1));
+        let det = detect_bytes(
+            &exe_with_overlay(&later),
+            Some("uninst.exe"),
+            &Limits::default(),
+        );
+        assert_eq!(det.layers, [nsis_layer]);
+        assert_eq!(det.offset, 0x600);
+
+        // Not on a boundary, or with flags NSIS doesn't know: an executable.
+        let mut off = vec![0u8; 100];
+        off.extend(nsis(0));
+        for overlay in [off, nsis(0x31)] {
+            let det = detect_bytes(
+                &exe_with_overlay(&overlay),
+                Some("a.exe"),
+                &Limits::default(),
+            );
+            assert!(det.layers.is_empty(), "{det:?}");
+            assert!(!det.sfx);
+        }
     }
 }

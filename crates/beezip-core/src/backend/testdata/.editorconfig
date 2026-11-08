@@ -1,0 +1,5 @@
+# 7-Zip's output as it wrote it: `\r\n` line ends, `Key = ` with its space, no newline added.
+[*]
+end_of_line = unset
+trim_trailing_whitespace = false
+insert_final_newline = false

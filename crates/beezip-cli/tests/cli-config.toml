@@ -1,0 +1,4 @@
+# The config the CLI snapshot cases run with (tests/trycmd.rs): the defaults, with 7-Zip off,
+# so `beezip formats` reads the same whether or not 7-Zip is installed.
+[seven_zip]
+enabled = false

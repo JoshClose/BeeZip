@@ -499,6 +499,7 @@ impl ArchiveReader for ArReader {
             encrypted_headers: false,
             locked: false,
             recovery_record: false,
+            external: None,
         })
     }
 

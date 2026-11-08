@@ -537,6 +537,7 @@ impl ArchiveReader for TarReader {
             encrypted_headers: false,
             locked: false,
             recovery_record: false,
+            external: None,
         })
     }
 

@@ -508,7 +508,11 @@ impl ArchiveReader for RpmReader {
         Ok(ArchiveInfo {
             format: FormatId::Rpm,
             codecs: self.source.codecs.clone(),
-            methods: self.codec.map(CodecId::name).into_iter().collect(),
+            methods: self
+                .codec
+                .map(|c| CodecId::name(c).into())
+                .into_iter()
+                .collect(),
             comment: None,
             encryption: Encryption::None,
             solid: self.codec.is_some(),
@@ -518,6 +522,7 @@ impl ArchiveReader for RpmReader {
             encrypted_headers: false,
             locked: false,
             recovery_record: false,
+            external: None,
         })
     }
 

@@ -242,7 +242,7 @@ impl ArchiveReader for DebReader {
         Ok(ArchiveInfo {
             format: FormatId::Deb,
             codecs: self.source.codecs.clone(),
-            methods: self.codecs.clone(),
+            methods: self.codecs.iter().map(|&c| c.into()).collect(),
             comment: None,
             encryption: Encryption::None,
             solid: !self.codecs.is_empty(),
@@ -252,6 +252,7 @@ impl ArchiveReader for DebReader {
             encrypted_headers: false,
             locked: false,
             recovery_record: false,
+            external: None,
         })
     }
 

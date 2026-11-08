@@ -1,0 +1,175 @@
+
+7-Zip 26.00 (x64) : Copyright (c) 1999-2026 Igor Pavlov : 2026-02-12
+
+Scanning the drive for archives:
+1 file, 2322432 bytes (2268 KiB)
+
+Listing archive: C:/samples/2.hfs
+
+--
+Path = C:/samples/2.hfs
+Type = HFS
+Physical Size = 2322432
+Method = HFS+
+Cluster Size = 4096
+Free Space = 1638400
+Created = 2026-11-07 16:00:58Z
+Modified = 2026-11-07 10:01:00Z
+
+----------
+Path = BeeZip HFS
+Folder = +
+Size = 
+Packed Size = 
+Created = 2026-11-07 10:00:58Z
+Modified = 2026-11-07 10:00:59Z
+Accessed = 
+Metadata Changed = 2026-11-07 10:01:00Z
+Mode = drwxr-xr-x
+Alternate Stream = -
+Method = 
+
+Path = BeeZip HFS/.HFS+ Private Directory Data
+Folder = +
+Size = 
+Packed Size = 
+Created = 2026-11-07 10:00:58Z
+Modified = 2026-11-07 10:00:58Z
+Accessed = 2026-11-07 10:00:58Z
+Metadata Changed = 2026-11-07 10:00:58Z
+Mode = dr-xr-xr-t
+Alternate Stream = -
+Method = 
+
+Path = BeeZip HFS/blocks.txt
+Folder = -
+Size = 329000
+Packed Size = 331776
+Created = 2026-01-01 00:00:00Z
+Modified = 2026-01-01 00:00:00Z
+Accessed = 2026-01-01 00:00:00Z
+Metadata Changed = 2026-11-07 10:00:59Z
+Mode = -rw-r--r--
+Alternate Stream = -
+Method = 
+
+Path = BeeZip HFS/empty.txt
+Folder = -
+Size = 0
+Packed Size = 0
+Created = 2026-01-01 00:00:00Z
+Modified = 2026-01-01 00:00:00Z
+Accessed = 2026-01-01 00:00:00Z
+Metadata Changed = 2026-11-07 10:00:59Z
+Mode = -rw-r--r--
+Alternate Stream = -
+Method = 
+
+Path = BeeZip HFS/link-to-readme
+Folder = -
+Size = 10
+Packed Size = 4096
+Created = 2026-11-07 10:00:59Z
+Modified = 2026-11-07 10:00:59Z
+Accessed = 2026-11-07 10:00:59Z
+Metadata Changed = 2026-11-07 10:00:59Z
+Mode = lrwxr-xr-x
+Alternate Stream = -
+Method = 
+
+Path = BeeZip HFS/random.bin
+Folder = -
+Size = 70000
+Packed Size = 73728
+Created = 2026-01-01 00:00:00Z
+Modified = 2026-01-01 00:00:00Z
+Accessed = 2026-01-01 00:00:00Z
+Metadata Changed = 2026-11-07 10:00:59Z
+Mode = -rw-r--r--
+Alternate Stream = -
+Method = 
+
+Path = BeeZip HFS/readme.txt
+Folder = -
+Size = 1680
+Packed Size = 4096
+Created = 2026-01-01 00:00:00Z
+Modified = 2026-01-01 00:00:00Z
+Accessed = 2026-01-01 00:00:00Z
+Metadata Changed = 2026-11-07 10:00:59Z
+Mode = -rw-r--r--
+Alternate Stream = -
+Method = 
+
+Path = BeeZip HFS/sub
+Folder = +
+Size = 
+Packed Size = 
+Created = 2026-01-01 00:00:00Z
+Modified = 2026-01-01 00:00:00Z
+Accessed = 2026-01-01 00:00:00Z
+Metadata Changed = 2026-11-07 10:00:59Z
+Mode = drwxr-xr-x
+Alternate Stream = -
+Method = 
+
+Path = BeeZip HFS/tool.sh
+Folder = -
+Size = 22
+Packed Size = 4096
+Created = 2026-01-01 00:00:00Z
+Modified = 2026-01-01 00:00:00Z
+Accessed = 2026-01-01 00:00:00Z
+Metadata Changed = 2026-11-07 10:00:59Z
+Mode = -rwxr-xr-x
+Alternate Stream = -
+Method = 
+
+Path = BeeZip HFS/Ünïcödé café 日本.txt
+Folder = -
+Size = 16
+Packed Size = 4096
+Created = 2026-01-01 00:00:00Z
+Modified = 2026-01-01 00:00:00Z
+Accessed = 2026-01-01 00:00:00Z
+Metadata Changed = 2026-11-07 10:00:59Z
+Mode = -rw-r--r--
+Alternate Stream = -
+Method = 
+
+Path = BeeZip HFS/[HFS+ Private Data]
+Folder = +
+Size = 
+Packed Size = 
+Created = 2026-11-07 10:00:58Z
+Modified = 2026-11-07 10:00:58Z
+Accessed = 2026-11-07 10:00:58Z
+Metadata Changed = 2026-11-07 10:00:58Z
+Mode = d---------
+Alternate Stream = -
+Method = 
+
+Path = BeeZip HFS/sub/nested
+Folder = +
+Size = 
+Packed Size = 
+Created = 2026-01-01 00:00:00Z
+Modified = 2026-01-01 00:00:00Z
+Accessed = 2026-01-01 00:00:00Z
+Metadata Changed = 2026-11-07 10:00:59Z
+Mode = drwxr-xr-x
+Alternate Stream = -
+Method = 
+
+Path = BeeZip HFS/sub/nested/deep.txt
+Folder = -
+Size = 24
+Packed Size = 4096
+Created = 2026-01-01 00:00:00Z
+Modified = 2026-01-01 00:00:00Z
+Accessed = 2026-01-01 00:00:00Z
+Metadata Changed = 2026-11-07 10:00:59Z
+Mode = -rw-r--r--
+Alternate Stream = -
+Method = 
+

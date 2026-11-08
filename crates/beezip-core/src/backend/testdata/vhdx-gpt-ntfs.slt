@@ -1,0 +1,634 @@
+
+7-Zip 26.00 (x64) : Copyright (c) 1999-2026 Igor Pavlov : 2026-02-12
+
+Scanning the drive for archives:
+1 file, 50331648 bytes (48 MiB)
+
+Listing archive: C:/samples/gpt-ntfs.vhdx
+
+--
+Path = C:/samples/gpt-ntfs.vhdx
+Type = VHDX
+Physical Size = 50331648
+Cluster Size = 8388608
+Sector Size = 512
+Method = dynamic
+Total Physical Size = 50331648
+Creator Application = QEMU v8.2.2
+Comment = 
+{
+VirtualDiskSize: 73400320
+PhysicalSize: 50331648
+Id: 83fd2f8684d94f2eb71f7661fb8cedf1
+SequenceNumber: 2520106924
+LogLength: 1048576 (1 MiB)
+FileWriteGuid: bb278b7261764241a945915c0ea77ce0
+DataWriteGuid: caeaf496da0a4290afb47e7dcf60af92
+HasParent: -
+Fixed: -
+BlockSize: 8388608
+LogicalSectorSize: 512
+PhysicalSectorSize: 512
+PackSize: 41943040 (40 MiB)
+HeadersSize: 4194304 (4 MiB)
+FreeSpace: 4194304 (4 MiB)
+}
+ID = 83fd2f8684d94f2eb71f7661fb8cedf1
+----
+Size = 73400320
+Packed Size = 41943040
+--
+Path = gpt-ntfs.gpt
+Type = GPT
+Physical Size = 73400320
+Sector Size = 512
+ID = 39012AE2-1EC8-4247-AF52-0E5BD9E39912
+----
+Path = 0.ntfs.ntfs
+Size = 67108864
+File System = Windows BDP
+Offset = 1048576
+ID = AC9F580B-4F23-4E95-B9CF-7628421FAA5F
+--
+Path = 0.ntfs.ntfs
+Type = NTFS
+Physical Size = 67108864
+Label = BeeZipNTFS
+File System = NTFS 3.1
+Cluster Size = 4096
+Sector Size = 512
+MFT Record Size = 1024
+Created = 2026-11-07 13:40:44.0000000Z
+ID = 4131344526994809984
+
+----------
+Path = [SYSTEM]/$MFT
+Folder = -
+Size = 79872
+Packed Size = 94208
+Modified = 
+Created = 
+Accessed = 
+Metadata Changed = 
+Attributes = HS
+Links = 
+iNode = 0
+Blocks = 1
+Alternate Streams = 
+Alternate Stream = -
+Short Name = 
+Deleted = -
+Link = 
+NT Security = 
+
+Path = [SYSTEM]/$MFTMirr
+Folder = -
+Size = 4096
+Packed Size = 4096
+Modified = 2026-11-07 13:40:44.0000000Z
+Created = 2026-11-07 13:40:44.0000000Z
+Accessed = 2026-11-07 13:40:44.0000000Z
+Metadata Changed = 2026-11-07 13:40:44.0000000Z
+Attributes = HS
+Links = 
+iNode = 1
+Blocks = 1
+Alternate Streams = 
+Alternate Stream = -
+Short Name = 
+Deleted = -
+Link = 
+NT Security = Administrators Administrators d:2 104
+
+Path = [SYSTEM]/$LogFile
+Folder = -
+Size = 2097152
+Packed Size = 2097152
+Modified = 2026-11-07 13:40:44.0000000Z
+Created = 2026-11-07 13:40:44.0000000Z
+Accessed = 2026-11-07 13:40:44.0000000Z
+Metadata Changed = 2026-11-07 13:40:44.0000000Z
+Attributes = HS
+Links = 
+iNode = 2
+Blocks = 1
+Alternate Streams = 
+Alternate Stream = -
+Short Name = 
+Deleted = -
+Link = 
+NT Security = Administrators Administrators d:2 104
+
+Path = [SYSTEM]/$Volume
+Folder = -
+Size = 0
+Packed Size = 0
+Modified = 2026-11-07 13:40:44.0000000Z
+Created = 2026-11-07 13:40:44.0000000Z
+Accessed = 2026-11-07 13:40:44.0000000Z
+Metadata Changed = 2026-11-07 13:40:44.0000000Z
+Attributes = HS
+Links = 
+iNode = 3
+Blocks = 0
+Alternate Streams = 
+Alternate Stream = -
+Short Name = 
+Deleted = -
+Link = 
+NT Security = 
+
+Path = [SYSTEM]/$AttrDef
+Folder = -
+Size = 2560
+Packed Size = 4096
+Modified = 2026-11-07 13:40:44.0000000Z
+Created = 2026-11-07 13:40:44.0000000Z
+Accessed = 2026-11-07 13:40:44.0000000Z
+Metadata Changed = 2026-11-07 13:40:44.0000000Z
+Attributes = HS
+Links = 
+iNode = 4
+Blocks = 1
+Alternate Streams = 
+Alternate Stream = -
+Short Name = 
+Deleted = -
+Link = 
+NT Security = 
+
+Path = [SYSTEM]/.
+Folder = +
+Size = 
+Packed Size = 
+Modified = 2026-11-07 13:40:42.4367180Z
+Created = 2026-11-07 13:40:44.0000000Z
+Accessed = 2026-11-07 13:40:42.4493094Z
+Metadata Changed = 2026-11-07 13:40:48.3027560Z
+Attributes = HSDA
+Links = 
+iNode = 5
+Blocks = 
+Alternate Streams = 
+Alternate Stream = -
+Short Name = 
+Deleted = -
+Link = 
+NT Security = 
+
+Path = [SYSTEM]/$Bitmap
+Folder = -
+Size = 2048
+Packed Size = 4096
+Modified = 2026-11-07 13:40:44.0000000Z
+Created = 2026-11-07 13:40:44.0000000Z
+Accessed = 2026-11-07 13:40:44.0000000Z
+Metadata Changed = 2026-11-07 13:40:44.0000000Z
+Attributes = HS
+Links = 
+iNode = 6
+Blocks = 1
+Alternate Streams = 
+Alternate Stream = -
+Short Name = 
+Deleted = -
+Link = 
+NT Security = Administrators Administrators d:2 104
+
+Path = [SYSTEM]/$Boot
+Folder = -
+Size = 8192
+Packed Size = 8192
+Modified = 2026-11-07 13:40:44.0000000Z
+Created = 2026-11-07 13:40:44.0000000Z
+Accessed = 2026-11-07 13:40:44.0000000Z
+Metadata Changed = 2026-11-07 13:40:44.0000000Z
+Attributes = HS
+Links = 
+iNode = 7
+Blocks = 1
+Alternate Streams = 
+Alternate Stream = -
+Short Name = 
+Deleted = -
+Link = 
+NT Security = 
+
+Path = [SYSTEM]/$BadClus
+Folder = -
+Size = 0
+Packed Size = 0
+Modified = 2026-11-07 13:40:44.0000000Z
+Created = 2026-11-07 13:40:44.0000000Z
+Accessed = 2026-11-07 13:40:44.0000000Z
+Metadata Changed = 2026-11-07 13:40:44.0000000Z
+Attributes = HS
+Links = 
+iNode = 8
+Blocks = 0
+Alternate Streams = 1
+Alternate Stream = -
+Short Name = 
+Deleted = -
+Link = 
+NT Security = Administrators Administrators d:2 104
+
+Path = [SYSTEM]/$Secure
+Folder = -
+Size = 0
+Packed Size = 0
+Modified = 2026-11-07 13:40:44.0000000Z
+Created = 2026-11-07 13:40:44.0000000Z
+Accessed = 2026-11-07 13:40:44.0000000Z
+Metadata Changed = 2026-11-07 13:40:44.0000000Z
+Attributes = HS
+Links = 
+iNode = 9
+Blocks = 
+Alternate Streams = 1
+Alternate Stream = -
+Short Name = 
+Deleted = -
+Link = 
+NT Security = Administrators Administrators d:2 104
+
+Path = [SYSTEM]/$UpCase
+Folder = -
+Size = 131072
+Packed Size = 131072
+Modified = 2026-11-07 13:40:44.0000000Z
+Created = 2026-11-07 13:40:44.0000000Z
+Accessed = 2026-11-07 13:40:44.0000000Z
+Metadata Changed = 2026-11-07 13:40:44.0000000Z
+Attributes = HS
+Links = 
+iNode = 10
+Blocks = 1
+Alternate Streams = 1
+Alternate Stream = -
+Short Name = 
+Deleted = -
+Link = 
+NT Security = Administrators Administrators d:2 104
+
+Path = [SYSTEM]/$Extend
+Folder = +
+Size = 
+Packed Size = 
+Modified = 2026-11-07 13:40:44.0000000Z
+Created = 2026-11-07 13:40:44.0000000Z
+Accessed = 2026-11-07 13:40:44.0000000Z
+Metadata Changed = 2026-11-07 13:40:44.0000000Z
+Attributes = HSD
+Links = 
+iNode = 11
+Blocks = 
+Alternate Streams = 
+Alternate Stream = -
+Short Name = 
+Deleted = -
+Link = 
+NT Security = Administrators Administrators d:2 104
+
+Path = [SYSTEM]/$Extend/$Quota
+Folder = -
+Size = 0
+Packed Size = 0
+Modified = 2026-11-07 13:40:44.0000000Z
+Created = 2026-11-07 13:40:44.0000000Z
+Accessed = 2026-11-07 13:40:44.0000000Z
+Metadata Changed = 2026-11-07 13:40:44.0000000Z
+Attributes = HSA
+Links = 
+iNode = 24
+Blocks = 
+Alternate Streams = 
+Alternate Stream = -
+Short Name = 
+Deleted = -
+Link = 
+NT Security = Administrators Administrators d:2 104
+
+Path = [SYSTEM]/$Extend/$ObjId
+Folder = -
+Size = 0
+Packed Size = 0
+Modified = 2026-11-07 13:40:44.0000000Z
+Created = 2026-11-07 13:40:44.0000000Z
+Accessed = 2026-11-07 13:40:44.0000000Z
+Metadata Changed = 2026-11-07 13:40:44.0000000Z
+Attributes = HSA
+Links = 
+iNode = 25
+Blocks = 
+Alternate Streams = 
+Alternate Stream = -
+Short Name = 
+Deleted = -
+Link = 
+NT Security = Administrators Administrators d:2 104
+
+Path = [SYSTEM]/$Extend/$Reparse
+Folder = -
+Size = 0
+Packed Size = 0
+Modified = 2026-11-07 13:40:44.0000000Z
+Created = 2026-11-07 13:40:44.0000000Z
+Accessed = 2026-11-07 13:40:44.0000000Z
+Metadata Changed = 2026-11-07 13:40:44.0000000Z
+Attributes = HSA
+Links = 
+iNode = 26
+Blocks = 
+Alternate Streams = 
+Alternate Stream = -
+Short Name = 
+Deleted = -
+Link = 
+NT Security = Administrators Administrators d:2 104
+
+Path = sub
+Folder = +
+Size = 
+Packed Size = 
+Modified = 2026-11-07 13:40:42.4367180Z
+Created = 2026-11-07 13:40:44.9406696Z
+Accessed = 2026-11-07 13:40:42.4493094Z
+Metadata Changed = 2026-11-07 13:40:44.9504247Z
+Attributes = DA
+Links = 
+iNode = 64
+Blocks = 
+Alternate Streams = 
+Alternate Stream = -
+Short Name = 
+Deleted = -
+Link = 
+NT Security = 
+
+Path = sub/nested
+Folder = +
+Size = 
+Packed Size = 
+Modified = 2026-11-07 13:40:42.4073382Z
+Created = 2026-11-07 13:40:44.9431861Z
+Accessed = 2026-11-07 13:40:42.4493094Z
+Metadata Changed = 2026-11-07 13:40:44.9473035Z
+Attributes = DA
+Links = 
+iNode = 65
+Blocks = 
+Alternate Streams = 
+Alternate Stream = -
+Short Name = 
+Deleted = -
+Link = 
+NT Security = 
+
+Path = sub/nested/deep.txt
+Folder = -
+Size = 5
+Packed Size = 5
+Modified = 2026-11-07 13:40:42.4073382Z
+Created = 2026-11-07 13:40:44.9453198Z
+Accessed = 2026-11-07 13:40:42.4619008Z
+Metadata Changed = 2026-11-07 13:40:44.9467259Z
+Attributes = A
+Links = 
+iNode = 66
+Blocks = 0
+Alternate Streams = 
+Alternate Stream = -
+Short Name = 
+Deleted = -
+Link = 
+NT Security = 
+
+Path = sub/link-to-nested
+Folder = -
+Size = 20
+Packed Size = 20
+Modified = 2026-11-07 13:40:42.4367180Z
+Created = 2026-11-07 13:40:44.9489609Z
+Accessed = 2026-11-07 13:40:42.4660979Z
+Metadata Changed = 2026-11-07 13:40:44.9500222Z
+Attributes = SA
+Links = 
+iNode = 67
+Blocks = 0
+Alternate Streams = 
+Alternate Stream = -
+Short Name = 
+Deleted = -
+Link = 
+NT Security = 
+
+Path = Ünïcödé dir
+Folder = +
+Size = 
+Packed Size = 
+Modified = 2026-11-07 13:40:42.4073382Z
+Created = 2026-11-07 13:40:44.9526554Z
+Accessed = 2026-11-07 13:40:42.4493094Z
+Metadata Changed = 2026-11-07 13:40:44.9567950Z
+Attributes = DA
+Links = 
+iNode = 68
+Blocks = 
+Alternate Streams = 
+Alternate Stream = -
+Short Name = 
+Deleted = -
+Link = 
+NT Security = 
+
+Path = Ünïcödé dir/日本語.txt
+Folder = -
+Size = 2
+Packed Size = 2
+Modified = 2026-11-07 13:40:42.4073382Z
+Created = 2026-11-07 13:40:44.9548596Z
+Accessed = 2026-11-07 13:40:42.4619008Z
+Metadata Changed = 2026-11-07 13:40:44.9562887Z
+Attributes = A
+Links = 
+iNode = 69
+Blocks = 0
+Alternate Streams = 
+Alternate Stream = -
+Short Name = 
+Deleted = -
+Link = 
+NT Security = 
+
+Path = hard-readme.txt
+Folder = -
+Size = 18
+Packed Size = 18
+Modified = 2026-11-07 13:40:48.3042012Z
+Created = 2026-11-07 13:40:44.9589388Z
+Accessed = 2026-11-07 13:40:42.4619008Z
+Metadata Changed = 2026-11-07 13:40:48.3042012Z
+Attributes = A
+Links = 2
+iNode = 70
+Blocks = 0
+Alternate Streams = 1
+Alternate Stream = -
+Short Name = 
+Deleted = -
+Link = 
+NT Security = 
+
+Path = readme.txt
+Folder = -
+Size = 18
+Packed Size = 18
+Modified = 2026-11-07 13:40:48.3042012Z
+Created = 2026-11-07 13:40:44.9589388Z
+Accessed = 2026-11-07 13:40:42.4619008Z
+Metadata Changed = 2026-11-07 13:40:48.3042012Z
+Attributes = A
+Links = 2
+iNode = 70
+Blocks = 0
+Alternate Streams = 1
+Alternate Stream = -
+Short Name = 
+Deleted = -
+Link = 
+NT Security = 
+
+Path = empty.txt
+Folder = -
+Size = 0
+Packed Size = 0
+Modified = 2026-11-07 13:40:42.4073382Z
+Created = 2026-11-07 13:40:44.9655240Z
+Accessed = 2026-11-07 13:40:42.4577037Z
+Metadata Changed = 2026-11-07 13:40:44.9669111Z
+Attributes = A
+Links = 
+iNode = 71
+Blocks = 0
+Alternate Streams = 
+Alternate Stream = -
+Short Name = 
+Deleted = -
+Link = 
+NT Security = 
+
+Path = 名前.txt
+Folder = -
+Size = 4
+Packed Size = 4
+Modified = 2026-11-07 13:40:42.4073382Z
+Created = 2026-11-07 13:40:44.9692771Z
+Accessed = 2026-11-07 13:40:42.4619008Z
+Metadata Changed = 2026-11-07 13:40:44.9712240Z
+Attributes = A
+Links = 
+iNode = 72
+Blocks = 0
+Alternate Streams = 
+Alternate Stream = -
+Short Name = 
+Deleted = -
+Link = 
+NT Security = 
+
+Path = bee-🐝.txt
+Folder = -
+Size = 6
+Packed Size = 6
+Modified = 2026-11-07 13:40:42.4073382Z
+Created = 2026-11-07 13:40:44.9733191Z
+Accessed = 2026-11-07 13:40:42.4535066Z
+Metadata Changed = 2026-11-07 13:40:44.9751993Z
+Attributes = A
+Links = 
+iNode = 73
+Blocks = 0
+Alternate Streams = 
+Alternate Stream = -
+Short Name = 
+Deleted = -
+Link = 
+NT Security = 
+
+Path = café-ñandú.txt
+Folder = -
+Size = 9
+Packed Size = 9
+Modified = 2026-11-07 13:40:42.4073382Z
+Created = 2026-11-07 13:40:44.9772835Z
+Accessed = 2026-11-07 13:40:42.4577037Z
+Metadata Changed = 2026-11-07 13:40:44.9793231Z
+Attributes = A
+Links = 
+iNode = 74
+Blocks = 0
+Alternate Streams = 
+Alternate Stream = -
+Short Name = 
+Deleted = -
+Link = 
+NT Security = 
+
+Path = mtime.txt
+Folder = -
+Size = 12
+Packed Size = 12
+Modified = 2024-05-06 07:08:09.1234567Z
+Created = 2026-11-07 13:40:44.9815567Z
+Accessed = 2026-11-07 13:40:42.4619008Z
+Metadata Changed = 2026-11-07 13:40:44.9836293Z
+Attributes = A
+Links = 
+iNode = 75
+Blocks = 0
+Alternate Streams = 
+Alternate Stream = -
+Short Name = 
+Deleted = -
+Link = 
+NT Security = 
+
+Path = big.bin
+Folder = -
+Size = 12582912
+Packed Size = 12582912
+Modified = 2026-11-07 13:40:42.4325209Z
+Created = 2026-11-07 13:40:44.9862723Z
+Accessed = 2026-11-07 13:40:42.4535066Z
+Metadata Changed = 2026-11-07 13:40:48.2990846Z
+Attributes = A
+Links = 
+iNode = 76
+Blocks = 1
+Alternate Streams = 
+Alternate Stream = -
+Short Name = 
+Deleted = -
+Link = 
+NT Security = 
+
+Path = link-to-readme
+Folder = -
+Size = 28
+Packed Size = 28
+Modified = 2026-11-07 13:40:42.4367180Z
+Created = 2026-11-07 13:40:48.3010188Z
+Accessed = 2026-11-07 13:40:42.4660979Z
+Metadata Changed = 2026-11-07 13:40:48.3022394Z
+Attributes = SA
+Links = 
+iNode = 77
+Blocks = 0
+Alternate Streams = 
+Alternate Stream = -
+Short Name = 
+Deleted = -
+Link = 
+NT Security = 
+
