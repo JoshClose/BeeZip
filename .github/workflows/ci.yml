@@ -62,6 +62,8 @@ jobs:
         run: cargo xtask dist --debug --sign-dev
       - name: Explorer's Windows 11 menu, end to end (docs/M4.md §10)
         run: pwsh -NoProfile -File .github/scripts/shell-modern.ps1
+      - name: BeeZip's own installer, read through 7-Zip as an NSIS installer (docs/M6.md §10)
+        run: bash .github/scripts/nsis-setup.sh
       - name: Keep the installer
         uses: actions/upload-artifact@v7
         with:
@@ -76,11 +78,19 @@ jobs:
     env:
       BEEZIP_REQUIRE_GNU_TAR: "1"      # and without GNU tar
       BEEZIP_REQUIRE_LINUX_TOOLS: "1"  # gzip, lzop, uncompress, cpio, ar, xorriso and unsquashfs check BeeZip's output (docs/M5.md §10, docs/M6.md §10)
+      BEEZIP_REQUIRE_7Z_BACKEND: "1"   # the 7-Zip backend's tests fail instead of skipping without 7zz (docs/M6.md §3)
     steps:
       - uses: actions/checkout@v7
       - run: rustup toolchain install
       - name: The Linux tools the interop tests run
         run: sudo apt-get update -q && sudo apt-get install -y -q --no-install-recommends lzop ncompress cpio binutils squashfs-tools xorriso
+      - name: 7-Zip's own Linux build, 26.00 (Ubuntu's 7zip is 23.01, too old for the backend)
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/7z.tar.xz" https://www.7-zip.org/a/7z2600-linux-x64.tar.xz
+          echo "c74dc4a48492cde43f5fec10d53fb2a66f520e4a62a69d630c44cb22c477edc6  $RUNNER_TEMP/7z.tar.xz" | sha256sum -c
+          mkdir -p "$RUNNER_TEMP/7zip"
+          tar -C "$RUNNER_TEMP/7zip" -xf "$RUNNER_TEMP/7z.tar.xz" 7zz
+          echo "$RUNNER_TEMP/7zip" >> "$GITHUB_PATH"
       - uses: Swatinem/rust-cache@v2
       - run: cargo test --locked -p beezip-core -p beezip-menu -p beezip-commands -p beezip-mcp -p beezip-cli
         env:
