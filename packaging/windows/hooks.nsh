@@ -48,8 +48,40 @@
   WriteRegStr SHCTX "Software\Classes\.${EXT}" "" "$R1"
 !macroend
 
+; A running CLI (docs/M6.md §9.3): a `beezip mcp` server, which Claude Desktop starts, or a long
+; CLI job holds bin\beezip.exe open, and Tauri's CheckIfAppIsRunning looks only at BeeZip.exe, so
+; copying the new CLI would fail. A running exe can't be replaced or deleted, but it can be moved
+; within its volume: it goes to %TEMP% (on the volume of %LOCALAPPDATA%, as M4 does with the
+; menu's DLL), and an HKCU RunOnce value deletes it at the next sign-in. The process keeps
+; running from there until its client restarts it.
+; On install (COPY_BACK 1) an unlocked copy is put back at once, so an install cancelled later
+; (CheckIfAppIsRunning's question comes after this hook) still leaves a working CLI; the
+; installer then overwrites the copy. On uninstall (COPY_BACK 0) it just goes, so the install
+; folder can too.
+!macro BEEZIP_MOVE_LOCKED_CLI COPY_BACK
+  IfFileExists "$INSTDIR\bin\beezip.exe" 0 beezip_cli_done_${COPY_BACK}
+  ClearErrors
+  FileOpen $R0 "$INSTDIR\bin\beezip.exe" a
+  IfErrors beezip_cli_locked_${COPY_BACK}
+  FileClose $R0
+  Goto beezip_cli_done_${COPY_BACK}
+  beezip_cli_locked_${COPY_BACK}:
+  System::Call 'kernel32::GetTickCount() i .R0'
+  StrCpy $R1 "$TEMP\BeeZip-cli-$R0.exe"
+  ClearErrors
+  Rename "$INSTDIR\bin\beezip.exe" "$R1"
+  ; Not moved (another volume?): the copy fails as it did before.
+  IfErrors beezip_cli_done_${COPY_BACK}
+  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\RunOnce" "BeeZip-cli-$R0" `cmd.exe /d /c del /f /q "$R1"`
+  !if ${COPY_BACK} == 1
+    CopyFiles /SILENT "$R1" "$INSTDIR\bin\beezip.exe"
+  !endif
+  beezip_cli_done_${COPY_BACK}:
+!macroend
+
 !macro NSIS_HOOK_PREINSTALL
   !insertmacro BEEZIP_FOR_EACH_ASSOCIATION BEEZIP_RESTORE_BACKUP
+  !insertmacro BEEZIP_MOVE_LOCKED_CLI 1
 !macroend
 
 !macro BEEZIP_CLEAN_UP EXT FILECLASS
@@ -71,6 +103,7 @@
   ; $INSTDIR, so the folder can go.
   nsExec::ExecToLog `"$INSTDIR\bin\beezip.exe" shell uninstall`
   Pop $0
+  !insertmacro BEEZIP_MOVE_LOCKED_CLI 0
   !insertmacro BEEZIP_FOR_EACH_ASSOCIATION BEEZIP_KEEP_CURRENT
   System::Call 'Kernel32::SetEnvironmentVariable(t "BEEZIP_BIN", t "$INSTDIR\bin")'
   nsExec::ExecToLog `powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "$$d = $$env:BEEZIP_BIN.TrimEnd('\'); $$k = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey('Environment', $$true); if ($$k) { $$p = [string]$$k.GetValue('Path', '', 'DoNotExpandEnvironmentNames'); $$all = $$p.Split(';'); $$parts = @($$all | Where-Object { $$_.TrimEnd('\') -ne $$d }); if ($$parts.Count -ne $$all.Count) { $$k.SetValue('Path', ($$parts -join ';'), 'ExpandString'); [Environment]::SetEnvironmentVariable('BEEZIP_PATH_REFRESH', $$null, 'User') } }"`

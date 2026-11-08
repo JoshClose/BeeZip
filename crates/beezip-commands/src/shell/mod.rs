@@ -69,7 +69,14 @@ impl Hive {
     }
 }
 
-/// The signed package's name in the install folder, from `cargo xtask dist --sign-dev`.
+/// Every publisher BeeZip's package has had, which is the subject of the certificate that signed
+/// it: the development certificate's, then each production one (docs/M6.md §9.2). Packages are
+/// looked up under each, so `shell.status` and `shell.install` find and replace a registration
+/// made by an older install. `cargo xtask dist` refuses to sign a package whose publisher isn't
+/// here.
+pub const PUBLISHERS: &[&str] = &["CN=BeeZip Dev"];
+
+/// The signed package's name in the install folder, from `cargo xtask dist` when it signs.
 pub const MSIX: &str = "beezip-sparse.msix";
 /// The folder in the install folder holding the unsigned package's `AppxManifest.xml` and logos.
 pub const SPARSE: &str = "sparse";

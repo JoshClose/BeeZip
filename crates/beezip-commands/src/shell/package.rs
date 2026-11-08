@@ -28,12 +28,8 @@ use windows::Management::Deployment::{
 use windows_core::{HRESULT, HSTRING};
 use windows_future::{AsyncStatus, IAsyncOperationWithProgress};
 
-use super::Hive;
+use super::{Hive, PUBLISHERS};
 use crate::{CmdError, ErrorCode};
-
-/// Every publisher BeeZip's package has had. The development certificate's, until M6 adds the
-/// production one; packages are looked up under each, so all of them are found.
-pub const PUBLISHERS: &[&str] = &["CN=BeeZip Dev"];
 
 /// `ERROR_PACKAGES_IN_USE`: a process with the package's identity is running, or the surrogate
 /// still holds the DLL.

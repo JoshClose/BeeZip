@@ -4,6 +4,7 @@
   "bundle": {
     "resources": {},
     "fileAssociations": [],
+    "publisher": "BeeZip",
     "windows": {
       "nsis": {
         "installMode": "currentUser"

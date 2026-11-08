@@ -5,8 +5,12 @@ mod codegen;
 mod devcert;
 mod dist;
 mod fixtures;
+mod notices;
+mod release;
 mod shell;
+mod sign;
 mod sparse;
+mod winget;
 
 use std::process::ExitCode;
 
@@ -18,15 +22,30 @@ const USAGE: &str = "usage: cargo xtask <task>
   gen-fixtures --check  fail if the committed corpus is out of date
   dist [--debug] [--version V] [--sign-dev]
                         build the Windows installer (target/dist/{release,debug}/bundle/nsis)
-                        as version V [default: the workspace's]; --sign-dev adds Windows 11's
-                        menu as a package signed with the dev-cert certificate
+                        as version V [default: the workspace's]. BEEZIP_SIGN=none|dev|pfx|artifact
+                        signs it through packaging/windows/sign.ps1 [default: none], and adds
+                        Windows 11's menu as a signed package; --sign-dev is BEEZIP_SIGN=dev, the
+                        dev-cert certificate. With TAURI_SIGNING_PRIVATE_KEY, also the updater's
+                        .sig and latest.json
   dev-cert              make (or reuse) the \"CN=BeeZip Dev\" code-signing certificate for
                         --sign-dev, and print the elevated command that trusts it
   shell [--mode classic|modern] [--remove]
                         register this tree's Explorer menu for you, with the debug DLL and
                         beezip-desktop [default: classic]; modern is Windows 11's menu, as a
                         development package (Developer Mode); --remove takes it away
-  bigzip [PATH]         write a zip of a million entries [default: target/bigzip.zip]";
+  bigzip [PATH]         write a zip of a million entries [default: target/bigzip.zip]
+  notices               regenerate THIRD_PARTY_NOTICES.md from Cargo.lock and the frontend bundle
+                        (cargo-about 0.9.3, after `pnpm --dir apps/desktop build`)
+  notices --check       fail if the committed file is out of date
+  release --version V   set the version to V in the workspace, the lock files, package.json and
+                        tauri.conf.json, before tagging vV; the tree must be clean. It prints the
+                        commands to commit and tag, and runs none of them
+  release --check-tag TAG
+                        fail unless TAG is v and the workspace's version (release.yml)
+  winget [--version V] [--local]
+                        write the winget manifest of BeeZip.BeeZip V [default: the workspace's]
+                        into target/winget, from the vV release on GitHub (draft or published),
+                        or with --local from the installer `dist` built";
 
 /// `dist`'s flags, in any order.
 #[derive(Debug, Default, PartialEq, Eq)]
@@ -43,6 +62,20 @@ fn dist_args<'a>(args: &[&'a str]) -> Option<DistArgs<'a>> {
         match *a {
             "--debug" => out.debug = true,
             "--sign-dev" => out.sign_dev = true,
+            "--version" => out.version = Some(*it.next()?),
+            _ => return None,
+        }
+    }
+    Some(out)
+}
+
+/// `winget`'s flags, in any order.
+fn winget_args<'a>(args: &[&'a str]) -> Option<winget::WingetArgs<'a>> {
+    let mut out = winget::WingetArgs::default();
+    let mut it = args.iter();
+    while let Some(a) = it.next() {
+        match *a {
+            "--local" => out.local = true,
             "--version" => out.version = Some(*it.next()?),
             _ => return None,
         }
@@ -93,6 +126,14 @@ fn main() -> ExitCode {
         },
         ["bigzip"] => bigzip::run(None),
         ["bigzip", path] => bigzip::run(Some(path)),
+        ["notices"] => notices::run(false),
+        ["notices", "--check"] => notices::run(true),
+        ["release", "--version", version] => release::run(version),
+        ["release", "--check-tag", tag] => release::check_tag(tag),
+        ["winget", rest @ ..] => match winget_args(rest) {
+            Some(w) => winget::run(w),
+            None => return usage(),
+        },
         _ => return usage(),
     };
     match result {
@@ -128,5 +169,22 @@ mod tests {
             Some((shell::Mode::Modern, false))
         );
         assert_eq!(shell_args(&["--mode", "fancy"]), None);
+        assert_eq!(
+            winget_args(&["--local", "--version", "0.1.0"]),
+            Some(winget::WingetArgs {
+                version: Some("0.1.0"),
+                local: true
+            })
+        );
+        assert_eq!(
+            winget_args(&["--local"]),
+            Some(winget::WingetArgs {
+                version: None,
+                local: true
+            }),
+            "the workspace's version"
+        );
+        assert_eq!(winget_args(&["--version"]), None);
+        assert_eq!(winget_args(&["--draft"]), None);
     }
 }
