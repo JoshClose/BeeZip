@@ -61,8 +61,10 @@ try {
   $moved = @(Moved)
   if ($moved.Count -ne 1) { Fail "expected one RunOnce value for the moved CLI, found $($moved.Count)" }
   $m = $moved[0]
-  if (-not $m.File.StartsWith([IO.Path]::GetTempPath().TrimEnd('\'), [StringComparison]::OrdinalIgnoreCase)) { Fail "the CLI was moved to $($m.File), not into %TEMP%" }
+  # NSIS's $TEMP may be the 8.3 form of the folder (C:\Users\RUNNER~1\…), so look for the file
+  # by its name in %TEMP% rather than compare paths.
   if (-not (Test-Path $m.File)) { Fail "the moved CLI isn't at $($m.File)" }
+  if (-not (Test-Path (Join-Path ([IO.Path]::GetTempPath()) (Split-Path $m.File -Leaf)))) { Fail "the CLI was moved to $($m.File), not into %TEMP%" }
   if ($m.Command -notlike 'cmd.exe /d /c del /f /q "*"') { Fail "RunOnce $($m.Name) is $($m.Command)" }
   Write-Host "the running CLI went to $($m.File), deleted at the next sign-in by RunOnce $($m.Name)"
   # The installed CLI is a new file, not the one running: it can be opened for writing.
