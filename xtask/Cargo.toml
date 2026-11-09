@@ -15,6 +15,7 @@ beezip-menu.workspace = true
 bzip2.workspace = true
 crc32fast.workspace = true
 flate2.workspace = true
+ico.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true

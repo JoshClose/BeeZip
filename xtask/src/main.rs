@@ -5,6 +5,7 @@ mod codegen;
 mod devcert;
 mod dist;
 mod fixtures;
+mod icons;
 mod notices;
 mod release;
 mod shell;
@@ -33,6 +34,10 @@ const USAGE: &str = "usage: cargo xtask <task>
                         register this tree's Explorer menu for you, with the debug DLL and
                         beezip-desktop [default: classic]; modern is Windows 11's menu, as a
                         development package (Developer Mode); --remove takes it away
+  icons                 regenerate the app's icons (apps/desktop/src-tauri/icons) from
+                        packaging/brand/app-icon.svg, with app-icon-16.svg as icon.ico's 16 px
+                        image (`pnpm tauri icon`, after pnpm install)
+  icons --check         fail if the committed icons are out of date
   bigzip [PATH]         write a zip of a million entries [default: target/bigzip.zip]
   notices               regenerate THIRD_PARTY_NOTICES.md from Cargo.lock and the frontend bundle
                         (cargo-about 0.9.3, after `pnpm --dir apps/desktop build`)
@@ -124,6 +129,8 @@ fn main() -> ExitCode {
             Some((mode, remove)) => shell::run(mode, remove),
             None => return usage(),
         },
+        ["icons"] => icons::run(false),
+        ["icons", "--check"] => icons::run(true),
         ["bigzip"] => bigzip::run(None),
         ["bigzip", path] => bigzip::run(Some(path)),
         ["notices"] => notices::run(false),

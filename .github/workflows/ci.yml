@@ -49,6 +49,8 @@ jobs:
       - name: pnpm install
         working-directory: apps/desktop
         run: pnpm install --frozen-lockfile
+      - name: The app's icons are current (packaging/brand)
+        run: cargo xtask icons --check
       - name: Frontend tests (vitest)
         working-directory: apps/desktop
         run: pnpm test

@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="16 16 88 88" width="88" height="88">
+  <title>BeeZip app icon, 16 px</title>
+  <!-- The bee alone, cropped to fill the square: at 16 px the cell's outline would take the edge
+       pixels and leave the bee about 7 px wide. A white edge keeps its ink head and outlines
+       visible on a dark taskbar. `cargo xtask icons` puts this in icon.ico as the 16 px image. -->
+  <defs>
+    <clipPath id="body"><ellipse cx="60" cy="70" rx="16" ry="26"/></clipPath>
+  </defs>
+  <g fill="#FFFFFF" stroke="#FFFFFF" stroke-width="11" stroke-linejoin="round" stroke-linecap="round">
+    <ellipse cx="40" cy="56" rx="18" ry="10" transform="rotate(-30 40 56)"/>
+    <ellipse cx="80" cy="56" rx="18" ry="10" transform="rotate(30 80 56)"/>
+    <ellipse cx="60" cy="70" rx="16" ry="26"/>
+    <circle cx="60" cy="41" r="9"/>
+    <polygon points="56,94 64,94 60,103"/>
+    <path d="M56 34 L49 22 M64 34 L71 22" fill="none"/>
+  </g>
+  <ellipse cx="40" cy="56" rx="18" ry="10" transform="rotate(-30 40 56)" fill="#FBEFCF" stroke="#1F2023" stroke-width="3.5"/>
+  <ellipse cx="80" cy="56" rx="18" ry="10" transform="rotate(30 80 56)" fill="#FBEFCF" stroke="#1F2023" stroke-width="3.5"/>
+  <ellipse cx="60" cy="70" rx="16" ry="26" fill="#E0A21A"/>
+  <g clip-path="url(#body)">
+    <rect x="40" y="64" width="40" height="7" fill="#1F2023"/>
+    <rect x="40" y="78" width="40" height="7" fill="#1F2023"/>
+  </g>
+  <path d="M56 34 L49 22 M64 34 L71 22" fill="none" stroke="#1F2023" stroke-width="3" stroke-linecap="round"/>
+  <circle cx="60" cy="41" r="9" fill="#1F2023"/>
+  <polygon points="56,94 64,94 60,103" fill="#1F2023"/>
+</svg>
