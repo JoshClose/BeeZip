@@ -1,9 +1,10 @@
 // The jobs panel (docs/M3.md §5.3): a status line until something runs, then each job with its
 // progress, Cancel, its log and its result. Finished jobs stay until cleared.
-import { ChevronDown, ChevronUp, CircleAlert, CircleCheck, CircleSlash, LoaderCircle } from "lucide-react";
+import { Check, ChevronDown, ChevronUp, CircleAlert, CircleCheck, CircleSlash, Copy, LoaderCircle } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { SevenZipFix } from "../../components/SevenZipFix";
 import { Button } from "../../components/ui/button";
+import { Splitter } from "../../components/ui/splitter";
 import type {
   ArchiveConvertOutput,
   ArchiveCreateOutput,
@@ -16,6 +17,9 @@ import type {
 import { cn } from "../../lib/cn";
 import { baseName, formatRate, formatSize } from "../../lib/format";
 import { type JobRecord, orderedJobs, useJobs } from "../../lib/jobs";
+import { JOBS_ABOVE_MIN, JOBS_HEADER, JOBS_MIN, tallestJobs, usePanes } from "../../lib/panes";
+import { useSize } from "../../lib/size";
+import { toastInfo } from "../../lib/toasts";
 import { useUi } from "../../lib/ui";
 
 function plural(n: number, one: string, many = `${one}s`): string {
@@ -139,6 +143,43 @@ export function Bar({ job }: { job: JobRecord }) {
   );
 }
 
+/** A log longer than this shows its first lines; Copy takes all of it. */
+export const LOG_SHOWN = 1000;
+
+/** A job as text, for the clipboard: its title, how it ended, and its whole log. */
+export function jobText(job: JobRecord): string {
+  const outcome =
+    job.status === "finished"
+      ? summary(job)
+      : job.status === "failed" && job.error
+        ? `${job.error.code}: ${job.error.message}`
+        : job.status === "cancelled"
+          ? "Cancelled."
+          : undefined;
+  const log = job.logs.map((l) => (l.level === "Warn" ? `Warning: ${l.message}` : l.message));
+  return [job.title, ...(outcome ? [outcome] : []), ...(log.length ? ["", ...log] : [])].join("\n");
+}
+
+/** Copies a job's text; says "Copied" for a moment, or why it couldn't. */
+function CopyJob({ job }: { job: JobRecord }) {
+  const [copied, setCopied] = useState(false);
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(jobText(job));
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // The clipboard refuses a window without focus; the text can still be selected.
+      toastInfo("Couldn't reach the clipboard", "Select the job's text and copy it instead.");
+    }
+  };
+  return (
+    <Button size="sm" variant="ghost" onClick={() => void copy()} title="Copy the job's title, result and log">
+      {copied ? <Check /> : <Copy />} {copied ? "Copied" : "Copy"}
+    </Button>
+  );
+}
+
 function JobRow({ job }: { job: JobRecord }) {
   const cancel = useJobs((s) => s.cancel);
   const show = useUi((s) => s.show);
@@ -162,7 +203,10 @@ function JobRow({ job }: { job: JobRecord }) {
     <li className="flex flex-col gap-1 border-b border-rule px-3 py-2 last:border-b-0">
       <div className="flex items-center gap-2">
         {icon}
-        <span className="min-w-0 flex-1 truncate font-semibold">{job.title}</span>
+        <span className="min-w-0 flex-1 truncate font-semibold" title={job.title}>
+          {job.title}
+        </span>
+        {(job.error || job.logs.length > 0) && <CopyJob job={job} />}
         {job.logs.length > 0 && (
           <Button size="sm" variant="ghost" onClick={() => setLogs(!logs)}>
             {logs ? "Hide log" : `Log (${job.logs.length})`}
@@ -181,7 +225,11 @@ function JobRow({ job }: { job: JobRecord }) {
             {numbers.map((n) => (
               <span key={n}>{n}</span>
             ))}
-            {p?.current && <span className="min-w-0 flex-1 truncate text-right">{p.current}</span>}
+            {p?.current && (
+              <span className="min-w-0 flex-1 truncate text-right" title={p.current}>
+                {p.current}
+              </span>
+            )}
           </div>
         </>
       )}
@@ -200,13 +248,20 @@ function JobRow({ job }: { job: JobRecord }) {
           <SevenZipFix error={error} />
         </div>
       )}
+      {/* In full: the jobs list is the one scroller, and its edge makes it taller. */}
       {logs && (
-        <ul className="selectable max-h-32 overflow-auto rounded bg-sunken px-2 py-1 font-mono text-[11.5px]">
-          {job.logs.map((l, i) => (
+        <ul className="selectable rounded bg-sunken px-2 py-1 font-mono text-[11.5px] break-words" aria-label={`${job.title}: log`}>
+          {job.logs.slice(0, LOG_SHOWN).map((l, i) => (
             <li key={i} className={l.level === "Warn" ? "text-amber" : "text-muted"}>
               {l.message}
             </li>
           ))}
+          {job.logs.length > LOG_SHOWN && (
+            <li className="pt-1 font-sans text-muted">
+              {(job.logs.length - LOG_SHOWN).toLocaleString()} more {job.logs.length - LOG_SHOWN === 1 ? "line" : "lines"}: Copy takes the
+              whole log.
+            </li>
+          )}
         </ul>
       )}
     </li>
@@ -241,11 +296,40 @@ export function JobsPanel() {
     ? Math.round((100 * latest.progress.bytes_done) / latest.progress.bytes_total)
     : undefined;
 
+  // The list's height: dragged to, or fitting its jobs until then. The window column is measured
+  // for how tall it may get; the section's max-height holds it to the same as the window shrinks.
+  const panes = usePanes();
+  const [columnRef, column] = useSize<HTMLElement>(true);
+  const [listRef, list] = useSize<HTMLUListElement>();
+  const listed = open && jobs.length > 0;
+
   return (
-    <section className="shrink-0 border-t border-rule bg-paper" aria-label="Jobs">
-      <div className="flex h-8 items-center gap-3 px-3">
+    <section
+      ref={columnRef}
+      className="flex shrink-0 flex-col bg-paper"
+      style={{ maxHeight: `calc(100% - ${JOBS_ABOVE_MIN}px)` }}
+      aria-label="Jobs"
+    >
+      {listed ? (
+        <Splitter
+          label="Resize the jobs"
+          orientation="horizontal"
+          size={list.height}
+          min={JOBS_MIN}
+          max={tallestJobs(column.height)}
+          side="after"
+          onResize={(h) => panes.resize("jobs", h)}
+          onDone={panes.save}
+          onReset={() => panes.reset("jobs")}
+        />
+      ) : (
+        <div className="h-px shrink-0 bg-rule" />
+      )}
+      <div className="flex shrink-0 items-center gap-3 px-3" style={{ height: JOBS_HEADER }}>
         {running.length > 0 && <LoaderCircle className="size-3.5 animate-spin text-amber" />}
-        <span className="min-w-0 truncate">{status}</span>
+        <span className="min-w-0 truncate" title={status}>
+          {status}
+        </span>
         {share !== undefined && <span className="tabular text-muted">{share}%</span>}
         <span className="flex-1" />
         {jobs.some((j) => j.status !== "running") && (
@@ -259,8 +343,13 @@ export function JobsPanel() {
           </Button>
         )}
       </div>
-      {open && jobs.length > 0 && (
-        <ul className="max-h-[38vh] overflow-auto border-t border-rule bg-panel">
+      {listed && (
+        <ul
+          ref={listRef}
+          className={cn("min-h-0 overflow-auto border-t border-rule bg-panel", panes.jobs === null && "max-h-[38vh]")}
+          style={panes.jobs === null ? undefined : { height: panes.jobs }}
+          aria-label="Jobs list"
+        >
           {[...jobs].reverse().map((j) => (
             <JobRow key={j.id} job={j} />
           ))}

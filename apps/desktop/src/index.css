@@ -115,6 +115,18 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* While a pane's edge is dragged (components/ui/splitter.tsx), the pointer keeps the resize
+   arrows over everything it crosses. */
+html[data-resizing="col"],
+html[data-resizing="col"] * {
+  cursor: col-resize !important;
+}
+
+html[data-resizing="row"],
+html[data-resizing="row"] * {
+  cursor: row-resize !important;
+}
+
 /* The job window's mark (components/CombMark.tsx), on its 120-unit grid. After extracting the
    ink cell rests lifted out, after compressing seated; while a job runs it comes out, or goes in,
    again and again, and a test's comb glows cell by cell. Without motion, each rests. */
