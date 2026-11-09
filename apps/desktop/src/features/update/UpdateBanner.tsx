@@ -1,6 +1,7 @@
 // The banner a new version shows (docs/M6.md §8.2): its version, a link to its release notes,
 // and "Update and restart". Nothing downloads before that click, and while jobs run the update
-// waits for them rather than cancelling them.
+// waits for them rather than cancelling them. A portable copy doesn't install updates: its
+// banner's Download opens the new zip in the browser instead.
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { X } from "lucide-react";
 import { Button } from "../../components/ui/button";
@@ -27,6 +28,7 @@ export function UpdateBanner() {
   const dismiss = useUpdate((s) => s.dismiss);
   const running = useJobs(runningCount);
   if (checked?.status !== "available" || (dismissed && !progress)) return null;
+  const download = checked.download_url;
 
   return (
     <div role="status" aria-label="Update" className="flex items-center gap-3 border-b border-rule bg-amber-wash px-3 py-1.5 text-[13px]">
@@ -36,7 +38,11 @@ export function UpdateBanner() {
       </button>
       {error && <span className="text-danger">{error}</span>}
       <span className="flex-1" />
-      {progress ? (
+      {download ? (
+        <Button variant="primary" size="sm" onClick={() => void openUrl(download)}>
+          Download
+        </Button>
+      ) : progress ? (
         <span className="text-muted">{progressText(progress)}</span>
       ) : (
         <Button variant="primary" size="sm" onClick={() => void install()}>

@@ -17,6 +17,8 @@
 //! 3. `pnpm tauri build --bundles nsis --config target/dist/tauri.dist.json` builds the installer,
 //!    with `CARGO_TARGET_DIR=target/dist`: the rename to `BeeZip.exe` in `target/debug` would
 //!    replace the development `beezip.exe`, which Windows sees as the same file.
+//! 4. The portable copy, `bundle/portable/BeeZip_<V>_x64-portable.zip` ([`portable`]): the same
+//!    programs, to unzip and run. `latest.json` goes in `bundle/`, naming both.
 //!
 //! `--version V` builds the installer as version V (the workspace's otherwise), so the upgrade
 //! check can build 0.1.0 and 0.1.1 from one tree.
@@ -56,6 +58,7 @@ use crate::sign::{self, Mode};
 
 mod linux;
 mod macos;
+mod portable;
 
 /// The platform a bundle is for: always the one `dist` runs on, since each bundler runs only on
 /// its own.
@@ -234,12 +237,15 @@ fn windows(root: &Path, debug: bool, version: &str, sign_dev: bool) -> anyhow::R
     let config_path = dir.join("tauri.dist.json");
     write_overlay(&config, &config_path)?;
 
-    let bundle = dir.join(profile).join("bundle/nsis");
+    let bundles = dir.join(profile).join("bundle");
+    let bundle = bundles.join("nsis");
     let installer = bundle.join(installer_name(version));
     // A signature or update manifest from an earlier build would describe another installer.
+    // (Before the portable copy, latest.json was written beside the installer.)
     for stale in [
-        bundle.join(format!("{}.sig", installer_name(version))),
+        sig(&installer),
         bundle.join(LATEST_JSON),
+        bundles.join(LATEST_JSON),
     ] {
         if stale.exists() {
             std::fs::remove_file(&stale)
@@ -271,13 +277,33 @@ fn windows(root: &Path, debug: bool, version: &str, sign_dev: bool) -> anyhow::R
     }
     println!("installer: {}", installer.display());
 
+    let programs = portable::Programs {
+        app: &dir.join(profile).join("BeeZip.exe"),
+        cli: &cli,
+        dll: &dll,
+    };
+    let zip = portable::build(
+        &root,
+        &programs,
+        version,
+        mode,
+        &dir.join("portable"),
+        &bundles.join("portable"),
+    )?;
+
     write_latest_json(
         version,
-        &[Updatable {
-            key: "windows-x86_64-nsis",
-            file: &installer,
-        }],
-        &bundle,
+        &[
+            Updatable {
+                key: "windows-x86_64-nsis",
+                file: &installer,
+            },
+            Updatable {
+                key: portable::KEY,
+                file: &zip,
+            },
+        ],
+        &bundles,
     )?;
     Ok(())
 }
@@ -288,15 +314,20 @@ pub struct Updatable<'a> {
     pub file: &'a Path,
 }
 
+/// `<file>.sig`, the updater's signature of `file`.
+pub fn sig(file: &Path) -> PathBuf {
+    let mut s = file.as_os_str().to_owned();
+    s.push(".sig");
+    s.into()
+}
+
 /// With the updater's signatures (`<file>.sig`, made when `TAURI_SIGNING_PRIVATE_KEY` is set),
 /// writes `latest.json` into `dir` for the release of `version`: every bundle that has one.
 /// Without any, there's nothing to write.
 fn write_latest_json(version: &str, bundles: &[Updatable], dir: &Path) -> anyhow::Result<()> {
     let mut platforms = Vec::new();
     for b in bundles {
-        let mut sig = b.file.as_os_str().to_owned();
-        sig.push(".sig");
-        let sig = PathBuf::from(sig);
+        let sig = sig(b.file);
         if !sig.is_file() {
             continue;
         }

@@ -13,9 +13,12 @@
 //!   comes.
 //! - **The signature** must carry the release's version (`requireSignedVersion`), so neither a
 //!   signature made for another version nor a downgrade installs. Older versions aren't offered.
+//! - **A portable copy** (Windows: no `uninstall.exe` beside `BeeZip.exe`, as with the release's
+//!   zip) never installs one: the installer would put a second BeeZip beside it. It looks up the
+//!   zip's entry in `latest.json`, [`PORTABLE`], and the banner links to the new zip instead.
 
 use std::{
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::Mutex,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
@@ -30,6 +33,23 @@ pub const CHECK_EVERY: Duration = Duration::from_secs(24 * 60 * 60);
 
 /// Where the last check is remembered, in BeeZip's local data folder.
 const STATE_FILE: &str = "update-check.json";
+
+/// The portable zip's entry in `latest.json` (xtask's `dist::portable::KEY`).
+pub const PORTABLE: &str = "windows-x86_64-portable";
+
+/// What Tauri's NSIS installer puts beside `BeeZip.exe`, and nothing else does.
+const UNINSTALLER: &str = "uninstall.exe";
+
+/// Whether the program at `exe` was installed: the installer's uninstaller is beside it.
+pub fn installed_at(exe: &Path) -> bool {
+    exe.parent().is_some_and(|d| d.join(UNINSTALLER).is_file())
+}
+
+/// Whether this copy is a portable one: on Windows, one that wasn't installed. Elsewhere each
+/// bundle updates itself (the AppImage, deb, rpm and app).
+fn portable() -> bool {
+    cfg!(windows) && !std::env::current_exe().is_ok_and(|exe| installed_at(&exe))
+}
 
 /// The update found, until it's installed.
 #[derive(Default)]
@@ -49,6 +69,10 @@ pub enum Checked {
         current: String,
         /// The release's page on GitHub.
         notes_url: String,
+        /// The new zip, for a portable copy, which doesn't install updates: the banner links to
+        /// it.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        download_url: Option<String>,
     },
 }
 
@@ -112,24 +136,27 @@ pub fn notes_url(version: &str) -> String {
     format!("https://github.com/JoshClose/BeeZip/releases/tag/v{version}")
 }
 
-fn available(update: &Update) -> Checked {
+fn available(update: &Update, portable: bool) -> Checked {
     Checked::Available {
         version: update.version.clone(),
         current: update.current_version.clone(),
         notes_url: notes_url(&update.version),
+        download_url: portable.then(|| update.download_url.to_string()),
     }
 }
 
-/// The updater, whose `on_before_exit` does what quitting does.
-fn updater(app: &AppHandle) -> Result<tauri_plugin_updater::Updater, String> {
+/// The updater, whose `on_before_exit` does what quitting does. A portable copy's looks up the
+/// zip's entry.
+fn updater(app: &AppHandle, portable: bool) -> Result<tauri_plugin_updater::Updater, String> {
     let handle = app.clone();
-    app.updater_builder()
-        .on_before_exit(move || {
-            crate::cancel_and_wait(&handle);
-            handle.cleanup_before_exit();
-        })
-        .build()
-        .map_err(|e| e.to_string())
+    let mut builder = app.updater_builder().on_before_exit(move || {
+        crate::cancel_and_wait(&handle);
+        handle.cleanup_before_exit();
+    });
+    if portable {
+        builder = builder.target(PORTABLE);
+    }
+    builder.build().map_err(|e| e.to_string())
 }
 
 /// Checks for an update. `force` (About's button) asks GitHub whatever the setting and the day;
@@ -157,7 +184,8 @@ pub async fn cmd_update_check(
             reason: "Looking for updates is off in Settings.".into(),
         });
     }
-    let updater = updater(&app)?;
+    let portable = portable();
+    let updater = updater(&app, portable)?;
     let path = state_path(&app);
     let remembered: Remembered = path
         .as_ref()
@@ -185,7 +213,7 @@ pub async fn cmd_update_check(
     };
     let answer = found
         .as_ref()
-        .map_or(Checked::UpToDate { version }, available);
+        .map_or(Checked::UpToDate { version }, |u| available(u, portable));
     *updates.0.lock().unwrap_or_else(|e| e.into_inner()) = found;
     Ok(answer)
 }
@@ -198,6 +226,13 @@ pub async fn cmd_update_install(
     updates: State<'_, Updates>,
     on_progress: Channel<Progress>,
 ) -> Result<(), String> {
+    if portable() {
+        return Err(
+            "A portable copy of BeeZip doesn't install updates: download the new version from \
+             the banner."
+                .into(),
+        );
+    }
     let Some(update) = updates.0.lock().unwrap_or_else(|e| e.into_inner()).clone() else {
         return Err("There's no update to install: check for updates first.".into());
     };
@@ -263,6 +298,7 @@ mod tests {
             version: "0.1.1".into(),
             current: "0.1.0".into(),
             notes_url: notes_url("0.1.1"),
+            download_url: None,
         };
         assert_eq!(
             serde_json::to_value(&a).unwrap(),
@@ -273,6 +309,17 @@ mod tests {
                 "notes_url": "https://github.com/JoshClose/BeeZip/releases/tag/v0.1.1"
             })
         );
+        let zip = "https://github.com/JoshClose/BeeZip/releases/download/v0.1.1/BeeZip_0.1.1_x64-portable.zip";
+        let portable = Checked::Available {
+            version: "0.1.1".into(),
+            current: "0.1.0".into(),
+            notes_url: notes_url("0.1.1"),
+            download_url: Some(zip.into()),
+        };
+        assert_eq!(
+            serde_json::to_value(&portable).unwrap()["download_url"],
+            zip
+        );
         let p = Progress::Downloading {
             done: 5,
             total: Some(10),
@@ -281,5 +328,14 @@ mod tests {
             serde_json::to_value(&p).unwrap(),
             serde_json::json!({ "stage": "downloading", "done": 5, "total": 10 })
         );
+    }
+
+    #[test]
+    fn an_installed_copy_has_the_installers_uninstaller_beside_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let exe = dir.path().join("BeeZip.exe");
+        assert!(!installed_at(&exe), "the zip's copy, or a build");
+        std::fs::write(dir.path().join(UNINSTALLER), b"").unwrap();
+        assert!(installed_at(&exe));
     }
 }

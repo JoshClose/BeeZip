@@ -1,0 +1,62 @@
+<!-- {"title": "Getting started", "description": "Install BeeZip, open your first archive, extract from Explorer's right-click menu, and try the command line.", "layout": "docs"} -->
+<h1>Getting started</h1>
+<p class="lede">BeeZip opens archives in its own window, from Explorer's right-click menu, on the command line, and for AI assistants. This page gets you from the download to your first extracted archive, and points to the rest.</p>
+
+<h2 id="install">Install BeeZip</h2>
+<p>Get the file for your system from the <a href="../download.html">download page</a>.</p>
+<ul>
+  <li><strong>Windows, the portable copy:</strong> unzip <code>BeeZip_<var>version</var>_x64-portable.zip</code> anywhere and run <code>BeeZip.exe</code>. Nothing is installed. Until 1.0.0, Windows asks before the first run, since BeeZip isn't signed yet: choose <strong>More info</strong>, then <strong>Run anyway</strong>.</li>
+  <li><strong>Windows, the installer</strong> (from 1.0.0): run it. It installs for you alone, with no admin rights, and adds BeeZip to Windows 11's own right-click menu, to the archive types it opens, and to your PATH.</li>
+  <li><strong>Linux:</strong> install the deb or rpm package, or run the AppImage.</li>
+  <li><strong>macOS</strong> on Apple silicon: drag BeeZip from its disk image to Applications, then choose <strong>Open Anyway</strong> in System Settings › Privacy &amp; Security the first time.</li>
+</ul>
+<p>The <a href="../download.html">download page</a> has the details for each.</p>
+
+<h2 id="first-archive">Open your first archive</h2>
+<ol>
+  <li>Start BeeZip and drop an archive on its window, or press <kbd>Ctrl</kbd>+<kbd>O</kbd> and choose one. Once BeeZip is installed, double-clicking an archive opens it too.</li>
+  <li>The archive opens in a tab: its folders on the left, the entries in the middle, and a preview of the selected file on the right. Double-click a folder to go into it, and <kbd>Backspace</kbd> to come back out.</li>
+  <li>Click <strong>Extract all</strong>, or select some entries first and click <strong>Extract</strong>. Choose where the files go, and click <strong>Extract</strong>.</li>
+</ol>
+<p>The jobs list at the bottom shows the progress. If the archive is encrypted, BeeZip asks for the password; if a file is already there, it asks what to do.</p>
+<p><a href="app.html">The desktop app</a> covers the rest: making archives, adding and renaming files inside them, dragging files out, and more.</p>
+
+<h2 id="right-click">From Explorer's right-click menu</h2>
+<p>Right-click an archive in Explorer, open <strong>BeeZip</strong>, and choose <strong>Extract here</strong> or <strong>Extract to "<var>name</var>\"</strong>. A small window shows the job, and closes when it's done. Right-click files or folders and choose <strong>Add to "<var>name</var>.zip"</strong> to make an archive of them.</p>
+<ul>
+  <li><strong>With the installer,</strong> the menu is already there, in Windows 11's own menu.</li>
+  <li><strong>With the portable copy,</strong> add it from BeeZip: open Settings (<kbd>Ctrl</kbd>+<kbd>,</kbd>), go to <strong>Explorer menu</strong> and click <strong>Install</strong>. On Windows 11 it's under <strong>Show more options</strong>. It runs BeeZip from the portable copy's folder, so remove it there before moving or deleting that folder.</li>
+</ul>
+<p><a href="explorer.html">Explorer's menu</a> lists every item and setting.</p>
+
+<h2 id="command-line">On the command line</h2>
+<p>The command line is <code>beezip</code>. The installer and the Linux packages put it on your PATH; in the portable copy it's <code>bin\beezip.exe</code>, and on macOS it's inside the app (the <a href="../download.html#macos-install">download page</a> shows how to link it).</p>
+<pre><code>beezip list backup.zip              # what's inside, one folder at a time
+beezip x backup.zip -o out          # extract into out
+beezip c photos.7z Pictures         # make a 7z of a folder
+beezip test backup.zip              # check every entry</code></pre>
+<p><a href="cli.html">The command line</a> walks through the everyday commands, and the <a href="reference.html">command reference</a> lists every option.</p>
+
+<h2 id="seven-zip">More formats with 7-Zip</h2>
+<p>BeeZip reads and writes the common formats itself. If <a href="https://7-zip.org">7-Zip</a> 25.01 or newer is installed, BeeZip also opens WIM images, MSI and NSIS installers, CHM files, and disk images such as VHDX and VMDK, with the FAT, NTFS, ext or APFS file systems inside them. It finds 7-Zip on its own; there's nothing to set up. <a href="formats.html#through-7-zip">Formats</a> lists them.</p>
+
+<h2 id="next">Where to go next</h2>
+<ul>
+  <li><a href="app.html">The desktop app</a>: every dialog and shortcut.</li>
+  <li><a href="explorer.html">Explorer's menu</a>: the items, the job windows, and Windows 11's menu.</li>
+  <li><a href="cli.html">The command line</a> and the <a href="reference.html">command reference</a>.</li>
+  <li><a href="settings.html">Settings</a>: what <code>config.toml</code> holds, for the app and the command line alike.</li>
+  <li><a href="formats.html">Formats</a>: what BeeZip reads, writes and edits.</li>
+  <li><a href="safety.html">Safety</a>: what BeeZip checks before it writes a file.</li>
+  <li><a href="mcp.html">AI assistants</a>: BeeZip as an MCP server.</li>
+  <li><a href="faq.html">Questions and problems</a>.</li>
+</ul>
+
+<h2 id="build-it-yourself">Build it yourself</h2>
+<p>BeeZip is open source. To build it you need Rust (the toolchain the repository pins installs itself), Node 24 with pnpm, and <a href="https://tauri.app/start/prerequisites/">Tauri's prerequisites</a>: WebView2 and the MSVC build tools on Windows, WebKitGTK 4.1 on Linux, Xcode's command-line tools on macOS.</p>
+<pre><code>git clone https://github.com/JoshClose/BeeZip
+cd BeeZip
+cargo build --workspace             # the command line: target/debug/beezip
+cargo xtask dist                    # the installer and the portable zip, or Linux's
+                                    # and macOS's packages, under target/dist</code></pre>
+<p>The <a href="https://github.com/JoshClose/BeeZip#building">README</a> covers the tests, running the app while you change it, and signing.</p>

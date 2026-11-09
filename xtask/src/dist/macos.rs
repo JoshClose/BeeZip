@@ -16,16 +16,13 @@
 //!    updater's bundle; they're copied to versioned names for the release, and `latest.json` is
 //!    written beside them (`darwin-aarch64-app`, the key the updater looks for first).
 
-use std::{
-    path::{Path, PathBuf},
-    process::Command,
-};
+use std::{path::Path, process::Command};
 
 use anyhow::{Context, bail};
 use serde_json::{Value, json};
 
 use super::{
-    Os, Updatable, associations, build_cli, check, pnpm, profile, slashes, template, updater,
+    Os, Updatable, associations, build_cli, check, pnpm, profile, sig, slashes, template, updater,
     write_latest_json, write_overlay,
 };
 
@@ -199,13 +196,6 @@ pub fn run(root: &Path, debug: bool, version: &str) -> anyhow::Result<()> {
         )?;
     }
     Ok(())
-}
-
-/// `<file>.sig`.
-fn sig(file: &Path) -> PathBuf {
-    let mut s = file.as_os_str().to_owned();
-    s.push(".sig");
-    s.into()
 }
 
 #[cfg(test)]

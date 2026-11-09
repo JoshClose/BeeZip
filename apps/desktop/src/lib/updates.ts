@@ -7,7 +7,14 @@ import { create } from "zustand";
 export type Checked =
   | { status: "off"; reason: string }
   | { status: "up_to_date"; version: string }
-  | { status: "available"; version: string; current: string; notes_url: string };
+  | {
+      status: "available";
+      version: string;
+      current: string;
+      notes_url: string;
+      /** A portable copy's new zip: such a copy doesn't install updates, so the banner links to it. */
+      download_url?: string;
+    };
 
 /** How an install is going (update.rs `Progress`). */
 export type Progress =

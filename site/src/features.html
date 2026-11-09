@@ -1,0 +1,115 @@
+<!-- {"title": "Features", "description": "Everything BeeZip does: Explorer's right-click menu, the desktop app, the formats it reads and writes, safe extraction, editing archives, the command line and the MCP server.", "layout": "page"} -->
+<h1>Everything BeeZip does</h1>
+<p class="lede">An archive manager for Windows, also built for Linux and macOS. The desktop app, Explorer's menu, the command line and the MCP server share one engine, so each does what the others do, with the same settings and the same care.</p>
+
+<h2 id="explorer">Explorer's right-click menu</h2>
+<ul>
+  <li><strong>In Windows 11's own menu,</strong> not under Show more options, once BeeZip is installed with the signed installer (from 1.0.0). On Windows 10, and from the portable copy, it's in the classic menu.</li>
+  <li><strong>The items:</strong> Open with BeeZip, Extract here, Extract to "a\", Extract to…, Test archive, Add to "a.zip", Add to "a.7z", Add to "a.tar.zst" and Compress to…, on files and folders, one or many.</li>
+  <li><strong>Extract here is smart:</strong> an archive holding more than one item goes into a folder named after it, as Explorer does.</li>
+  <li><strong>A small window for each job,</strong> with its progress, the password when one is needed, and what to do with files already there. It closes itself when everything went well.</li>
+  <li><strong>When the archive you're making exists,</strong> add to it, replace it, keep both or skip.</li>
+  <li><strong>Your choice of items,</strong> in a BeeZip submenu or at the top of the menu, from Settings or <code>config.toml</code>.</li>
+  <li><strong>Repair and remove</strong> from Settings, or with <code>beezip shell</code>.</li>
+</ul>
+<p><a href="docs/explorer.html">Explorer's menu, in detail</a></p>
+
+<h2 id="app">The desktop app</h2>
+<ul>
+  <li><strong>Tabs,</strong> one per archive, with a folder tree, the entries and a preview of text, hex or images. Drag the edges between them to resize; BeeZip remembers.</li>
+  <li><strong>Big archives are fine:</strong> a million entries list without a pause. Click a column to sort; the keyboard moves and selects as in Explorer.</li>
+  <li><strong>Open archives</strong> with Ctrl+O, by dropping them on the window, by double-clicking one once BeeZip is installed, or by launching BeeZip again, which opens them in the window already running.</li>
+  <li><strong>Extract</strong> everything or the entries you selected, choosing where, what to do with files already there, whether to drop leading folders, and whether to make symbolic links.</li>
+  <li><strong>New archives</strong> from files you pick or drop: zip, 7z, tar and the rest, with the method, level, password, solid blocks and volumes you want.</li>
+  <li><strong>Edit</strong> zip, 7z, tar, cpio and ar archives: add files and folders, delete entries, rename in place.</li>
+  <li><strong>Open an entry</strong> in its app; change it, come back, and BeeZip offers to update the archive. An archive inside an archive opens in a tab.</li>
+  <li><strong>Drag entries out</strong> onto Explorer or the desktop; they're extracted as you let go. Ctrl copies.</li>
+  <li><strong>Test, Info, Convert and Benchmark,</strong> and a name encoding for archives made on another system.</li>
+  <li><strong>The jobs list:</strong> each job's progress, Cancel, its log in full, and Copy for its result and log. Cancelling removes partly written files.</li>
+  <li><strong>Passwords and overwrites</strong> are asked as they come up. A password stays in memory for its tab only, and is never saved.</li>
+  <li><strong>The command palette,</strong> Ctrl+K, lists every action and every BeeZip command.</li>
+  <li><strong>Copy as CLI,</strong> on every dialog, copies the <code>beezip</code> command that does the same.</li>
+  <li><strong>Settings</strong> save as you change them, and a value BeeZip can't take shows its error beside the field.</li>
+  <li><strong>Light, dark, or as Windows is.</strong></li>
+  <li><strong>Updates:</strong> BeeZip checks for a new version at most once a day and shows a banner. Nothing downloads until you click.</li>
+</ul>
+<p><a href="docs/app.html">The desktop app, in detail</a></p>
+
+<h2 id="formats">Formats</h2>
+<ul>
+  <li><strong>Reads and writes</strong> zip, 7z, tar, cpio, ar, CAB, ISO 9660 (with Joliet and Rock Ridge), squashfs and DMG, and tar and cpio under any compressor.</li>
+  <li><strong>Reads</strong> RAR 1.5 to 7, Debian packages, RPMs, LHA, UDF, XAR and macOS packages, and ARJ, ACE, ZOO and ARC from the DOS days.</li>
+  <li><strong>With 7-Zip 25.01 or newer installed,</strong> also reads WIM and ESD images, CHM files, MSI and NSIS installers, and disk images and file systems: VHD, VHDX, VMDK, QCOW2, VDI, GPT and MBR disks, FAT, NTFS, ext2/3/4, HFS+, APFS and CramFS. Every file still comes out through BeeZip's own extraction.</li>
+  <li><strong>Compressors:</strong> gzip, zlib, bzip2, xz, lzma, lzip, Zstandard, LZ4, Brotli, Snappy, Unix compress and lzop, for single files and under tar and cpio.</li>
+  <li><strong>Recognised by content,</strong> not by name: <code>download.bin</code> that's really a <code>.tar.zst</code> opens as one.</li>
+  <li><strong>Split archives</strong> (<code>a.7z.001</code>, <code>a.part1.rar</code>, <code>a.zip.001</code>, and the old <code>.r00</code>, <code>.a01</code> and <code>.c00</code> sets) open from any part.</li>
+  <li><strong>Self-extracting archives</strong> (7z, RAR, zip, CAB and LHA) open like any other.</li>
+  <li><strong>Names from any system:</strong> archives made with a Japanese, Chinese, Russian or other code page read correctly once you choose it.</li>
+</ul>
+<p><a href="docs/formats.html">Every format, and what BeeZip does with it</a></p>
+
+<h2 id="creating">Creating archives</h2>
+<ul>
+  <li><strong>Zip</strong> with store, deflate, bzip2, Zstandard, xz or PPMd, and AES-256 encryption, or ZipCrypto for old tools.</li>
+  <li><strong>7z</strong> with LZMA2, LZMA, PPMd, bzip2 or deflate, solid or not, and AES-256 that hides the file names too.</li>
+  <li><strong>tar and cpio</strong> under any compressor, ar, CAB, ISO, squashfs and DMG.</li>
+  <li><strong>Split into volumes</strong> of any size, in every format.</li>
+  <li><strong>Leave out</strong> files by pattern, such as <code>*.tmp</code> or <code>node_modules</code>.</li>
+  <li><strong>Levels for every compressor,</strong> and threads for those that use them.</li>
+  <li><strong>Written to a temporary file and renamed,</strong> so a cancelled job leaves nothing behind.</li>
+</ul>
+
+<h2 id="changing">Changing archives</h2>
+<ul>
+  <li><strong>Add, delete and rename</strong> in zip, 7z, tar, cpio and ar archives, compressed or not. A rename can move entries, and a folder takes everything in it.</li>
+  <li><strong>What stays is copied as it is:</strong> zip entries byte for byte, whole 7z blocks, tar, cpio and ar members. Only a 7z solid block that loses an entry, or a compressed tar's stream, is encoded again.</li>
+  <li><strong>Never in place:</strong> a new archive is written beside the old one and swapped in, keeping its Mark of the Web, hidden attribute and creation time.</li>
+  <li><strong>Convert</strong> any archive BeeZip reads (RAR, packages, disk images, split and self-extracting archives) into one it writes. The original stays.</li>
+  <li><strong>Encryption stays:</strong> adding to an encrypted archive needs a password for the new files, and converting one needs a new password or your say-so to decrypt.</li>
+</ul>
+
+<h2 id="safety">Safety</h2>
+<ul>
+  <li><strong>Extraction never writes outside its folder.</strong> Paths with <code>..</code> and links leading out are skipped; the rest is extracted and the skipped ones listed.</li>
+  <li><strong>Names Windows can't store,</strong> such as <code>CON</code>, drive letters and absolute paths, are rewritten and reported.</li>
+  <li><strong>Symbolic links are off</strong> unless you turn them on, and then only ones that stay inside the folder. Hard links come out as copies.</li>
+  <li><strong>Zip bombs stop</strong> at a ratio of 10,000 to 1, and limits on entries and decoder memory stop the rest.</li>
+  <li><strong>Mark of the Web</strong> carries from a downloaded archive to its files, as Explorer does, so Windows still checks what you run. On macOS, the quarantine does.</li>
+  <li><strong>Cancelling removes</strong> partly written files.</li>
+</ul>
+<p><a href="docs/safety.html">What BeeZip checks, in detail</a></p>
+
+<h2 id="speed">Speed</h2>
+<ul>
+  <li><strong>Every core:</strong> extracting zips, decoding xz and compressing with the codecs that can use threads.</li>
+  <li><strong>Copying without decoding</strong> when editing or converting between the same formats.</li>
+  <li><strong>A benchmark</strong> of every compressor at every level on your own file, in the app or with <code>beezip bench</code>: size, speed and memory each way, every round trip checked.</li>
+</ul>
+
+<h2 id="cli">The command line</h2>
+<ul>
+  <li><strong>Short commands</strong> with aliases: <code>beezip x</code> extracts, <code>beezip c</code> creates, <code>beezip l</code> lists, <code>beezip t</code> tests.</li>
+  <li><strong>Asks in a terminal,</strong> for passwords and files already there, and otherwise fails saying which option to pass.</li>
+  <li><strong>For scripts:</strong> <code>--output json</code> prints one JSON document, <code>--output ndjson</code> streams every event, and exit codes say what went wrong.</li>
+  <li><strong>Every command by name,</strong> with JSON arguments and schemas, as the app and the MCP server call them.</li>
+  <li><strong>Ctrl+C cancels</strong> and removes the partly written file.</li>
+</ul>
+<p><a href="docs/cli.html">The command line, in detail</a></p>
+
+<h2 id="mcp">AI assistants</h2>
+<ul>
+  <li><strong><code>beezip mcp</code></strong> serves BeeZip's commands to Claude and other MCP clients: list, test, read, extract, create, change and convert.</li>
+  <li><strong>Writes stay in your folders:</strong> commands write only under the roots you give, and reads aren't confined.</li>
+  <li><strong>Asks you, not the assistant,</strong> about overwriting files, where the client supports it. Passwords are never asked for over MCP.</li>
+</ul>
+<p><a href="docs/mcp.html">Setting up the MCP server</a></p>
+
+<h2 id="everywhere">Windows, Linux and macOS</h2>
+<ul>
+  <li><strong>Windows 10 and 11:</strong> the portable copy now, and from 1.0.0 a signed installer that works per user, with no admin rights, and updates itself.</li>
+  <li><strong>Linux:</strong> deb and rpm packages, and an AppImage.</li>
+  <li><strong>macOS</strong> on Apple silicon: a disk image. Extracted files keep the archive's quarantine, as Archive Utility does.</li>
+  <li><strong>One <code>config.toml</code></strong> for the app, the menu, the command line and the MCP server.</li>
+  <li><strong>Free and open source,</strong> under the MIT or Apache 2.0 license.</li>
+</ul>
+<p><a class="button" href="download.html">Download BeeZip</a></p>

@@ -1,0 +1,84 @@
+<!-- {"title": "Download", "description": "Download BeeZip for Windows, Linux or macOS: the portable copy, the installer, the Linux packages and the macOS disk image.", "layout": "page", "wide": true} -->
+<div class="download-head">
+  <!-- beezip:mark comb-lifted -->
+  <div>
+    <h1>Download BeeZip</h1>
+    <p class="lede" data-state="loading">
+      <span class="when-loading"><!-- beezip:mark comb-rosette loading-comb -->Looking up the newest version…</span>
+      <span class="when-ready">BeeZip <span data-release="version"></span>, released <span data-release="date"></span>. <a data-release="page" href="https://github.com/JoshClose/BeeZip/releases/latest">Its release on GitHub</a>.</span>
+      <span class="when-none">The first release is nearly ready. Until it's out, <a href="https://github.com/JoshClose/BeeZip/releases">watch for it on GitHub</a>, or <a href="docs/index.html#build-it-yourself">build BeeZip yourself</a>.</span>
+    </p>
+    <div class="get" data-state="loading">
+      <a class="button big not-none" data-download="auto" href="https://github.com/JoshClose/BeeZip/releases/latest">
+        <span>Download for <span data-os-name>Windows</span><span class="sub" data-download-meta>&nbsp;</span></span>
+      </a>
+    </div>
+  </div>
+</div>
+
+<div class="platforms">
+  <section>
+    <h2 id="windows">Windows</h2>
+    <ul class="files">
+      <li data-file="windows-portable" hidden><div><strong>Portable copy</strong><small><span data-name></span>, <span data-size></span></small></div><a class="button small" href="#">Download</a></li>
+      <li data-file="windows-setup" hidden><div><strong>Installer</strong><small><span data-name></span>, <span data-size></span></small></div><a class="button small" href="#">Download</a></li>
+    </ul>
+    <h3 id="windows-portable">The portable copy</h3>
+    <p>Unzip it anywhere (right-click it and choose Extract All) and run <code>BeeZip.exe</code>. Nothing is installed. The command line is <code>bin\beezip.exe</code>, and Settings → Explorer menu adds the right-click menu. The <code>README.txt</code> inside says how to update it.</p>
+    <div class="note"><p>Until BeeZip 1.0.0, its programs aren't signed, so Windows asks before the first run. Choose <strong>More info</strong>, then <strong>Run anyway</strong>.</p></div>
+    <h3 id="windows-installer">The installer, from 1.0.0</h3>
+    <p>It installs BeeZip for you alone, with no admin rights. It adds BeeZip to Windows 11's own right-click menu, offers it for the archive types it opens, puts <code>beezip</code> on your PATH, and updates itself.</p>
+    <h3 id="windows-needs">What it needs</h3>
+    <ul>
+      <li>Windows 10 or 11, 64-bit, with the WebView2 runtime, which both have.</li>
+      <li>Optionally <a href="https://7-zip.org">7-Zip</a> 25.01 or newer, to open WIM images, MSI installers and disk images such as VHDX (<a href="docs/formats.html#through-7-zip">more</a>).</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2 id="linux">Linux</h2>
+    <ul class="files">
+      <li data-file="linux-deb" hidden><div><strong>Debian and Ubuntu</strong><small><span data-name></span>, <span data-size></span></small></div><a class="button small" href="#">Download</a></li>
+      <li data-file="linux-rpm" hidden><div><strong>Fedora and openSUSE</strong><small><span data-name></span>, <span data-size></span></small></div><a class="button small" href="#">Download</a></li>
+      <li data-file="linux-appimage" hidden><div><strong>AppImage</strong><small><span data-name></span>, <span data-size></span></small></div><a class="button small" href="#">Download</a></li>
+    </ul>
+    <h3 id="linux-packages">The packages</h3>
+    <p>Install the one your system takes. Each installs the app as <code>beezip-desktop</code> and the command line as <code>/usr/bin/beezip</code>, and offers BeeZip in the file manager's Open With for the archives it reads.</p>
+    <pre><code>sudo apt install ./beezip_*_amd64.deb      # Debian, Ubuntu
+sudo dnf install ./beezip-*.x86_64.rpm     # Fedora</code></pre>
+    <h3 id="linux-appimage">The AppImage</h3>
+    <p>Runs as it is, without installing, on a desktop with GTK:</p>
+    <pre><code>chmod +x beezip_*_amd64.AppImage
+./beezip_*_amd64.AppImage</code></pre>
+    <h3 id="linux-needs">What it needs</h3>
+    <ul>
+      <li>64-bit x86 with glibc 2.35 or newer: Ubuntu 22.04, Debian 12 and later.</li>
+      <li>Optionally 7-Zip 25.01 or newer (<code>7zz</code>), for the <a href="docs/formats.html#through-7-zip">formats read through it</a>.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2 id="macos">macOS</h2>
+    <ul class="files">
+      <li data-file="mac-dmg" hidden><div><strong>Disk image</strong><small><span data-name></span>, <span data-size></span></small></div><a class="button small" href="#">Download</a></li>
+    </ul>
+    <h3 id="macos-install">Installing</h3>
+    <p>Open the disk image and drag BeeZip to Applications.</p>
+    <div class="note"><p>BeeZip isn't signed with an Apple Developer ID, so the first time, macOS won't open it. Open System Settings › Privacy &amp; Security and choose <strong>Open Anyway</strong>.</p></div>
+    <p>The command line is inside the app. To type <code>beezip</code> anywhere, link it into your PATH:</p>
+    <pre><code>sudo ln -s /Applications/BeeZip.app/Contents/MacOS/bin/beezip /usr/local/bin/beezip</code></pre>
+    <h3 id="macos-needs">What it needs</h3>
+    <ul>
+      <li>A Mac with Apple silicon, on macOS 11 or newer.</li>
+    </ul>
+  </section>
+</div>
+
+<h2 id="checking-a-download">Checking a download</h2>
+<p>GitHub lists each file's SHA-256 checksum on its release page. To compare it with the file you downloaded:</p>
+<pre><code>Get-FileHash BeeZip_*_x64-portable.zip     # Windows, in PowerShell
+sha256sum beezip_*_amd64.deb               # Linux
+shasum -a 256 BeeZip_*_aarch64.dmg         # macOS</code></pre>
+
+<h2 id="other-versions">Other versions, and the source code</h2>
+<p>Every version, with its source code as a zip and a tar.gz, is on <a href="https://github.com/JoshClose/BeeZip/releases">GitHub's releases page</a>. What changed in each is on the <a href="releases.html">Releases</a> page. To build BeeZip from the source, see <a href="docs/index.html#build-it-yourself">Build it yourself</a>.</p>

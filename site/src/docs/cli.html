@@ -1,0 +1,182 @@
+<!-- {"title": "The command line", "description": "Using beezip on the command line: listing, extracting, creating, changing and converting archives, passwords, output for scripts and exit codes.", "layout": "docs"} -->
+<h1>The command line</h1>
+<p class="lede"><code>beezip</code> does everything the app does, from a terminal or a script, with the same settings and the same safety rules. This page walks through the everyday commands; the <a href="reference.html">command reference</a> lists every option of every one.</p>
+
+<h2 id="basics">The basics</h2>
+<p>Every command is <code>beezip <var>command</var></code> followed by its arguments. The common ones have short aliases:</p>
+<div class="table-wrap"><table>
+  <thead><tr><th scope="col">Command</th><th scope="col">Alias</th><th scope="col">What it does</th></tr></thead>
+  <tbody>
+    <tr><td><code>list</code></td><td><code>l</code></td><td>Lists what's inside</td></tr>
+    <tr><td><code>extract</code></td><td><code>x</code></td><td>Extracts all of it, or some</td></tr>
+    <tr><td><code>create</code></td><td><code>c</code></td><td>Makes a new archive</td></tr>
+    <tr><td><code>test</code></td><td><code>t</code></td><td>Reads everything back and checks it</td></tr>
+    <tr><td><code>add</code></td><td><code>a</code></td><td>Adds files to an archive</td></tr>
+    <tr><td><code>remove</code></td><td><code>d</code></td><td>Removes entries from an archive</td></tr>
+    <tr><td><code>rename</code></td><td><code>rn</code></td><td>Renames or moves an entry</td></tr>
+  </tbody>
+</table></div>
+<ul>
+  <li><strong>Help:</strong> <code>beezip --help</code> lists the commands, and <code>beezip <var>command</var> --help</code> explains one.</li>
+  <li><strong>Formats are recognised by content:</strong> BeeZip looks inside a file to see what it is, so an archive with the wrong extension, or none, still opens. <code>beezip detect <var>file</var></code> says what it found.</li>
+  <li><strong>Any part of a split archive</strong> opens the whole set: <code>beezip x big.7z.002</code> works.</li>
+  <li><strong>Defaults come from <code>config.toml</code>,</strong> and options override them. See <a href="settings.html">Settings</a>.</li>
+</ul>
+
+<h2 id="looking-inside">Looking inside an archive</h2>
+<pre><code>beezip info backup.tar.zst              # entries, sizes, ratio, methods, encryption
+beezip list backup.zip                  # the top folder: one level at a time
+beezip list backup.zip docs             # the docs folder
+beezip list backup.zip --flat           # every entry
+beezip list backup.zip --glob "*.md"    # every entry matching a pattern
+beezip list photos.rar --sort size --reverse --kind file
+beezip read backup.zip docs/a.md        # print part of an entry
+beezip read backup.zip app.bin --encoding hex --max-bytes 256
+beezip test backup.zip                  # read it all back, checking CRCs</code></pre>
+<ul>
+  <li><strong><code>list</code> shows one folder level</strong> unless you pass <code>--flat</code> or a <code>--glob</code>. Folders come first; <code>--sort</code> takes another column and <code>--kind</code> shows only files or folders.</li>
+  <li><strong>Patterns:</strong> without a <code>/</code>, a pattern matches a name at any depth (<code>*.txt</code>); with one, the whole path (<code>docs/**/*.md</code>).</li>
+  <li><strong><code>read</code> prints part of one entry</strong> without extracting it, as text, hex or base64, from <code>--offset</code> for up to <code>--max-bytes</code>.</li>
+  <li><strong><code>test</code> fails with exit code 8</strong> when an entry is damaged, and names it.</li>
+  <li><strong><code>detect</code></strong> says what a file is: <code>zstd → tar</code>, a self-extracting zip, a split set, or "not an archive" and what it is instead.</li>
+  <li><strong><code>formats</code></strong> lists every format and compressor, with what BeeZip does with each, its methods and levels.</li>
+</ul>
+
+<h2 id="extracting">Extracting</h2>
+<pre><code>beezip x backup.zip                     # into the current folder
+beezip x backup.zip -o out              # into out
+beezip x backup.zip docs readme.txt     # just these (a folder takes all it holds)
+beezip x backup.zip --glob "*.jpg" -o photos
+beezip x backup.zip --smart             # into a folder named after the archive, if it
+                                        # holds more than one item, as Extract here does
+beezip x release.tar.gz --strip-components 1
+beezip x backup.zip --overwrite rename --dry-run</code></pre>
+<ul>
+  <li><strong>Files already there:</strong> BeeZip asks, in a terminal. <code>--overwrite</code> decides instead: <code>always</code>, <code>never</code>, <code>rename</code> (writes <code>name (1).ext</code>) or <code>newer</code> (replaces only older files).</li>
+  <li><strong><code>--dry-run</code></strong> shows what would be extracted, and where, without writing anything.</li>
+  <li><strong><code>--exclude</code></strong> leaves out entries matching a pattern; repeat it for more.</li>
+  <li><strong>Symbolic links</strong> aren't made unless you pass <code>--links</code>, and then only ones that stay inside the destination. Hard links come out as copies.</li>
+  <li><strong>Unsafe entries,</strong> such as paths climbing out with <code>..</code>, are skipped. The rest is extracted, and the command ends with exit code 14, listing what it skipped. See <a href="safety.html">Safety</a>.</li>
+  <li><strong>Mark of the Web:</strong> on Windows, files from a downloaded archive keep its mark, as Explorer does. <code>[extract] mark_of_the_web</code> in <a href="settings.html#extract">Settings</a> changes that.</li>
+</ul>
+
+<h2 id="creating">Creating archives</h2>
+<pre><code>beezip c backup.tar.zst src -l 19          # the format comes from the extension
+beezip c backup.zip src docs readme.md     # several inputs
+beezip c secret.zip src -p "pass phrase"   # AES-256
+beezip c old-tools.zip src -p "pass phrase" --encryption zipcrypto
+beezip c logs.zip logs -m ppmd --exclude "*.tmp"
+beezip c backup.7z src -p "pass phrase"    # the names are encrypted too
+beezip c big.7z videos -v 4g --solid=false # big.7z.001, big.7z.002…
+beezip c initrd.cpio.gz rootfs
+beezip c drivers.cab inf -m mszip
+beezip c disc.iso photos                   # ISO 9660 with Joliet and Rock Ridge
+beezip c rootfs.squashfs rootfs -m zstd
+beezip c app.dmg build/App                 # an HFS+ volume in a compressed image</code></pre>
+<ul>
+  <li><strong>Each input keeps its own name:</strong> <code>src</code> goes in as <code>src/…</code>.</li>
+  <li><strong>The format</strong> comes from the output's extension (<code>.zip</code>, <code>.7z</code>, <code>.tar</code>, <code>.tar.zst</code>, <code>.tgz</code>, <code>.cpio.gz</code>, <code>.ar</code>, <code>.cab</code>, <code>.iso</code>, <code>.squashfs</code>, <code>.dmg</code>…), or from <code>-f</code>.</li>
+  <li><strong>Methods with <code>-m</code>:</strong> for zip, <code>store</code>, <code>deflate</code> (the default), <code>bzip2</code>, <code>zstd</code>, <code>xz</code> or <code>ppmd</code>; for 7z, <code>lzma2</code> (the default), <code>lzma</code>, <code>ppmd</code>, <code>bzip2</code>, <code>deflate</code> or <code>copy</code>; for CAB, <code>mszip</code> or <code>store</code>; for squashfs, <code>gzip</code>, <code>xz</code>, <code>zstd</code>, <code>lz4</code> or <code>lzo</code>. A tar's compressor comes from its extension.</li>
+  <li><strong>Levels with <code>-l</code>:</strong> each compressor has its own range; <code>beezip formats</code> shows them, and <code>[levels]</code> in <a href="settings.html#levels">Settings</a> sets your defaults.</li>
+  <li><strong>Encryption:</strong> zip and 7z, with <code>-p</code>. Zip uses AES-256 unless you ask for <code>--encryption zipcrypto</code>, which is weak but opens in old tools. A 7z with a password encrypts its file names too, unless <code>--encrypt-headers=false</code>.</li>
+  <li><strong>Solid 7z</strong> compresses files together, which is smaller but slower to read one file from. It's on unless <code>--solid=false</code>.</li>
+  <li><strong>Volumes with <code>-v</code>:</strong> a size such as <code>100m</code>, <code>4g</code> or <code>700MB</code> (powers of 1024), in every format. The parts are <code><var>name</var>.001</code>, <code>.002</code>…</li>
+  <li><strong>Threads:</strong> <code>--threads 0</code> uses every core, for the compressors that can.</li>
+  <li><strong>Nothing half-written:</strong> the archive is written to a temporary file and renamed into place, so a failed or cancelled job leaves nothing behind.</li>
+</ul>
+
+<h2 id="changing">Changing an archive</h2>
+<pre><code>beezip add backup.zip notes.txt --dir docs   # into docs/, made if it isn't there
+beezip add backup.7z new-photos              # a folder and all it holds
+beezip remove backup.zip docs/old.txt        # an entry
+beezip remove backup.7z --glob "*.tmp" --dry-run
+beezip rename backup.zip docs papers         # a folder and everything in it
+beezip rename backup.zip a.txt notes/a.txt   # renaming can move, too</code></pre>
+<ul>
+  <li><strong>Which archives:</strong> zip, 7z, tar, cpio and ar, and tar and cpio under any compressor. Others (RAR, CAB, the disk images, packages, split and self-extracting archives) can't be changed; <code>convert</code> makes one that can.</li>
+  <li><strong>Entries already there:</strong> <code>add</code> asks, or follows <code>--overwrite</code>.</li>
+  <li><strong>Encrypted archives:</strong> adding to one needs <code>-p</code> for the new files, or <code>--unencrypted</code> to add them in the clear.</li>
+  <li><strong>Nothing is changed in place:</strong> a new archive is written beside the old one and swapped in, so a failed or cancelled change leaves it as it was. What stays is copied without being compressed again.</li>
+  <li><strong><code>--dry-run</code></strong> shows each change without making it.</li>
+</ul>
+
+<h2 id="converting">Converting</h2>
+<pre><code>beezip convert old.rar new.7z               # any archive BeeZip reads, as one it writes
+beezip convert a.tar.gz a.tar.zst           # entries copied, the stream compressed again
+beezip convert disk.vhdx files.zip          # through 7-Zip, for the formats that need it
+beezip convert secret.7z open.zip --decrypt # encryption is only dropped when you say so
+beezip convert secret.7z secret.zip -p old --new-password new</code></pre>
+<p>The source isn't changed. What the new format can't hold is left out and reported. Entries are copied without decoding when the formats match and no option asks otherwise.</p>
+
+<h2 id="single-files">Compressing single files</h2>
+<pre><code>beezip compress big.log -c xz -l 9      # big.log.xz; big.log stays
+beezip compress big.log                 # with the default compressor, zstd
+beezip decompress backup.tar.zst        # backup.tar: one layer each time</code></pre>
+<p>The output keeps the input's modification time. <code>[stream] codec</code> in <a href="settings.html#create">Settings</a> sets the default compressor.</p>
+
+<h2 id="opening">Opening an entry</h2>
+<pre><code>beezip open backup.zip docs/report.pdf</code></pre>
+<p>The entry is extracted, with the archive's Mark of the Web, into a folder of its own under <code>%TEMP%\BeeZip\open</code>, and opened with its app. Folders there older than a day are cleaned up as BeeZip goes.</p>
+
+<h2 id="passwords">Passwords and questions</h2>
+<ul>
+  <li><strong>In a terminal,</strong> BeeZip asks for a password when an archive needs one, and what to do with a file that's already there.</li>
+  <li><strong>Without a terminal,</strong> as in a script, it fails instead, and says which option to pass: <code>--password</code> or <code>--overwrite</code>.</li>
+  <li><strong>7z and old RAR archives</strong> can't tell a wrong password from damage, so a wrong one shows as damaged data. BeeZip asks again, up to three times. A RAR whose entries have different passwords asks for each.</li>
+  <li><strong>On a shared machine,</strong> a password on the command line can show up in the shell's history; let BeeZip ask instead.</li>
+</ul>
+
+<h2 id="names">Names from other systems</h2>
+<p>Older zips and many other formats store names as bytes, in whatever code page their system used. BeeZip reads them as UTF-8, and otherwise as Windows' own code page. When names come out garbled, name the code page they were written in:</p>
+<pre><code>beezip list old.zip --name-encoding cp932     # Japanese Windows
+beezip x old.zip --name-encoding cp866        # Russian DOS</code></pre>
+<p><code>beezip list --help</code> lists every code page BeeZip knows, and <code>[names] encoding</code> in <a href="settings.html#names">Settings</a> sets a default.</p>
+
+<h2 id="scripts">Output for scripts</h2>
+<pre><code>beezip list backup.zip --flat --output json
+beezip x backup.zip -o out --output ndjson
+beezip x backup.zip -o out -q</code></pre>
+<ul>
+  <li><strong><code>--output json</code></strong> prints one JSON document: the result, or <code>{"error": {…}}</code>.</li>
+  <li><strong><code>--output ndjson</code></strong> streams every event as a line of JSON, progress included, ending with <code>Finished</code>, <code>Failed</code> or <code>Cancelled</code>.</li>
+  <li><strong><code>-q</code></strong> hides progress bars and information; warnings still print.</li>
+  <li><strong>Ctrl+C</strong> cancels and removes the partly written file. A second Ctrl+C exits at once, and still removes it.</li>
+</ul>
+
+<h3 id="exit-codes">Exit codes</h3>
+<div class="table-wrap"><table>
+  <thead><tr><th scope="col">Code</th><th scope="col">Meaning</th></tr></thead>
+  <tbody>
+    <tr><td>0</td><td>It worked</td></tr>
+    <tr><td>2</td><td>An argument wasn't valid</td></tr>
+    <tr><td>3</td><td>Something wasn't found: the archive, or an entry</td></tr>
+    <tr><td>4</td><td>The format isn't supported</td></tr>
+    <tr><td>6</td><td>A password is needed</td></tr>
+    <tr><td>7</td><td>The password is wrong</td></tr>
+    <tr><td>8</td><td>The archive is damaged</td></tr>
+    <tr><td>10</td><td>A file is already there, and nobody could be asked</td></tr>
+    <tr><td>11</td><td>A limit was reached, such as the zip-bomb ratio</td></tr>
+    <tr><td>13</td><td>Reading or writing a file failed</td></tr>
+    <tr><td>14</td><td>Unsafe entries were skipped; the rest was extracted</td></tr>
+    <tr><td>130</td><td>Cancelled</td></tr>
+  </tbody>
+</table></div>
+
+<h2 id="any-command">Any command, by name</h2>
+<p>The desktop app and the MCP server call BeeZip's commands by name, with JSON arguments. The command line can too, which helps when a script builds the arguments:</p>
+<pre><code>beezip commands                                        # every command
+beezip schema archive.extract                          # its input and output schemas
+beezip run archive.list --json '{"archive": "a.zip"}'</code></pre>
+
+<h2 id="bench">Comparing compressors</h2>
+<pre><code>beezip bench                              # the common ones, on BeeZip's own sample
+beezip bench big.iso --grid full          # every compressor at every level, on a file
+beezip bench -g zstd:3,zstd:19:0,xz:6     # compressor[:level[:threads]]</code></pre>
+<p>Each compressor packs and unpacks a sample in memory, and reports the size, the speed and the memory each way. Every round trip is checked against the sample. Nothing is written.</p>
+
+<h2 id="more">Settings and Explorer's menu</h2>
+<ul>
+  <li><code>beezip settings get</code> lists every setting, and <code>beezip settings set</code> changes them. See <a href="settings.html">Settings</a>.</li>
+  <li><code>beezip shell status</code>, <code>install</code> and <code>uninstall</code> manage Explorer's menu. See <a href="explorer.html">Explorer's menu</a>.</li>
+  <li><code>beezip mcp</code> runs the MCP server. See <a href="mcp.html">AI assistants</a>.</li>
+</ul>

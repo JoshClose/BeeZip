@@ -81,16 +81,34 @@ pub fn run(version: &str) -> anyhow::Result<()> {
             String::from_utf8_lossy(&metadata.stderr)
         );
     }
+    if !has_changelog_section(&root, version) {
+        println!(
+            "\nCHANGELOG.md has no \"## {version}\" section yet. Add one, saying what's new for the \
+             people using BeeZip, before you tag: the release's notes come from it, and \
+             release.yml stops without it."
+        );
+    }
     println!(
         "\nBeeZip is now {version} (was {current}). Nothing is committed or tagged; next:\n\
          \n  git commit -am \"Release {version}\"\
          \n  (push it, through a pull request if master needs one, and merge it)\
          \n  git tag -a v{version} -m \"BeeZip {version}\" <the commit on master>\
          \n  git push origin v{version}\n\
-         \nThe tag starts .github/workflows/release.yml, which builds the installer and makes a \
-         draft release, v{version}. Publishing it is yours."
+         \nThe tag starts .github/workflows/release.yml, which builds BeeZip and publishes the \
+         release v{version}. Before 1.0.0, Windows gets the portable zip only; from 1.0.0 the \
+         installer too, and only signed."
     );
     Ok(())
+}
+
+/// Whether CHANGELOG.md has a `## <version>` section (a date may follow), which the release's
+/// notes come from (`.github/scripts/changelog-notes.sh`).
+pub fn has_changelog_section(root: &Path, version: &str) -> bool {
+    std::fs::read_to_string(root.join("CHANGELOG.md")).is_ok_and(|text| {
+        text.lines()
+            .filter_map(|l| l.strip_prefix("## "))
+            .any(|rest| rest.split_whitespace().next() == Some(version))
+    })
 }
 
 /// release.yml's check: `tag` is `v` and the workspace's version.
@@ -434,6 +452,33 @@ mod tests {
     use std::time::Duration;
 
     use super::*;
+
+    #[test]
+    fn finds_a_versions_changelog_section() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(
+            !has_changelog_section(dir.path(), "0.2.0"),
+            "no CHANGELOG.md"
+        );
+        std::fs::write(
+            dir.path().join("CHANGELOG.md"),
+            "# Changelog\n\nMentions ## 0.4.0 in passing.\n\n## 0.3.0\n\n- New.\n\n## 0.2.0 (2026-11-20)\n",
+        )
+        .unwrap();
+        assert!(has_changelog_section(dir.path(), "0.3.0"));
+        assert!(has_changelog_section(dir.path(), "0.2.0"), "with a date");
+        assert!(
+            !has_changelog_section(dir.path(), "0.4.0"),
+            "only in passing"
+        );
+        assert!(!has_changelog_section(dir.path(), "0.2"));
+        // The repository's own: the workspace's version always has one (CI checks it too).
+        let root = workspace_root();
+        assert!(has_changelog_section(
+            &root,
+            &workspace_version(&root).unwrap()
+        ));
+    }
 
     #[test]
     fn versions_compare_as_semver_says() {

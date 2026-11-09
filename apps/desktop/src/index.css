@@ -125,4 +125,57 @@ html[data-resizing="col"] * {
 html[data-resizing="row"],
 html[data-resizing="row"] * {
   cursor: row-resize !important;
+
+/* The job window's mark (components/CombMark.tsx), on its 120-unit grid. After extracting the
+   ink cell rests lifted out, after compressing seated; while a job runs it comes out, or goes in,
+   again and again, and a test's comb glows cell by cell. Without motion, each rests. */
+.comb-mark {
+  overflow: visible;
+}
+
+.comb-mark[data-kind="extract"] .comb-cell {
+  transform: translate(4.5px, -7.8px);
+}
+
+.comb-mark:is([data-state="failed"], [data-state="cancelled"]) :is(.comb-fixed, .comb-cell) {
+  opacity: 0.45;
+}
+
+.comb-mark[data-kind="extract"][data-state="running"] .comb-cell {
+  animation: comb-out 2s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
+.comb-mark[data-kind="compress"][data-state="running"] .comb-cell {
+  animation: comb-in 2s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
+.comb-mark[data-kind="test"][data-state="running"] .comb-fixed {
+  animation: comb-glow 1.4s ease-in-out infinite;
+}
+
+.comb-mark .comb-fixed:nth-child(2) { animation-delay: 0.2s; }
+.comb-mark .comb-fixed:nth-child(3) { animation-delay: 0.4s; }
+.comb-mark .comb-fixed:nth-child(4) { animation-delay: 0.6s; }
+.comb-mark .comb-fixed:nth-child(5) { animation-delay: 0.8s; }
+.comb-mark .comb-fixed:nth-child(6) { animation-delay: 1s; }
+.comb-mark .comb-fixed:nth-child(7) { animation-delay: 1.2s; }
+
+@keyframes comb-out {
+  0%, 12% { transform: none; opacity: 1; }
+  62% { transform: translate(9px, -15.6px); opacity: 1; }
+  80% { transform: translate(11px, -19px); opacity: 0; }
+  81% { transform: none; opacity: 0; }
+  100% { transform: none; opacity: 1; }
+}
+
+@keyframes comb-in {
+  0% { transform: translate(11px, -19px); opacity: 0; }
+  18% { transform: translate(9px, -15.6px); opacity: 1; }
+  68%, 88% { transform: none; opacity: 1; }
+  100% { transform: none; opacity: 0; }
+}
+
+@keyframes comb-glow {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
 }
