@@ -542,7 +542,12 @@ export type ArchiveListOutput = { entries: Array<EntryInfo>,
 /**
  * Entries in this listing before paging.
  */
-total: number, offset: number, has_more: boolean, };
+total: number,
+/**
+ * The sizes of those entries added up, before paging: with `flat`, what extracting a
+ * folder writes. Folders and entries of unknown size count as 0.
+ */
+size: number, offset: number, has_more: boolean, };
 
 /**
  * Remove entries from an archive (zip, 7z, tar, cpio and ar, and tar and cpio under any
