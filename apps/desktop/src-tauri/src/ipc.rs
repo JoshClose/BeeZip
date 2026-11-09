@@ -106,10 +106,10 @@ pub fn gui_commands(engine: &Engine) -> Vec<GuiCommand> {
         .collect()
 }
 
-/// Explorer's menu is only on Windows, so elsewhere the palette leaves out `shell.*`, which
-/// would only fail there (docs/M6.md §8.3).
+/// Explorer's menu and winget are only on Windows, so elsewhere the palette leaves out
+/// `shell.*` and `seven_zip.install`, which would only fail there (docs/M6.md §8.3, §3.8).
 fn offered_here(name: &str, windows: bool) -> bool {
-    windows || !name.starts_with("shell.")
+    windows || !(name.starts_with("shell.") || name == "seven_zip.install")
 }
 
 #[cfg(test)]
@@ -136,6 +136,8 @@ mod tests {
         assert!(offered_here("shell.status", true));
         assert!(!offered_here("shell.status", false));
         assert!(!offered_here("shell.install", false));
+        assert!(!offered_here("seven_zip.install", false));
+        assert!(offered_here("seven_zip.install", true));
         assert!(offered_here("archive.list", false));
         assert!(offered_here("settings.get", false));
     }

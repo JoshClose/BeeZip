@@ -33,7 +33,9 @@ export const run = vi.fn(async (name: string, args: unknown, onEvent?: (e: JobEv
     emit({ type: "Finished", output: output as never });
     return output;
   } catch (error) {
-    emit({ type: "Failed", error: error as never });
+    // As the engine does: a cancelled job ends with `Cancelled`, not `Failed`.
+    const cancelled = (error as { code?: string } | undefined)?.code === "Cancelled";
+    emit(cancelled ? { type: "Cancelled" } : { type: "Failed", error: error as never });
     throw error;
   }
 });

@@ -56,6 +56,9 @@ installer, and with it Windows 11's own right-click menu, come with 1.0.0.
 - **With 7-Zip installed,** also reads WIM and ESD images, CHM files, MSI and NSIS installers,
   and disk images and their file systems: VHD, VHDX, VMDK, QCOW2, VDI, FAT, NTFS, ext, HFS+,
   APFS and more.
+- **Installs 7-Zip for you** on Windows: where a file needs it, and in Settings, **Install 7-Zip**
+  installs it with winget (or updates one older than 25.01), and the file opens when it's done.
+  `beezip 7zip install` does the same.
 - **Compresses single files** with gzip, bzip2, xz, zstd, lz4, Brotli and more.
 - **Recognises a file by what's inside it,** not its name. Split archives open from any of their
   parts, and self-extracting ones open like any other.

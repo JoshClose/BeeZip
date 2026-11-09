@@ -114,20 +114,68 @@ pub struct SevenZipStatus {
     pub problem: Option<String>,
     /// The oldest version BeeZip runs: `25.01`.
     pub min_version: String,
+    /// What would give BeeZip a 7-Zip to run: `install` or `update` it with winget
+    /// (`seven_zip.install`), or `download` it from 7-zip.org where there's no winget. `null`
+    /// when there's one to run, when it's turned off, or when the trouble is the path in the
+    /// settings, which installing wouldn't change.
+    pub fix: Option<SevenZipFix>,
+}
+
+/// How to get a 7-Zip BeeZip can run.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "lowercase")]
+pub enum SevenZipFix {
+    /// None is installed: `winget install`.
+    Install,
+    /// The one installed is older than 25.01: `winget upgrade`.
+    Update,
+    /// No winget (or not Windows): 7-zip.org's download page.
+    Download,
+}
+
+impl SevenZipFix {
+    /// The fix for `found`, under `opts`, with or without winget.
+    pub fn choose(
+        opts: &beezip_core::SevenZipOptions,
+        found: &Result<beezip_core::backend::SevenZip, beezip_core::backend::find::Missing>,
+        winget: bool,
+    ) -> Option<Self> {
+        use beezip_core::backend::find::Missing;
+        let Err(missing) = found else { return None };
+        if !opts.enabled || opts.path.is_some() {
+            return None;
+        }
+        Some(match missing {
+            _ if !winget => Self::Download,
+            Missing::TooOld(_) => Self::Update,
+            _ => Self::Install,
+        })
+    }
 }
 
 impl SevenZipStatus {
     /// What `find` says under `opts`.
     pub fn find(opts: &beezip_core::SevenZipOptions) -> Self {
+        let found = beezip_core::backend::find(opts);
+        let fix = SevenZipFix::choose(opts, &found, crate::winget::find().is_some());
+        Self::from_found(found, fix)
+    }
+
+    /// The status for what `find` returned.
+    pub fn from_found(
+        found: Result<beezip_core::backend::SevenZip, beezip_core::backend::find::Missing>,
+        fix: Option<SevenZipFix>,
+    ) -> Self {
         let (major, minor) = beezip_core::backend::MIN_VERSION;
         let min_version = format!("{major}.{minor:02}");
-        match beezip_core::backend::find(opts) {
+        match found {
             Ok(z) => Self {
                 name: Some(z.name),
                 path: Some(z.exe),
                 found_in: Some(z.found_in.to_owned()),
                 problem: None,
                 min_version,
+                fix: None,
             },
             Err(m) => Self {
                 name: None,
@@ -135,6 +183,7 @@ impl SevenZipStatus {
                 found_in: None,
                 problem: Some(m.reason()),
                 min_version,
+                fix,
             },
         }
     }
@@ -339,5 +388,58 @@ mod tests {
             &[],
             serde_json::json!({}),
         );
+    }
+
+    /// Install or update with winget, the download page without it, and nothing when the
+    /// trouble is a setting.
+    #[test]
+    fn the_fix_for_each_kind_of_missing() {
+        use beezip_core::{
+            SevenZipOptions,
+            backend::{SevenZip, find::Missing},
+        };
+        let old = SevenZip {
+            exe: PathBuf::from("7z.exe"),
+            name: "7-Zip 23.01".into(),
+            version: Some((23, 1)),
+            found_in: "registry",
+        };
+        let none = Missing::NotFound { configured: None };
+        let unusable = Missing::Unusable {
+            exe: PathBuf::from("7z.exe"),
+            why: "it printed no banner".into(),
+        };
+        let opts = SevenZipOptions::default();
+        let fix =
+            |found: Result<SevenZip, Missing>, winget| SevenZipFix::choose(&opts, &found, winget);
+        assert_eq!(fix(Ok(old.clone()), true), None);
+        assert_eq!(fix(Err(none.clone()), true), Some(SevenZipFix::Install));
+        assert_eq!(fix(Err(unusable), true), Some(SevenZipFix::Install));
+        assert_eq!(
+            fix(Err(Missing::TooOld(old.clone())), true),
+            Some(SevenZipFix::Update)
+        );
+        assert_eq!(fix(Err(none.clone()), false), Some(SevenZipFix::Download));
+        assert_eq!(
+            fix(Err(Missing::TooOld(old)), false),
+            Some(SevenZipFix::Download)
+        );
+
+        let off = SevenZipOptions {
+            enabled: false,
+            ..SevenZipOptions::default()
+        };
+        assert_eq!(
+            SevenZipFix::choose(&off, &Err(Missing::Disabled), true),
+            None
+        );
+        let set = SevenZipOptions {
+            path: Some(PathBuf::from("Z:/nowhere/7z.exe")),
+            ..SevenZipOptions::default()
+        };
+        let there = Err(Missing::NotFound {
+            configured: set.path.clone(),
+        });
+        assert_eq!(SevenZipFix::choose(&set, &there, true), None);
     }
 }

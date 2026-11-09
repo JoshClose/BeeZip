@@ -28,7 +28,12 @@
 </ul>
 
 <h2 id="needs-7-zip">An archive says it needs 7-Zip</h2>
-<p>WIM images, MSI and NSIS installers, CHM files and disk images such as VHDX are read through <a href="https://7-zip.org">7-Zip</a>. Install 7-Zip 25.01 or newer and open the file again. If 7-Zip is installed somewhere BeeZip doesn't look, set <code>seven_zip.path</code> in <a href="settings.html#seven-zip">Settings</a>. <a href="formats.html#through-7-zip">Formats</a> lists them.</p>
+<p>WIM images, MSI and NSIS installers, CHM files and disk images such as VHDX are read through <a href="https://7-zip.org">7-Zip</a> 25.01 or newer, which BeeZip doesn't come with. <a href="formats.html#through-7-zip">Formats</a> lists them.</p>
+<ul>
+  <li><strong>On Windows,</strong> click <strong>Install 7-Zip</strong> beside the error, or <strong>Update 7-Zip</strong> when the one installed is older than 25.01. winget downloads 7-Zip's own installer and checks it, Windows asks for administrator rights, and the file opens when it's done. Saying no to Windows' prompt installs nothing; click the button again to retry. On the command line, <code>beezip 7zip install</code> does the same.</li>
+  <li><strong>Without winget, and on Linux and macOS,</strong> <strong>Get 7-Zip…</strong> opens <a href="https://7-zip.org/download.html">7-Zip's download page</a>. On Linux, take 7-Zip's own <code>7zz</code> and put it on PATH: distributions' packages are usually older than 25.01.</li>
+  <li><strong>If 7-Zip is installed somewhere BeeZip doesn't look,</strong> set <code>seven_zip.path</code> in <a href="settings.html#seven-zip">Settings</a>.</li>
+</ul>
 
 <h2 id="wrong-password">BeeZip says my archive is damaged, but it isn't</h2>
 <p>7z and older RAR archives can't tell a wrong password from damage, so a mistyped password looks like damaged data. BeeZip asks again; check the password. If it's right and the archive still fails, <code>beezip test</code> names the damaged entries.</p>

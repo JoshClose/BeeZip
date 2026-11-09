@@ -4,17 +4,19 @@
 import { LogicalSize } from "@tauri-apps/api/dpi";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
-import { CircleAlert, CircleCheck, CircleSlash, FolderOpen } from "lucide-react";
+import { CircleAlert, CircleCheck, CircleSlash, FolderOpen, RotateCw } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CombMark, type MarkState, markKind } from "../../components/CombMark";
+import { SevenZipFix } from "../../components/SevenZipFix";
 import { Button } from "../../components/ui/button";
 import { Dialog } from "../../components/ui/dialog";
 import type { ArchiveCreateOutput, ArchiveExtractOutput, CmdError, CommandName, EditOutput, Existing, Step } from "../../gen/commands";
 import { useCloseGuard } from "../../lib/closeGuard";
 import { baseName, formatDuration, formatRate, formatSize, isCancelled, parentDir, samePath } from "../../lib/format";
 import { type JobRecord, orderedJobs, useJobs } from "../../lib/jobs";
+import { needsSevenZip, useSevenZip } from "../../lib/sevenZip";
 import type { JobStartup } from "../../lib/startup";
-import { Bar, outputSummary } from "../jobs/JobsPanel";
+import { Bar, cancelledText, outputSummary } from "../jobs/JobsPanel";
 import { ReportDialog } from "../jobs/ReportDialog";
 import { Prompts } from "../prompts/Prompts";
 
@@ -109,8 +111,31 @@ function useSteps(steps: Step[]) {
   const answer = useRef<(c: ExistingChoice) => void>(undefined);
   const stopped = useRef(false);
   const started = useRef(false);
+  // Each step's answer about an existing archive, for running it again.
+  const choices = useRef<(ExistingChoice | undefined)[]>([]);
 
   const set = useCallback((i: number, o: Outcome) => setOutcomes((all) => all.map((x, j) => (j === i ? o : x))), []);
+
+  /** Runs step `i` and records how it ended. */
+  const runStep = useCallback(
+    async (i: number, step: RunStep, choice?: ExistingChoice) => {
+      const run = runFor(step, choice);
+      if (run.title !== step.title) setTitles((all) => all.map((t, j) => (j === i ? run.title : t)));
+      set(i, { status: "running" });
+      try {
+        const output = await track(run.command as CommandName, run.args as never, { title: run.title });
+        set(i, { status: "done", output, command: run.command });
+      } catch (e) {
+        if (isCancelled(e)) {
+          stopped.current = true;
+          set(i, { status: "cancelled" });
+        } else {
+          set(i, { status: "failed", error: e as CmdError });
+        }
+      }
+    },
+    [set, track],
+  );
 
   useEffect(() => {
     // Once, however often React mounts the window (StrictMode does twice in development).
@@ -140,25 +165,28 @@ function useSteps(steps: Step[]) {
             continue;
           }
         }
-        const run = runFor(step, choice);
-        if (run.title !== step.title) setTitles((all) => all.map((t, j) => (j === i ? run.title : t)));
-        set(i, { status: "running" });
-        try {
-          const output = await track(run.command as CommandName, run.args as never, { title: run.title });
-          set(i, { status: "done", output, command: run.command });
-        } catch (e) {
-          if (isCancelled(e)) {
-            stopped.current = true;
-            set(i, { status: "cancelled" });
-          } else {
-            set(i, { status: "failed", error: e as CmdError });
-          }
-        }
+        choices.current[i] = choice;
+        await runStep(i, step, choice);
       }
       setCurrent(undefined);
       setFinished(true);
     })();
-  }, [steps, set, track]);
+  }, [steps, set, runStep]);
+
+  /** Runs a failed step again, once everything has ended: after 7-Zip was installed. */
+  const retry = useCallback(
+    async (i: number) => {
+      const step = steps[i];
+      if (step?.kind !== "run") return;
+      stopped.current = false;
+      setFinished(false);
+      setCurrent(i);
+      await runStep(i, step, choices.current[i]);
+      setCurrent(undefined);
+      setFinished(true);
+    },
+    [steps, runStep],
+  );
 
   const cancelAll = useCallback(() => {
     stopped.current = true;
@@ -170,7 +198,7 @@ function useSteps(steps: Step[]) {
 
   const choose = useCallback((c: ExistingChoice) => answer.current?.(c), []);
 
-  return { outcomes, titles, current, finished, cancelAll, choose };
+  return { outcomes, titles, current, finished, cancelAll, choose, retry };
 }
 
 function ExistingPrompt({ existing, onChoose }: { existing: Existing; onChoose: (c: ExistingChoice) => void }) {
@@ -211,7 +239,7 @@ function Progress({ job }: { job: JobRecord }) {
   const left = p?.bytes_total && job.rate ? (p.bytes_total - p.bytes_done) / job.rate : undefined;
   const numbers = p
     ? [
-        p.bytes_total ? `${formatSize(p.bytes_done)} of ${formatSize(p.bytes_total)}` : formatSize(p.bytes_done),
+        p.bytes_total ? `${formatSize(p.bytes_done)} of ${formatSize(p.bytes_total)}` : p.bytes_done ? formatSize(p.bytes_done) : "",
         formatRate(job.rate),
         left !== undefined && formatDuration(left) ? `${formatDuration(left)} left` : "",
       ].filter(Boolean)
@@ -238,7 +266,21 @@ const ICONS = {
   skipped: <CircleSlash className="size-4 shrink-0 text-muted" />,
 };
 
-function Row({ step, title, outcome, onReport }: { step: Step; title: string; outcome: Outcome; onReport: (title: string, error: CmdError) => void }) {
+function Row({
+  step,
+  title,
+  outcome,
+  onReport,
+  onRetry,
+}: {
+  step: Step;
+  title: string;
+  outcome: Outcome;
+  onReport: (title: string, error: CmdError) => void;
+  /** Given once the window is idle: a step that failed for want of 7-Zip runs again when it's there. */
+  onRetry?: () => void;
+}) {
+  const sevenZip = useSevenZip((s) => s.status?.name);
   let detail = "";
   let reveal: string | undefined;
   if (outcome.status === "done" && step.kind === "run") {
@@ -266,6 +308,15 @@ function Row({ step, title, outcome, onReport }: { step: Step; title: string; ou
           Show report
         </Button>
       )}
+      {outcome.status === "failed" &&
+        needsSevenZip(outcome.error) &&
+        (sevenZip && onRetry ? (
+          <Button size="sm" variant="primary" onClick={onRetry}>
+            <RotateCw /> Try again
+          </Button>
+        ) : (
+          <SevenZipFix error={outcome.error} variant="primary" />
+        ))}
     </li>
   );
 }
@@ -288,17 +339,27 @@ function heading(steps: Step[], titles: string[], outcomes: Outcome[], current: 
 
 export function JobWindow({ job }: { job: JobStartup }) {
   const steps = job.steps;
-  const { outcomes, titles, current, finished, cancelAll, choose } = useSteps(steps);
+  const { outcomes, titles, current, finished, cancelAll, choose, retry } = useSteps(steps);
   const [report, setReport] = useState<{ title: string; error: CmdError }>();
   const jobs = useJobs((s) => s.jobs);
   const order = useJobs((s) => s.order);
   const running = useMemo(() => orderedJobs({ jobs, order }).find((j) => j.status === "running"), [jobs, order]);
+  // The last 7-Zip install started here: the window has no toasts, so a failed one gets a line.
+  const install = useMemo(
+    () =>
+      orderedJobs({ jobs, order })
+        .filter((j) => j.command === "seven_zip.install")
+        .pop(),
+    [jobs, order],
+  );
   const close = useCallback(() => void getCurrentWindow().destroy().catch(() => {}), []);
   useCloseGuard("close");
 
   const runSteps = steps.filter((s) => s.kind === "run").length;
   const position = current === undefined ? undefined : steps.slice(0, current + 1).filter((s) => s.kind === "run").length;
-  const title = heading(steps, titles, outcomes, current, finished);
+  // After the steps, 7-Zip's install is what the window is doing: its title, not "… failed".
+  const installing = finished && install?.status === "running" ? install : undefined;
+  const title = installing ? installing.title : heading(steps, titles, outcomes, current, finished);
   const step = current === undefined ? undefined : steps[current];
   const asking = step?.kind === "run" && outcomes[current ?? -1]?.status === "asking" ? step.existing : undefined;
 
@@ -344,8 +405,8 @@ export function JobWindow({ job }: { job: JobStartup }) {
     <div className="flex h-full flex-col bg-paper">
       <header className="flex items-center gap-3 px-4 pt-3 pb-2">
         <span className="relative shrink-0">
-          <CombMark kind={kind} state={finished ? ended : "running"} className="size-9" />
-          {finished && <span className="absolute -right-1 -bottom-1 rounded-full bg-paper">{ICONS[ended]}</span>}
+          <CombMark kind={kind} state={finished && !installing ? ended : "running"} className="size-9" />
+          {finished && !installing && <span className="absolute -right-1 -bottom-1 rounded-full bg-paper">{ICONS[ended]}</span>}
         </span>
         <h1 className="min-w-0 flex-1 truncate text-[15px] font-semibold">{title}</h1>
         {!finished && runSteps > 1 && position !== undefined && (
@@ -354,15 +415,34 @@ export function JobWindow({ job }: { job: JobStartup }) {
           </span>
         )}
       </header>
-      {!finished && running && <Progress job={running} />}
+      {/* After the steps, a job still running is 7-Zip's install. */}
+      {running && <Progress job={running} />}
       <ul className="min-h-0 flex-1 overflow-auto px-4" aria-label="Results">
         {steps.map((s, i) => (
-          <Row key={i} step={s} title={titles[i]} outcome={outcomes[i]} onReport={(t, e) => setReport({ title: t, error: e })} />
+          <Row
+            key={i}
+            step={s}
+            title={titles[i]}
+            outcome={outcomes[i]}
+            onReport={(t, e) => setReport({ title: t, error: e })}
+            onRetry={finished && !running ? () => void retry(i) : undefined}
+          />
         ))}
+        {install && (install.status === "failed" || install.status === "cancelled") && (
+          <li className="flex items-start gap-2 border-t border-rule py-2">
+            {ICONS[install.status]}
+            <div className="min-w-0 flex-1">
+              <p className="truncate font-semibold">{install.title}</p>
+              <p className={`selectable break-words ${install.status === "failed" ? "text-danger" : "text-muted"}`}>
+                {install.status === "failed" && install.error ? `${install.error.code}: ${install.error.message}` : cancelledText(install)}
+              </p>
+            </div>
+          </li>
+        )}
       </ul>
       <footer className="flex items-center justify-end gap-2 border-t border-rule bg-panel px-4 py-2.5">
         {clean && <span className="mr-auto text-[12px] text-muted">Closing…</span>}
-        {finished ? (
+        {finished && !running ? (
           <Button variant="primary" onClick={close}>
             Close
           </Button>

@@ -21,6 +21,7 @@ mod formats_list;
 pub(crate) mod listing;
 mod settings_get;
 mod settings_set;
+mod seven_zip_install;
 mod shell_install;
 mod shell_plan;
 mod shell_status;
@@ -54,10 +55,13 @@ pub use entry_read::{EntryRead, EntryReadInput, EntryReadOutput};
 pub use file_detect::{FileDetect, FileDetectInput, FileDetectOutput, LayerInfo};
 pub use formats_list::{
     Caps, CodecInfo, FormatInfo, FormatsList, FormatsListInput, FormatsListOutput, LevelRange,
-    MethodInfo,
+    MethodInfo, SevenZipFix, SevenZipStatus,
 };
 pub use settings_get::{SettingsGet, SettingsGetInput, SettingsGetOutput};
 pub use settings_set::{SettingsSet, SettingsSetInput, SettingsSetOutput};
+pub use seven_zip_install::{
+    SevenZipAction, SevenZipInstall, SevenZipInstallInput, SevenZipInstallOutput, with_cli_hint,
+};
 pub use shell_install::{
     InstallMode, ShellInstall, ShellInstallInput, ShellInstallOutput, ShellUninstall,
     ShellUninstallInput, ShellUninstallOutput,
@@ -96,5 +100,6 @@ pub fn register_all(registry: &mut Registry) {
         .register::<ShellPlan>()
         .register::<ShellStatus>()
         .register::<ShellInstall>()
-        .register::<ShellUninstall>();
+        .register::<ShellUninstall>()
+        .register::<SevenZipInstall>();
 }

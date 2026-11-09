@@ -2,6 +2,7 @@
 import { open as pickFiles } from "@tauri-apps/plugin-dialog";
 import { ArrowRightLeft, ArrowUp, ChevronRight, FilePlus2, FolderOutput, FolderPlus, Info, PencilLine, RotateCw, ShieldCheck, Trash2 } from "lucide-react";
 import { type KeyboardEvent, type MouseEvent, type ReactNode, useCallback, useEffect, useRef } from "react";
+import { SevenZipFix } from "../../components/SevenZipFix";
 import { Button } from "../../components/ui/button";
 import { Splitter } from "../../components/ui/splitter";
 import type { EntryInfo } from "../../gen/commands";
@@ -12,6 +13,7 @@ import { archiveParent, describeError, formatSize, normalize } from "../../lib/f
 import { useJobs } from "../../lib/jobs";
 import { openEntry } from "../../lib/opened";
 import { fit, MIN_WIDTHS, PREVIEW_FROM, usePanes, widest } from "../../lib/panes";
+import { needsSevenZip, useSevenZip } from "../../lib/sevenZip";
 import { useSize } from "../../lib/size";
 import { startup } from "../../lib/startup";
 import { toastError, toastInfo } from "../../lib/toasts";
@@ -63,7 +65,11 @@ export function testArchive(tab: Tab) {
     .track("archive.test", { archive: tab.path, ...archiveArgs(tab) }, { title: `Testing ${tab.name}`, tab: tab.id })
     .then(
       // A disk image read through 7-Zip stores no checksums: the note says what was checked.
-      (out) => toastInfo(`${tab.name} is OK`, `${out.entries} entries, ${formatSize(out.bytes)} checked.${out.note ? ` ${out.note}` : ""}`),
+      (out) =>
+        toastInfo(
+          `${tab.name} is OK`,
+          `${out.entries.toLocaleString()} ${out.entries === 1 ? "entry" : "entries"}, ${formatSize(out.bytes)} checked.${out.note ? ` ${out.note}` : ""}`,
+        ),
       (e) => toastError(e, `Testing ${tab.name}`),
     );
 }
@@ -99,6 +105,15 @@ export function Browser({ tab }: { tab: Tab }) {
   const listing = useListing(tab);
   const total = listing.total ?? 0;
   const ready = listing.total !== undefined;
+
+  // 7-Zip arrived (docs/M6.md §3.8): a listing that failed without it lists again.
+  const arrived = useSevenZip((s) => s.arrived);
+  const seen = useRef(arrived);
+  useEffect(() => {
+    if (arrived === seen.current) return;
+    seen.current = arrived;
+    if (needsSevenZip(listing.error)) update(tab.id, (t) => ({ version: t.version + 1 }));
+  }, [arrived, listing.error, tab.id, update]);
 
   // Info, for the solid-archive note and the status line, once the first page is in.
   useEffect(() => {
@@ -259,9 +274,12 @@ export function Browser({ tab }: { tab: Tab }) {
             {code}: {message}
           </p>
         )}
-        <Button onClick={() => update(tab.id, (t) => ({ version: t.version + 1 }))}>
-          <RotateCw /> List again
-        </Button>
+        <div className="flex gap-2">
+          <Button onClick={() => update(tab.id, (t) => ({ version: t.version + 1 }))}>
+            <RotateCw /> List again
+          </Button>
+          <SevenZipFix error={listing.error} size="md" variant="primary" />
+        </div>
       </div>
     );
   } else if (!ready) {
