@@ -122,36 +122,45 @@ type JobsState = {
   clearFinished: () => void;
 };
 
+/**
+ * What keeps the jobs store up to date with one job: its `onEvent` handler. `track` hands it to
+ * `run`; a job Rust starts for the page, like a drag-out's extraction (lib/drag.ts), gets it
+ * on its own channel. The record appears with the `Started` event.
+ */
+export function follow(command: string, args: unknown, meta: JobMeta): (event: JobEvent) => void {
+  let id: JobId | undefined;
+  return (event) => {
+    meta.onEvent?.(event);
+    const now = Date.now();
+    if (event.type === "Started") {
+      id = event.job;
+      const job = newJob(event.job, command, args, meta, now);
+      useJobs.setState((s) => ({ jobs: { ...s.jobs, [job.id]: job }, order: [...s.order, job.id] }));
+      return;
+    }
+    if (id === undefined) return;
+    const key = id;
+    useJobs.setState((s) => {
+      const job = s.jobs[key];
+      if (!job) return s;
+      const jobs = { ...s.jobs, [key]: applyEvent(job, event, now) };
+      // Quiet jobs leave no trace once they end.
+      const ended = event.type === "Finished" || event.type === "Failed" || event.type === "Cancelled";
+      if (job.quiet && ended) {
+        delete jobs[key];
+        return { jobs, order: s.order.filter((j) => j !== key) };
+      }
+      return { jobs };
+    });
+  };
+}
+
 export const useJobs = create<JobsState>((set, get) => ({
   jobs: {},
   order: [],
 
   track(name, args, meta) {
-    let id: JobId | undefined;
-    return run(name, args, (event) => {
-      meta.onEvent?.(event);
-      const now = Date.now();
-      if (event.type === "Started") {
-        id = event.job;
-        const job = newJob(event.job, name, args, meta, now);
-        set((s) => ({ jobs: { ...s.jobs, [job.id]: job }, order: [...s.order, job.id] }));
-        return;
-      }
-      if (id === undefined) return;
-      const key = id;
-      set((s) => {
-        const job = s.jobs[key];
-        if (!job) return s;
-        const jobs = { ...s.jobs, [key]: applyEvent(job, event, now) };
-        // Quiet jobs leave no trace once they end.
-        const ended = event.type === "Finished" || event.type === "Failed" || event.type === "Cancelled";
-        if (job.quiet && ended) {
-          delete jobs[key];
-          return { jobs, order: s.order.filter((j) => j !== key) };
-        }
-        return { jobs };
-      });
-    });
+    return run(name, args, follow(name, args, meta));
   },
 
   async answer(job, prompt, reply) {

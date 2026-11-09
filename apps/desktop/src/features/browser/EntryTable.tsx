@@ -36,6 +36,8 @@ export type EntryTableProps = {
   onClick: (index: number, e: MouseEvent) => void;
   onOpen: (index: number) => void;
   onKeyDown: (e: KeyboardEvent<HTMLDivElement>) => void;
+  /** Rows can be dragged out to Explorer, from this row (docs/M6.md §8.4). Unset off Windows. */
+  onDragOut?: (index: number) => void;
   /** The row whose name is a field (docs/M5.md §8.1). */
   renaming?: Renaming;
   onRenameSave?: (name: string) => void;
@@ -99,7 +101,7 @@ function Cells({ entry, rename }: { entry: EntryInfo; rename?: { renaming: Renam
 }
 
 export function EntryTable(props: EntryTableProps) {
-  const { total, row, ensure, sort, reverse, selection, onSort, onClick, onOpen, onKeyDown, renaming, onRenameSave, onRenameCancel } = props;
+  const { total, row, ensure, sort, reverse, selection, onSort, onClick, onOpen, onKeyDown, onDragOut, renaming, onRenameSave, onRenameCancel } = props;
   const scroller = useRef<HTMLDivElement>(null);
   const virtualizer = useVirtualizer({
     count: total,
@@ -123,6 +125,10 @@ export function EntryTable(props: EntryTableProps) {
   }, [selection.focus, virtualizer]);
 
   const set = useMemo(() => new Set(selection.selected), [selection.selected]);
+  // A plain press on a row of a selection that can be dragged waits for the release, as in
+  // Explorer: a drag takes the whole selection, and a click without one selects just the row.
+  const deferred = useRef<number | undefined>(undefined);
+  const several = selection.all || selection.selected.length > 1;
 
   return (
     <div
@@ -181,8 +187,24 @@ export function EntryTable(props: EntryTableProps) {
                   selection.focus === item.index && "shadow-[inset_2px_0_0_var(--amber)]",
                 )}
                 style={{ height: ROW_HEIGHT, transform: `translateY(${item.start - HEADER_HEIGHT}px)` }}
+                draggable={onDragOut ? renaming?.index !== item.index : undefined}
                 onMouseDown={(e) => {
-                  if (e.button === 0) onClick(item.index, e);
+                  if (e.button !== 0) return;
+                  deferred.current = undefined;
+                  if (onDragOut && selected && several && !e.ctrlKey && !e.metaKey && !e.shiftKey) deferred.current = item.index;
+                  else onClick(item.index, e);
+                }}
+                onMouseUp={(e) => {
+                  if (e.button !== 0 || deferred.current !== item.index) return;
+                  deferred.current = undefined;
+                  onClick(item.index, e);
+                }}
+                onDragStart={(e) => {
+                  // First, and synchronously: WebView2's own drag would take the mouse. Rust's
+                  // OLE drag replaces it while the button is still down.
+                  e.preventDefault();
+                  deferred.current = undefined;
+                  onDragOut?.(item.index);
                 }}
                 onDoubleClick={() => {
                   if (renaming?.index !== item.index) onOpen(item.index);

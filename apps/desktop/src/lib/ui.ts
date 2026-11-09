@@ -3,7 +3,8 @@ import { create } from "zustand";
 import type { CmdError } from "../gen/commands";
 
 export type DialogState =
-  | { kind: "extract"; tab: string; entries: string[] }
+  /** `note` says why it opened: a drag-out too big to drag (docs/M6.md §8.4). */
+  | { kind: "extract"; tab: string; entries: string[]; note?: string }
   /** `note` says why the files go into a new archive: the open one can't take them. */
   | { kind: "create"; inputs: string[]; note?: string }
   /** Files to add to a tab's archive, into its folder `dir` (docs/M5.md §8.1). */

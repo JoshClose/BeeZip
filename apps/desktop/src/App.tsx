@@ -30,6 +30,7 @@ import { baseName } from "./lib/format";
 import { loadFormats, readableExtensions } from "./lib/formats";
 import { useJobs } from "./lib/jobs";
 import { type EntryChanged, entryChanged } from "./lib/opened";
+import { draggingOut } from "./lib/drag";
 import { type DropZone, dropPaths, dropZone, isArchive } from "./lib/drop";
 import { themeActions, useTheme } from "./lib/settings";
 import { launched, type OpenDialog, startup } from "./lib/startup";
@@ -160,6 +161,8 @@ export default function App() {
     const zoneAt = (p: { x: number; y: number }) => dropZone(p.x / window.devicePixelRatio, p.y / window.devicePixelRatio);
     const unlisten = getCurrentWebview().onDragDropEvent((e) => {
       const p = e.payload;
+      // BeeZip's own drag-out passing over the window: never a drop here (docs/M6.md §8.4).
+      if (draggingOut() && p.type !== "leave") return;
       if (p.type === "enter" || p.type === "over") setDragging(zoneAt(p.position));
       else if (p.type === "leave") setDragging(false);
       else if (p.type === "drop") {
@@ -259,7 +262,7 @@ export default function App() {
         </div>
       )}
 
-      {dialog?.kind === "extract" && dialogTab && <ExtractDialog tab={dialogTab} entries={dialog.entries} onClose={closeDialog} />}
+      {dialog?.kind === "extract" && dialogTab && <ExtractDialog tab={dialogTab} entries={dialog.entries} note={dialog.note} onClose={closeDialog} />}
       {dialog?.kind === "create" && <CreateDialog inputs={dialog.inputs} note={dialog.note} onClose={closeDialog} />}
       {dialog?.kind === "add" && dialogTab && <AddDialog tab={dialogTab} inputs={dialog.inputs} dir={dialog.dir} onClose={closeDialog} />}
       {dialog?.kind === "convert" && dialogTab && <CreateDialog inputs={[]} source={dialogTab} onClose={closeDialog} />}
