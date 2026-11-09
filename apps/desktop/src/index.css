@@ -114,3 +114,15 @@
 .tabular {
   font-variant-numeric: tabular-nums;
 }
+
+/* While a pane's edge is dragged (components/ui/splitter.tsx), the pointer keeps the resize
+   arrows over everything it crosses. */
+html[data-resizing="col"],
+html[data-resizing="col"] * {
+  cursor: col-resize !important;
+}
+
+html[data-resizing="row"],
+html[data-resizing="row"] * {
+  cursor: row-resize !important;
+}

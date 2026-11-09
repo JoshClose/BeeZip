@@ -3,6 +3,7 @@ import { open as pickFiles } from "@tauri-apps/plugin-dialog";
 import { ArrowRightLeft, ArrowUp, ChevronRight, FilePlus2, FolderOutput, FolderPlus, Info, PencilLine, RotateCw, ShieldCheck, Trash2 } from "lucide-react";
 import { type KeyboardEvent, type MouseEvent, type ReactNode, useCallback, useEffect, useRef } from "react";
 import { Button } from "../../components/ui/button";
+import { Splitter } from "../../components/ui/splitter";
 import type { EntryInfo } from "../../gen/commands";
 import { archiveArgs, type Tab, useArchives } from "../../lib/archives";
 import { startDrag } from "../../lib/drag";
@@ -10,6 +11,8 @@ import { editBlocked, registerBrowser, type SelectionByPath } from "../../lib/ed
 import { archiveParent, describeError, formatSize, normalize } from "../../lib/format";
 import { useJobs } from "../../lib/jobs";
 import { openEntry } from "../../lib/opened";
+import { fit, MIN_WIDTHS, PREVIEW_FROM, usePanes, widest } from "../../lib/panes";
+import { useSize } from "../../lib/size";
 import { startup } from "../../lib/startup";
 import { toastError, toastInfo } from "../../lib/toasts";
 import { useUi } from "../../lib/ui";
@@ -239,6 +242,12 @@ export function Browser({ tab }: { tab: Tab }) {
   const canDrag = startup().platform === "windows";
   const selected = count(selection, total);
 
+  // The panes' widths: the ones dragged to, narrowed to fit the row as it is now.
+  const panes = usePanes();
+  const [rowRef, { width: row }] = useSize<HTMLDivElement>();
+  const hasPreview = row === 0 || row >= PREVIEW_FROM;
+  const shown = fit(panes, row, hasPreview);
+
   let table;
   if (listing.error && !ready) {
     const { code, message } = describeError(listing.error);
@@ -318,8 +327,20 @@ export function Browser({ tab }: { tab: Tab }) {
           </Button>
         </div>
       </div>
-      <div className="flex min-h-0 flex-1">
-        <aside className="w-52 shrink-0 border-r border-rule">{ready && <FolderTree tab={tab} ready={ready} />}</aside>
+      <div ref={rowRef} className="flex min-h-0 flex-1">
+        <aside className="min-w-0 shrink-0" style={{ width: shown.tree }}>
+          {ready && <FolderTree tab={tab} ready={ready} />}
+        </aside>
+        <Splitter
+          label="Resize the folder tree"
+          size={shown.tree}
+          min={MIN_WIDTHS.tree}
+          max={widest("tree", shown, row, hasPreview)}
+          side="before"
+          onResize={(w) => panes.resize("tree", w)}
+          onDone={panes.save}
+          onReset={() => panes.reset("tree")}
+        />
         <main
           data-drop="entries"
           className={`flex min-w-0 flex-1 flex-col bg-panel transition-opacity ${listing.stale ? "opacity-60" : ""}`}
@@ -327,9 +348,23 @@ export function Browser({ tab }: { tab: Tab }) {
         >
           {table}
         </main>
-        <aside className="w-80 shrink-0 border-l border-rule max-[1000px]:hidden">
-          <Preview tab={tab} />
-        </aside>
+        {hasPreview && (
+          <>
+            <Splitter
+              label="Resize the preview"
+              size={shown.preview}
+              min={MIN_WIDTHS.preview}
+              max={widest("preview", shown, row, hasPreview)}
+              side="after"
+              onResize={(w) => panes.resize("preview", w)}
+              onDone={panes.save}
+              onReset={() => panes.reset("preview")}
+            />
+            <aside className="min-w-0 shrink-0" style={{ width: shown.preview }}>
+              <Preview tab={tab} />
+            </aside>
+          </>
+        )}
       </div>
       <div className="tabular flex h-6 shrink-0 items-center gap-4 border-t border-rule px-3 text-[12px] text-muted">
         <span>{ready ? `${total.toLocaleString()} ${total === 1 ? "item" : "items"}` : ""}</span>
