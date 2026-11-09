@@ -165,7 +165,7 @@ const GROUPS = [
   ["Extracting and opening", ["extract", "open"]],
   ["Creating and changing archives", ["create", "add", "remove", "rename", "convert"]],
   ["Single files", ["compress", "decompress"]],
-  ["Settings and Explorer's menu", ["settings get", "settings set", "shell status", "shell install", "shell uninstall", "shell plan"]],
+  ["Settings, Explorer's menu and 7-Zip", ["settings get", "settings set", "shell status", "shell install", "shell uninstall", "shell plan", "7zip install"]],
   ["Everything else", ["bench", "version", "mcp", "commands", "schema", "run"]],
 ];
 
