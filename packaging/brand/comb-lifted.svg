@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" width="120" height="120">
+  <title>Comb with one cell lifted</title>
+  <g id="cells">
+    <polygon points="0,-15 13,-7.5 13,7.5 0,15 -13,7.5 -13,-7.5" transform="translate(60 60)" fill="#9A6700"/>
+    <polygon points="0,-15 13,-7.5 13,7.5 0,15 -13,7.5 -13,-7.5" transform="translate(89.4 60)" fill="#E0A21A"/>
+    <polygon points="0,-15 13,-7.5 13,7.5 0,15 -13,7.5 -13,-7.5" transform="translate(30.6 60)" fill="#E0A21A"/>
+    <polygon points="0,-15 13,-7.5 13,7.5 0,15 -13,7.5 -13,-7.5" transform="translate(45.3 34.5)" fill="#E0A21A"/>
+    <polygon points="0,-15 13,-7.5 13,7.5 0,15 -13,7.5 -13,-7.5" transform="translate(74.7 85.5)" fill="#E0A21A"/>
+    <polygon points="0,-15 13,-7.5 13,7.5 0,15 -13,7.5 -13,-7.5" transform="translate(45.3 85.5)" fill="#E0A21A"/>
+    <polygon points="0,-15 13,-7.5 13,7.5 0,15 -13,7.5 -13,-7.5" transform="translate(79.2 26.7)" fill="#1F2023"/>
+  </g>
+</svg>
