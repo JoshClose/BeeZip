@@ -1,9 +1,13 @@
 # Releases (docs/M6.md §9.5, §9.7). A `v*` tag (made after `cargo xtask release --version V`)
-# builds the Windows installer (signed when the repository has signing set up), the Linux deb, rpm
-# and AppImage, and the macOS disk image (arm64, signed ad hoc), and makes a DRAFT release vV with
-# them, the updater's bundles and .sig files, and one latest.json. Publishing the draft is the
-# maintainer's: it's what users and the updater see. Run by hand (Actions > Release > Run
-# workflow), it is a dry run: the same builds, kept as the run's artifacts, and no release.
+# builds the Windows installer and portable zip (signed when the repository has signing set up),
+# the Linux deb, rpm and AppImage, and the macOS disk image (arm64, signed ad hoc), and PUBLISHES
+# the release vV with them, the updater's bundles and .sig files, and one latest.json. It goes up
+# as a draft first and is published once every file is there. GitHub adds the source code's zip
+# and tar.gz itself. Run by hand (Actions > Release > Run workflow), it is a dry run: the same
+# builds, kept as the run's artifacts, and no release.
+#
+# Before 1.0.0, Windows gets the portable zip only: the installer waits for 1.0.0, which must be
+# signed. A tag of 1.0.0 or later with no signing set up stops in the `windows` job.
 #
 # The `windows` job runs in the `release` environment, whose deployment rules decide which refs
 # may use its secrets and Azure sign-in: `v*` tags, and `master` for signed dry runs. Signing,
@@ -14,7 +18,7 @@
 #   federated credential trusts this repository's `release` environment, so no secret is stored;
 # - else a certificate file, when the secret BEEZIP_SIGN_PFX (the .pfx, base64) is set, with
 #   BEEZIP_SIGN_PFX_PASSWORD;
-# - else unsigned, with a warning: drafts stay unsigned until there's a certificate (§14).
+# - else unsigned, with a warning: releases before 1.0.0 may be, and 1.0.0 and later may not.
 # The updater's signature needs the secrets TAURI_SIGNING_PRIVATE_KEY and
 # TAURI_SIGNING_PRIVATE_KEY_PASSWORD, and the public key committed in packaging/updater.pub.
 #
@@ -86,6 +90,12 @@ jobs:
           fi
           echo "signing: $mode"
           echo "mode=$mode" >> "$GITHUB_OUTPUT"
+          # From 1.0.0 a release carries the installer, and an unsigned one is never published.
+          version="${GITHUB_REF_NAME#v}"
+          if [ "$GITHUB_EVENT_NAME" = push ] && [ "${version%%.*}" -ge 1 ] && [ "$mode" = none ]; then
+            echo "::error::$GITHUB_REF_NAME would publish the installer unsigned: from 1.0.0 a release carries the installer, so set up signing first."
+            exit 1
+          fi
 
       - name: Sign in to Azure with OIDC, for Artifact Signing
         if: steps.sign.outputs.mode == 'artifact'
@@ -130,13 +140,20 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: cargo xtask dist
-      - name: Every program in the installer is signed and timestamped
+      - name: Every program in the installer and the portable zip is signed and timestamped
         if: steps.sign.outputs.mode != 'none'
         shell: pwsh
         run: |
           $setup = Get-ChildItem target/dist/release/bundle/nsis -Filter '*-setup.exe' | Select-Object -First 1
           pwsh -NoProfile -File .github/scripts/signed-setup.ps1 $setup.FullName -Timestamped
           if ($LASTEXITCODE) { exit 1 }
+          $signer = (Get-AuthenticodeSignature -LiteralPath $setup.FullName).SignerCertificate.Subject
+          $zip = Get-ChildItem target/dist/release/bundle/portable -Filter '*-portable.zip' | Select-Object -First 1
+          pwsh -NoProfile -File .github/scripts/portable.ps1 $zip.FullName -Subject $signer -Timestamped
+          if ($LASTEXITCODE) { exit 1 }
+      - name: The portable zip holds the installer's programs, and its CLI runs
+        if: steps.sign.outputs.mode == 'none'
+        run: pwsh -NoProfile -File .github/scripts/portable.ps1 target/dist/release/bundle/portable/*-portable.zip
       - name: Forget the certificate file
         if: always() && steps.sign.outputs.mode == 'pfx'
         shell: pwsh
@@ -149,7 +166,9 @@ jobs:
           path: |
             target/dist/release/bundle/nsis/*-setup.exe
             target/dist/release/bundle/nsis/*-setup.exe.sig
-            target/dist/release/bundle/nsis/latest.json
+            target/dist/release/bundle/portable/*-portable.zip
+            target/dist/release/bundle/portable/*-portable.zip.sig
+            target/dist/release/bundle/latest.json
           if-no-files-found: error
           retention-days: 14
 
@@ -240,26 +259,24 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
-      contents: write   # the draft release and its files
+      contents: write   # the release and its files
     env:
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
       SIGNED: ${{ needs.windows.outputs.signed }}
     steps:
+      - uses: actions/checkout@v7    # for release-files.sh
+        with: { persist-credentials: false, path: repo }
       - uses: actions/download-artifact@v8
         with: { path: files }
-      - name: One latest.json for every platform
+      - name: The files to release (before 1.0.0, no Windows installer), and one latest.json naming them
         run: |
-          mapfile -t parts < <(find files -name latest.json | sort)
-          if [ ${#parts[@]} -eq 0 ]; then
-            echo "no updater manifest: the release has no updater signature"
-            exit 0
+          version="${GITHUB_REF_NAME#v}"
+          bash repo/.github/scripts/release-files.sh files "$version" latest.json
+          if [ "${version%%.*}" -eq 0 ]; then
+            echo "$GITHUB_REF_NAME is before 1.0.0: Windows gets the portable zip, not the installer." >> "$GITHUB_STEP_SUMMARY"
           fi
-          jq -e -s 'map(.version) | unique | length == 1' "${parts[@]}" > /dev/null \
-            || { echo "::error::the platforms' latest.json name different versions"; exit 1; }
-          jq -s '.[0] + {platforms: (map(.platforms) | add)}' "${parts[@]}" > latest.json
-          cat latest.json
-      - name: The draft release
+      - name: The release, published
         run: |
           tag="$GITHUB_REF_NAME"
           version="${tag#v}"
@@ -268,18 +285,31 @@ jobs:
           dups=$(printf '%s\n' "${release_files[@]##*/}" | sort | uniq -d)
           if [ -n "$dups" ]; then echo "::error::two platforms made files of one name: $dups"; exit 1; fi
           if [ -f latest.json ]; then release_files+=(latest.json); fi
-          if [ "$SIGNED" = none ]; then signing="Windows: **unsigned**, the repository has no signing certificate set up."; else signing="Windows: signed (${SIGNED})."; fi
-          signing="$signing macOS: signed ad hoc, so macOS opens it only after System Settings > Privacy & Security > Open Anyway."
-          printf 'BeeZip %s.\n\n%s Built by release.yml from %s. This is a draft: publishing it is what users and the updater see.\n' \
-            "$version" "$signing" "$GITHUB_SHA" > notes.md
+          {
+            if [ "${version%%.*}" -eq 0 ]; then
+              echo "**Windows:** unzip \`BeeZip_${version}_x64-portable.zip\` anywhere and run \`BeeZip.exe\`. Nothing is installed; the README in the zip says the rest. The installer comes with BeeZip 1.0.0."
+            else
+              echo "**Windows:** \`BeeZip_${version}_x64-setup.exe\` installs BeeZip; \`BeeZip_${version}_x64-portable.zip\` runs it from a folder, without installing."
+            fi
+            if [ "$SIGNED" = none ]; then
+              echo
+              echo "These Windows programs aren't signed yet, so Windows asks before the first run: choose *More info*, then *Run anyway*."
+            fi
+            echo
+            echo "**Linux:** the deb, the rpm or the AppImage. **macOS** (Apple silicon): the disk image. It's signed ad hoc, so the first time, macOS opens BeeZip only after System Settings › Privacy & Security › *Open Anyway*."
+          } > notes.md
           if draft=$(gh release view "$tag" --json isDraft --jq .isDraft 2>/dev/null); then
             if [ "$draft" != true ]; then
               echo "::error::$tag is already published: a published release is never changed"
               exit 1
             fi
-            echo "the draft $tag is there already: replacing its files"
+            echo "the draft $tag is there already, from an earlier run: replacing its files"
             gh release upload "$tag" "${release_files[@]}" --clobber
           else
-            gh release create "$tag" --draft --verify-tag --title "BeeZip ${version}" --notes-file notes.md "${release_files[@]}"
+            # A draft with every file first, then published, so nobody sees a release half there.
+            # GitHub's notes (the pull requests since the last release) follow notes.md.
+            gh release create "$tag" --draft --verify-tag --title "BeeZip ${version}" \
+              --notes-file notes.md --generate-notes "${release_files[@]}"
           fi
-          echo "Draft release $tag made: publishing it is the maintainer's." >> "$GITHUB_STEP_SUMMARY"
+          gh release edit "$tag" --draft=false
+          echo "Published $tag: $(gh release view "$tag" --json url --jq .url)" >> "$GITHUB_STEP_SUMMARY"

@@ -77,6 +77,8 @@ jobs:
         run: cargo xtask notices --check
       - name: Every program in the installer is signed, nsExec.dll included (docs/M6.md §9.2)
         run: pwsh -NoProfile -File .github/scripts/signed-setup.ps1 target/dist/debug/bundle/nsis/*-setup.exe -Subject 'CN=BeeZip Dev'
+      - name: The portable zip holds the installer's programs, signed, and its CLI runs
+        run: pwsh -NoProfile -File .github/scripts/portable.ps1 target/dist/debug/bundle/portable/*-portable.zip -Subject 'CN=BeeZip Dev'
       - name: The winget manifest, from this installer, passes winget validate (docs/M6.md §9.6)
         run: |
           cargo xtask winget --local
@@ -96,6 +98,13 @@ jobs:
         with:
           name: beezip-setup-debug
           path: target/dist/debug/bundle/nsis/*-setup.exe
+          if-no-files-found: error
+          retention-days: 14
+      - name: Keep the portable zip
+        uses: actions/upload-artifact@v7
+        with:
+          name: beezip-portable-debug
+          path: target/dist/debug/bundle/portable/*-portable.zip
           if-no-files-found: error
           retention-days: 14
 
@@ -118,6 +127,8 @@ jobs:
           mkdir -p "$RUNNER_TEMP/7zip"
           tar -C "$RUNNER_TEMP/7zip" -xf "$RUNNER_TEMP/7z.tar.xz" 7zz
           echo "$RUNNER_TEMP/7zip" >> "$GITHUB_PATH"
+      - name: release.yml's choice of files, on made-up artifacts (before 1.0.0, no Windows installer)
+        run: bash .github/scripts/release-files-test.sh
       - uses: Swatinem/rust-cache@v2
       - run: cargo test --locked -p beezip-core -p beezip-menu -p beezip-commands -p beezip-mcp -p beezip-cli
         env:

@@ -87,8 +87,9 @@ pub fn run(version: &str) -> anyhow::Result<()> {
          \n  (push it, through a pull request if master needs one, and merge it)\
          \n  git tag -a v{version} -m \"BeeZip {version}\" <the commit on master>\
          \n  git push origin v{version}\n\
-         \nThe tag starts .github/workflows/release.yml, which builds the installer and makes a \
-         draft release, v{version}. Publishing it is yours."
+         \nThe tag starts .github/workflows/release.yml, which builds BeeZip and publishes the \
+         release v{version}. Before 1.0.0, Windows gets the portable zip only; from 1.0.0 the \
+         installer too, and only signed."
     );
     Ok(())
 }
