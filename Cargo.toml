@@ -135,6 +135,9 @@ ctrlc      = "3.5.2"
 proptest   = "1.12.0"
 trycmd     = "1.2.1"
 sha2       = "0.11.1"
+# xtask icons: the 16 px image in icon.ico is the small art, swapped in after `tauri icon`.
+# Already in the lock through Tauri.
+ico        = "0.6.0"
 
 # hadris-iso 3.0.0-rc.3 with the name de-duplication fix (docs/M5.md §5.9): its planner retries
 # every suffix for every colliding name, so 20 000 files sharing a long prefix took 80 s.
