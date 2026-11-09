@@ -2,7 +2,8 @@
 import { create } from "zustand";
 import { describeError, isCancelled } from "./format";
 
-export type Toast = { id: number; tone: "error" | "info"; title: string; body?: string };
+/** `error` is the command's error a toast shows: one that needs 7-Zip gets its button. */
+export type Toast = { id: number; tone: "error" | "info"; title: string; body?: string; error?: unknown };
 
 type ToastState = {
   toasts: Toast[];
@@ -28,7 +29,7 @@ export const useToasts = create<ToastState>((set) => ({
 export function toastError(err: unknown, context?: string): void {
   if (isCancelled(err)) return;
   const { code, message } = describeError(err);
-  useToasts.getState().push({ tone: "error", title: context ? `${context}: ${code}` : code, body: message });
+  useToasts.getState().push({ tone: "error", title: context ? `${context}: ${code}` : code, body: message, error: err });
 }
 
 export function toastInfo(title: string, body?: string): void {

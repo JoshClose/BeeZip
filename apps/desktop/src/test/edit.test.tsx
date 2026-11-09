@@ -34,7 +34,7 @@ const formats: FormatsListOutput = {
   ],
   codecs: [{ id: "zstd", name: "Zstandard", extensions: [".zst", ".tzst"], levels: levels(1, 22, 3), threads: true, detected: true }],
   create: ["zip", "7z", "tar", "tar.zst"],
-  seven_zip: { name: null, path: null, found_in: null, problem: "not found", min_version: "25.01" },
+  seven_zip: { name: null, path: null, found_in: null, problem: "not found", min_version: "25.01", fix: null },
 };
 
 const info = (patch: Partial<ArchiveInfoOutput> = {}): ArchiveInfoOutput =>

@@ -1,5 +1,6 @@
 // `archive.info` for a tab's archive, and the encoding its names are read in.
 import { useEffect, useState } from "react";
+import { SevenZipFix } from "../../components/SevenZipFix";
 import { Button } from "../../components/ui/button";
 import { Dialog } from "../../components/ui/dialog";
 import type { ArchiveInfoOutput, CmdError } from "../../gen/commands";
@@ -49,6 +50,7 @@ export function InfoDialog({ tab, onClose }: { tab: Tab; onClose: () => void }) 
   return (
     <Dialog open onClose={onClose} title={tab.name} description={tab.path} className="w-[38rem]" footer={<Button onClick={onClose}>Close</Button>}>
       {error && <p className="selectable text-danger">{`${describeError(error).code}: ${describeError(error).message}`}</p>}
+      {error && <SevenZipFix error={error} className="mb-2" />}
       {!info && !error && <p className="text-muted">Reading…</p>}
       {info && (
         <dl className="pb-2">

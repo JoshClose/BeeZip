@@ -2,6 +2,7 @@
 import { open as pickFolder } from "@tauri-apps/plugin-dialog";
 import { FolderOutput, ListTree } from "lucide-react";
 import { useMemo, useState } from "react";
+import { SevenZipFix } from "../../components/SevenZipFix";
 import { Button } from "../../components/ui/button";
 import { Checkbox } from "../../components/ui/checkbox";
 import { Dialog } from "../../components/ui/dialog";
@@ -59,7 +60,7 @@ export function ExtractDialog({ tab, entries, note, onClose }: { tab: Tab; entri
     strip: 0,
   });
   const [plan, setPlan] = useState<ArchiveExtractOutput["plan"]>();
-  const [planError, setPlanError] = useState<string>();
+  const [planError, setPlanError] = useState<unknown>();
   const set = (patch: Partial<ExtractForm>) => {
     setForm((f) => ({ ...f, ...patch }));
     setPlan(undefined);
@@ -90,8 +91,7 @@ export function ExtractDialog({ tab, entries, note, onClose }: { tab: Tab; entri
       });
       setPlan(out.plan ?? []);
     } catch (e) {
-      const { code, message } = describeError(e);
-      setPlanError(`${code}: ${message}`);
+      setPlanError(e);
     }
   };
 
@@ -177,7 +177,12 @@ export function ExtractDialog({ tab, entries, note, onClose }: { tab: Tab; entri
             <Checkbox checked={form.links} onChange={(links) => set({ links })} label="Create symbolic links that stay inside the destination" />
           </div>
         </Field>
-        {planError && <p className="selectable text-danger">{planError}</p>}
+        {planError !== undefined && (
+          <div className="flex flex-col items-start gap-2">
+            <p className="selectable text-danger">{`${describeError(planError).code}: ${describeError(planError).message}`}</p>
+            <SevenZipFix error={planError} />
+          </div>
+        )}
         {plan && (
           <div className="rounded-[5px] border border-rule">
             <p className="border-b border-rule px-2 py-1 text-muted">

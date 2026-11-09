@@ -33,7 +33,7 @@ const formats: FormatsListOutput = {
     { id: "gzip", name: "gzip", extensions: [".gz", ".tgz"], levels: levels(0, 9, 6), threads: false, detected: true },
   ],
   create: ["zip", "7z", "tar", "tar.gz", "tar.zst", "iso", "squashfs"],
-  seven_zip: { name: null, path: null, found_in: null, problem: "not found", min_version: "25.01" },
+  seven_zip: { name: null, path: null, found_in: null, problem: "not found", min_version: "25.01", fix: null },
 };
 
 const form = (patch: Partial<CreateForm>): CreateForm => ({
