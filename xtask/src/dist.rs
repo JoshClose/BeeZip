@@ -381,7 +381,7 @@ fn check_signed(files: &[&Path], plugins: &Path) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn check(status: std::io::Result<std::process::ExitStatus>, what: &str) -> anyhow::Result<()> {
+pub fn check(status: std::io::Result<std::process::ExitStatus>, what: &str) -> anyhow::Result<()> {
     let status = status.with_context(|| format!("starting {what}"))?;
     if !status.success() {
         bail!("{what} failed: {status}");
@@ -390,7 +390,7 @@ fn check(status: std::io::Result<std::process::ExitStatus>, what: &str) -> anyho
 }
 
 /// pnpm is a `.cmd` shim on Windows, which `Command` doesn't look for.
-fn pnpm() -> Command {
+pub fn pnpm() -> Command {
     if cfg!(windows) {
         let mut c = Command::new("cmd");
         c.args(["/d", "/c", "pnpm"]);

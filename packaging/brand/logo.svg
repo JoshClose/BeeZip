@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" width="120" height="120">
+  <title>BeeZip</title>
+  <defs>
+    <clipPath id="body"><ellipse cx="60" cy="70" rx="16" ry="26"/></clipPath>
+  </defs>
+  <polygon points="60,14 99.8,37 99.8,83 60,106 20.2,83 20.2,37" fill="none" stroke="#E0A21A" stroke-width="9" stroke-linejoin="round"/>
+  <g transform="translate(18 17.3) scale(0.7)">
+    <ellipse cx="40" cy="56" rx="18" ry="10" transform="rotate(-30 40 56)" fill="#FFFFFF" stroke="#1F2023" stroke-width="4"/>
+    <ellipse cx="80" cy="56" rx="18" ry="10" transform="rotate(30 80 56)" fill="#FFFFFF" stroke="#1F2023" stroke-width="4"/>
+    <ellipse cx="60" cy="70" rx="16" ry="26" fill="#1F2023"/>
+    <g clip-path="url(#body)">
+      <rect x="40" y="64" width="40" height="7" fill="#E0A21A"/>
+      <rect x="40" y="78" width="40" height="7" fill="#E0A21A"/>
+    </g>
+    <path d="M57 29 L50 19 M63 29 L70 19" fill="none" stroke="#1F2023" stroke-width="4" stroke-linecap="round"/>
+    <circle cx="60" cy="35" r="8" fill="#1F2023"/>
+    <polygon points="56,94 64,94 60,103" fill="#1F2023"/>
+  </g>
+</svg>
