@@ -1,0 +1,200 @@
+# Releases (docs/M6.md §9.5). A `v*` tag (made after `cargo xtask release --version V`) builds the
+# Windows installer, signs it when the repository has signing set up, and makes a DRAFT release
+# vV with the installer, the updater's .sig and latest.json. Publishing the draft is the
+# maintainer's: it's what users and the updater see. Run by hand (Actions > Release > Run
+# workflow), it is a dry run: the same build, kept as the run's artifact, and no release.
+#
+# The `windows` job runs in the `release` environment, whose deployment rules decide which refs
+# may use its secrets and Azure sign-in: `v*` tags, and `master` for signed dry runs. Signing,
+# from the environment's (or the repository's) variables and secrets:
+# - Azure Artifact Signing, when the variables AZURE_CLIENT_ID, AZURE_TENANT_ID,
+#   AZURE_SUBSCRIPTION_ID, ARTIFACT_SIGNING_ENDPOINT, ARTIFACT_SIGNING_ACCOUNT and
+#   ARTIFACT_SIGNING_PROFILE are set: azure/login signs in with OIDC, through an Entra app whose
+#   federated credential trusts this repository's `release` environment, so no secret is stored;
+# - else a certificate file, when the secret BEEZIP_SIGN_PFX (the .pfx, base64) is set, with
+#   BEEZIP_SIGN_PFX_PASSWORD;
+# - else unsigned, with a warning: drafts stay unsigned until there's a certificate (§14).
+# The updater's signature needs the secrets TAURI_SIGNING_PRIVATE_KEY and
+# TAURI_SIGNING_PRIVATE_KEY_PASSWORD, and the public key committed in packaging/updater.pub.
+#
+# Linux and macOS (PR 6, §9.7) add a job each beside `windows`, uploading an artifact with their
+# bundles, their .sig files and a latest.json of their own platforms; `release` needs them too,
+# and merges every latest.json into one.
+#
+# No caches: a release builds from nothing, so no cache written by another run can reach it.
+name: Release
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+permissions: {}
+concurrency:   # block style: `${{ }}` braces break a YAML flow map
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+  BEEZIP_GIT_SHA: ${{ github.sha }}
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 120
+    environment: release
+    permissions:
+      contents: read
+      id-token: write   # the OIDC token azure/login trades for Artifact Signing's; nothing else
+    defaults: { run: { shell: bash } }
+    outputs:
+      signed: ${{ steps.sign.outputs.mode }}
+    steps:
+      - uses: actions/checkout@v7
+        with: { persist-credentials: false }
+      - run: rustup toolchain install    # reads rust-toolchain.toml
+      - name: The tag is the workspace's version
+        if: github.event_name == 'push'
+        run: cargo xtask release --check-tag "$GITHUB_REF_NAME"
+      - uses: pnpm/action-setup@v6
+        with: { package_json_file: apps/desktop/package.json }
+      - uses: actions/setup-node@v7
+        with: { node-version: 24 }
+      - name: pnpm install
+        working-directory: apps/desktop
+        run: pnpm install --frozen-lockfile
+
+      - name: How to sign, from the settings
+        id: sign
+        env:
+          AZURE_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+          ARTIFACT_SIGNING_ACCOUNT: ${{ vars.ARTIFACT_SIGNING_ACCOUNT }}
+          HAS_PFX: ${{ secrets.BEEZIP_SIGN_PFX != '' }}
+          HAS_UPDATER_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY != '' }}
+        run: |
+          if [ -n "$AZURE_CLIENT_ID" ] && [ -n "$ARTIFACT_SIGNING_ACCOUNT" ]; then
+            mode=artifact
+          elif [ "$HAS_PFX" = true ]; then
+            mode=pfx
+          else
+            mode=none
+            echo "::warning::This build is unsigned: the repository has no Artifact Signing variables and no BEEZIP_SIGN_PFX secret."
+          fi
+          if [ "$HAS_UPDATER_KEY" != true ]; then
+            echo "::warning::No TAURI_SIGNING_PRIVATE_KEY secret: no updater signature (.sig) or latest.json, so installed copies won't see this release."
+          fi
+          echo "signing: $mode"
+          echo "mode=$mode" >> "$GITHUB_OUTPUT"
+
+      - name: Sign in to Azure with OIDC, for Artifact Signing
+        if: steps.sign.outputs.mode == 'artifact'
+        uses: azure/login@v3
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      - name: Artifact Signing's signtool plugin (Microsoft.ArtifactSigning.Client 1.0.151, checked)
+        if: steps.sign.outputs.mode == 'artifact'
+        shell: pwsh
+        run: |
+          # The runner's Windows SDK has signtool 10.0.26100, new enough; the dlib needs .NET 10,
+          # which the runner has. sign.ps1 checks signtool's version.
+          $zip = Join-Path $env:RUNNER_TEMP 'artifact-signing-client.zip'
+          Invoke-WebRequest -Uri https://api.nuget.org/v3-flatcontainer/microsoft.artifactsigning.client/1.0.151/microsoft.artifactsigning.client.1.0.151.nupkg -OutFile $zip -MaximumRetryCount 4 -RetryIntervalSec 15
+          $hash = (Get-FileHash -Algorithm SHA256 $zip).Hash
+          if ($hash -ne '35375A4BC4E1102DA729FC3D8D9925F774C3BAAE6B8B7FF6398D948CA9AB0D8A') { Write-Host "::error::the package's SHA-256 is $hash"; exit 1 }
+          $dir = Join-Path $env:RUNNER_TEMP 'artifact-signing-client'
+          Expand-Archive -LiteralPath $zip -DestinationPath $dir
+          "BEEZIP_ARTIFACT_DLIB=$(Join-Path $dir 'bin\x64\Azure.CodeSigning.Dlib.dll')" >> $env:GITHUB_ENV
+      - name: The certificate file, from its secret
+        if: steps.sign.outputs.mode == 'pfx'
+        shell: pwsh
+        env:
+          PFX: ${{ secrets.BEEZIP_SIGN_PFX }}
+        run: |
+          $file = Join-Path $env:RUNNER_TEMP 'beezip-sign.pfx'
+          [IO.File]::WriteAllBytes($file, [Convert]::FromBase64String($env:PFX))
+          "BEEZIP_SIGN_PFX=$file" >> $env:GITHUB_ENV
+
+      - name: Tauri's NSIS, fetched with retries (Tauri's own single download has failed with a 504)
+        shell: pwsh
+        run: pwsh -NoProfile -File .github/scripts/tauri-nsis.ps1
+      - name: Installer (release)
+        env:
+          BEEZIP_SIGN: ${{ steps.sign.outputs.mode }}
+          BEEZIP_SIGN_PFX_PASSWORD: ${{ secrets.BEEZIP_SIGN_PFX_PASSWORD }}
+          BEEZIP_ARTIFACT_ENDPOINT: ${{ vars.ARTIFACT_SIGNING_ENDPOINT }}
+          BEEZIP_ARTIFACT_ACCOUNT: ${{ vars.ARTIFACT_SIGNING_ACCOUNT }}
+          BEEZIP_ARTIFACT_PROFILE: ${{ vars.ARTIFACT_SIGNING_PROFILE }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: cargo xtask dist
+      - name: Every program in the installer is signed and timestamped
+        if: steps.sign.outputs.mode != 'none'
+        shell: pwsh
+        run: |
+          $setup = Get-ChildItem target/dist/release/bundle/nsis -Filter '*-setup.exe' | Select-Object -First 1
+          pwsh -NoProfile -File .github/scripts/signed-setup.ps1 $setup.FullName -Timestamped
+          if ($LASTEXITCODE) { exit 1 }
+      - name: Forget the certificate file
+        if: always() && steps.sign.outputs.mode == 'pfx'
+        shell: pwsh
+        run: Remove-Item -LiteralPath (Join-Path $env:RUNNER_TEMP 'beezip-sign.pfx') -Force -ErrorAction SilentlyContinue
+
+      - name: Keep the release's files
+        uses: actions/upload-artifact@v7
+        with:
+          name: windows
+          path: |
+            target/dist/release/bundle/nsis/*-setup.exe
+            target/dist/release/bundle/nsis/*-setup.exe.sig
+            target/dist/release/bundle/nsis/latest.json
+          if-no-files-found: error
+          retention-days: 14
+
+  # Only for a tag: a dry run stops at the artifacts.
+  release:
+    needs: [windows]
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write   # the draft release and its files
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      SIGNED: ${{ needs.windows.outputs.signed }}
+    steps:
+      - uses: actions/download-artifact@v8
+        with: { path: files }
+      - name: One latest.json for every platform
+        run: |
+          shopt -s nullglob
+          parts=(files/*/latest.json)
+          if [ ${#parts[@]} -eq 0 ]; then
+            echo "no updater manifest: the release has no updater signature"
+            exit 0
+          fi
+          jq -e -s 'map(.version) | unique | length == 1' "${parts[@]}" > /dev/null \
+            || { echo "::error::the platforms' latest.json name different versions"; exit 1; }
+          jq -s '.[0] + {platforms: (map(.platforms) | add)}' "${parts[@]}" > latest.json
+          cat latest.json
+      - name: The draft release
+        run: |
+          tag="$GITHUB_REF_NAME"
+          version="${tag#v}"
+          shopt -s nullglob
+          release_files=(files/*/*-setup.exe files/*/*.sig)
+          if [ -f latest.json ]; then release_files+=(latest.json); fi
+          if [ "$SIGNED" = none ]; then signing="**Unsigned**: the repository has no signing certificate set up."; else signing="Signed (${SIGNED})."; fi
+          printf 'BeeZip %s.\n\n%s Built by release.yml from %s. This is a draft: publishing it is what users and the updater see.\n' \
+            "$version" "$signing" "$GITHUB_SHA" > notes.md
+          if draft=$(gh release view "$tag" --json isDraft --jq .isDraft 2>/dev/null); then
+            if [ "$draft" != true ]; then
+              echo "::error::$tag is already published: a published release is never changed"
+              exit 1
+            fi
+            echo "the draft $tag is there already: replacing its files"
+            gh release upload "$tag" "${release_files[@]}" --clobber
+          else
+            gh release create "$tag" --draft --verify-tag --title "BeeZip ${version}" --notes-file notes.md "${release_files[@]}"
+          fi
+          echo "Draft release $tag made: publishing it is the maintainer's." >> "$GITHUB_STEP_SUMMARY"

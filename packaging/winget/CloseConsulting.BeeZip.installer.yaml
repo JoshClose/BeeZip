@@ -1,0 +1,49 @@
+## The installer manifest of CloseConsulting.BeeZip (docs/M6.md §9.6), which `cargo xtask winget`
+## fills in and writes to target/winget/manifests/c/CloseConsulting/BeeZip/<version>/. Lines
+## starting with `##` are notes for this template and stay out of the manifest. Schema 1.12.0, the
+## one most winget-pkgs submissions use.
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.installer.1.12.0.schema.json
+
+PackageIdentifier: CloseConsulting.BeeZip
+PackageVersion: {{VERSION}}
+InstallerLocale: en-US
+Platform:
+- Windows.Desktop
+## A package with an external location (Windows 11's menu) needs Windows 10 2004; the classic
+## menu and the app itself run on any Windows 10 with WebView2.
+MinimumOSVersion: 10.0.19041.0
+InstallerType: nullsoft
+Scope: user
+InstallModes:
+- interactive
+- silent
+- silentWithProgress
+## Tauri's NSIS template: /S silent, /P passive (a progress bar and no pages), /D= the folder.
+InstallerSwitches:
+  Silent: /S
+  SilentWithProgress: /P
+  InstallLocation: /D=<INSTALLPATH>
+## A silent install over an older version skips the reinstall page: the files are replaced in
+## place and the hooks run again (the association backup, PATH, `shell install`).
+UpgradeBehavior: install
+Commands:
+- beezip
+## From `xtask dist`'s associations, which come from formats.list.
+FileExtensions:
+{{FILE_EXTENSIONS}}
+## Tauri's NSIS writes HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\BeeZip, so the
+## key's name is the product code; the publisher is tauri.dist.json's bundle.publisher.
+ProductCode: BeeZip
+AppsAndFeaturesEntries:
+- DisplayName: BeeZip
+  Publisher: Close Consulting, Inc
+  DisplayVersion: {{VERSION}}
+  ProductCode: BeeZip
+InstallationMetadata:
+  DefaultInstallLocation: '%LocalAppData%\BeeZip'
+Installers:
+- Architecture: x64
+  InstallerUrl: {{INSTALLER_URL}}
+  InstallerSha256: {{INSTALLER_SHA256}}
+ManifestType: installer
+ManifestVersion: 1.12.0

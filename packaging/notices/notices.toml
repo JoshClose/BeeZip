@@ -1,0 +1,103 @@
+# `cargo xtask notices`'s own settings (docs/M6.md §9.1), beside the hand-written parts of
+# THIRD_PARTY_NOTICES.md (header.md, code-taken-in.md). cargo-about's are in about.toml.
+
+# Crates that ship no license text, with no copy in another crate of Cargo.lock that about.toml
+# could name: cargo-about runs offline, so it falls back to the license's canonical text, which
+# has no copyright line. Any other crate that falls back fails `cargo xtask notices`, and so does
+# a crate listed here that has a text of its own now.
+no-license-file = [
+    "backhand",            # MIT OR Apache-2.0; the license files are at the root of its repository
+    "ts-rs",               # MIT, likewise
+    "ts-rs-macros",
+    "unrar_sys",           # its bindings' MIT OR Apache-2.0 (UnRAR's own license is there)
+    "webview2-com",        # MIT, likewise
+    "webview2-com-macros",
+    "webview2-com-sys",
+]
+
+# License texts for the npm packages in the bundle that ship none (the Vite plugin in
+# apps/desktop/vite.config.ts lists each package's license files). One that ships its own text
+# fails `cargo xtask notices` while it is still named here.
+
+# The JavaScript halves of Tauri's plugins ship only LICENSE.spdx. Their text is the LICENSE_MIT
+# of the same plugin directory of tauri-apps/plugins-workspace, which their crates ship (the
+# tauri-plugin-dialog 2.8.4 and tauri-plugin-opener 2.7.2 crates, identical).
+[npm."@tauri-apps/plugin-dialog"]
+license = "MIT"
+text = '''
+MIT License
+
+Copyright (c) 2017 - Present Tauri Apps Contributors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+'''
+
+[npm."@tauri-apps/plugin-opener"]
+license = "MIT"
+text = '''
+MIT License
+
+Copyright (c) 2017 - Present Tauri Apps Contributors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+'''
+
+# 2.3.8 ships no LICENSE file. Its repository added one afterwards (theKashey/react-remove-scroll-bar,
+# commit 7301c160fda4, 2025-05-21); this is that file.
+[npm.react-remove-scroll-bar]
+license = "MIT"
+text = '''
+MIT License
+
+Copyright (c) 2025 Anton Korzunov <thekashey@gmail.com>
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+'''

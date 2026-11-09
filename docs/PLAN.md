@@ -326,7 +326,7 @@ After approval I implement **M0 + M1** and then stop for your review before goin
 - **M6 — Long tail + ship.** Detailed plan: [`docs/M6.md`](M6.md).
   - The `SevenZipCli` backend; ARJ, ACE, ZOO and ARC; XAR and pkg.
   - Parallel gzip, zip writing, zip extraction and xz decoding; `bench.run` with a chart in the desktop.
-  - Generated notices, a signing pipeline for a production certificate, NSIS installer fixes, `tauri-plugin-updater`, draft releases, a winget manifest (`BeeZip.BeeZip`), Linux and macOS bundles on CI.
+  - Generated notices, a signing pipeline for a production certificate, NSIS installer fixes, `tauri-plugin-updater`, draft releases, a winget manifest (`CloseConsulting.BeeZip`), Linux and macOS bundles on CI.
   - The early-launch fix, a tauri-driver E2E test, and drag-out to Explorer as a stretch goal.
   - The first public release comes after the look-and-feel pass.
 

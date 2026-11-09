@@ -20,7 +20,9 @@ pnpm tauri dev      # the desktop app, reloading as you edit
 ```
 
 - **Bindings:** after changing a command's input or output types, regenerate the TypeScript bindings with `cargo xtask codegen`.
-- **Installer:** `cargo xtask dist` builds it (`target\dist\release\bundle\nsis\BeeZip_<version>_x64-setup.exe`); `--debug` is quicker. `--sign-dev` adds Windows 11's menu as a package signed with the certificate `cargo xtask dev-cert` makes; Windows installs it once that certificate is trusted, with the elevated command dev-cert prints.
+- **Installer:** `cargo xtask dist` builds it (`target\dist\release\bundle\nsis\BeeZip_<version>_x64-setup.exe`); `--debug` is quicker. `--sign-dev` adds Windows 11's menu as a package signed with the certificate `cargo xtask dev-cert` makes; Windows installs it once that certificate is trusted, with the elevated command dev-cert prints. `BEEZIP_SIGN` chooses how a build is signed (`none`, `dev`, `pfx` with `BEEZIP_SIGN_PFX` and its password, or `artifact` for Azure Artifact Signing); `packaging/windows/sign.ps1` does the signing.
+- **Third-party notices:** `cargo xtask notices` regenerates `THIRD_PARTY_NOTICES.md` with cargo-about 0.9.3 (`cargo install --locked cargo-about --version 0.9.3 --features cli`), after `pnpm --dir apps/desktop build`; CI fails when it's out of date, so run it after a lockfile changes.
+- **Releases:** `cargo xtask release --version V` sets the version everywhere and prints the commands to commit and tag `vV`; the tag makes `.github/workflows/release.yml` build the installer and a draft release. `cargo xtask winget` writes the winget manifest from a release (`--local`: from the installer built here).
 - **Explorer's menu, from this tree:** `cargo xtask shell` registers the classic menu with the debug DLL and app, and `cargo xtask shell --mode modern` registers Windows 11's menu as a development package, which needs Developer Mode but no certificate. `--remove` takes either away. A click starts the debug app, so keep `pnpm dev` running.
 - **A big test archive:** `cargo xtask bigzip` writes a zip of a million entries, for trying the browser.
 
@@ -38,6 +40,7 @@ pnpm tauri dev      # the desktop app, reloading as you edit
 - **Copy as CLI**, on every dialog, copies the `beezip` command that does the same, without the password.
 - **Settings** (Ctrl+,, or from the welcome screen) change `config.toml` as you go, and the next job uses them. Each is saved as you change it, keeping the file's comments; a value BeeZip can't take shows its error beside the field and isn't saved.
 - **Theme:** System (Windows' light or dark mode), Light or Dark, in Settings or from Ctrl+K ("Theme: Dark"). Every window switches at once.
+- **Updates:** at most once a day, BeeZip asks GitHub for its newest release and, when there's one, shows a banner with what's new and "Update and restart". Nothing downloads before you click; running jobs finish first; the installer's signature must match the release's version. Settings turns the check off; About checks now. The command line and the MCP server never check.
 
 **The installer** works per user, with no admin rights:
 - **Files:** it puts `BeeZip.exe` in `%LOCALAPPDATA%\BeeZip`, and adds its `bin` folder (holding `beezip.exe`) to your PATH.
@@ -45,6 +48,7 @@ pnpm tauri dev      # the desktop app, reloading as you edit
 - **Explorer's menu:** a "BeeZip" submenu on files and folders, with Extract here, Extract to "a\", Test archive, Add to "a.zip" and the rest. A click opens a small window for the job, or BeeZip's own dialogs for Extract to… and Compress to…. When `a.zip` is already there, the window offers to add to it, replace it, keep both or skip. Settings → Explorer menu chooses the items and removes or repairs the menu; so do `beezip shell status`, `beezip shell install` and `beezip shell uninstall`.
 - **On Windows 11** the menu needs BeeZip's signed package to be in Windows 11's own menu. Until releases are signed, the installer puts it under *Show more options*. With Developer Mode on, `beezip shell install --mode modern --dev` moves it into the Windows 11 menu, and `beezip shell install --mode classic` moves it back. Only one of the two is registered at a time.
 - **Uninstalling** removes the PATH entry, the menu and the registrations, and leaves your file types as they were. An upgrade keeps the file types you had before BeeZip, too.
+- **A running `beezip`,** such as an MCP server an AI app started, doesn't stop an upgrade or an uninstall: it keeps running from `%TEMP%` until its app restarts it, and Windows deletes that copy at your next sign-in. A running BeeZip window is closed first; the silent (`/S`) and passive (`/P`) installers close it without asking.
 
 ## Command line
 
@@ -149,6 +153,9 @@ read_only = false
 
 [desktop]
 theme = "system"           # system | light | dark
+
+[updates]
+check = true               # the desktop app looks for a new release at most once a day
 
 [shell]                    # Explorer's right-click menu
 cascade = true             # classic menu: false puts each item at the top level

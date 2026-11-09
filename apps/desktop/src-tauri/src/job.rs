@@ -195,17 +195,19 @@ pub fn create_job_window(app: &AppHandle, steps: Vec<Step>) -> tauri::Result<()>
             close_when_done,
         }),
     );
-    WebviewWindowBuilder::new(
-        app,
-        format!("job-{n}"),
-        WebviewUrl::App("index.html".into()),
+    open::with_browser_args(
+        WebviewWindowBuilder::new(
+            app,
+            format!("job-{n}"),
+            WebviewUrl::App("index.html".into()),
+        )
+        .title(title)
+        .inner_size(JOB_WINDOW.0, JOB_WINDOW.1)
+        .min_inner_size(JOB_WINDOW_MIN.0, JOB_WINDOW_MIN.1)
+        .center()
+        .focused(true)
+        .initialization_script(script),
     )
-    .title(title)
-    .inner_size(JOB_WINDOW.0, JOB_WINDOW.1)
-    .min_inner_size(JOB_WINDOW_MIN.0, JOB_WINDOW_MIN.1)
-    .center()
-    .focused(true)
-    .initialization_script(script)
     .build()?;
     Ok(())
 }

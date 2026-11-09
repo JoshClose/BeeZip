@@ -16,7 +16,7 @@ use std::process::Command;
 use anyhow::{Context, bail};
 
 use crate::codegen::workspace_root;
-use crate::sparse::PUBLISHER;
+use crate::sparse::DEV_PUBLISHER as PUBLISHER;
 
 /// Runs in Windows PowerShell, which every Windows has. The subject and the file come in
 /// through the environment, so nothing needs quoting. The extensions are code signing

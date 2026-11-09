@@ -74,7 +74,13 @@ pub fn run(mode: Mode, remove: bool) -> anyhow::Result<()> {
     match mode {
         Mode::Classic => args.extend(["--mode", "classic"]),
         Mode::Modern => {
-            crate::sparse::stage(&root, &sparse, env!("CARGO_PKG_VERSION"), &name)?;
+            crate::sparse::stage(
+                &root,
+                &sparse,
+                env!("CARGO_PKG_VERSION"),
+                &name,
+                crate::sparse::DEV_PUBLISHER,
+            )?;
             args.extend(["--mode", "modern", "--dev", "--package", &sparse_text]);
         }
     }

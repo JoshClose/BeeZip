@@ -5,6 +5,7 @@ mod job;
 mod open;
 mod opened;
 mod prompts;
+mod update;
 
 use std::{
     path::Path,
@@ -16,7 +17,7 @@ use beezip_commands::{Engine, EngineOptions, Policy, Theme, config, registry};
 use tauri::{Emitter, Listener, Manager, RunEvent, WindowEvent};
 
 use crate::{
-    open::{MAIN, Warnings},
+    open::{MAIN, Pending, Warnings},
     opened::{ENTRY_CHANGED, Forget, OPENED_FORGET, Opened},
     prompts::GuiInteractor,
 };
@@ -54,10 +55,14 @@ pub fn run() {
         }))
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
+        // Updates (docs/M6.md §9.4), driven from Rust only: the page has no updater permission.
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(engine)
         .manage(gui)
         .manage(Warnings(Mutex::new(warnings)))
         .manage(Arc::new(Opened::default()))
+        .manage(Pending::default())
+        .manage(update::Updates::default())
         // Back from an editor: entries opened from the tabs that changed (docs/M5.md §8.3).
         .on_window_event(|window, event| {
             if window.label() == MAIN && matches!(event, WindowEvent::Focused(true)) {
@@ -84,14 +89,18 @@ pub fn run() {
             });
             let args: Vec<String> = std::env::args().collect();
             let cwd = std::env::current_dir().unwrap_or_default();
-            open::launch(app.handle(), open::parse_args(&args, Path::new(&cwd)))?;
+            let launch = open::parse_args(&args, Path::new(&cwd));
+            open::show(app.handle(), open::plan(app.handle(), launch))?;
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             ipc::cmd_run,
             ipc::cmd_cancel,
             ipc::cmd_respond,
-            ipc::cmd_list
+            ipc::cmd_list,
+            ipc::cmd_launched,
+            update::cmd_update_check,
+            update::cmd_update_install
         ])
         .build(tauri::generate_context!())
         .expect("error while building the BeeZip app");
@@ -111,8 +120,9 @@ fn tauri_theme(theme: Theme) -> Option<tauri::Theme> {
     }
 }
 
-/// Cancels whatever still runs and waits, up to [`EXIT_WAIT`], for it to clean up.
-fn cancel_and_wait(app: &tauri::AppHandle) {
+/// Cancels whatever still runs and waits, up to [`EXIT_WAIT`], for it to clean up. Quitting
+/// does this, and so does the updater just before it starts the installer.
+pub(crate) fn cancel_and_wait(app: &tauri::AppHandle) {
     let engine = app.state::<Engine>();
     let gui = app.state::<Arc<GuiInteractor>>();
     for job in engine.jobs() {

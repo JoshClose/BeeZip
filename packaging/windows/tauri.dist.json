@@ -4,6 +4,7 @@
   "bundle": {
     "resources": {},
     "fileAssociations": [],
+    "publisher": "Close Consulting, Inc",
     "windows": {
       "nsis": {
         "installMode": "currentUser"

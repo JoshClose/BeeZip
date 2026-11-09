@@ -1,6 +1,6 @@
 [package]
 name = "xtask"
-description = "BeeZip repo tasks: `cargo xtask codegen`, `cargo xtask gen-fixtures`"
+description = "BeeZip repo tasks: `cargo xtask codegen`, `dist`, `notices`, `release`, `winget`…"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -15,8 +15,15 @@ beezip-menu.workspace = true
 bzip2.workspace = true
 crc32fast.workspace = true
 flate2.workspace = true
+serde.workspace = true
 serde_json.workspace = true
+sha2.workspace = true
+toml.workspace = true
+toml_edit.workspace = true
 ts-rs.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
 
 [lints]
 workspace = true

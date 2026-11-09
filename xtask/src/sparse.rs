@@ -1,7 +1,8 @@
 //! The Windows 11 menu's sparse package (docs/M4.md §5.2, §9): its manifest, from
 //! `packaging/windows/sparse/AppxManifest.xml`, and its logos, from the app's icons. `dist` stages
-//! them in the installer, and with `--sign-dev` packs and signs `beezip-sparse.msix`; `shell
-//! --mode modern` registers them unsigned, under Developer Mode.
+//! them in the installer, and when it signs (docs/M6.md §9.2) packs them into
+//! `beezip-sparse.msix` and signs that; `shell --mode modern` registers them unsigned, under
+//! Developer Mode.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -9,11 +10,10 @@ use std::process::Command;
 use anyhow::{Context, bail};
 use beezip_menu::clsid;
 
-/// The package's publisher, which must match the signing certificate's subject. `xtask dev-cert`
-/// makes that certificate; M6 brings the production one.
-pub const PUBLISHER: &str = "CN=BeeZip Dev";
-/// The development certificate's subject, as `signtool /n` looks it up.
-pub const CERT_NAME: &str = "BeeZip Dev";
+/// The development certificate's subject (`xtask dev-cert`), and the publisher of every package
+/// that certificate signs or that is never signed. A production certificate's packages are
+/// published by its subject (`sign::publisher`).
+pub const DEV_PUBLISHER: &str = "CN=BeeZip Dev";
 /// The logos the manifest names, from `apps/desktop/src-tauri/icons`.
 const LOGOS: [&str; 3] = [
     "StoreLogo.png",
@@ -41,15 +41,16 @@ pub fn package_version(version: &str) -> anyhow::Result<String> {
         .join("."))
 }
 
-/// The manifest for `version`, naming `dll` as the menu's DLL in the external location.
-pub fn manifest(root: &Path, version: &str, dll: &str) -> anyhow::Result<String> {
+/// The manifest for `version`, naming `dll` as the menu's DLL in the external location, published
+/// by `publisher`, which must be the subject of the certificate that signs the package.
+pub fn manifest(root: &Path, version: &str, dll: &str, publisher: &str) -> anyhow::Result<String> {
     let path = root.join("packaging/windows/sparse/AppxManifest.xml");
     let template =
         std::fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
     let class = clsid::braced(clsid::MODERN_ROOT);
     let text = template
         .replace("{{VERSION}}", &package_version(version)?)
-        .replace("{{PUBLISHER}}", PUBLISHER)
+        .replace("{{PUBLISHER}}", &xml_attribute(publisher))
         .replace("{{DLL}}", dll)
         .replace("{{CLSID}}", class.trim_matches(['{', '}']));
     if let Some(at) = text.find("{{") {
@@ -58,13 +59,31 @@ pub fn manifest(root: &Path, version: &str, dll: &str) -> anyhow::Result<String>
     Ok(text)
 }
 
+/// A value for a double-quoted XML attribute. A subject may hold `"` (`O="Foo, Inc."`) or `&`.
+fn xml_attribute(value: &str) -> String {
+    value
+        .replace('&', "&amp;")
+        .replace('"', "&quot;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+}
+
 /// Writes the manifest and the logos into `out`, which is emptied first.
-pub fn stage(root: &Path, out: &Path, version: &str, dll: &str) -> anyhow::Result<()> {
+pub fn stage(
+    root: &Path,
+    out: &Path,
+    version: &str,
+    dll: &str,
+    publisher: &str,
+) -> anyhow::Result<()> {
     if out.exists() {
         std::fs::remove_dir_all(out).with_context(|| format!("emptying {}", out.display()))?;
     }
     std::fs::create_dir_all(out)?;
-    std::fs::write(out.join("AppxManifest.xml"), manifest(root, version, dll)?)?;
+    std::fs::write(
+        out.join("AppxManifest.xml"),
+        manifest(root, version, dll, publisher)?,
+    )?;
     let icons = root.join("apps/desktop/src-tauri/icons");
     for logo in LOGOS {
         std::fs::copy(icons.join(logo), out.join(logo))
@@ -73,28 +92,18 @@ pub fn stage(root: &Path, out: &Path, version: &str, dll: &str) -> anyhow::Resul
     Ok(())
 }
 
-/// Packs `dir` into `msix` and signs it with the development certificate in
-/// `CurrentUser\My`. `/nv` skips makeappx's semantic checks, which would look for the DLL and
-/// `BeeZip.exe` inside the package: they are in the external location.
-pub fn pack_and_sign(dir: &Path, msix: &Path) -> anyhow::Result<()> {
+/// Packs `dir` into `msix`, unsigned: `sign::sign` signs it. `/nv` skips makeappx's semantic
+/// checks, which would look for the DLL and `BeeZip.exe` inside the package: they are in the
+/// external location.
+pub fn pack(dir: &Path, msix: &Path) -> anyhow::Result<()> {
     let makeappx = sdk_tool("makeappx.exe")?;
-    let signtool = sdk_tool("signtool.exe")?;
     let _ = std::fs::remove_file(msix);
     run(Command::new(&makeappx)
         .args(["pack", "/o", "/nv", "/d"])
         .arg(dir)
         .arg("/p")
         .arg(msix))
-    .context("makeappx pack")?;
-    run(Command::new(&signtool)
-        .args(["sign", "/fd", "SHA256", "/a", "/s", "My", "/n", CERT_NAME])
-        .arg(msix))
-    .with_context(|| {
-        format!(
-            "signtool sign, with the \"{CERT_NAME}\" certificate: run `cargo xtask dev-cert` first"
-        )
-    })?;
-    Ok(())
+    .context("makeappx pack")
 }
 
 fn run(cmd: &mut Command) -> anyhow::Result<()> {
@@ -155,8 +164,26 @@ mod tests {
     }
 
     #[test]
+    fn the_publisher_is_escaped() {
+        let text = manifest(
+            &workspace_root(),
+            "0.1.1",
+            "beezip_shell_0.1.1.dll",
+            r#"CN=A & B, O="A & B, Inc.", C=US"#,
+        )
+        .unwrap();
+        assert!(text.contains(r#"Publisher="CN=A &amp; B, O=&quot;A &amp; B, Inc.&quot;, C=US""#));
+    }
+
+    #[test]
     fn the_manifest_is_filled_in() {
-        let text = manifest(&workspace_root(), "0.1.1", "beezip_shell_0.1.1.dll").unwrap();
+        let text = manifest(
+            &workspace_root(),
+            "0.1.1",
+            "beezip_shell_0.1.1.dll",
+            DEV_PUBLISHER,
+        )
+        .unwrap();
         assert!(text.contains(r#"Version="0.1.1.0""#));
         assert!(text.contains(r#"Publisher="CN=BeeZip Dev""#));
         assert!(text.contains(r#"Path="beezip_shell_0.1.1.dll""#));

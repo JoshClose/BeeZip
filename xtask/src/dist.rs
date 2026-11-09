@@ -17,10 +17,21 @@
 //!
 //! The Windows 11 menu's package goes in as well (M4 §9): `sparse\` holds its manifest, naming
 //! this version's DLL, and its logos, which `beezip shell install --mode modern --dev` registers
-//! under Developer Mode. `--sign-dev` also packs them into `beezip-sparse.msix`, signed with
-//! `xtask dev-cert`'s certificate, which the installer's `shell install` registers on Windows 11
-//! where that certificate is trusted. An unsigned `.msix` is never shipped: nothing can install
-//! it without admin.
+//! under Developer Mode. A signed build also packs them into `beezip-sparse.msix` and signs it,
+//! which the installer's `shell install` registers on Windows 11 where the certificate is
+//! trusted. An unsigned `.msix` is never shipped: nothing can install it without admin.
+//!
+//! Signing (docs/M6.md §9.2, `sign.rs`): `BEEZIP_SIGN` is `none` (the default), `dev`
+//! (`--sign-dev`: `xtask dev-cert`'s certificate), `pfx` or `artifact`. When it signs, Tauri
+//! signs every file it builds through `packaging/windows/sign.ps1`, which also signs the
+//! `nsExec.dll` Tauri leaves out; afterwards `dist` checks that each of them carries a signature.
+//!
+//! The updater (docs/M6.md §9.4) gets its public key from `packaging/updater.pub`, or from
+//! `BEEZIP_UPDATER_PUBKEY`, which wins; without one the app never checks for updates. With
+//! `TAURI_SIGNING_PRIVATE_KEY` set (and `…_PASSWORD`), Tauri also signs the installer for the
+//! updater (`<setup>.exe.sig`), and `dist` writes `latest.json` beside it, for the GitHub release
+//! of this version (§9.5). `BEEZIP_UPDATER_ENDPOINT` replaces the GitHub endpoint, for test
+//! builds only: it may be `http://`.
 
 use std::{
     collections::BTreeMap,
@@ -35,6 +46,7 @@ use beezip_commands::{Engine, NonInteractive, discard_events, registry};
 use serde_json::{Value, json};
 
 use crate::codegen::workspace_root;
+use crate::sign::{self, Mode};
 
 /// Zip-based document formats BeeZip reads but leaves to their own apps.
 const DOCUMENTS: &[&str] = &[
@@ -54,6 +66,19 @@ pub fn run(debug: bool, version: Option<&str>, sign_dev: bool) -> anyhow::Result
     let root = workspace_root();
     let profile = if debug { "debug" } else { "release" };
     let version = version.unwrap_or(env!("CARGO_PKG_VERSION"));
+
+    // Everything signing needs is checked before a build of several minutes.
+    let env = |name: &str| std::env::var(name).ok();
+    let mode = Mode::from_env(sign_dev, &env)?;
+    let missing = mode.missing(&env);
+    if !missing.is_empty() {
+        bail!("BEEZIP_SIGN={} needs {}", mode.name(), missing.join(", "));
+    }
+    if mode == Mode::None {
+        println!("an unsigned build (BEEZIP_SIGN=none): no Windows 11 menu package");
+    } else {
+        println!("a signed build (BEEZIP_SIGN={})", mode.name());
+    }
 
     println!("building the CLI and the Explorer menu ({profile})");
     let mut cargo = Command::new(std::env::var("CARGO").unwrap_or_else(|_| "cargo".into()));
@@ -82,26 +107,70 @@ pub fn run(debug: bool, version: Option<&str>, sign_dev: bool) -> anyhow::Result
         }
     }
 
+    // The CLI is signed first (Tauri would sign it in place anyway, and skips it once a trusted
+    // signature is there), and the package's publisher is its signer's subject, exactly as
+    // Windows writes it, which signtool demands of a package.
+    let signer = if mode == Mode::None {
+        None
+    } else {
+        sign::sign(&root, mode, &cli, None)?;
+        sign::signer(&root, &cli)?
+    };
+    let publisher = sign::publisher(
+        mode,
+        env("BEEZIP_SIGN_PUBLISHER").as_deref(),
+        signer.as_deref(),
+    )?;
+    if mode != Mode::None {
+        println!("the Windows 11 menu's package is published by {publisher}");
+    }
+
     let dir = root.join("target/dist");
     std::fs::create_dir_all(&dir)?;
     let sparse = dir.join(SPARSE);
-    crate::sparse::stage(&root, &sparse, version, &dll_name(version))?;
-    let msix = if sign_dev {
+    crate::sparse::stage(&root, &sparse, version, &dll_name(version), &publisher)?;
+    let msix = if mode == Mode::None {
+        None
+    } else {
         let msix = dir.join(MSIX);
-        crate::sparse::pack_and_sign(&sparse, &msix)?;
+        crate::sparse::pack(&sparse, &msix)?;
+        sign::sign(&root, mode, &msix, Some(&publisher))?;
+        if !sign::msix_signed(&msix)? {
+            bail!("{} isn't signed after sign.ps1", msix.display());
+        }
         println!("packed and signed {}", msix.display());
         Some(msix)
-    } else {
-        None
     };
     let package = Package {
         sparse: &sparse,
         msix: msix.as_deref(),
     };
-    let config = config(&root, &cli, &dll, version, &package)?;
+    let mut config = config(&root, &cli, &dll, version, &package)?;
+    if mode != Mode::None {
+        config["bundle"]["windows"]["signCommand"] = sign::sign_command(&root);
+    }
+    if let Some(at) = null_at(&config, "") {
+        bail!(
+            "the config overlay has a null at {at}, which would delete that key from \
+             tauri.conf.json"
+        );
+    }
     let config_path = dir.join("tauri.dist.json");
     std::fs::write(&config_path, serde_json::to_string_pretty(&config)? + "\n")?;
     println!("wrote {}", config_path.display());
+
+    let bundle = dir.join(profile).join("bundle/nsis");
+    let installer = bundle.join(installer_name(version));
+    // A signature or update manifest from an earlier build would describe another installer.
+    for stale in [
+        bundle.join(format!("{}.sig", installer_name(version))),
+        bundle.join(LATEST_JSON),
+    ] {
+        if stale.exists() {
+            std::fs::remove_file(&stale)
+                .with_context(|| format!("removing {}", stale.display()))?;
+        }
+    }
 
     println!("building the installer ({profile})");
     let mut tauri = pnpm();
@@ -113,20 +182,87 @@ pub fn run(debug: bool, version: Option<&str>, sign_dev: bool) -> anyhow::Result
     if debug {
         tauri.arg("--debug");
     }
+    if mode != Mode::None {
+        sign::environment(&mut tauri, mode);
+    }
     check(tauri.status(), "pnpm tauri build")?;
 
-    let bundle = dir.join(profile).join("bundle/nsis");
-    let installers: Vec<PathBuf> = std::fs::read_dir(&bundle)
-        .with_context(|| format!("reading {}", bundle.display()))?
-        .filter_map(|e| e.ok().map(|e| e.path()))
-        .filter(|p| p.extension().is_some_and(|e| e == "exe"))
-        .collect();
-    if installers.is_empty() {
-        bail!("no installer in {}", bundle.display());
+    if !installer.is_file() {
+        bail!("no installer at {}", installer.display());
     }
-    for i in installers {
-        println!("installer: {}", i.display());
+    if mode != Mode::None {
+        let plugins = dir.join(profile).join("nsis/x64/Plugins/x86-unicode");
+        check_signed(&[&installer, &cli, &dll], &plugins)?;
     }
+    println!("installer: {}", installer.display());
+
+    let sig = bundle.join(format!("{}.sig", installer_name(version)));
+    if sig.is_file() {
+        let signature =
+            std::fs::read_to_string(&sig).with_context(|| format!("reading {}", sig.display()))?;
+        let latest = crate::release::latest_json(
+            version,
+            &installer_name(version),
+            &signature,
+            &crate::release::rfc3339(std::time::SystemTime::now()),
+        );
+        let path = bundle.join(LATEST_JSON);
+        std::fs::write(&path, serde_json::to_string_pretty(&latest)? + "\n")?;
+        println!("updater signature: {}", sig.display());
+        println!("update manifest: {}", path.display());
+    }
+    Ok(())
+}
+
+/// The installer Tauri names for `version` (productName, version, arch).
+pub fn installer_name(version: &str) -> String {
+    format!("BeeZip_{version}_x64-setup.exe")
+}
+
+/// The updater's manifest, beside the installer (docs/M6.md §9.4).
+pub const LATEST_JSON: &str = "latest.json";
+
+/// The plugins of Tauri's own NSIS template, which Tauri signs in its copy, and `nsExec.dll`,
+/// which hooks.nsh uses and sign.ps1 signs there.
+const NSIS_PLUGINS: &[&str] = &[
+    "NSISdl.dll",
+    "StartMenu.dll",
+    "System.dll",
+    "nsDialogs.dll",
+    "additional/nsis_tauri_utils.dll",
+    "nsExec.dll",
+];
+
+/// After a signed build: every file Tauri signed carries a signature, nsExec.dll included. The
+/// installer was built from `plugins`, Tauri's copy of NSIS's plugins, and the resources were
+/// signed in place. (BeeZip.exe is signed only inside the installer: Tauri puts the unsigned
+/// build back afterwards.)
+fn check_signed(files: &[&Path], plugins: &Path) -> anyhow::Result<()> {
+    if !plugins.is_dir() {
+        bail!(
+            "Tauri's copy of NSIS's plugins isn't at {}, so nsExec.dll's signature can't be \
+             checked: has the bundler changed? (packaging/windows/sign.ps1 signs it there)",
+            plugins.display()
+        );
+    }
+    let plugins: Vec<PathBuf> = NSIS_PLUGINS.iter().map(|p| plugins.join(p)).collect();
+    let mut unsigned = Vec::new();
+    for file in files
+        .iter()
+        .copied()
+        .chain(plugins.iter().map(PathBuf::as_path))
+    {
+        if !sign::pe_signed(file)? {
+            unsigned.push(file.display().to_string());
+        }
+    }
+    if !unsigned.is_empty() {
+        bail!("signed build, but unsigned: {}", unsigned.join(", "));
+    }
+    println!(
+        "signed: the installer, the CLI, the menu's DLL and NSIS's {} plugins",
+        NSIS_PLUGINS.len()
+    );
     Ok(())
 }
 
@@ -204,7 +340,81 @@ fn config(
     bundle["fileAssociations"] = Value::Array(associations);
     bundle["windows"]["nsis"]["installerHooks"] = json!(slashes(&hooks));
     config["version"] = json!(version);
+    updater(root, &mut config, &|name| std::env::var(name).ok())?;
     Ok(config)
+}
+
+/// The path of a `null` in `value`, if it has one. Tauri merges `--config` files into
+/// tauri.conf.json as a JSON merge patch (RFC 7386), where a `null` deletes the key it names.
+fn null_at(value: &Value, path: &str) -> Option<String> {
+    match value {
+        Value::Null => Some(if path.is_empty() {
+            "the top".into()
+        } else {
+            path.into()
+        }),
+        Value::Object(map) => map
+            .iter()
+            .find_map(|(k, v)| null_at(v, &format!("{path}/{k}"))),
+        Value::Array(list) => list
+            .iter()
+            .enumerate()
+            .find_map(|(i, v)| null_at(v, &format!("{path}/{i}"))),
+        _ => None,
+    }
+}
+
+/// Where the updater's public key is kept, once there is one (docs/M6.md §14).
+pub const UPDATER_PUBKEY: &str = "packaging/updater.pub";
+
+/// The updater's part of the config: the public key, a test endpoint, and whether Tauri signs
+/// the installer for the updater. `env` reads an environment variable.
+fn updater(
+    root: &Path,
+    config: &mut Value,
+    env: &dyn Fn(&str) -> Option<String>,
+) -> anyhow::Result<()> {
+    let set = |v: Option<String>| v.map(|v| v.trim().to_owned()).filter(|v| !v.is_empty());
+    let file = root.join(UPDATER_PUBKEY);
+    let pubkey = match set(env("BEEZIP_UPDATER_PUBKEY")) {
+        Some(key) => Some(key),
+        None if file.is_file() => set(Some(
+            std::fs::read_to_string(&file)
+                .with_context(|| format!("reading {}", file.display()))?,
+        )),
+        None => None,
+    };
+    let signs = set(env("TAURI_SIGNING_PRIVATE_KEY")).is_some();
+    // Only what's set goes in: Tauri merges this file into tauri.conf.json as a JSON merge
+    // patch, where a `null` deletes the key, and an app without `plugins.updater` doesn't start.
+    let mut updater = serde_json::Map::new();
+    match &pubkey {
+        Some(key) => {
+            updater.insert("pubkey".into(), json!(key));
+            println!("the updater checks for updates");
+        }
+        None if signs => bail!(
+            "TAURI_SIGNING_PRIVATE_KEY is set, but there's no public key in {UPDATER_PUBKEY} \
+             or BEEZIP_UPDATER_PUBKEY"
+        ),
+        None => println!("no updater key ({UPDATER_PUBKEY}): this build never checks for updates"),
+    }
+    if let Some(endpoint) = set(env("BEEZIP_UPDATER_ENDPOINT")) {
+        updater.insert(
+            "dangerousInsecureTransportProtocol".into(),
+            json!(endpoint.starts_with("http:")),
+        );
+        updater.insert("endpoints".into(), json!([endpoint]));
+        println!("test build: the updater asks {endpoint}");
+    }
+    if !updater.is_empty() {
+        config["plugins"]["updater"] = Value::Object(updater);
+    }
+    if signs {
+        config["bundle"]["createUpdaterArtifacts"] = json!(true);
+        println!("signing the installer for the updater");
+    }
+    Ok(())
 }
 
 /// `target/dist/hooks.nsh`: the DLL's name, `packaging/windows/hooks.nsh`, and the list of
@@ -328,5 +538,61 @@ mod tests {
             assert!(!exts.contains(&not), "{not} shouldn't be associated");
         }
         assert_eq!(list[0]["name"], format!("BeeZip.{}", exts[0]));
+    }
+
+    #[test]
+    fn the_updater_takes_its_key_from_the_environment_first() {
+        let dir = tempfile::tempdir().unwrap();
+        let env = |vars: &'static [(&'static str, &'static str)]| {
+            move |name: &str| {
+                vars.iter()
+                    .find(|(k, _)| *k == name)
+                    .map(|(_, v)| (*v).to_owned())
+            }
+        };
+        // No key anywhere: the config is left alone, and signing for the updater is refused.
+        let mut config = json!({ "bundle": {} });
+        updater(dir.path(), &mut config, &env(&[])).unwrap();
+        assert_eq!(
+            config,
+            json!({ "bundle": {} }),
+            "nothing added, not even a null"
+        );
+        assert_eq!(null_at(&config, ""), None);
+        assert_eq!(
+            null_at(&json!({ "plugins": { "updater": null } }), ""),
+            Some("/plugins/updater".into())
+        );
+        assert!(
+            updater(
+                dir.path(),
+                &mut config,
+                &env(&[("TAURI_SIGNING_PRIVATE_KEY", "k")])
+            )
+            .is_err()
+        );
+
+        std::fs::create_dir_all(dir.path().join("packaging")).unwrap();
+        std::fs::write(dir.path().join(UPDATER_PUBKEY), "from-the-file\n").unwrap();
+        let mut config = json!({ "bundle": {} });
+        updater(dir.path(), &mut config, &env(&[])).unwrap();
+        assert_eq!(config["plugins"]["updater"]["pubkey"], "from-the-file");
+        assert_eq!(config["bundle"]["createUpdaterArtifacts"], Value::Null);
+
+        let mut config = json!({ "bundle": {} });
+        let vars = env(&[
+            ("BEEZIP_UPDATER_PUBKEY", "from-the-env"),
+            (
+                "BEEZIP_UPDATER_ENDPOINT",
+                "http://127.0.0.1:8765/latest.json",
+            ),
+            ("TAURI_SIGNING_PRIVATE_KEY", "k"),
+        ]);
+        updater(dir.path(), &mut config, &vars).unwrap();
+        let u = &config["plugins"]["updater"];
+        assert_eq!(u["pubkey"], "from-the-env");
+        assert_eq!(u["endpoints"], json!(["http://127.0.0.1:8765/latest.json"]));
+        assert_eq!(u["dangerousInsecureTransportProtocol"], true);
+        assert_eq!(config["bundle"]["createUpdaterArtifacts"], true);
     }
 }

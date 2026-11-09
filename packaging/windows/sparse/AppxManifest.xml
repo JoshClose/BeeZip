@@ -26,7 +26,7 @@
   <Identity Name="BeeZip" Publisher="{{PUBLISHER}}" Version="{{VERSION}}" ProcessorArchitecture="neutral" />
   <Properties>
     <DisplayName>BeeZip</DisplayName>
-    <PublisherDisplayName>BeeZip</PublisherDisplayName>
+    <PublisherDisplayName>Close Consulting, Inc</PublisherDisplayName>
     <Logo>StoreLogo.png</Logo>
     <uap10:AllowExternalContent>true</uap10:AllowExternalContent>
     <desktop6:FileSystemWriteVirtualization>disabled</desktop6:FileSystemWriteVirtualization>

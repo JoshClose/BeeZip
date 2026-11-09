@@ -602,7 +602,9 @@ impl ZipReader {
 /// Turns a CRC failure on a ZipCrypto entry, a failed AES authentication code, or data an
 /// encrypted entry's method can't decode, into "wrong password or damaged data": the password
 /// checks pass a wrong one now and then (1 in 256 for ZipCrypto, 1 in 65 536 for AES), and then
-/// the garbage fails wherever it fails first, usually in the decompressor (docs/M5.md §16, PR 4).
+/// the garbage fails wherever it fails first, usually in the decompressor (docs/M5.md §16, PR 4),
+/// and now and then by running out before its stream ends ("incomplete deflate stream", an
+/// `UnexpectedEof`; docs/M6.md §16, PR 5).
 struct CrcHint<R> {
     inner: R,
     zipcrypto: bool,
@@ -616,7 +618,6 @@ impl<R: Read> Read for CrcHint<R> {
             if (self.zipcrypto && text.contains("Invalid checksum"))
                 || text.contains("Invalid authentication code")
                 || (self.encrypted
-                    && e.kind() != io::ErrorKind::UnexpectedEof
                     && e.get_ref().is_none_or(|x| !x.is::<Error>())
                     && crate::io::read_error(&e).kind == ErrorKind::Corrupt)
             {
@@ -1519,5 +1520,39 @@ mod tests {
         assert!(has_zip64(&extra));
         // A field claiming more than is there ends the walk.
         assert!(!has_zip64(&[0x0A, 0x00, 0xFF, 0x00, 0x01, 0x00]));
+    }
+
+    /// A reader that fails with `err`.
+    struct Fails(Option<io::Error>);
+
+    impl Read for Fails {
+        fn read(&mut self, _: &mut [u8]) -> io::Result<usize> {
+            Err(self.0.take().unwrap_or_else(|| io::Error::other("again")))
+        }
+    }
+
+    #[test]
+    fn an_encrypted_entrys_garbage_is_a_wrong_password_however_it_fails() {
+        let kind = |encrypted: bool, err: io::Error| {
+            let mut hint = CrcHint {
+                inner: Fails(Some(err)),
+                zipcrypto: encrypted,
+                encrypted,
+            };
+            let e = hint.read(&mut [0; 16]).expect_err("it fails");
+            crate::io::read_error(&e).kind
+        };
+        let cases = [
+            || io::Error::new(io::ErrorKind::InvalidData, "invalid block type"),
+            // Garbage that inflates until the entry's data runs out (seen on CI, 1 run in many).
+            || io::Error::new(io::ErrorKind::UnexpectedEof, "incomplete deflate stream"),
+        ];
+        for err in cases {
+            assert_eq!(kind(true, err()), ErrorKind::WrongPassword, "{}", err());
+            assert_eq!(kind(false, err()), ErrorKind::Corrupt, "{}", err());
+        }
+        // BeeZip's own errors pass through: a missing volume is still that.
+        let missing = Error::new(ErrorKind::NotFound, "part 2 is missing").into_io();
+        assert_eq!(kind(true, missing), ErrorKind::NotFound);
     }
 }

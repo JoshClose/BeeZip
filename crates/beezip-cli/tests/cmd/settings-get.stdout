@@ -29,3 +29,4 @@ shell.items.extract-to      true
 shell.items.open            true
 shell.items.test            true
 stream.codec                zstd
+updates.check               true

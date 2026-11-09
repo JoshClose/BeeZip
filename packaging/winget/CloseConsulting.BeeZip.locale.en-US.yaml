@@ -1,0 +1,38 @@
+## The default locale manifest of CloseConsulting.BeeZip (docs/M6.md §9.6), filled in by
+## `cargo xtask winget`. Publisher must be the same string as the installer manifest's
+## AppsAndFeaturesEntries Publisher, which is tauri.dist.json's bundle.publisher (xtask's tests
+## check all three). Once released, never change any of them, nor the PackageIdentifier.
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.defaultLocale.1.12.0.schema.json
+
+PackageIdentifier: CloseConsulting.BeeZip
+PackageVersion: {{VERSION}}
+PackageLocale: en-US
+Publisher: Close Consulting, Inc
+PublisherUrl: {{REPO_URL}}
+PublisherSupportUrl: {{REPO_URL}}/issues
+Author: Josh Close
+PackageName: BeeZip
+PackageUrl: {{REPO_URL}}
+License: MIT OR Apache-2.0
+LicenseUrl: {{REPO_URL}}/blob/master/LICENSE-MIT
+Copyright: Copyright (c) 2026 The BeeZip Authors
+ShortDescription: An archive manager for Windows, with a command line and an MCP server over the same commands.
+Description: |-
+  BeeZip opens, tests, extracts and creates archives: zip, 7z, tar with gzip, bzip2, xz, zstd and the other codecs, RAR (extraction only), CAB, ISO, cpio, deb, RPM, LHA, squashfs, DMG, ARJ, XAR and more.
+  It adds an Explorer menu, puts the beezip command line on PATH, and runs as an MCP server (beezip mcp) whose writes are limited to the folders you give it.
+Moniker: beezip
+Tags:
+- 7z
+- archive
+- archiver
+- compression
+- extract
+- mcp
+- rar
+- tar
+- unzip
+- zip
+- zstd
+ReleaseNotesUrl: {{RELEASE_NOTES_URL}}
+ManifestType: defaultLocale
+ManifestVersion: 1.12.0
