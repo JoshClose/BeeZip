@@ -388,6 +388,7 @@ dependencies = [
  "hadris-iso",
  "hadris-storage",
  "hadris-udf",
+ "libc",
  "lz4_flex",
  "lzfse_rust",
  "lzma-rust2",

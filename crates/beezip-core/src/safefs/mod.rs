@@ -3,6 +3,7 @@
 pub mod disk;
 pub mod motw;
 pub mod partial;
+pub mod quarantine;
 pub mod sanitize;
 mod sink;
 
@@ -33,7 +34,8 @@ pub struct FsOptions {
     pub links: bool,
     /// Leading path components to drop, as with `tar --strip-components`.
     pub strip_components: usize,
-    /// A `Zone.Identifier` stream to write to every extracted file (see [`motw`]).
+    /// A `Zone.Identifier` stream (a quarantine record on macOS) to write to every extracted
+    /// file (see [`motw`]).
     pub zone: Option<Vec<u8>>,
     pub limits: Limits,
     /// The counter on the archive's compressed input. Hardlinks are extracted as copies,

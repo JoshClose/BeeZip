@@ -13,7 +13,6 @@
 use std::{
     collections::{BTreeMap, HashSet},
     fs,
-    io::Read,
     path::{Path, PathBuf},
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
@@ -101,7 +100,7 @@ fn noise(len: usize, seed: u32) -> Vec<u8> {
 
 #[cfg(windows)]
 mod windows {
-    use std::process::Command;
+    use std::{io::Read, process::Command};
 
     use super::*;
 
