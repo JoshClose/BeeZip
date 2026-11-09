@@ -2,17 +2,24 @@
 //! `Zone.Identifier` stream on it. Explorer copies that stream to every file it extracts, which
 //! keeps SmartScreen and Office Protected View aware of where the files came from; BeeZip does
 //! the same.
+//!
+//! On macOS the mark is the `com.apple.quarantine` attribute instead ([`quarantine`]), which
+//! these functions read and write there (docs/M6.md §8.3): the "zone" is then its record. Linux
+//! has neither, so there is nothing to carry over.
 
 use std::{io, path::Path};
 
-/// The archive's `Zone.Identifier` stream, if it has one. Always `None` off Windows.
+use super::quarantine;
+
+/// The archive's `Zone.Identifier` stream (its quarantine record on macOS), if it has one.
+/// Always `None` elsewhere.
 pub fn read_zone(archive: &Path) -> Option<Vec<u8>> {
     if cfg!(windows) {
         std::fs::read(stream_path(archive))
             .ok()
             .filter(|z| !z.is_empty())
     } else {
-        None
+        quarantine::read(archive)
     }
 }
 
@@ -22,12 +29,13 @@ pub fn read_zone_of(parts: &[std::path::PathBuf]) -> Option<Vec<u8>> {
     parts.iter().find_map(|p| read_zone(p))
 }
 
-/// Writes `zone` as `path`'s `Zone.Identifier` stream. Does nothing off Windows.
+/// Writes `zone` as `path`'s `Zone.Identifier` stream (its quarantine record on macOS). Does
+/// nothing elsewhere.
 pub fn write_zone(path: &Path, zone: &[u8]) -> io::Result<()> {
     if cfg!(windows) {
         std::fs::write(stream_path(path), zone)
     } else {
-        Ok(())
+        quarantine::write(path, zone)
     }
 }
 

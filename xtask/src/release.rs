@@ -373,19 +373,35 @@ impl PartialOrd for Version {
     }
 }
 
-/// The updater's `latest.json` for this version's Windows installer (docs/M6.md §9.4), as the
-/// GitHub release serves it: `signature` is the `.sig` file's text.
-pub fn latest_json(version: &str, installer: &str, signature: &str, pub_date: &str) -> Value {
+/// A bundle in `latest.json`: its key (`windows-x86_64-nsis`, `linux-x86_64-deb`…), its file's
+/// name in the release, and its `.sig` file's text.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Platform {
+    pub key: String,
+    pub file: String,
+    pub signature: String,
+}
+
+/// The updater's `latest.json` for this version's bundles on one platform (docs/M6.md §9.4), as
+/// the GitHub release serves it. release.yml merges every platform's into one.
+pub fn latest_json(version: &str, platforms: &[Platform], pub_date: &str) -> Value {
+    let platforms: serde_json::Map<String, Value> = platforms
+        .iter()
+        .map(|p| {
+            (
+                p.key.clone(),
+                json!({
+                    "signature": p.signature.trim(),
+                    "url": download_url(version, &p.file),
+                }),
+            )
+        })
+        .collect();
     json!({
         "version": version,
         "notes": format!("See {}", release_url(version)),
         "pub_date": pub_date,
-        "platforms": {
-            "windows-x86_64-nsis": {
-                "signature": signature.trim(),
-                "url": download_url(version, installer),
-            }
-        }
+        "platforms": platforms,
     })
 }
 
@@ -571,8 +587,11 @@ mod tests {
     fn the_update_manifest_points_at_the_release() {
         let latest = latest_json(
             "0.2.0",
-            "BeeZip_0.2.0_x64-setup.exe",
-            "c2lnbmF0dXJl\n",
+            &[Platform {
+                key: "windows-x86_64-nsis".into(),
+                file: "BeeZip_0.2.0_x64-setup.exe".into(),
+                signature: "c2lnbmF0dXJl\n".into(),
+            }],
             "2026-11-07T13:48:11Z",
         );
         assert_eq!(

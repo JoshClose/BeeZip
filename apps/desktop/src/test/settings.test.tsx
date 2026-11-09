@@ -1,7 +1,7 @@
 import { setTheme } from "@tauri-apps/api/app";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { levelTargets, SettingsDialog } from "../features/settings/Settings";
 import type { Config, FormatsListOutput, SettingsGetOutput } from "../gen/commands";
 import { chooseTheme, themeActions, useTheme } from "../lib/settings";
@@ -200,6 +200,42 @@ describe("the settings page", () => {
 
   it("lists every codec and method with levels once", () => {
     expect(levelTargets(formats).map((l) => l.name)).toEqual(["deflate", "zstd"]);
+  });
+
+  describe("off Windows (docs/M6.md §8.3)", () => {
+    afterEach(() => {
+      delete window.__BEEZIP__;
+    });
+    const page = async (platform: string) => {
+      window.__BEEZIP__ = { paths: [], cli: "beezip", warnings: [], theme: "system", platform };
+      render(<SettingsDialog onClose={() => {}} />);
+      await screen.findByLabelText("A file is already there");
+    };
+
+    it("Windows has Explorer's menu, its job windows and the downloaded mark", async () => {
+      await page("windows");
+      expect(screen.getByRole("heading", { name: "Explorer menu" })).toBeInTheDocument();
+      expect(screen.getByRole("heading", { name: "Job windows" })).toBeInTheDocument();
+      expect(screen.getByLabelText("Downloaded mark")).toBeInTheDocument();
+      expect(screen.getByText(/as Explorer does/)).toBeInTheDocument();
+    });
+
+    it("macOS has the mark as quarantine, and no Explorer", async () => {
+      await page("macos");
+      expect(screen.queryByRole("heading", { name: "Explorer menu" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("heading", { name: "Job windows" })).not.toBeInTheDocument();
+      expect(screen.getByLabelText("Downloaded mark")).toBeInTheDocument();
+      expect(screen.getByText(/as Archive Utility does/)).toBeInTheDocument();
+      expect(fake.calls.map((c) => c.name)).not.toContain("shell.status");
+    });
+
+    it("Linux has neither", async () => {
+      await page("linux");
+      expect(screen.queryByRole("heading", { name: "Explorer menu" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("heading", { name: "Job windows" })).not.toBeInTheDocument();
+      expect(screen.queryByLabelText("Downloaded mark")).not.toBeInTheDocument();
+      expect(screen.getByRole("heading", { name: "Updates" })).toBeInTheDocument();
+    });
   });
 });
 

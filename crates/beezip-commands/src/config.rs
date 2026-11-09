@@ -125,7 +125,8 @@ pub struct EditConfig {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema, TS)]
 #[serde(rename_all = "kebab-case")]
 pub enum MarkOfTheWeb {
-    /// Copy the archive's `Zone.Identifier` to every extracted file, as Explorer does.
+    /// Copy the archive's `Zone.Identifier` to every extracted file, as Explorer does; on macOS
+    /// its `com.apple.quarantine`, as Archive Utility does. Linux has no such mark.
     #[default]
     All,
     None,

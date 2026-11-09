@@ -55,6 +55,9 @@ pub struct Startup {
     pub warnings: Vec<String>,
     /// `[desktop] theme`, as the window opened with it.
     pub theme: Theme,
+    /// `windows`, `macos` or `linux`: the page leaves out what this one doesn't have, such as
+    /// Explorer's menu (docs/M6.md §8.3).
+    pub platform: &'static str,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub dialog: Option<OpenDialog>,
     /// A job window's steps.
@@ -89,22 +92,24 @@ impl Pending {
         self.lock().ready = false;
     }
 
-    /// Hands `paths` and `dialog` to `send` if the page listens, or keeps them for it. Under the
-    /// lock, so nothing slips between the page's drain and an event.
+    /// Hands `paths` and `dialog` to `send` if the page listens, or keeps them for it, and says
+    /// which. Under the lock, so nothing slips between the page's drain and an event.
     pub fn deliver(
         &self,
         paths: Vec<PathBuf>,
         dialog: Option<OpenDialog>,
         send: impl FnOnce(Vec<PathBuf>, Option<OpenDialog>),
-    ) {
+    ) -> Delivered {
         let mut q = self.lock();
         if q.ready {
             send(paths, dialog);
+            Delivered::Sent
         } else {
             q.paths.extend(paths);
             if dialog.is_some() {
                 q.dialog = dialog;
             }
+            Delivered::Kept
         }
     }
 
@@ -117,6 +122,22 @@ impl Pending {
             paths: std::mem::take(&mut q.paths),
             dialog: q.dialog.take(),
         }
+    }
+}
+
+/// Whether [`Pending::deliver`] sent a launch to the page or kept it for the page's drain.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Delivered {
+    Sent,
+    Kept,
+}
+
+/// Debug builds say on stderr where a launch's archives went. Nothing can drive the page on
+/// macOS, where tauri-driver has no driver, so CI's macOS check reads this to see that files
+/// Finder opens reach the page (docs/M6.md §8.3, §10). Release builds say nothing.
+pub fn trace(what: impl FnOnce() -> String) {
+    if cfg!(debug_assertions) {
+        eprintln!("BeeZip launch: {}", what());
     }
 }
 
@@ -221,6 +242,7 @@ pub fn startup_script(
         cli: cli_program(&exe, std::env::var_os("PATH").as_deref()),
         warnings,
         theme,
+        platform: std::env::consts::OS,
         dialog,
         job,
     };
@@ -351,9 +373,12 @@ pub fn show(app: &AppHandle, mut routed: Routed) -> tauri::Result<()> {
         return Ok(());
     }
     if app.get_webview_window(MAIN).is_none() {
+        trace(|| format!("a new main window for {:?}", routed.open));
         return create_main_window(app, routed.open, routed.dialog);
     }
-    app.state::<Pending>()
+    let paths = format!("{:?}", routed.open);
+    let delivered = app
+        .state::<Pending>()
         .deliver(routed.open, routed.dialog, |paths, dialog| {
             if !paths.is_empty() {
                 let _ = app.emit_to(MAIN, OPEN_PATHS, &paths);
@@ -362,6 +387,10 @@ pub fn show(app: &AppHandle, mut routed: Routed) -> tauri::Result<()> {
                 let _ = app.emit_to(MAIN, OPEN_DIALOG, dialog);
             }
         });
+    trace(|| match delivered {
+        Delivered::Sent => format!("sent to the page: {paths}"),
+        Delivered::Kept => format!("kept until the page listens: {paths}"),
+    });
     focus_main(app)
 }
 
@@ -374,11 +403,26 @@ fn focus_main(app: &AppHandle) -> tauri::Result<()> {
     Ok(())
 }
 
-/// A second `BeeZip.exe` started and handed over its arguments. Its request is planned on
-/// another thread, and its windows built from the event loop: building one inside this callback
-/// would deadlock (WebView2), and `run_on_main_thread` called from here would run at once.
+/// A second `BeeZip.exe` started and handed over its arguments.
 pub fn forward(app: &AppHandle, args: &[String], cwd: &str) {
-    let request = parse_args(args, Path::new(cwd));
+    route(app, parse_args(args, Path::new(cwd)));
+}
+
+/// Files macOS asks BeeZip to open: a double-click in Finder, Open With, a drop on the Dock
+/// icon. They arrive as `RunEvent::Opened`, at startup as well as later, never as arguments,
+/// and go where a second launch's paths go (docs/M6.md §8.3).
+#[cfg(target_os = "macos")]
+pub fn opened(app: &AppHandle, paths: Vec<PathBuf>) {
+    trace(|| format!("macOS asked to open {paths:?}"));
+    if !paths.is_empty() {
+        route(app, Launch { paths, job: None });
+    }
+}
+
+/// A launch that arrived while BeeZip runs. Its request is planned on another thread, and its
+/// windows built from the event loop: building one inside the single-instance callback would
+/// deadlock (WebView2), and `run_on_main_thread` called from there would run at once.
+fn route(app: &AppHandle, request: Launch) {
     let app = app.clone();
     std::thread::spawn(move || {
         let routed = plan(&app, request);
@@ -500,7 +544,10 @@ mod tests {
         let send = |paths: Vec<PathBuf>, dialog: Option<OpenDialog>| {
             sent.borrow_mut().push((paths, dialog));
         };
-        pending.deliver(vec!["a.zip".into()], None, send);
+        assert_eq!(
+            pending.deliver(vec!["a.zip".into()], None, send),
+            Delivered::Kept
+        );
         let extract = OpenDialog::Extract {
             paths: vec!["c.7z".into()],
         };
@@ -520,7 +567,10 @@ mod tests {
         assert_eq!(pending.drain().paths, Vec::<PathBuf>::new());
 
         // Once it listens, launches go straight through, until a new main window starts.
-        pending.deliver(vec!["d.zip".into()], None, send);
+        assert_eq!(
+            pending.deliver(vec!["d.zip".into()], None, send),
+            Delivered::Sent
+        );
         assert_eq!(sent.borrow().len(), 1);
         pending.not_ready();
         pending.deliver(vec!["e.zip".into()], None, send);

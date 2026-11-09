@@ -117,6 +117,7 @@ pub(super) fn extract(
     // Every decision, in archive order.
     let mut jobs: Vec<Job> = Vec::new();
     let mut at: HashMap<String, usize> = HashMap::new();
+    let ignores_case = sink.ignores_case();
     for i in 0..r.entries.len() {
         cx.check()?;
         let entry = &r.entries[i];
@@ -129,10 +130,11 @@ pub(super) fn extract(
         let Some(file) = planned else {
             continue;
         };
-        // Two jobs for one file: the later one wins. Where names ignore case (Windows, macOS),
-        // `a.txt` and `A.TXT` are one file; elsewhere they're two.
+        // Two jobs for one file: the later one wins. Where names ignore case (most Windows and
+        // macOS volumes, FAT drives anywhere), `a.txt` and `A.TXT` are one file; elsewhere
+        // they're two.
         let key = file.target.to_string_lossy();
-        let key = if cfg!(any(windows, target_os = "macos")) {
+        let key = if ignores_case {
             key.to_lowercase()
         } else {
             key.into_owned()

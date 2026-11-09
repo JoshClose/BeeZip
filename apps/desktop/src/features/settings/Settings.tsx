@@ -1,5 +1,6 @@
 // The settings page (docs/M4.md §7.4): config.toml's settings, each saved as it changes,
-// Explorer's menu, and updates (docs/M6.md §8.2).
+// Explorer's menu, and updates (docs/M6.md §8.2). Off Windows it leaves out Explorer's menu and
+// its job windows, and on Linux the downloaded mark, which nothing there sets (§8.3).
 import { openPath, revealItemInDir } from "@tauri-apps/plugin-opener";
 import { FileCog, FolderOpen } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -9,6 +10,7 @@ import type { CodecName, FormatsListOutput, LevelRange, MarkOfTheWeb, OverwriteP
 import { NAME_ENCODINGS } from "../../lib/encodings";
 import { useFormats } from "../../lib/formats";
 import { chooseTheme, errorMessage, loadSettings, saveSettings, THEMES, useTheme } from "../../lib/settings";
+import { startup } from "../../lib/startup";
 import { toastError } from "../../lib/toasts";
 import { ExplorerSettings } from "./ExplorerSettings";
 import { SevenZipSettings } from "./SevenZipSettings";
@@ -23,10 +25,20 @@ const OVERWRITE: { id: OverwritePolicy; label: string }[] = [
   { id: "never", label: "Keep the existing file" },
 ];
 
-const MOTW: { id: MarkOfTheWeb; label: string }[] = [
-  { id: "all", label: "Keep it on the extracted files, as Explorer does" },
-  { id: "none", label: "Leave it off" },
-];
+/** The downloaded mark's setting, as each platform calls its mark (docs/M6.md §8.3); Linux has none. */
+function motw(platform: string): { hint: string; options: { id: MarkOfTheWeb; label: string }[] } | null {
+  if (platform === "linux") return null;
+  const mac = platform === "macos";
+  return {
+    hint: mac
+      ? "macOS checks an app marked as downloaded from the internet before it first opens."
+      : "Windows warns before opening files marked as downloaded from the internet.",
+    options: [
+      { id: "all", label: mac ? "Keep it on the extracted files, as Archive Utility does" : "Keep it on the extracted files, as Explorer does" },
+      { id: "none", label: "Leave it off" },
+    ],
+  };
+}
 
 /** Every codec and method with levels, by the name `[levels]` takes. */
 export function levelTargets(f: FormatsListOutput): { name: string; range: LevelRange }[] {
@@ -48,6 +60,8 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
   const [errors, setErrors] = useState<Record<string, string>>({});
   const theme = useTheme((s) => s.theme);
   const formats = useFormats();
+  const platform = startup().platform;
+  const mark = motw(platform);
   // One save at a time, in order, so a slow answer can't overwrite a newer one.
   const queue = useRef(Promise.resolve());
 
@@ -143,14 +157,11 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
             <Setting label="Links" hint="Off, an archive's symbolic and hard links are skipped." error={errors["extract.links"]}>
               <CheckSetting checked={s.extract.links} label="Create the links an archive holds" onCommit={(v) => save("extract.links", v)} />
             </Setting>
-            <Setting
-              label="Downloaded mark"
-              htmlFor="extract-motw"
-              hint="Windows warns before opening files marked as downloaded from the internet."
-              error={errors["extract.mark_of_the_web"]}
-            >
-              <ChoiceSetting id="extract-motw" value={s.extract.mark_of_the_web} options={MOTW} onCommit={(v) => save("extract.mark_of_the_web", v)} />
-            </Setting>
+            {mark && (
+              <Setting label="Downloaded mark" htmlFor="extract-motw" hint={mark.hint} error={errors["extract.mark_of_the_web"]}>
+                <ChoiceSetting id="extract-motw" value={s.extract.mark_of_the_web} options={mark.options} onCommit={(v) => save("extract.mark_of_the_web", v)} />
+              </Setting>
+            )}
             <Setting
               label="Name encoding"
               htmlFor="names-encoding"
@@ -227,15 +238,17 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
             </Setting>
           </Section>
 
-          <Section title="Job windows" description="Explorer's menu opens one for each click: Extract here, Test archive, Add to…">
-            <Setting label="When it's done" error={errors["jobs.close_when_done"]}>
-              <CheckSetting
-                checked={s.jobs.close_when_done}
-                label="Close the window after a success where nothing was skipped or renamed"
-                onCommit={(v) => save("jobs.close_when_done", v)}
-              />
-            </Setting>
-          </Section>
+          {platform === "windows" && (
+            <Section title="Job windows" description="Explorer's menu opens one for each click: Extract here, Test archive, Add to…">
+              <Setting label="When it's done" error={errors["jobs.close_when_done"]}>
+                <CheckSetting
+                  checked={s.jobs.close_when_done}
+                  label="Close the window after a success where nothing was skipped or renamed"
+                  onCommit={(v) => save("jobs.close_when_done", v)}
+                />
+              </Setting>
+            </Section>
+          )}
 
           <Section title="Updates" description="BeeZip asks GitHub for its newest release. An update is downloaded and installed only when you click it.">
             <Setting label="Look for updates" error={errors["updates.check"]}>
@@ -243,7 +256,7 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
             </Setting>
           </Section>
 
-          <ExplorerSettings shell={s.shell} errors={errors} save={save} />
+          {platform === "windows" && <ExplorerSettings shell={s.shell} errors={errors} save={save} />}
 
           <SevenZipSettings config={s.seven_zip} errors={errors} save={save} />
 

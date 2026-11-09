@@ -104,10 +104,15 @@ pub fn run() {
         ])
         .build(tauri::generate_context!())
         .expect("error while building the BeeZip app");
-    app.run(|app, event| {
-        if let RunEvent::Exit = event {
-            cancel_and_wait(app);
+    app.run(|app, event| match event {
+        RunEvent::Exit => cancel_and_wait(app),
+        // Files Finder opens with BeeZip, at startup or later (docs/M6.md §8.3).
+        #[cfg(target_os = "macos")]
+        RunEvent::Opened { urls } => {
+            let paths = urls.iter().filter_map(|u| u.to_file_path().ok()).collect();
+            open::opened(app, paths);
         }
+        _ => {}
     });
 }
 

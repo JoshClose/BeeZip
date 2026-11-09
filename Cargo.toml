@@ -33,12 +33,12 @@ serde_json = "1.0.154"
 thiserror  = "2.0.21"
 anyhow     = "1.0.104"
 clap       = { version = "4.6.7", features = ["derive", "wrap_help"] }
-schemars   = "1.2.3"   # must match rmcp's major (rmcp 3.8 -> schemars 1.2); tool schemas pass straight through
+schemars   = "1.2.3"   # must match rmcp's major (rmcp 3.9 -> schemars 1.2); tool schemas pass straight through
 tokio      = { version = "1.54.1", features = ["rt", "macros"] }
 
 # Churny APIs: exact pins, bumped on purpose (PLAN §5).
 ts-rs = { version = "=12.0.1", features = ["serde-json-impl", "no-serde-warnings"] }
-rmcp  = { version = "=3.8.0", default-features = false, features = ["server", "transport-io", "elicitation"] }
+rmcp  = { version = "=3.9.0", default-features = false, features = ["server", "transport-io", "elicitation"] }
 tauri                        = "=2.12.5"   # same minor as @tauri-apps/api + cli (2.12.4); tauri build rejects a mismatch
 tauri-build                  = "=2.7.4"
 tauri-plugin-opener          = "=2.7.2"
@@ -114,6 +114,8 @@ windows-result   = "0.4.1"   # windows-registry's error type, which it doesn't r
 windows-future   = "0.3.2"   # the deployment operations' type and blocking join(), as windows 0.62.2 uses
 # M6 bench.run's memory figure (private bytes). Already in the lock through tempfile and others.
 windows-sys      = "0.61.2"
+# M6 macOS: extracted files keep the archive's com.apple.quarantine (docs/M6.md §8.3). Already in the lock.
+libc             = "0.2.191"
 indicatif  = "0.18.6"
 
 # M3 formats (docs/M3.md §1). Churny, so pinned exactly.

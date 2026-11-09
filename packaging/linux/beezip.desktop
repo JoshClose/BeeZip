@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=BeeZip
+GenericName=Archive Manager
+Comment=Open, extract and create archives
+Keywords=archive;zip;7z;rar;tar;extract;compress;
+Exec={{exec}} %F
+Icon={{icon}}
+Terminal=false
+Categories=Utility;Archiving;Compression;
+StartupWMClass={{exec}}
+MimeType=@MIME_TYPES@

@@ -71,7 +71,9 @@ pub fn cmd_respond(
 #[tauri::command]
 pub fn cmd_launched(window: Window, pending: State<'_, Pending>) -> Queued {
     if window.label() == MAIN {
-        pending.drain()
+        let queued = pending.drain();
+        crate::open::trace(|| format!("the page took {:?}", queued.paths));
+        queued
     } else {
         Queued::default()
     }
@@ -96,12 +98,18 @@ pub fn gui_commands(engine: &Engine) -> Vec<GuiCommand> {
         .registry()
         .entries()
         .iter()
-        .filter(|e| e.surfaces.gui)
+        .filter(|e| e.surfaces.gui && offered_here(e.name, cfg!(windows)))
         .map(|e| GuiCommand {
             info: e.info(),
             input_schema: (*e.input_schema).clone(),
         })
         .collect()
+}
+
+/// Explorer's menu is only on Windows, so elsewhere the palette leaves out `shell.*`, which
+/// would only fail there (docs/M6.md §8.3).
+fn offered_here(name: &str, windows: bool) -> bool {
+    windows || !name.starts_with("shell.")
 }
 
 #[cfg(test)]
@@ -119,5 +127,16 @@ mod tests {
         assert!(line.input_schema["properties"]["command"].is_object());
         let json = serde_json::to_value(&list[0]).unwrap();
         assert!(json["name"].is_string() && json["input_schema"].is_object());
+        let shell = list.iter().any(|c| c.info.name.starts_with("shell."));
+        assert_eq!(shell, cfg!(windows), "shell.* only on Windows");
+    }
+
+    #[test]
+    fn explorers_commands_are_offered_on_windows_only() {
+        assert!(offered_here("shell.status", true));
+        assert!(!offered_here("shell.status", false));
+        assert!(!offered_here("shell.install", false));
+        assert!(offered_here("archive.list", false));
+        assert!(offered_here("settings.get", false));
     }
 }

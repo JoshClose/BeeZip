@@ -908,6 +908,59 @@ fn a_bad_config_fails_the_commands_that_need_it() {
     r.unwrap();
 }
 
+/// Extracted files keep the archive's download mark, a `Zone.Identifier` stream on Windows and a
+/// `com.apple.quarantine` record on macOS, unless `[extract] mark_of_the_web = "none"`
+/// (docs/M1.md §3.5, docs/M6.md §8.3).
+#[cfg(any(windows, target_os = "macos"))]
+#[test]
+fn extracted_files_keep_the_download_mark_unless_turned_off() {
+    use beezip_core::safefs::motw;
+    let mark: &[u8] = if cfg!(windows) {
+        b"[ZoneTransfer]\r\nZoneId=3\r\nHostUrl=https://example.com/a.zip\r\n"
+    } else {
+        b"0083;6912f0a1;Safari;3F8C1B9E-4C1A-4E5B-9E0F-1D2C3B4A5968"
+    };
+    let root = tempfile::tempdir().unwrap();
+    let zip = root.path().join("a.zip");
+    std::fs::copy(fx("thirdparty/7z-copy.zip"), &zip).unwrap();
+    motw::write_zone(&zip, mark).unwrap();
+    for (config, kept) in [
+        ("", true),
+        ("[extract]\nmark_of_the_web = \"none\"\n", false),
+    ] {
+        let (config, _) = Config::parse(config, Path::new("config.toml"));
+        let engine = Engine::with_options(
+            registry(),
+            EngineOptions::from_config(config, Policy::unrestricted()),
+        );
+        let dest = root.path().join(format!("out-{kept}"));
+        let (r, _) = run_with(
+            &engine,
+            "archive.extract",
+            json!({ "archive": zip, "dest": dest }),
+            Arc::new(NonInteractive),
+        );
+        r.unwrap();
+        fn files(dir: &Path, out: &mut Vec<std::path::PathBuf>) {
+            for e in std::fs::read_dir(dir).unwrap() {
+                let p = e.unwrap().path();
+                if p.is_dir() {
+                    files(&p, out);
+                } else {
+                    out.push(p);
+                }
+            }
+        }
+        let mut found = Vec::new();
+        files(&dest, &mut found);
+        assert!(!found.is_empty());
+        for f in found {
+            let want = kept.then_some(mark);
+            assert_eq!(motw::read_zone(&f).as_deref(), want, "{}", f.display());
+        }
+    }
+}
+
 #[test]
 fn config_defaults_apply() {
     let (config, _) = Config::parse(

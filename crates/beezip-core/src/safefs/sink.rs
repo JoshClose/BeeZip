@@ -63,6 +63,11 @@ pub(crate) struct FileJob {
     /// Its folder, made and checked.
     pub(crate) dir: PathBuf,
     pub(crate) target: PathBuf,
+    /// A file this job wrote earlier, which `target` names under another case: one file where
+    /// names ignore case. It's removed just before the rename, so the file takes the later
+    /// entry's name: renaming over it would keep the old name on APFS, though not on NTFS
+    /// (docs/M6.md §16, PR 6).
+    pub(crate) replaces: Option<PathBuf>,
 }
 
 struct PendingLink {
@@ -103,6 +108,28 @@ impl FsSink {
 
     pub fn dest(&self) -> &Path {
         &self.dest
+    }
+
+    /// Whether names ignore case where this job writes, asked of the file system rather than
+    /// assumed from the platform: Windows' and macOS's usual volumes ignore it, Linux's don't,
+    /// but a case-sensitive APFS volume, a FAT or exFAT drive on Linux, or a casefolded folder
+    /// turn that round. A file `.beezip-case-<random>.tmp` is made in `dest` and looked for by
+    /// its upper-case name, then removed. Parallel extraction asks once (docs/M6.md §16, PR 6).
+    pub(crate) fn ignores_case(&self) -> bool {
+        let Ok(probe) = tempfile::Builder::new()
+            .prefix(".beezip-case-")
+            .suffix(".tmp")
+            .tempfile_in(&self.dest)
+        else {
+            return cfg!(any(windows, target_os = "macos"));
+        };
+        let name = probe
+            .path()
+            .file_name()
+            .map(|n| n.to_string_lossy().to_uppercase())
+            .unwrap_or_default();
+        let upper = self.dest.join(name);
+        upper != probe.path() && fs::symlink_metadata(&upper).is_ok()
     }
 
     pub fn report(&self) -> &ExtractReport {
@@ -314,6 +341,11 @@ impl FsSink {
         if safe.renamed || rel != safe.joined() {
             self.report.rename(&entry.path, rel.clone());
         }
+        let replaces = self
+            .written
+            .get(&fold(&rel))
+            .map(|w| w.path.clone())
+            .filter(|earlier| *earlier != target && same_file(earlier, &target));
         self.by_name.insert(key.clone(), target.clone());
         self.written.insert(
             fold(&rel),
@@ -326,6 +358,7 @@ impl FsSink {
         Ok(Some(FileJob {
             dir: parent,
             target,
+            replaces,
         }))
     }
 
@@ -362,7 +395,7 @@ impl FsSink {
         data: &mut dyn Read,
         cx: &mut dyn Ctx,
     ) -> Result<u64> {
-        let bytes = self.write_atomically(&job.dir, &job.target, data, cx)?;
+        let bytes = self.write_atomically(job, data, cx)?;
         self.apply_metadata(&job.target, entry, cx);
         Ok(bytes)
     }
@@ -377,11 +410,11 @@ impl FsSink {
     /// target. The partial file deletes itself on cancel, error or panic (`safefs::partial`).
     fn write_atomically(
         &self,
-        dir: &Path,
-        target: &Path,
+        job: &FileJob,
         data: &mut dyn Read,
         cx: &mut dyn Ctx,
     ) -> Result<u64> {
+        let (dir, target) = (job.dir.as_path(), job.target.as_path());
         let name = target
             .file_name()
             .map(|n| n.to_string_lossy().into_owned())
@@ -397,6 +430,14 @@ impl FsSink {
             #[allow(clippy::permissions_set_readonly_false)] // Windows: just the attribute
             p.set_readonly(false);
             let _ = fs::set_permissions(target, p);
+        }
+        if let Some(earlier) = &job.replaces {
+            match fs::remove_file(earlier) {
+                Err(e) if e.kind() != io::ErrorKind::NotFound => {
+                    return Err(Error::io(format!("replacing {}", earlier.display()), &e));
+                }
+                _ => {}
+            }
         }
         tmp.persist(target)?;
         Ok(bytes)
@@ -594,6 +635,22 @@ fn make_symlink(target: &Path, path: &Path, dir: bool) -> io::Result<()> {
     }
 }
 
+/// Whether `a` and `b` name one file, as a name and its case variant do where names ignore
+/// case (macOS). Only asked on Unix: on Windows, renaming over a file takes the new name anyway.
+#[cfg(unix)]
+fn same_file(a: &Path, b: &Path) -> bool {
+    use std::os::unix::fs::MetadataExt;
+    match (fs::symlink_metadata(a), fs::symlink_metadata(b)) {
+        (Ok(a), Ok(b)) => a.dev() == b.dev() && a.ino() == b.ino(),
+        _ => false,
+    }
+}
+
+#[cfg(not(unix))]
+fn same_file(_a: &Path, _b: &Path) -> bool {
+    false
+}
+
 /// The key for case-insensitive collisions.
 fn fold(rel: &str) -> String {
     rel.to_lowercase()
@@ -656,5 +713,23 @@ impl EntrySink for FsSink {
             }
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_destination_says_whether_names_ignore_case() {
+        let dir = tempfile::tempdir().unwrap();
+        let sink = FsSink::new(dir.path(), FsOptions::default()).unwrap();
+        // The usual volumes: NTFS and APFS ignore case, Linux's don't.
+        assert_eq!(sink.ignores_case(), cfg!(any(windows, target_os = "macos")));
+        assert_eq!(
+            fs::read_dir(dir.path()).unwrap().count(),
+            0,
+            "the probe is gone"
+        );
     }
 }

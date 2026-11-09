@@ -21,6 +21,8 @@ export type Startup = {
   warnings: string[];
   /** `[desktop] theme`, which the window opened with. */
   theme: Theme;
+  /** Rust's `std::env::consts::OS`: the page leaves out what this platform doesn't have (docs/M6.md §8.3). */
+  platform: "windows" | "macos" | "linux" | (string & {});
   /** A dialog to open at once (main window). */
   dialog?: OpenDialog;
   /** Set in a job window, which shows only its job (docs/M4.md §6.3). */
@@ -34,7 +36,7 @@ declare global {
 }
 
 export function startup(): Startup {
-  return { paths: [], cli: "beezip", warnings: [], theme: "system", ...window.__BEEZIP__ };
+  return { paths: [], cli: "beezip", warnings: [], theme: "system", platform: "windows", ...window.__BEEZIP__ };
 }
 
 /** Archives and a dialog forwarded before the main window listened (src-tauri/src/open.rs). */

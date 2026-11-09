@@ -1,0 +1,17 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "beezip",
+  "bundle": {
+    "publisher": "Close Consulting, Inc",
+    "category": "Utility",
+    "shortDescription": "Open, extract and create archives",
+    "longDescription": "BeeZip opens, tests, extracts and creates archives: zip, 7z, tar and its compressed forms, and reads many more, from rar to disk images. The beezip command does the same from a terminal.",
+    "homepage": "https://github.com/JoshClose/BeeZip",
+    "fileAssociations": [],
+    "linux": {
+      "deb": { "files": {}, "section": "utils" },
+      "rpm": { "files": {} },
+      "appimage": { "files": {} }
+    }
+  }
+}
