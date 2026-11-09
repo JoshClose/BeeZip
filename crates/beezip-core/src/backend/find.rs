@@ -123,6 +123,13 @@ pub fn find(opts: &SevenZipOptions) -> Result<SevenZip, Missing> {
     Err(first_problem.unwrap_or(Missing::NotFound { configured: None }))
 }
 
+/// Debug builds take `BEEZIP_7Z_SEARCH`: a folder searched instead of the registry, PATH and
+/// Program Files (an empty value searches nowhere), so tests and manual checks decide what's
+/// found without touching an installed 7-Zip. Release builds ignore it.
+fn search_override() -> Option<OsString> {
+    env::var_os("BEEZIP_7Z_SEARCH").filter(|_| cfg!(debug_assertions))
+}
+
 /// Every place 7-Zip may be, best first; missing files and repeats left out.
 fn candidates() -> Vec<(PathBuf, &'static str)> {
     let mut out: Vec<(PathBuf, &'static str)> = Vec::new();
@@ -131,6 +138,19 @@ fn candidates() -> Vec<(PathBuf, &'static str)> {
             out.push((exe, found_in));
         }
     };
+    let names: &[&str] = if cfg!(windows) {
+        &["7z.exe", "7zz.exe", "7za.exe", "NanaZipC.exe"]
+    } else {
+        &["7zz", "7z", "7za"]
+    };
+    if let Some(dir) = search_override() {
+        if !dir.is_empty() {
+            for n in names {
+                push(Path::new(&dir).join(n), "PATH");
+            }
+        }
+        return out;
+    }
     #[cfg(windows)]
     for root in [registry::HKCU, registry::HKLM] {
         for value in ["Path64", "Path"] {
@@ -139,11 +159,6 @@ fn candidates() -> Vec<(PathBuf, &'static str)> {
             }
         }
     }
-    let names: &[&str] = if cfg!(windows) {
-        &["7z.exe", "7zz.exe", "7za.exe", "NanaZipC.exe"]
-    } else {
-        &["7zz", "7z", "7za"]
-    };
     if let Some(path) = env::var_os("PATH") {
         for dir in env::split_paths(&path) {
             for n in names {

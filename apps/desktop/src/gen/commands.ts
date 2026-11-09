@@ -1530,6 +1530,11 @@ warnings: Array<string>,
 error: string | null, };
 
 /**
+ * What `seven_zip.install` did.
+ */
+export type SevenZipAction = "installed" | "updated" | "none";
+
+/**
  * The installed 7-Zip, which reads WIM and ESD images, CHM, MSI and NSIS installers, and the
  * disk images and file systems (VHD, VHDX, VMDK, QCOW2, VDI, FAT, NTFS, ext, HFS+, APFS,
  * CramFS) for BeeZip (docs/M6.md §3).
@@ -1545,6 +1550,27 @@ path: string | null,
  * that 7-Zip is turned off.
  */
 enabled: boolean, };
+
+/**
+ * How to get a 7-Zip BeeZip can run.
+ */
+export type SevenZipFix = "install" | "update" | "download";
+
+/**
+ * Install 7-Zip with winget, or update one older than 25.01, so BeeZip can open WIM images,
+ * MSI and NSIS installers, CHM files and disk images. winget downloads 7-Zip's own installer
+ * and checks its hash; the installer asks for administrator rights. Windows only: elsewhere,
+ * get 7-Zip 25.01 or newer (on Linux and macOS, 7-Zip's own `7zz`) from
+ * https://7-zip.org/download.html.
+ */
+export type SevenZipInstallInput = Record<symbol, never>;
+
+export type SevenZipInstallOutput = { action: SevenZipAction,
+/**
+ * 7-Zip as BeeZip finds it now, under the settings: a path set there, or 7-Zip turned off,
+ * still wins over the 7-Zip installed.
+ */
+status: SevenZipStatus, };
 
 /**
  * The 7-Zip that reads the formats BeeZip leaves to it (docs/M6.md §3.1), as found under the
@@ -1566,7 +1592,14 @@ problem: string | null,
 /**
  * The oldest version BeeZip runs: `25.01`.
  */
-min_version: string, };
+min_version: string,
+/**
+ * What would give BeeZip a 7-Zip to run: `install` or `update` it with winget
+ * (`seven_zip.install`), or `download` it from 7-zip.org where there's no winget. `null`
+ * when there's one to run, when it's turned off, or when the trouble is the path in the
+ * settings, which installing wouldn't change.
+ */
+fix: SevenZipFix | null, };
 
 /**
  * Explorer's right-click menu (docs/M4.md §7.2).
@@ -1985,6 +2018,14 @@ export type CommandMap = {
    * they start.
    */
   "settings.set": { input: SettingsSetInput; output: SettingsSetOutput };
+  /**
+   * Install 7-Zip with winget, or update one older than 25.01, so BeeZip can open WIM images,
+   * MSI and NSIS installers, CHM files and disk images. winget downloads 7-Zip's own installer
+   * and checks its hash; the installer asks for administrator rights. Windows only: elsewhere,
+   * get 7-Zip 25.01 or newer (on Linux and macOS, 7-Zip's own `7zz`) from
+   * https://7-zip.org/download.html.
+   */
+  "seven_zip.install": { input: SevenZipInstallInput; output: SevenZipInstallOutput };
   /**
    * Add BeeZip to Explorer's right-click menu, or repair it. It registers the menu for this
    * user (no admin), writes the settings the menu reads, removes the other kind of menu, and
