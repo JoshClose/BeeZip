@@ -490,14 +490,21 @@ fn entry_open_extracts_to_a_folder_of_its_own() {
     assert!(!registry().get("entry.open").unwrap().surfaces.mcp);
 }
 
+/// A download mark as the platform writes it: a `Zone.Identifier` stream on Windows, a
+/// `com.apple.quarantine` record on macOS (docs/M6.md §8.3).
 #[cfg(windows)]
+const MARK: &[u8] = b"[ZoneTransfer]\r\nZoneId=3\r\n";
+#[cfg(target_os = "macos")]
+const MARK: &[u8] = b"0083;6912f0a1;Safari;3F8C1B9E-4C1A-4E5B-9E0F-1D2C3B4A5968";
+
+#[cfg(any(windows, target_os = "macos"))]
 #[test]
 fn entry_open_keeps_the_mark_of_the_web() {
+    use beezip_core::safefs::motw;
     let dir = tempfile::tempdir().unwrap();
     let engine = Engine::new(registry());
     let a = copy(dir.path(), "7z-deflate.zip");
-    let zone = b"[ZoneTransfer]\r\nZoneId=3\r\n";
-    std::fs::write(format!("{a}:Zone.Identifier"), zone).unwrap();
+    motw::write_zone(Path::new(&a), MARK).unwrap();
     let out = run(
         &engine,
         "entry.open",
@@ -505,8 +512,17 @@ fn entry_open_keeps_the_mark_of_the_web() {
     )
     .unwrap();
     let p = out["path"].as_str().unwrap();
-    assert_eq!(std::fs::read(format!("{p}:Zone.Identifier")).unwrap(), zone);
+    assert_eq!(motw::read_zone(Path::new(p)).as_deref(), Some(MARK));
     let _ = std::fs::remove_dir_all(Path::new(p).parent().unwrap());
+
+    // An edit keeps the archive's own mark.
+    run(
+        &engine,
+        "archive.remove",
+        json!({ "archive": a, "entries": ["tree/hello.txt"] }),
+    )
+    .unwrap();
+    assert_eq!(motw::read_zone(Path::new(&a)).as_deref(), Some(MARK));
 }
 
 #[test]

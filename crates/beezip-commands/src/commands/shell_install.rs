@@ -7,10 +7,14 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
-use super::shell_status::{ShellStatusOutput, status};
+use super::shell_status::ShellStatusOutput;
+#[cfg(windows)]
+use super::shell_status::status;
+#[cfg(windows)]
+use crate::ErrorCode;
 use crate::config::ShellConfig;
 use crate::shell::Hive;
-use crate::{CliSpec, CmdError, Command, Effect, ErrorCode, JobCtx, Surfaces};
+use crate::{CliSpec, CmdError, Command, Effect, JobCtx, Surfaces};
 
 /// Which menu `shell.install` registers.
 #[derive(
@@ -153,6 +157,7 @@ fn lines(actions: &[String], fallback: Option<&str>) -> String {
     out.join("\n")
 }
 
+#[cfg(windows)]
 fn absolute(p: PathBuf) -> PathBuf {
     std::path::absolute(&p).unwrap_or(p)
 }
@@ -160,6 +165,7 @@ fn absolute(p: PathBuf) -> PathBuf {
 /// `BeeZip.exe` in the install folder, unless that is the running program: in a development
 /// build's `target\debug`, `BeeZip.exe` names the CLI's `beezip.exe` on a case-insensitive
 /// file system.
+#[cfg(windows)]
 fn installed_app(dir: &Path) -> Option<PathBuf> {
     let app = dir.join("BeeZip.exe");
     let this = std::env::current_exe().ok();
@@ -171,6 +177,7 @@ fn installed_app(dir: &Path) -> Option<PathBuf> {
 }
 
 /// What `shell.install` registers, with the defaults filled in.
+#[cfg(windows)]
 #[derive(Debug)]
 struct Plan {
     dll: PathBuf,
@@ -178,6 +185,7 @@ struct Plan {
 }
 
 /// `own_app` is the desktop app's own exe, when it is the one asking (the settings page).
+#[cfg(windows)]
 fn plan(
     input: &ShellInstallInput,
     dir: Option<&Path>,
@@ -216,8 +224,10 @@ fn plan(
 }
 
 /// The first Windows 11 build. Windows 10 keeps the classic menu under `auto` (docs/M4.md §5.3).
+#[cfg(windows)]
 const WINDOWS_11: u32 = 22_000;
 /// Windows 10 2004, the first with packages that have an external location.
+#[cfg(windows)]
 const EXTERNAL_LOCATION: u32 = 19_041;
 
 /// Where Windows 11's menu would come from, or why it can't: the reason is a sentence `auto`
