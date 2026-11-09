@@ -3485,7 +3485,7 @@ SOFTWARE.
 
 ### MIT License
 
-Used by `rmcp@3.8.0`.
+Used by `rmcp@3.9.0`.
 
 ```text
 MIT License
@@ -6430,7 +6430,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ### Apache License 2.0
 
-Used by `rmcp@3.8.0`.
+Used by `rmcp@3.9.0`.
 
 ```text
                                  Apache License
