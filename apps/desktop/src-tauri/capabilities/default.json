@@ -21,6 +21,7 @@
     "allow-cmd-respond",
     "allow-cmd-list",
     "allow-cmd-launched",
+    "allow-cmd-drag-out",
     "allow-cmd-update-check",
     "allow-cmd-update-install"
   ]

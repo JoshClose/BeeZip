@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-cmd-drag-out"
+description = "Enables the cmd_drag_out command without any pre-configured scope."
+commands.allow = ["cmd_drag_out"]
+
+[[permission]]
+identifier = "deny-cmd-drag-out"
+description = "Denies the cmd_drag_out command without any pre-configured scope."
+commands.deny = ["cmd_drag_out"]

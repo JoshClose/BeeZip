@@ -1,5 +1,6 @@
 //! The BeeZip desktop app: a Tauri shell over the shared command engine.
 
+mod drag;
 mod ipc;
 mod job;
 mod open;
@@ -83,9 +84,17 @@ pub fn run() {
             // windows and changes follow it (docs/M4.md §7.5). On this, the main thread, the
             // call takes effect at once.
             app.handle().set_theme(tauri_theme(theme));
-            // Requests nobody read: BeeZip wasn't running, or couldn't start (§3.3).
+            // Drag-out's window, on this thread (docs/M6.md §8.4). Without it, dragging rows out
+            // fails with a message and Extract still works.
+            #[cfg(windows)]
+            if let Err(e) = drag::init() {
+                eprintln!("BeeZip: dragging out won't work: {e}");
+            }
+            // Requests nobody read: BeeZip wasn't running, or couldn't start (§3.3). And drag
+            // folders a BeeZip killed during a drop left behind (docs/M6.md §16 PR 7).
             std::thread::spawn(|| {
-                job::sweep(&job::jobs_dir(), SystemTime::now(), job::MAX_REQUEST_AGE)
+                job::sweep(&job::jobs_dir(), SystemTime::now(), job::MAX_REQUEST_AGE);
+                drag::sweep(&drag::drag_dir(), SystemTime::now(), drag::MAX_FOLDER_AGE);
             });
             let args: Vec<String> = std::env::args().collect();
             let cwd = std::env::current_dir().unwrap_or_default();
@@ -99,6 +108,7 @@ pub fn run() {
             ipc::cmd_respond,
             ipc::cmd_list,
             ipc::cmd_launched,
+            drag::cmd_drag_out,
             update::cmd_update_check,
             update::cmd_update_install
         ])
@@ -137,5 +147,32 @@ pub(crate) fn cancel_and_wait(app: &tauri::AppHandle) {
     let start = Instant::now();
     while !engine.jobs().is_empty() && start.elapsed() < EXIT_WAIT {
         std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::unwrap_used)]
+
+    /// A command missing from build.rs's app manifest or from the capability is refused at
+    /// run time, by Tauri's ACL, and only there.
+    #[test]
+    fn every_command_is_declared_and_granted() {
+        let lib = include_str!("lib.rs");
+        let start = lib.find("generate_handler![").unwrap();
+        let handler = &lib[start..start + lib[start..].find(']').unwrap()];
+        let commands: Vec<&str> = handler
+            .split(|c: char| !(c.is_ascii_alphanumeric() || c == '_' || c == ':'))
+            .filter_map(|w| w.rsplit("::").next())
+            .filter(|w| w.starts_with("cmd_"))
+            .collect();
+        assert!(commands.contains(&"cmd_drag_out"), "{commands:?}");
+        let build = include_str!("../build.rs");
+        let granted = include_str!("../capabilities/default.json");
+        for c in &commands {
+            assert!(build.contains(&format!("\"{c}\"")), "{c} isn't in build.rs");
+            let permission = format!("\"allow-{}\"", c.replace('_', "-"));
+            assert!(granted.contains(&permission), "{c} isn't granted");
+        }
     }
 }

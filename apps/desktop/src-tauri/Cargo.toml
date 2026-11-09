@@ -27,6 +27,18 @@ tauri-plugin-opener.workspace = true
 tauri-plugin-single-instance.workspace = true
 tauri-plugin-updater.workspace = true
 
+# Drag-out (docs/M6.md §8.4): BeeZip's own IDataObject and IDropSource, and the temp folder.
+[target.'cfg(windows)'.dependencies]
+tempfile.workspace = true
+windows = { workspace = true, features = [
+    "Win32_Foundation", "Win32_Graphics_Gdi", "Win32_System_Com", "Win32_System_DataExchange",
+    "Win32_System_LibraryLoader", "Win32_System_Memory", "Win32_System_Ole",
+    "Win32_System_SystemServices", "Win32_System_Threading", "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_UI_Shell",
+    "Win32_UI_Shell_Common", "Win32_UI_WindowsAndMessaging",
+] }
+windows-core.workspace = true
+
 [dev-dependencies]
 tempfile.workspace = true
 # MockRuntime, for the updater's signature test.
