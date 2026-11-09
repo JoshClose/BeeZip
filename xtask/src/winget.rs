@@ -70,7 +70,7 @@ pub fn run(args: WingetArgs) -> anyhow::Result<()> {
     } else {
         from_release(&version, &installer)?
     };
-    let extensions: Vec<String> = dist::associations()?
+    let extensions: Vec<String> = dist::associations(dist::Os::Windows)?
         .iter()
         .filter_map(|a| a["ext"][0].as_str().map(str::to_owned))
         .collect();
@@ -369,7 +369,7 @@ mod tests {
     #[test]
     fn the_extensions_are_the_associations() {
         // The real list: every association, each a valid winget FileExtensions entry.
-        let list: Vec<String> = dist::associations()
+        let list: Vec<String> = dist::associations(dist::Os::Windows)
             .unwrap()
             .iter()
             .map(|a| a["ext"][0].as_str().unwrap().to_owned())

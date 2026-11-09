@@ -1,0 +1,15 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "mainBinaryName": "BeeZip",
+  "bundle": {
+    "publisher": "Close Consulting, Inc",
+    "category": "Utility",
+    "resources": {},
+    "fileAssociations": [],
+    "macOS": {
+      "files": {},
+      "signingIdentity": "-",
+      "minimumSystemVersion": "11.0"
+    }
+  }
+}

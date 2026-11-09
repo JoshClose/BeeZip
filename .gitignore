@@ -4,6 +4,8 @@ target/
 # Node / frontend
 node_modules/
 dist/
+# ...but not xtask dist's per-platform modules
+!/xtask/src/dist/
 
 # Logs
 *.log

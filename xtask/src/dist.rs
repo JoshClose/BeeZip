@@ -1,4 +1,10 @@
-//! `cargo xtask dist [--debug] [--version V]`: the Windows installer (docs/M3.md §5.5, M4 §9).
+//! `cargo xtask dist [--debug] [--version V]`: BeeZip's bundles for the platform it runs on: the
+//! Windows installer (docs/M3.md §5.5, M4 §9), the Linux packages ([`linux`]) and the macOS app
+//! and disk image ([`macos`], docs/M6.md §9.7). Each puts the CLI in its bundle, takes its file
+//! associations from `formats.list` ([`associations`]), and with `TAURI_SIGNING_PRIVATE_KEY`
+//! writes the updater's `latest.json` for its platform beside the signed bundles.
+//!
+//! On Windows:
 //!
 //! 1. The CLI and the Explorer menu's DLL are built into their own target dir,
 //!    `target/dist-cli`, so the GUI's rename to `BeeZip.exe` can't clobber `beezip.exe` on a
@@ -48,6 +54,39 @@ use serde_json::{Value, json};
 use crate::codegen::workspace_root;
 use crate::sign::{self, Mode};
 
+mod linux;
+mod macos;
+
+/// The platform a bundle is for: always the one `dist` runs on, since each bundler runs only on
+/// its own.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Os {
+    Windows,
+    Linux,
+    Mac,
+}
+
+impl Os {
+    pub fn this() -> anyhow::Result<Self> {
+        Ok(match std::env::consts::OS {
+            "windows" => Self::Windows,
+            "linux" => Self::Linux,
+            "macos" => Self::Mac,
+            other => bail!("BeeZip has no bundle for {other}"),
+        })
+    }
+
+    /// Extensions this platform opens itself, which BeeZip doesn't take over. Explorer's menu
+    /// still offers BeeZip's items for Windows' ones.
+    fn owns(self) -> &'static [&'static str] {
+        match self {
+            Self::Windows => WINDOWS_OWNS,
+            Self::Linux => linux::SYSTEM_OWNS,
+            Self::Mac => macos::SYSTEM_OWNS,
+        }
+    }
+}
+
 /// Zip-based document formats BeeZip reads but leaves to their own apps.
 const DOCUMENTS: &[&str] = &[
     "jar", "war", "apk", "aab", "ipa", "xpi", "vsix", "nupkg", "whl", "docx", "xlsx", "pptx",
@@ -64,8 +103,68 @@ const WINDOWS_OWNS: &[&str] = &["cab", "iso"];
 
 pub fn run(debug: bool, version: Option<&str>, sign_dev: bool) -> anyhow::Result<()> {
     let root = workspace_root();
-    let profile = if debug { "debug" } else { "release" };
     let version = version.unwrap_or(env!("CARGO_PKG_VERSION"));
+    let os = Os::this()?;
+    if sign_dev && os != Os::Windows {
+        bail!("--sign-dev signs a Windows installer");
+    }
+    match os {
+        Os::Windows => windows(&root, debug, version, sign_dev),
+        Os::Linux => linux::run(&root, debug, version),
+        Os::Mac => macos::run(&root, debug, version),
+    }
+}
+
+/// `debug` or `release`.
+pub fn profile(debug: bool) -> &'static str {
+    if debug { "debug" } else { "release" }
+}
+
+/// Builds the CLI (and on Windows the Explorer menu's DLL) into `target/dist-cli`, apart from the
+/// app's target dir, and returns the folder they're in.
+fn build_cli(root: &Path, debug: bool, packages: &[&str]) -> anyhow::Result<PathBuf> {
+    let mut cargo = Command::new(std::env::var("CARGO").unwrap_or_else(|_| "cargo".into()));
+    cargo.current_dir(root).args(["build", "--locked"]);
+    for p in packages {
+        cargo.args(["-p", p]);
+    }
+    cargo.arg("--target-dir").arg(root.join("target/dist-cli"));
+    if !debug {
+        cargo.arg("--release");
+    }
+    check(
+        cargo.status(),
+        &format!("cargo build -p {}", packages.join(" -p ")),
+    )?;
+    Ok(root.join("target/dist-cli").join(profile(debug)))
+}
+
+/// Writes Tauri's `--config` overlay to `path`, refusing a `null` anywhere in it.
+fn write_overlay(config: &Value, path: &Path) -> anyhow::Result<()> {
+    if let Some(at) = null_at(config, "") {
+        bail!(
+            "the config overlay has a null at {at}, which would delete that key from \
+             tauri.conf.json"
+        );
+    }
+    std::fs::write(path, serde_json::to_string_pretty(config)? + "\n")?;
+    println!("wrote {}", path.display());
+    Ok(())
+}
+
+/// The overlay template `packaging/<dir>/tauri.dist.json`.
+fn template(root: &Path, dir: &str) -> anyhow::Result<Value> {
+    let path = root.join("packaging").join(dir).join("tauri.dist.json");
+    serde_json::from_str(
+        &std::fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?,
+    )
+    .with_context(|| format!("reading {}", path.display()))
+}
+
+/// The Windows installer.
+fn windows(root: &Path, debug: bool, version: &str, sign_dev: bool) -> anyhow::Result<()> {
+    let root = root.to_path_buf();
+    let profile = profile(debug);
 
     // Everything signing needs is checked before a build of several minutes.
     let env = |name: &str| std::env::var(name).ok();
@@ -81,24 +180,7 @@ pub fn run(debug: bool, version: Option<&str>, sign_dev: bool) -> anyhow::Result
     }
 
     println!("building the CLI and the Explorer menu ({profile})");
-    let mut cargo = Command::new(std::env::var("CARGO").unwrap_or_else(|_| "cargo".into()));
-    cargo
-        .current_dir(&root)
-        .args([
-            "build",
-            "--locked",
-            "-p",
-            "beezip-cli",
-            "-p",
-            "beezip-shell",
-        ])
-        .arg("--target-dir")
-        .arg(root.join("target/dist-cli"));
-    if !debug {
-        cargo.arg("--release");
-    }
-    check(cargo.status(), "cargo build -p beezip-cli -p beezip-shell")?;
-    let built = root.join("target/dist-cli").join(profile);
+    let built = build_cli(&root, debug, &["beezip-cli", "beezip-shell"])?;
     let cli = built.join(format!("beezip{}", std::env::consts::EXE_SUFFIX));
     let dll = built.join("beezip_shell.dll");
     for f in [&cli, &dll] {
@@ -149,15 +231,8 @@ pub fn run(debug: bool, version: Option<&str>, sign_dev: bool) -> anyhow::Result
     if mode != Mode::None {
         config["bundle"]["windows"]["signCommand"] = sign::sign_command(&root);
     }
-    if let Some(at) = null_at(&config, "") {
-        bail!(
-            "the config overlay has a null at {at}, which would delete that key from \
-             tauri.conf.json"
-        );
-    }
     let config_path = dir.join("tauri.dist.json");
-    std::fs::write(&config_path, serde_json::to_string_pretty(&config)? + "\n")?;
-    println!("wrote {}", config_path.display());
+    write_overlay(&config, &config_path)?;
 
     let bundle = dir.join(profile).join("bundle/nsis");
     let installer = bundle.join(installer_name(version));
@@ -196,21 +271,61 @@ pub fn run(debug: bool, version: Option<&str>, sign_dev: bool) -> anyhow::Result
     }
     println!("installer: {}", installer.display());
 
-    let sig = bundle.join(format!("{}.sig", installer_name(version)));
-    if sig.is_file() {
+    write_latest_json(
+        version,
+        &[Updatable {
+            key: "windows-x86_64-nsis",
+            file: &installer,
+        }],
+        &bundle,
+    )?;
+    Ok(())
+}
+
+/// A bundle the updater can install, and its key in `latest.json`'s `platforms`.
+pub struct Updatable<'a> {
+    pub key: &'a str,
+    pub file: &'a Path,
+}
+
+/// With the updater's signatures (`<file>.sig`, made when `TAURI_SIGNING_PRIVATE_KEY` is set),
+/// writes `latest.json` into `dir` for the release of `version`: every bundle that has one.
+/// Without any, there's nothing to write.
+fn write_latest_json(version: &str, bundles: &[Updatable], dir: &Path) -> anyhow::Result<()> {
+    let mut platforms = Vec::new();
+    for b in bundles {
+        let mut sig = b.file.as_os_str().to_owned();
+        sig.push(".sig");
+        let sig = PathBuf::from(sig);
+        if !sig.is_file() {
+            continue;
+        }
         let signature =
             std::fs::read_to_string(&sig).with_context(|| format!("reading {}", sig.display()))?;
-        let latest = crate::release::latest_json(
-            version,
-            &installer_name(version),
-            &signature,
-            &crate::release::rfc3339(std::time::SystemTime::now()),
-        );
-        let path = bundle.join(LATEST_JSON);
-        std::fs::write(&path, serde_json::to_string_pretty(&latest)? + "\n")?;
+        let file = b
+            .file
+            .file_name()
+            .context("a bundle without a name")?
+            .to_string_lossy()
+            .into_owned();
         println!("updater signature: {}", sig.display());
-        println!("update manifest: {}", path.display());
+        platforms.push(crate::release::Platform {
+            key: b.key.to_owned(),
+            file,
+            signature,
+        });
     }
+    if platforms.is_empty() {
+        return Ok(());
+    }
+    let latest = crate::release::latest_json(
+        version,
+        &platforms,
+        &crate::release::rfc3339(std::time::SystemTime::now()),
+    );
+    let path = dir.join(LATEST_JSON);
+    std::fs::write(&path, serde_json::to_string_pretty(&latest)? + "\n")?;
+    println!("update manifest: {}", path.display());
     Ok(())
 }
 
@@ -308,11 +423,7 @@ fn config(
     version: &str,
     package: &Package,
 ) -> anyhow::Result<Value> {
-    let template = root.join("packaging/windows/tauri.dist.json");
-    let mut config: Value = serde_json::from_str(
-        &std::fs::read_to_string(&template)
-            .with_context(|| format!("reading {}", template.display()))?,
-    )?;
+    let mut config = template(root, "windows")?;
     let bundle = config
         .get_mut("bundle")
         .context("the template has no `bundle`")?;
@@ -335,7 +446,7 @@ fn config(
         resources.insert(slashes(msix), json!(MSIX));
     }
     bundle["resources"] = Value::Object(resources);
-    let associations = associations()?;
+    let associations = associations(Os::Windows)?;
     let hooks = hooks(root, &associations, version)?;
     bundle["fileAssociations"] = Value::Array(associations);
     bundle["windows"]["nsis"]["installerHooks"] = json!(slashes(&hooks));
@@ -452,8 +563,10 @@ fn hooks(root: &Path, associations: &[Value], version: &str) -> anyhow::Result<P
 
 /// One association per extension, `BeeZip.<ext>`, from `formats.list`: every archive and
 /// compressed-file extension BeeZip reads, but not the document formats, later parts, or what
-/// Windows opens itself, plus `.001` for numbered volume sets.
-pub fn associations() -> anyhow::Result<Vec<Value>> {
+/// `os` opens itself, plus `.001` for numbered volume sets. On Linux each carries its MIME type
+/// ([`linux::mime_type`]); on macOS its name is its description, and it carries its content type
+/// where macOS declares one ([`macos::content_type`]).
+pub fn associations(os: Os) -> anyhow::Result<Vec<Value>> {
     let formats = Engine::new(registry())
         .invoke(
             "formats.list",
@@ -476,7 +589,7 @@ pub fn associations() -> anyhow::Result<Vec<Value>> {
             if ext.is_empty()
                 || DOCUMENTS.contains(&ext.as_str())
                 || LATER_PARTS.contains(&ext.as_str())
-                || WINDOWS_OWNS.contains(&ext.as_str())
+                || os.owns().contains(&ext.as_str())
             {
                 continue;
             }
@@ -503,17 +616,31 @@ pub fn associations() -> anyhow::Result<Vec<Value>> {
         );
     }
     by_ext.insert("001".into(), "Split archive, first part".into());
-    Ok(by_ext
-        .into_iter()
-        .map(|(ext, description)| {
-            json!({
-                "ext": [ext],
-                "name": format!("BeeZip.{ext}"),
-                "description": description,
-                "role": "Editor",
-            })
-        })
-        .collect())
+    let mut list = Vec::new();
+    for (ext, description) in by_ext {
+        let mut a = json!({
+            "ext": [ext],
+            "name": format!("BeeZip.{ext}"),
+            "description": description,
+            "role": "Editor",
+        });
+        match os {
+            Os::Windows => {}
+            Os::Linux => {
+                if let Some(mime) = linux::mime_type(&ext) {
+                    a["mimeType"] = json!(mime);
+                }
+            }
+            Os::Mac => {
+                a["name"] = a["description"].clone();
+                if let Some(uti) = macos::content_type(&ext) {
+                    a["contentTypes"] = json!([uti]);
+                }
+            }
+        }
+        list.push(a);
+    }
+    Ok(list)
 }
 
 #[cfg(test)]
@@ -524,7 +651,7 @@ mod tests {
 
     #[test]
     fn associations_cover_the_archives_but_not_documents() {
-        let list = associations().unwrap();
+        let list = associations(Os::Windows).unwrap();
         let exts: Vec<&str> = list.iter().map(|a| a["ext"][0].as_str().unwrap()).collect();
         for want in [
             "zip", "7z", "rar", "tar", "gz", "tgz", "bz2", "tbz2", "xz", "txz", "zst", "tzst",
