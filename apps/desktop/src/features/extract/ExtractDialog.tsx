@@ -47,7 +47,7 @@ const POLICIES: { value: OverwritePolicy; label: string }[] = [
   { value: "never", label: "Skip" },
 ];
 
-export function ExtractDialog({ tab, entries, onClose }: { tab: Tab; entries: string[]; onClose: () => void }) {
+export function ExtractDialog({ tab, entries, note, onClose }: { tab: Tab; entries: string[]; note?: string; onClose: () => void }) {
   const track = useJobs((s) => s.track);
   const [form, setForm] = useState<ExtractForm>({
     dest: parentDir(tab.path),
@@ -115,6 +115,11 @@ export function ExtractDialog({ tab, entries, onClose }: { tab: Tab; entries: st
       }
     >
       <div className="flex flex-col gap-3 pb-2">
+        {note && (
+          <p role="note" className="selectable rounded-[5px] border border-rule bg-paper px-3 py-2 text-[12px] text-muted">
+            {note}
+          </p>
+        )}
         <Field label="Destination" htmlFor="dest">
           <div className="flex gap-2">
             <Input id="dest" className="flex-1" value={form.dest} onChange={(e) => set({ dest: e.target.value })} />

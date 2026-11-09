@@ -7,7 +7,10 @@ use ts_rs::TS;
 
 use crate::{
     Access, CliSpec, CmdError, Command, Effect, JobCtx,
-    commands::{listing::ListKey, util::with_archive},
+    commands::{
+        listing::{ListKey, Row},
+        util::with_archive,
+    },
     wire::{EntryInfo, EntryKindName, NameEncoding, Secret, human_size, local_time},
 };
 
@@ -69,6 +72,9 @@ pub struct ArchiveListOutput {
     pub entries: Vec<EntryInfo>,
     /// Entries in this listing before paging.
     pub total: u64,
+    /// The sizes of those entries added up, before paging: with `flat`, what extracting a
+    /// folder writes. Folders and entries of unknown size count as 0.
+    pub size: u64,
     pub offset: u64,
     pub has_more: bool,
 }
@@ -159,6 +165,14 @@ impl Command for ArchiveList {
                 let listing = a.memo.listing(entries, &key)?;
 
                 let total = listing.len() as u64;
+                // The desktop's drag-out caps what it extracts by this (docs/M6.md §8.4).
+                let size = listing
+                    .iter()
+                    .filter_map(|row| match row {
+                        Row::Entry(i) => entries[*i].size,
+                        Row::Implied(_) => None,
+                    })
+                    .fold(0u64, u64::saturating_add);
                 let offset = input.offset.unwrap_or(0).min(total);
                 // A front end's cap (MCP's 500) shortens the page; `has_more` says to ask for more.
                 let limit = input
@@ -175,6 +189,7 @@ impl Command for ArchiveList {
                 Ok(ArchiveListOutput {
                     entries: page,
                     total,
+                    size,
                     offset,
                     has_more,
                 })

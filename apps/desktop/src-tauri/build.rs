@@ -8,6 +8,7 @@ fn main() {
             "cmd_respond",
             "cmd_list",
             "cmd_launched",
+            "cmd_drag_out",
             "cmd_update_check",
             "cmd_update_install",
         ]),

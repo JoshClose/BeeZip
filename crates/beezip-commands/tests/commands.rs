@@ -212,6 +212,39 @@ fn archive_list_levels_paging_and_globs() {
     assert_eq!(flat["offset"], 2);
     assert_eq!(flat["has_more"], true);
 
+    // `size` adds up the whole listing, not the page: what extracting it writes.
+    let sizes = |listing: &serde_json::Value| -> u64 {
+        listing["entries"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|e| e["size"].as_u64().unwrap_or(0))
+            .sum()
+    };
+    let whole = run("archive.list", json!({ "archive": archive, "flat": true })).unwrap();
+    assert!(sizes(&whole) > 0, "{whole}");
+    assert_eq!(whole["size"], sizes(&whole));
+    assert_eq!(flat["size"], whole["size"], "paging leaves it alone");
+    let none = run(
+        "archive.list",
+        json!({ "archive": archive, "flat": true, "limit": 0 }),
+    )
+    .unwrap();
+    assert!(none["entries"].as_array().unwrap().is_empty());
+    assert_eq!(none["size"], whole["size"]);
+    let docs = run(
+        "archive.list",
+        json!({ "archive": archive, "dir": "ascii/docs", "flat": true, "limit": 0 }),
+    )
+    .unwrap();
+    let docs_all = run(
+        "archive.list",
+        json!({ "archive": archive, "dir": "ascii/docs", "flat": true }),
+    )
+    .unwrap();
+    assert_eq!(docs["size"], sizes(&docs_all));
+    assert!(docs["size"].as_u64().unwrap() < whole["size"].as_u64().unwrap());
+
     let md = run(
         "archive.list",
         json!({ "archive": archive, "glob": ["*.md"] }),

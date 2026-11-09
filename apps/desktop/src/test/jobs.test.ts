@@ -62,7 +62,7 @@ describe("the jobs store", () => {
     let release: () => void = () => {};
     fake.handlers.set("archive.list", (_args, emit) => {
       emit({ type: "Prompt", id: 1, prompt: { kind: "Password", entry: null } });
-      return new Promise((r) => (release = () => r({ entries: [], total: 0, offset: 0, has_more: false })));
+      return new Promise((r) => (release = () => r({ entries: [], total: 0, size: 0, offset: 0, has_more: false })));
     });
     const done = useJobs.getState().track("archive.list", { archive: "a.7z" }, { title: "Listing a.7z", quiet: true, tab: "tab-1" });
     await vi.waitFor(() => expect(nextPrompt(orderedJobs(useJobs.getState()))).toBeDefined());

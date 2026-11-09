@@ -5,10 +5,12 @@ import { type KeyboardEvent, type MouseEvent, type ReactNode, useCallback, useEf
 import { Button } from "../../components/ui/button";
 import type { EntryInfo } from "../../gen/commands";
 import { archiveArgs, type Tab, useArchives } from "../../lib/archives";
+import { startDrag } from "../../lib/drag";
 import { editBlocked, registerBrowser, type SelectionByPath } from "../../lib/edit";
 import { archiveParent, describeError, formatSize, normalize } from "../../lib/format";
 import { useJobs } from "../../lib/jobs";
 import { openEntry } from "../../lib/opened";
+import { startup } from "../../lib/startup";
 import { toastError, toastInfo } from "../../lib/toasts";
 import { useUi } from "../../lib/ui";
 import { deleteSelection } from "../edit/confirmDelete";
@@ -224,6 +226,17 @@ export function Browser({ tab }: { tab: Tab }) {
   };
 
   const extract = () => show({ kind: "extract", tab: tab.id, entries: selectedPaths(tab, listing.loaded()) });
+
+  /** A `dragstart` on row `index`: the selection, as it is now, goes out to Explorer (docs/M6.md §8.4). */
+  const dragOut = (index: number) => {
+    const t = useArchives.getState().tabs.find((x) => x.id === tab.id);
+    if (!t || !(t.all || t.selected.includes(index))) return;
+    const rows = listing.loaded();
+    const picked = t.selected.map((i) => rows.get(i)).filter((e): e is EntryInfo => e !== undefined);
+    void startDrag(t, t.all ? { all: true } : { all: false, rows: picked });
+  };
+  // Explorer is Windows's; elsewhere rows don't drag.
+  const canDrag = startup().platform === "windows";
   const selected = count(selection, total);
 
   let table;
@@ -257,6 +270,7 @@ export function Browser({ tab }: { tab: Tab }) {
         onClick={onClick}
         onOpen={open}
         onKeyDown={onKeyDown}
+        onDragOut={canDrag ? dragOut : undefined}
         renaming={tab.renaming}
         onRenameSave={(name) => void saveRename(tab, name)}
         onRenameCancel={() => cancelRename(tab)}
