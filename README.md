@@ -1,12 +1,12 @@
 # BeeZip
 
-A Windows archive manager with a desktop app, a command-line tool (`beezip`) and an MCP server, all driven by one Rust command engine.
+An archive manager for Windows, also built for Linux and macOS, with a desktop app, a command-line tool (`beezip`) and an MCP server, all driven by one Rust command engine.
 
 > **Status:** milestone M5 is done: the engine, the command line, the MCP server and the desktop app read, write and edit zip, 7z, tar, cpio and ar, write CAB and the disk images (ISO, squashfs, DMG), read RAR, Debian packages, RPMs, CAB, LHA, UDF and the disk images, and Explorer's right-click menu reaches them. See [`docs/PLAN.md`](docs/PLAN.md) for the architecture and roadmap, and [`docs/M5.md`](docs/M5.md) for the current milestone.
 
 ## Building
 
-Prerequisites: Rust (the pinned toolchain in `rust-toolchain.toml` installs automatically), Node 24 and pnpm (`corepack enable pnpm`), and the [Tauri prerequisites for Windows](https://tauri.app/start/prerequisites/) (WebView2 and the MSVC build tools).
+Prerequisites: Rust (the pinned toolchain in `rust-toolchain.toml` installs automatically), Node 24 and pnpm (`corepack enable pnpm`), and [Tauri's prerequisites](https://tauri.app/start/prerequisites/): on Windows WebView2 and the MSVC build tools, on Linux WebKitGTK 4.1 and its build packages, on macOS Xcode's command-line tools.
 
 ```powershell
 cargo build --workspace
@@ -20,7 +20,7 @@ pnpm tauri dev      # the desktop app, reloading as you edit
 ```
 
 - **Bindings:** after changing a command's input or output types, regenerate the TypeScript bindings with `cargo xtask codegen`.
-- **Installer:** `cargo xtask dist` builds it (`target\dist\release\bundle\nsis\BeeZip_<version>_x64-setup.exe`); `--debug` is quicker. `--sign-dev` adds Windows 11's menu as a package signed with the certificate `cargo xtask dev-cert` makes; Windows installs it once that certificate is trusted, with the elevated command dev-cert prints. `BEEZIP_SIGN` chooses how a build is signed (`none`, `dev`, `pfx` with `BEEZIP_SIGN_PFX` and its password, or `artifact` for Azure Artifact Signing); `packaging/windows/sign.ps1` does the signing.
+- **Installer:** `cargo xtask dist` builds it (`target\dist\release\bundle\nsis\BeeZip_<version>_x64-setup.exe`); `--debug` is quicker. On Linux it builds the deb, rpm and AppImage, and on macOS the app and its disk image (`target/dist/release/bundle/…`), signed ad hoc unless `APPLE_SIGNING_IDENTITY` names a Developer ID. `--sign-dev` adds Windows 11's menu as a package signed with the certificate `cargo xtask dev-cert` makes; Windows installs it once that certificate is trusted, with the elevated command dev-cert prints. `BEEZIP_SIGN` chooses how a build is signed (`none`, `dev`, `pfx` with `BEEZIP_SIGN_PFX` and its password, or `artifact` for Azure Artifact Signing); `packaging/windows/sign.ps1` does the signing.
 - **Third-party notices:** `cargo xtask notices` regenerates `THIRD_PARTY_NOTICES.md` with cargo-about 0.9.3 (`cargo install --locked cargo-about --version 0.9.3 --features cli`), after `pnpm --dir apps/desktop build`; CI fails when it's out of date, so run it after a lockfile changes.
 - **Releases:** `cargo xtask release --version V` sets the version everywhere and prints the commands to commit and tag `vV`; the tag makes `.github/workflows/release.yml` build the installer and a draft release. `cargo xtask winget` writes the winget manifest from a release (`--local`: from the installer built here).
 - **Explorer's menu, from this tree:** `cargo xtask shell` registers the classic menu with the debug DLL and app, and `cargo xtask shell --mode modern` registers Windows 11's menu as a development package, which needs Developer Mode but no certificate. `--remove` takes either away. A click starts the debug app, so keep `pnpm dev` running.
@@ -49,6 +49,11 @@ pnpm tauri dev      # the desktop app, reloading as you edit
 - **On Windows 11** the menu needs BeeZip's signed package to be in Windows 11's own menu. Until releases are signed, the installer puts it under *Show more options*. With Developer Mode on, `beezip shell install --mode modern --dev` moves it into the Windows 11 menu, and `beezip shell install --mode classic` moves it back. Only one of the two is registered at a time.
 - **Uninstalling** removes the PATH entry, the menu and the registrations, and leaves your file types as they were. An upgrade keeps the file types you had before BeeZip, too.
 - **A running `beezip`,** such as an MCP server an AI app started, doesn't stop an upgrade or an uninstall: it keeps running from `%TEMP%` until its app restarts it, and Windows deletes that copy at your next sign-in. A running BeeZip window is closed first; the silent (`/S`) and passive (`/P`) installers close it without asking.
+
+**On Linux and macOS** the app is the same, without Explorer's menu and its job windows:
+- **Linux** (x86-64, glibc 2.35 or newer: Ubuntu 22.04, Debian 12 and later): the deb (`sudo apt install ./beezip_<version>_amd64.deb`) or the rpm installs the app as `beezip-desktop` and the command line as `/usr/bin/beezip`, and offers BeeZip in the file manager's *Open With* for the archive types it reads; packages, snaps and disk images stay with the apps that install or mount them. The AppImage runs as it is on a desktop with GTK.
+- **macOS** (Apple silicon): drag BeeZip from its disk image to Applications. Releases are signed ad hoc, not with an Apple Developer ID, so the first time macOS won't open BeeZip: choose *Open Anyway* in System Settings › Privacy & Security. It then opens the archive types it registers (zip, 7z, rar, tar and the compressed and split formats; disk images and installer packages stay with macOS) from Finder's *Open With*. The command line is inside the app, as `BeeZip.app/Contents/MacOS/bin/beezip`; link it into your PATH to use `beezip`. Extracted files keep the archive's quarantine, as Archive Utility does, so macOS still checks an app that came in a download; `[extract] mark_of_the_web` turns that off too.
+- **Settings** are in `~/.config/BeeZip/config.toml` on Linux and `~/Library/Application Support/BeeZip/config.toml` on macOS.
 
 ## Command line
 
@@ -125,7 +130,7 @@ beezip settings set "mcp.roots=['C:\Users\you\Unpacked']" --reset limits.max_rat
 [extract]
 overwrite = "ask"          # ask | always | never | rename | newer
 links = false
-mark_of_the_web = "all"    # copy the archive's Zone.Identifier to extracted files, as Explorer does
+mark_of_the_web = "all"    # copy the archive's Zone.Identifier (macOS: its quarantine) to extracted files, as Explorer and Archive Utility do
 threads = 0                # extracting zips and decoding xz: 0 = one per core, 1 = one
 
 [edit]
