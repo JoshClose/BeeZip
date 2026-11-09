@@ -27,6 +27,8 @@ use tauri::{AppHandle, ipc::Channel};
 pub use win::init;
 
 /// How a drag ended, as the page gets it.
+// Only drag/win.rs makes and uses these; off Windows the command just refuses.
+#[cfg_attr(not(windows), allow(dead_code))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum DragOutcome {
@@ -68,6 +70,8 @@ pub async fn cmd_drag_out(
 
 /// Debug builds say on stderr how each drag went, for checks that can't hold a mouse button
 /// (docs/M6.md §16 PR 7). Release builds say nothing.
+// Only drag/win.rs makes and uses these; off Windows the command just refuses.
+#[cfg_attr(not(windows), allow(dead_code))]
 pub fn trace(what: impl FnOnce() -> String) {
     if cfg!(debug_assertions) {
         eprintln!("BeeZip drag: {}", what());
@@ -105,6 +109,8 @@ pub fn sweep(dir: &Path, now: SystemTime, max_age: Duration) -> usize {
 /// The page's `archive.extract` arguments, into `dest`: as named (not into a folder named after
 /// the archive), and a later entry of the same name replacing an earlier one, since `dest` is
 /// new and empty. The keys BeeZip sets are refused.
+// Only drag/win.rs makes and uses these; off Windows the command just refuses.
+#[cfg_attr(not(windows), allow(dead_code))]
 pub fn extract_args(args: Value, dest: &Path) -> Result<Value, CmdError> {
     let Value::Object(mut map) = args else {
         return Err(CmdError::invalid_args(
@@ -125,6 +131,8 @@ pub fn extract_args(args: Value, dest: &Path) -> Result<Value, CmdError> {
 }
 
 /// What a drop hands its target: the items the extraction left at the top of `dir`, by name.
+// Only drag/win.rs makes and uses these; off Windows the command just refuses.
+#[cfg_attr(not(windows), allow(dead_code))]
 pub fn dropped_items(dir: &Path) -> std::io::Result<Vec<PathBuf>> {
     let mut items = std::fs::read_dir(dir)?
         .map(|e| e.map(|e| e.path()))
