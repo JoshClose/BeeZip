@@ -1,0 +1,38 @@
+<!-- {"title": "Formats", "description": "The archive formats and compressors BeeZip reads, writes, edits and encrypts, and the ones it reads through 7-Zip.", "layout": "docs"} -->
+<h1>Formats</h1>
+<p class="lede">BeeZip reads <!-- beezip:format-count --> archive formats and a dozen compressors, writes the common ones, and changes zip, 7z, tar, cpio and ar archives in place. This table comes from <code>beezip formats</code>, which shows the same on your machine.</p>
+
+<h2 id="archives">Archives</h2>
+<p><strong>Edit</strong> means adding, removing and renaming entries. <strong>Split</strong> means writing volumes (<code>a.7z.001</code>, <code>a.7z.002</code>…); BeeZip reads split archives of every kind.</p>
+<!-- beezip:formats -->
+
+<h2 id="recognising">How BeeZip recognises a file</h2>
+<p>BeeZip looks at what's inside a file, not at its name, so <code>download.bin</code> that's really a <code>.tar.zst</code> opens as one, and so does an archive with no extension at all. It unwraps compressors layer by layer (<code>zstd → tar</code>), and finds a self-extracting 7z, RAR, zip, CAB or LHA inside a program. <code>beezip detect <var>file</var></code> says what it found, or what the file is when it isn't an archive.</p>
+
+<h2 id="split-archives">Split archives</h2>
+<p>A split archive opens from any of its parts: <code>a.7z.001</code>, <code>a.zip.001</code>, <code>a.part1.rar</code>, <code>a.rar</code> with <code>a.r00</code>, <code>a.arj</code> with <code>a.a01</code>, and <code>a.ace</code> with <code>a.c00</code>. Spanned zips (<code>a.z01</code>) aren't read. BeeZip writes volumes in every format it writes; split archives can't be changed in place, so <code>convert</code> makes one file of them.</p>
+
+<h2 id="notes">What to know about some formats</h2>
+<ul>
+  <li><strong>RAR</strong> (1.5 to 7) is read through UnRAR, whose license allows extracting RAR archives but not making them. A RAR whose entries have different passwords asks for each.</li>
+  <li><strong>7z and RAR 1.5 to 4</strong> have no way to tell a wrong password from damage, so a wrong one shows as damaged data, and BeeZip asks again.</li>
+  <li><strong>Zip</strong> encrypts with AES-256, or with ZipCrypto for old tools, which is weak. <strong>7z</strong> encrypts with AES-256, and hides the file names too.</li>
+  <li><strong>Debian packages</strong> list as <code>dpkg-deb -R</code> unpacks them: the files, and the control files under <code>DEBIAN/</code>. <strong>macOS packages</strong> list as <code>pkgutil --expand-full</code> unpacks them, with their <code>Payload</code> and <code>Scripts</code> as folders.</li>
+  <li><strong>ISO images</strong> list their Rock Ridge, Joliet or plain names, or their UDF tree when it holds more (as Windows' own ISOs do). BeeZip writes ISO 9660 level 3, with Joliet and Rock Ridge. zisofs files are listed but not extracted, and El Torito boot images aren't listed.</li>
+  <li><strong>DMG images</strong> (zlib, bzip2, LZFSE, LZMA, ADC or raw) list the HFS+, HFSX or APFS volume inside, or their partitions when there's no volume. Encrypted and sparse images aren't read. BeeZip writes an HFS+ volume in a zlib-compressed image.</li>
+  <li><strong>squashfs</strong> reads every compressor (gzip, xz, lzma, lzo, lz4 and zstd), and writes gzip, xz, zstd, lz4 or lzo.</li>
+  <li><strong>cpio</strong> reads every header format (newc, crc, odc and old binary) and writes newc, as initramfs images use. A file of 4 GiB or more doesn't fit.</li>
+  <li><strong>ar and CAB</strong> hold files only, no folders. CAB reads none, MSZIP and LZX compression, and cabinet sets.</li>
+  <li><strong>ARJ, ACE, ZOO and ARC</strong> come from the DOS days, with names in the OEM code page. ARJ's GOST40 encryption, ACE 2.0's special modes and PAK's crushed and distilled methods aren't read.</li>
+  <li><strong>Compressed files on their own</strong> (<code>.gz</code>, <code>.xz</code>, <code>.zst</code>…) open as an archive of one file, and <code>beezip decompress</code> takes one layer off.</li>
+</ul>
+
+<h2 id="through-7-zip">Formats read through 7-Zip</h2>
+<p>With <a href="https://7-zip.org">7-Zip</a> 25.01 or newer installed, BeeZip also lists, tests and extracts the formats marked "Through 7-Zip" above: WIM and ESD images, CHM files, MSI and NSIS installers, and disk images and file systems, VHD, VHDX, VMDK, QCOW2 and VDI, GPT and MBR disks, FAT, NTFS, ext2/3/4, HFS+, APFS and CramFS.</p>
+<ul>
+  <li><strong>7-Zip only reads:</strong> every file streams from it through BeeZip's own extraction, with the same safety rules as every other format.</li>
+  <li><strong>A disk opens through its levels,</strong> such as <code>VHDX › GPT › NTFS</code>; one with several partitions lists each as a file.</li>
+  <li><strong>An MSI</strong> shows its files under the installer's internal names, as 7-Zip does.</li>
+  <li><strong>Finding 7-Zip:</strong> BeeZip looks in the registry, on PATH and in Program Files, or uses <code>seven_zip.path</code> in <a href="settings.html#seven-zip">Settings</a>. Without it, these formats are still recognised, and opening one says what to install.</li>
+  <li><strong>They're never changed:</strong> <code>convert</code> copies one into a format BeeZip writes.</li>
+</ul>

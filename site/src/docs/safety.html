@@ -1,0 +1,51 @@
+<!-- {"title": "Safety", "description": "What BeeZip checks before it writes a file: paths and links that climb out, zip bombs, the Mark of the Web, and changes that never rewrite an archive in place.", "layout": "docs"} -->
+<h1>Safety</h1>
+<p class="lede">An archive is someone else's idea of what should land on your disk. BeeZip checks every entry before it writes it, and tells you what it skipped. The same rules hold in the app, Explorer's menu, the command line and the MCP server.</p>
+
+<h2 id="outside">Nothing lands outside the folder you chose</h2>
+<ul>
+  <li><strong>Paths that climb out,</strong> such as <code>../../Windows/evil.dll</code>, are skipped.</li>
+  <li><strong>Links that point out</strong> of the destination are skipped too, and so is anything that would be written through a link or junction leading out.</li>
+  <li><strong>Devices, pipes and other special files</strong> aren't made.</li>
+  <li><strong>The rest is extracted.</strong> Then the job ends with a report of what was skipped, and why; on the command line, with exit code 14.</li>
+</ul>
+
+<h2 id="names">Names Windows can't store</h2>
+<p>Absolute paths, drive letters, names Windows reserves (<code>CON</code>, <code>NUL</code>, <code>COM1</code>…) and characters it can't store are rewritten into names it can, and each rewrite is reported. Names that differ only in case, which Windows sees as one, are treated as one file: what to do with the second follows your choice for files already there.</p>
+
+<h2 id="links">Links</h2>
+<ul>
+  <li><strong>Symbolic links are off</strong> by default. Turned on (<code>--links</code>, the Extract dialog, or <code>extract.links</code>), BeeZip makes only links that stay inside the destination.</li>
+  <li><strong>Hard links</strong> come out as copies of the file they point to.</li>
+</ul>
+
+<h2 id="bombs">Zip bombs</h2>
+<p>A zip bomb is a small archive that expands into something enormous. BeeZip never trusts the sizes an archive declares; it counts the bytes it actually produces.</p>
+<ul>
+  <li><strong>The ratio:</strong> once an entry has produced 64 MiB, it may not grow past 10,000 times the compressed bytes it has read. One that does stops the job.</li>
+  <li><strong>Entries:</strong> an archive may hold at most 10 million.</li>
+  <li><strong>Memory:</strong> a decoder may use at most 1 GiB for its dictionary or window.</li>
+  <li><strong>Everything:</strong> optionally, a cap on what one job writes in total.</li>
+</ul>
+<p>Each can be changed in <a href="settings.html#limits">Settings</a>. A job that reaches one fails saying which; on the command line, with exit code 11.</p>
+
+<h2 id="mark-of-the-web">Mark of the Web</h2>
+<p>Windows marks files you download, and checks a marked program before it runs it. When you extract a downloaded archive, BeeZip gives every extracted file the archive's mark, as Explorer does, so a program inside is checked as if you'd downloaded it directly. Opening an entry from the app carries the mark too. On macOS, BeeZip copies the archive's quarantine instead, as Archive Utility does. <code>extract.mark_of_the_web = "none"</code> in <a href="settings.html#extract">Settings</a> turns it off.</p>
+
+<h2 id="changes">Changes never rewrite an archive in place</h2>
+<ul>
+  <li><strong>Adding, deleting and renaming</strong> write a new archive beside the old one and swap it in. A failed or cancelled change leaves the original as it was.</li>
+  <li><strong>What the original had stays:</strong> its Mark of the Web, its hidden attribute and its creation time.</li>
+  <li><strong>New archives</strong> are written to a temporary file and renamed into place, so a cancelled job leaves nothing behind.</li>
+  <li><strong>Cancelling an extraction</strong> removes the file it was writing.</li>
+</ul>
+
+<h2 id="encryption">Encryption is never dropped quietly</h2>
+<ul>
+  <li><strong>Adding to an encrypted archive</strong> needs a password for the new files; adding them unencrypted takes a deliberate choice (<code>--unencrypted</code>).</li>
+  <li><strong>Converting an encrypted archive</strong> needs a new password, or your explicit choice to decrypt it.</li>
+  <li><strong>Passwords aren't saved.</strong> In the app, a password stays in memory for its tab, until you close it. Copy as CLI leaves it out.</li>
+</ul>
+
+<h2 id="assistants">For AI assistants</h2>
+<p>The MCP server adds rules of its own: an assistant may write only under the folders you name, never learns a password unless you give it one, and asks you, not itself, whether to overwrite a file. See <a href="mcp.html#where-it-writes">AI assistants</a>.</p>

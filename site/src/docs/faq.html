@@ -1,0 +1,59 @@
+<!-- {"title": "Questions and problems", "description": "Answers about BeeZip: Windows' warning on first run, the portable copy and the installer, the right-click menu, 7-Zip formats, passwords, garbled names and more.", "layout": "docs"} -->
+<h1>Questions and problems</h1>
+<p class="lede">Answers to what people run into most. If yours isn't here, <a href="https://github.com/JoshClose/BeeZip/issues">ask on GitHub</a>.</p>
+
+<h2 id="smartscreen">Windows says it protected my PC</h2>
+<p>Until 1.0.0, BeeZip's programs aren't signed, so Windows' SmartScreen doesn't know them yet and stops the first run. Choose <strong>More info</strong>, then <strong>Run anyway</strong>. On a PC with Smart App Control turned on, Windows blocks unsigned programs outright; wait for the signed 1.0.0, or <a href="index.html#build-it-yourself">build BeeZip yourself</a>.</p>
+
+<h2 id="portable-or-installer">Portable copy or installer?</h2>
+<p>Until 1.0.0 there's only the portable copy. After that, the installer is the one most people want:</p>
+<div class="table-wrap"><table>
+  <thead><tr><th scope="col"></th><th scope="col">Portable copy</th><th scope="col">Installer</th></tr></thead>
+  <tbody>
+    <tr><th scope="row">Installs anything</th><td>No: runs from its folder</td><td>Yes, for you alone, without admin rights</td></tr>
+    <tr><th scope="row">Right-click menu</th><td>Classic, under Show more options, if you add it</td><td>Windows 11's own menu</td></tr>
+    <tr><th scope="row">Opens archives on double-click</th><td>No</td><td>Yes, offered for the types BeeZip reads</td></tr>
+    <tr><th scope="row"><code>beezip</code> on PATH</th><td>No: <code>bin\beezip.exe</code> in its folder</td><td>Yes</td></tr>
+    <tr><th scope="row">Updates</th><td>Tells you, and links to the new zip</td><td>Installs them, when you click</td></tr>
+  </tbody>
+</table></div>
+<p>Both keep their settings in the same <code>config.toml</code>, so moving from one to the other keeps them.</p>
+
+<h2 id="menu-missing">BeeZip isn't in the right-click menu</h2>
+<ul>
+  <li><strong>On Windows 11,</strong> with the portable copy, it's under <strong>Show more options</strong>. Windows 11's own menu needs the signed installer, from 1.0.0.</li>
+  <li><strong>With the portable copy,</strong> the menu isn't added until you click <strong>Install</strong> in Settings → Explorer menu.</li>
+  <li><strong>If it stopped working,</strong> for example after the portable copy's folder moved, click <strong>Repair</strong> there. <code>beezip shell status</code> says what's registered and what's wrong.</li>
+  <li><strong>Some items are missing:</strong> they may be turned off in Settings → Explorer menu.</li>
+</ul>
+
+<h2 id="needs-7-zip">An archive says it needs 7-Zip</h2>
+<p>WIM images, MSI and NSIS installers, CHM files and disk images such as VHDX are read through <a href="https://7-zip.org">7-Zip</a>. Install 7-Zip 25.01 or newer and open the file again. If 7-Zip is installed somewhere BeeZip doesn't look, set <code>seven_zip.path</code> in <a href="settings.html#seven-zip">Settings</a>. <a href="formats.html#through-7-zip">Formats</a> lists them.</p>
+
+<h2 id="wrong-password">BeeZip says my archive is damaged, but it isn't</h2>
+<p>7z and older RAR archives can't tell a wrong password from damage, so a mistyped password looks like damaged data. BeeZip asks again; check the password. If it's right and the archive still fails, <code>beezip test</code> names the damaged entries.</p>
+
+<h2 id="garbled-names">The file names are garbled</h2>
+<p>The archive was made on a system that stored names in another code page, such as Japanese or Russian Windows. Choose its encoding: in the app, Name encoding in the command palette (<kbd>Ctrl</kbd>+<kbd>K</kbd>); on the command line, <code>--name-encoding cp932</code> and the like. See <a href="cli.html#names">Names from other systems</a>.</p>
+
+<h2 id="skipped">Some files weren't extracted</h2>
+<p>BeeZip skips entries that would land outside the destination, links when they're off, and special files such as devices, and lists what it skipped and why. See <a href="safety.html">Safety</a>. Entries skipped because a file was already there follow your choice in the Extract dialog, or <code>extract.overwrite</code>.</p>
+
+<h2 id="cant-edit">I can't add to or delete from an archive</h2>
+<p>BeeZip changes zip, 7z, tar, cpio and ar archives. RAR, CAB, packages, disk images, and split and self-extracting archives can't be changed; convert one to a format BeeZip writes first. A read-only file can't be changed either. The app says why when it can't.</p>
+
+<h2 id="downloaded-files">Why are programs I extracted marked as downloaded?</h2>
+<p>Because the archive was. BeeZip copies a downloaded archive's Mark of the Web to what it extracts, as Explorer does, so Windows still checks those programs. <code>extract.mark_of_the_web = "none"</code> in <a href="settings.html#extract">Settings</a> turns that off.</p>
+
+<h2 id="updating-portable">How do I update the portable copy?</h2>
+<p>When BeeZip finds a new version, its banner's <strong>Download</strong> gets the new zip. Close BeeZip and unzip the new version over the old folder. If you added the Explorer menu, click <strong>Repair</strong> in Settings → Explorer menu afterwards.</p>
+
+<h2 id="removing">How do I remove BeeZip?</h2>
+<ul>
+  <li><strong>The installer's BeeZip:</strong> Settings → Apps in Windows. It removes the menu, PATH entry and registrations, and leaves your file types as they were.</li>
+  <li><strong>The portable copy:</strong> remove the Explorer menu first (Settings → Explorer menu → <strong>Remove</strong>, or <code>bin\beezip.exe shell uninstall</code>), then delete the folder.</li>
+  <li><strong>Settings</strong> stay in <code>config.toml</code> (see <a href="settings.html#where">Settings</a>) until you delete it.</li>
+</ul>
+
+<h2 id="report">Something's wrong</h2>
+<p>Please <a href="https://github.com/JoshClose/BeeZip/issues">open an issue on GitHub</a> with what you did, what happened, and BeeZip's version (About, or <code>beezip version</code>). A job's <strong>Copy</strong> button puts its result and its whole log on the clipboard, ready to paste.</p>

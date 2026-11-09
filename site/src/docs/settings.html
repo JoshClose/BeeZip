@@ -1,0 +1,152 @@
+<!-- {"title": "Settings", "description": "Every BeeZip setting in config.toml: extracting, creating, levels, limits, Explorer's menu, the MCP server, the theme and updates.", "layout": "docs"} -->
+<h1>Settings</h1>
+<p class="lede">BeeZip keeps its settings in one file, <code>config.toml</code>, which the app, Explorer's menu, the command line and the MCP server all read. Change it from the app's Settings, with <code>beezip settings</code>, or in any text editor.</p>
+
+<h2 id="where">Where the file is</h2>
+<div class="table-wrap"><table>
+  <thead><tr><th scope="col">System</th><th scope="col">File</th></tr></thead>
+  <tbody>
+    <tr><td>Windows</td><td><code>%APPDATA%\BeeZip\config.toml</code></td></tr>
+    <tr><td>Linux</td><td><code>~/.config/BeeZip/config.toml</code></td></tr>
+    <tr><td>macOS</td><td><code>~/Library/Application Support/BeeZip/config.toml</code></td></tr>
+  </tbody>
+</table></div>
+<p>The environment variable <code>BEEZIP_CONFIG</code> names another file instead. Until you change a setting there's no file, and BeeZip uses the defaults below.</p>
+
+<h2 id="changing">Changing settings</h2>
+<ul>
+  <li><strong>In the app:</strong> Settings (<kbd>Ctrl</kbd>+<kbd>,</kbd>) saves each setting as you change it, keeping the file's comments. A value BeeZip can't take shows its error beside the field, and isn't saved. The app's next job uses the new settings.</li>
+  <li><strong>On the command line:</strong>
+<pre><code>beezip settings get                                        # every setting, with its value
+beezip settings set extract.overwrite=rename levels.zstd=19
+beezip settings set "mcp.roots=['C:\Users\you\Unpacked']"
+beezip settings set --reset limits.max_ratio               # back to the default</code></pre>
+  A value is TOML (<code>19</code>, <code>false</code>, <code>['C:\a']</code>), or a bare word for a string. Nothing is written unless the whole file still reads: an unknown key or a value of the wrong type is refused.</li>
+  <li><strong>In an editor:</strong> other BeeZip programs read the file when they start. An unknown key only warns; a value of the wrong type stops every command until it's fixed, and the error gives the line.</li>
+</ul>
+<p>Options on the command line, and choices in a dialog, override these defaults for that one job.</p>
+
+<h2 id="extract">Extracting</h2>
+<div class="table-wrap"><table>
+  <thead><tr><th scope="col">Setting</th><th scope="col">Default</th><th scope="col">What it does</th></tr></thead>
+  <tbody>
+    <tr><td><code>extract.overwrite</code></td><td><code>"ask"</code></td><td>A file that's already there: <code>ask</code>, <code>always</code> replace it, <code>never</code> replace it, <code>rename</code> the new one to <code>name (1).ext</code>, or replace it only if the entry is <code>newer</code>. Where nobody can be asked, <code>ask</code> fails.</td></tr>
+    <tr><td><code>extract.links</code></td><td><code>false</code></td><td>Make symbolic links, ones that stay inside the destination. Hard links always come out as copies.</td></tr>
+    <tr><td><code>extract.mark_of_the_web</code></td><td><code>"all"</code></td><td><code>all</code> copies a downloaded archive's Mark of the Web to every file extracted from it, as Explorer does (on macOS, its quarantine, as Archive Utility does). <code>none</code> doesn't. See <a href="safety.html#mark-of-the-web">Safety</a>.</td></tr>
+    <tr><td><code>extract.threads</code></td><td><code>0</code></td><td>Threads for extracting zips and decoding xz. <code>0</code> is one per core, <code>1</code> uses one.</td></tr>
+  </tbody>
+</table></div>
+
+<h2 id="edit">Changing archives</h2>
+<div class="table-wrap"><table>
+  <thead><tr><th scope="col">Setting</th><th scope="col">Default</th><th scope="col">What it does</th></tr></thead>
+  <tbody>
+    <tr><td><code>edit.overwrite</code></td><td><code>"ask"</code></td><td>Adding a file whose path is already in the archive: <code>ask</code>, <code>always</code>, <code>never</code>, <code>rename</code> or <code>newer</code>, as for extracting.</td></tr>
+  </tbody>
+</table></div>
+
+<h2 id="create">Creating</h2>
+<div class="table-wrap"><table>
+  <thead><tr><th scope="col">Setting</th><th scope="col">Default</th><th scope="col">What it does</th></tr></thead>
+  <tbody>
+    <tr><td><code>create.threads</code></td><td><code>0</code></td><td>Threads for compressing, with the compressors that use them. <code>0</code> is one per core.</td></tr>
+    <tr><td><code>stream.codec</code></td><td><code>"zstd"</code></td><td>The compressor <code>beezip compress</code> uses when you don't name one.</td></tr>
+  </tbody>
+</table></div>
+
+<h2 id="levels">Compression levels</h2>
+<p><code>levels</code> holds a default level for any compressor or method: a compressor such as <code>zstd</code>, <code>xz</code> or <code>gzip</code>, a zip method such as <code>deflate</code>, or a 7z method such as <code>lzma2</code>. Each one you leave out uses its own default; <code>beezip formats</code> lists every range and default.</p>
+<pre><code>[levels]
+zstd = 19
+deflate = 9
+lzma2 = 7</code></pre>
+
+<h2 id="names">Names</h2>
+<div class="table-wrap"><table>
+  <thead><tr><th scope="col">Setting</th><th scope="col">Default</th><th scope="col">What it does</th></tr></thead>
+  <tbody>
+    <tr><td><code>names.encoding</code></td><td><code>"auto"</code></td><td>How names stored as bytes are read: older zips, tar, cpio, ar, LHA, ARJ, ACE, ZOO, ARC, squashfs, CAB and ISO names. <code>auto</code> reads a name as UTF-8 when it is, and otherwise in the system's code page. Name a code page, such as <code>cp932</code> or <code>cp866</code>, to read archives from another system. See <a href="cli.html#names">Names from other systems</a>.</td></tr>
+  </tbody>
+</table></div>
+
+<h2 id="limits">Limits</h2>
+<p>These stop zip bombs and runaway archives. A job that reaches one stops, and says which.</p>
+<div class="table-wrap"><table>
+  <thead><tr><th scope="col">Setting</th><th scope="col">Default</th><th scope="col">What it does</th></tr></thead>
+  <tbody>
+    <tr><td><code>limits.max_ratio</code></td><td><code>10000</code></td><td>The most an entry may expand: its unpacked size over its packed size.</td></tr>
+    <tr><td><code>limits.max_entries</code></td><td><code>10000000</code></td><td>The most entries an archive may hold.</td></tr>
+    <tr><td><code>limits.decoder_memory_mib</code></td><td><code>1024</code></td><td>The memory, in MiB, a decoder may use for its dictionary or window.</td></tr>
+    <tr><td><code>limits.max_total_bytes</code></td><td>none</td><td>The most one job may write, in bytes. Left out, there's no limit.</td></tr>
+  </tbody>
+</table></div>
+
+<h2 id="seven-zip">7-Zip</h2>
+<div class="table-wrap"><table>
+  <thead><tr><th scope="col">Setting</th><th scope="col">Default</th><th scope="col">What it does</th></tr></thead>
+  <tbody>
+    <tr><td><code>seven_zip.enabled</code></td><td><code>true</code></td><td>Use an installed 7-Zip for the <a href="formats.html#through-7-zip">formats BeeZip reads through it</a>.</td></tr>
+    <tr><td><code>seven_zip.path</code></td><td>none</td><td>The 7-Zip program to use. Left out, BeeZip looks in the registry, on PATH and in Program Files. It needs 7-Zip 25.01 or newer.</td></tr>
+  </tbody>
+</table></div>
+
+<h2 id="shell">Explorer's menu</h2>
+<div class="table-wrap"><table>
+  <thead><tr><th scope="col">Setting</th><th scope="col">Default</th><th scope="col">What it does</th></tr></thead>
+  <tbody>
+    <tr><td><code>shell.cascade</code></td><td><code>true</code></td><td>Put the items in a BeeZip submenu. <code>false</code> puts each at the top of the classic menu; Windows 11's own menu always uses a submenu.</td></tr>
+    <tr><td><code>shell.items.open</code></td><td><code>true</code></td><td>Open with BeeZip</td></tr>
+    <tr><td><code>shell.items.extract-here</code></td><td><code>true</code></td><td>Extract here</td></tr>
+    <tr><td><code>shell.items.extract-folder</code></td><td><code>true</code></td><td>Extract to "<var>name</var>\"</td></tr>
+    <tr><td><code>shell.items.extract-to</code></td><td><code>true</code></td><td>Extract to…</td></tr>
+    <tr><td><code>shell.items.test</code></td><td><code>true</code></td><td>Test archive</td></tr>
+    <tr><td><code>shell.items.add-zip</code></td><td><code>true</code></td><td>Add to "<var>name</var>.zip"</td></tr>
+    <tr><td><code>shell.items.add-7z</code></td><td><code>true</code></td><td>Add to "<var>name</var>.7z"</td></tr>
+    <tr><td><code>shell.items.add-tar-zst</code></td><td><code>true</code></td><td>Add to "<var>name</var>.tar.zst"</td></tr>
+    <tr><td><code>shell.items.compress-to</code></td><td><code>true</code></td><td>Compress to…</td></tr>
+    <tr><td><code>jobs.close_when_done</code></td><td><code>true</code></td><td>A job window from the menu closes itself after a clean success.</td></tr>
+  </tbody>
+</table></div>
+<p>The menu follows these as soon as they change. See <a href="explorer.html">Explorer's menu</a>.</p>
+
+<h2 id="mcp">The MCP server</h2>
+<div class="table-wrap"><table>
+  <thead><tr><th scope="col">Setting</th><th scope="col">Default</th><th scope="col">What it does</th></tr></thead>
+  <tbody>
+    <tr><td><code>mcp.roots</code></td><td><code>[]</code></td><td>The folders <code>beezip mcp</code> may write in. With none, an assistant can read archives but not extract, create or change anything. <code>--root</code> replaces this list.</td></tr>
+    <tr><td><code>mcp.read_only</code></td><td><code>false</code></td><td>Offer only the tools that don't write.</td></tr>
+  </tbody>
+</table></div>
+<p>MCP clients can't see or change these settings: one that could change <code>mcp.roots</code> could widen its own sandbox. See <a href="mcp.html">AI assistants</a>.</p>
+
+<h2 id="desktop">The desktop app</h2>
+<div class="table-wrap"><table>
+  <thead><tr><th scope="col">Setting</th><th scope="col">Default</th><th scope="col">What it does</th></tr></thead>
+  <tbody>
+    <tr><td><code>desktop.theme</code></td><td><code>"system"</code></td><td><code>system</code> follows Windows' light or dark mode; <code>light</code> and <code>dark</code> stay put.</td></tr>
+    <tr><td><code>updates.check</code></td><td><code>true</code></td><td>Look for a new version on GitHub, at most once a day. The command line and the MCP server never check.</td></tr>
+  </tbody>
+</table></div>
+
+<h2 id="example">A whole file</h2>
+<pre><code>[extract]
+overwrite = "rename"
+mark_of_the_web = "all"
+
+[levels]
+zstd = 19
+
+[limits]
+max_ratio = 20000
+
+[shell]
+cascade = true
+[shell.items]
+test = false
+add-tar-zst = false
+
+[mcp]
+roots = ['C:\Users\you\Unpacked']
+
+[desktop]
+theme = "dark"</code></pre>

@@ -133,6 +133,8 @@ jobs:
       - run: cargo test --locked -p beezip-core -p beezip-menu -p beezip-commands -p beezip-mcp -p beezip-cli
         env:
           BEEZIP_IMAGES_OUT: ${{ runner.temp }}/images   # the ISO and DMG the macOS job mounts
+      - name: The website builds from the CLI's own help, every setting is on it, and its links lead somewhere
+        run: node site/build.mjs --cli target/debug/beezip --out "$RUNNER_TEMP/site"
       - name: Keep BeeZip's ISO and DMG for macOS
         uses: actions/upload-artifact@v7
         with:

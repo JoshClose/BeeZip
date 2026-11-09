@@ -1,0 +1,12 @@
+[
+  { "href": "index.html", "title": "Getting started" },
+  { "href": "app.html", "title": "The desktop app" },
+  { "href": "explorer.html", "title": "Explorer's menu" },
+  { "href": "cli.html", "title": "The command line" },
+  { "href": "reference.html", "title": "Command reference" },
+  { "href": "settings.html", "title": "Settings" },
+  { "href": "formats.html", "title": "Formats" },
+  { "href": "safety.html", "title": "Safety" },
+  { "href": "mcp.html", "title": "AI assistants (MCP)" },
+  { "href": "faq.html", "title": "Questions and problems" }
+]
