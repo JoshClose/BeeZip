@@ -23,6 +23,7 @@ const USAGE: &str = "usage: cargo xtask <task>
   gen-fixtures --check  fail if the committed corpus is out of date
   dist [--debug] [--version V] [--sign-dev]
                         build the Windows installer (target/dist/{release,debug}/bundle/nsis)
+                        and the portable zip (bundle/portable)
                         as version V [default: the workspace's]. BEEZIP_SIGN=none|dev|pfx|artifact
                         signs it through packaging/windows/sign.ps1 [default: none], and adds
                         Windows 11's menu as a signed package; --sign-dev is BEEZIP_SIGN=dev, the

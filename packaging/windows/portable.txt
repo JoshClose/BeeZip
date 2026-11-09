@@ -1,0 +1,19 @@
+BeeZip {version}, portable
+
+Run BeeZip.exe. Nothing is installed: BeeZip runs from this folder. It needs the WebView2
+runtime, which Windows 10 and 11 have.
+
+- The command line is bin\beezip.exe. Add the bin folder to your PATH to type `beezip`
+  anywhere; `beezip --help` lists its commands.
+- Explorer's right-click menu: Settings > Explorer menu > Install. The menu runs BeeZip from
+  this folder, so remove it there before you move or delete the folder.
+- Settings are kept in %APPDATA%\BeeZip\config.toml, outside this folder.
+- Updates: once a day BeeZip asks GitHub for a newer version, and when there is one it shows a
+  banner with a link to download it (Settings turns the check off). To update, close BeeZip and
+  unzip the new version over this folder. If you added the Explorer menu, click Repair in
+  Settings > Explorer menu afterwards.
+
+Releases: https://github.com/JoshClose/BeeZip/releases
+
+BeeZip is licensed under MIT or Apache-2.0, at your option (LICENSE-MIT, LICENSE-APACHE). The
+software it includes is listed with its licenses in THIRD_PARTY_NOTICES.md.
