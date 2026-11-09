@@ -31,7 +31,7 @@ pnpm tauri dev      # the desktop app, reloading as you edit
 
 ## Desktop app
 
-`BeeZip.exe` opens archives in tabs: a folder tree, the entries (a million is fine; click a column to sort), and a preview of text, hex or images.
+`BeeZip.exe` opens archives in tabs: a folder tree, the entries (a million is fine; click a column to sort), and a preview of text, hex or images. Drag the edges between them to resize the tree and the preview, and the top edge of the jobs list to make it taller (double-click an edge for the default); BeeZip keeps the sizes for next time. A job's Copy button puts its result and its whole log on the clipboard.
 
 - **Opening:** Open (Ctrl+O), drag an archive onto the welcome screen or the tabs, or double-click one once BeeZip is installed. Launching BeeZip again opens the archive in the running window.
 - **Extract** (Ctrl+E) everything or the selected entries. **New archive** (Ctrl+N) packs files and folders, or files dropped on the welcome screen or the tabs, as zip, 7z or tar, encrypted and split as you choose. **Test** checks every CRC. **Convert** writes the archive again in another format, or with other options.
