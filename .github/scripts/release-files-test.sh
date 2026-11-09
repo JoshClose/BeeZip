@@ -69,3 +69,32 @@ bash "$here/release-files.sh" "$work/nokey" 0.2.0 "$work/nokey.json" > /dev/null
 [ ! -e "$work/nokey.json" ] || fail "a latest.json was written without any"
 
 echo "release-files.sh: all ok"
+
+# changelog-notes.sh: a version's section, and nothing of the next one; a missing one fails.
+cat > "$work/CHANGELOG.md" <<'EOF'
+# Changelog
+
+Notes for whoever keeps the file, which mention `## 9.9.9` in passing.
+
+## 0.3.0
+
+A paragraph,
+wrapped.
+
+### New
+
+- Three,
+  wrapped.
+
+## 0.2.0 (2026-11-20)
+
+- Two.
+EOF
+notes=$(bash "$here/changelog-notes.sh" "$work/CHANGELOG.md" 0.3.0)
+[ "$notes" = $'A paragraph, wrapped.\n\n### New\n\n- Three, wrapped.' ] || fail "0.3.0's notes are: $notes"
+notes=$(bash "$here/changelog-notes.sh" "$work/CHANGELOG.md" 0.2.0)
+[ "$notes" = "- Two." ] || fail "0.2.0's notes are: $notes"
+if bash "$here/changelog-notes.sh" "$work/CHANGELOG.md" 9.9.9 2> /dev/null; then fail "9.9.9 has no section, yet it passed"; fi
+bash "$here/changelog-notes.sh" "$here/../../CHANGELOG.md" "$(sed -n 's/^version = "\(.*\)"/\1/p' "$here/../../Cargo.toml" | head -n 1)" > /dev/null \
+  || fail "CHANGELOG.md has no section for the workspace's version"
+echo "changelog-notes.sh: all ok"

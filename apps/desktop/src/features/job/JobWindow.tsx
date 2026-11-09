@@ -4,8 +4,9 @@
 import { LogicalSize } from "@tauri-apps/api/dpi";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
-import { CircleAlert, CircleCheck, CircleSlash, FolderOpen, LoaderCircle } from "lucide-react";
+import { CircleAlert, CircleCheck, CircleSlash, FolderOpen } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { CombMark, type MarkState, markKind } from "../../components/CombMark";
 import { Button } from "../../components/ui/button";
 import { Dialog } from "../../components/ui/dialog";
 import type { ArchiveCreateOutput, ArchiveExtractOutput, CmdError, CommandName, EditOutput, Existing, Step } from "../../gen/commands";
@@ -235,7 +236,6 @@ const ICONS = {
   failed: <CircleAlert className="size-4 shrink-0 text-danger" />,
   cancelled: <CircleSlash className="size-4 shrink-0 text-muted" />,
   skipped: <CircleSlash className="size-4 shrink-0 text-muted" />,
-  running: <LoaderCircle className="size-4 shrink-0 animate-spin text-amber" />,
 };
 
 function Row({ step, title, outcome, onReport }: { step: Step; title: string; outcome: Outcome; onReport: (title: string, error: CmdError) => void }) {
@@ -331,14 +331,22 @@ export function JobWindow({ job }: { job: JobStartup }) {
     return () => clearTimeout(timer);
   }, [clean, close]);
 
-  const icon = finished
-    ? ICONS[outcomes.every((o) => o.status === "done") ? "done" : outcomes.some((o) => o.status === "failed") ? "failed" : "cancelled"]
-    : ICONS.running;
+  // The comb shows what the job does (the step running, or the first), and a badge how it ended.
+  const ended: Exclude<MarkState, "running"> = outcomes.every((o) => o.status === "done")
+    ? "done"
+    : outcomes.some((o) => o.status === "failed")
+      ? "failed"
+      : "cancelled";
+  const shown = (step?.kind === "run" ? step : undefined) ?? steps.find((s): s is RunStep => s.kind === "run");
+  const kind = markKind(shown?.command ?? "");
 
   return (
     <div className="flex h-full flex-col bg-paper">
-      <header className="flex items-center gap-2 px-4 pt-3 pb-2">
-        {icon}
+      <header className="flex items-center gap-3 px-4 pt-3 pb-2">
+        <span className="relative shrink-0">
+          <CombMark kind={kind} state={finished ? ended : "running"} className="size-9" />
+          {finished && <span className="absolute -right-1 -bottom-1 rounded-full bg-paper">{ICONS[ended]}</span>}
+        </span>
         <h1 className="min-w-0 flex-1 truncate text-[15px] font-semibold">{title}</h1>
         {!finished && runSteps > 1 && position !== undefined && (
           <span className="tabular shrink-0 text-muted">

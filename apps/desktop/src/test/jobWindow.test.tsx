@@ -114,6 +114,10 @@ describe("the job window", () => {
 
     expect(await screen.findByText("docs/readme.txt")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Extracting a.zip" })).toBeInTheDocument();
+    // The comb shows an extraction, its cell coming out while it runs.
+    const mark = () => document.querySelector(".comb-mark");
+    expect(mark()).toHaveAttribute("data-kind", "extract");
+    expect(mark()).toHaveAttribute("data-state", "running");
     expect(screen.getByText("1 of 2")).toBeInTheDocument();
     expect(screen.getByText("1.0 KiB of 4.0 KiB")).toBeInTheDocument();
     // The native title is the step's from the start, never a placeholder.
@@ -122,6 +126,7 @@ describe("the job window", () => {
 
     first.resolve(extracted());
     expect(await screen.findByRole("heading", { name: "Done" })).toBeInTheDocument();
+    expect(mark()).toHaveAttribute("data-state", "done");
     expect(fake.calls.map((c) => (c.args as { archive: string }).archive)).toEqual([String.raw`C:\dl\a.zip`, String.raw`C:\dl\b.zip`]);
     expect(screen.getAllByText(/Extracted 3 files/)).toHaveLength(2);
 

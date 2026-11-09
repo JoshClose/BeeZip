@@ -1,0 +1,143 @@
+<!-- {"title": "Explorer's menu", "description": "BeeZip's items in Windows Explorer's right-click menu, the job windows they open, and how to install, choose, repair and remove the menu.", "layout": "docs"} -->
+<h1>Explorer's menu</h1>
+<p class="lede">BeeZip adds a “BeeZip” submenu to Explorer's right-click menu, so you can extract, test and pack files without opening its window. This page lists what the menu offers for each kind of selection, what the small job windows do, how Windows 11's menu differs from the classic one, and how to install, change, repair and remove the menu.</p>
+
+<h2 id="what-the-menu-offers">What the menu offers</h2>
+<p>Right-click files or folders in Explorer, or on the desktop, and open <strong>BeeZip</strong>. On Windows 11 it's in Windows' own menu or under <strong>Show more options</strong>, depending on how BeeZip was installed; see <a href="#two-menus">Windows 11's menu and the classic menu</a>.</p>
+
+<h3 id="menu-items">The items</h3>
+<p>Settings and this page name the items for an archive called <code>a.zip</code>. In Explorer each title uses the names you selected.</p>
+<table>
+  <thead>
+    <tr><th>Item</th><th>Offered for</th><th>What it does</th></tr>
+  </thead>
+  <tbody>
+    <tr><td><strong>Open with BeeZip</strong></td><td>Archives</td><td>Opens each archive in a tab of BeeZip's window.</td></tr>
+    <tr><td><strong>Extract here</strong></td><td>Archives</td><td>Extracts into the archive's own folder. When the archive holds more than one item at its top level, they go into a new folder named after it, so they don't spill out among your files.</td></tr>
+    <tr><td><strong>Extract to "a\"</strong></td><td>Archives</td><td>Extracts into a folder named after the archive, beside it.</td></tr>
+    <tr><td><strong>Extract to…</strong></td><td>One archive</td><td>Opens BeeZip's <a href="app.html#extract-dialog">Extract dialog</a>, to choose where and how.</td></tr>
+    <tr><td><strong>Test archive</strong></td><td>Archives</td><td>Reads everything back and checks it, writing nothing.</td></tr>
+    <tr><td><strong>Add to "a.zip"</strong></td><td>Any files and folders</td><td>Packs the selection into a zip beside it.</td></tr>
+    <tr><td><strong>Add to "a.7z"</strong></td><td>Any files and folders</td><td>The same, as a 7z.</td></tr>
+    <tr><td><strong>Add to "a.tar.zst"</strong></td><td>Any files and folders</td><td>The same, as a tar compressed with zstd.</td></tr>
+    <tr><td><strong>Compress to…</strong></td><td>Any files and folders</td><td>Opens BeeZip's <a href="app.html#new-archive-dialog">New archive dialog</a> with the selection, to choose the format, password, volumes and the rest.</td></tr>
+  </tbody>
+</table>
+<p>The archive items come first, then the add items. Every item shows unless you turn it off; see <a href="#choosing-items">Choosing the items</a>.</p>
+<p>The add items use your default levels and threads from Settings → Creating. Extracting from the menu follows Settings → Extracting, so with <strong>A file is already there</strong> set to <strong>Ask</strong> (the default), a file that's in the way brings up a question in the job window.</p>
+
+<h3 id="which-items">Which items a selection gets</h3>
+<ul>
+  <li><strong>Archives:</strong> when every selected item is a file BeeZip reads, you get every item. BeeZip goes by the name: <code>.zip</code>, <code>.7z</code>, <code>.rar</code>, <code>.tar.zst</code>, <code>.gz</code> and the rest, and the parts of split archives (<code>.7z.001</code>, <code>.part2.rar</code>, <code>.r01</code>…). Zip-based documents such as <code>.jar</code>, <code>.docx</code> and <code>.epub</code> count too, as do <code>.iso</code> and <code>.cab</code>, though double-clicking them still opens their usual apps.</li>
+  <li><strong>Anything else:</strong> folders, files BeeZip doesn't read, or a mix of those and archives get the add items and <strong>Compress to…</strong>.</li>
+  <li><strong>Several archives:</strong> <strong>Extract to "a\"</strong> becomes <strong>Extract each to its own folder</strong>, <strong>Test archive</strong> becomes <strong>Test archives</strong>, and <strong>Extract to…</strong> isn't offered, since its dialog takes one archive. The parts of one split archive count as one: selecting <code>a.7z.001</code> and <code>a.7z.002</code> extracts the set once.</li>
+  <li><strong>Several items for an add item:</strong> they all go into one archive.</li>
+  <li><strong>Nothing:</strong> items with no place on disk, such as files inside a zip that Explorer opened as a folder, or on a phone, get no BeeZip items. Neither does the empty space in a folder.</li>
+</ul>
+
+<h3 id="item-names">How the items are named</h3>
+<ul>
+  <li><strong>Extract to "a\"</strong> uses the archive's name without its archive and compression extensions: <code>photos.tar.zst</code> gives <code>photos\</code>, <code>backup.7z.001</code> gives <code>backup\</code>, <code>music.part1.rar</code> gives <code>music\</code>, and <code>notes.txt.gz</code> gives <code>notes.txt\</code>. <strong>Extract here</strong>'s new folder, when it makes one, has the same name.</li>
+  <li><strong>The add items</strong> name the new archive after one selected item: a file without its last extension (<code>report.pdf</code> gives <strong>Add to "report.zip"</strong>), an archive without its extensions (<code>photos.tar.zst</code> gives <strong>Add to "photos.zip"</strong>), or a folder by its name. Several items are named after the folder they're in, and the root of a drive gives <code>archive</code>. The new archive goes in the same folder as the selection.</li>
+  <li><strong>Long names</strong> are cut, ending in “…”, so a title is at most 40 characters. The file BeeZip writes has the full name.</li>
+</ul>
+
+<h2 id="job-windows">Job windows</h2>
+<p><strong>Extract here</strong>, <strong>Extract to "a\"</strong>, <strong>Test archive</strong> and the add items open a small BeeZip window for the job. <strong>Open with BeeZip</strong>, <strong>Extract to…</strong> and <strong>Compress to…</strong> open BeeZip's main window instead, or use the one that's already open, with no job window.</p>
+<p>When BeeZip is already running, the job goes to it, and it opens the job window. Each click gets a window of its own, and they run side by side.</p>
+
+<h3 id="job-window-contents">What a job window shows</h3>
+<ul>
+  <li><strong>While it runs:</strong> what it's doing (“Extracting photos.zip”), also in the window's title bar; a progress bar with how much is done out of the total, the speed and the time left; and the file being worked on.</li>
+  <li><strong>Several archives:</strong> they're done one after another, and the window counts them: “2 of 5”.</li>
+  <li><strong>Cancel</strong> stops the job, removes any files it had started writing, and skips the archives left.</li>
+  <li><strong>When it ends:</strong> each archive's result, such as “Extracted 214 files, 18 MiB, to C:\Users\you\Downloads\photos” or “All 214 entries are OK (18 MiB read)”, or its error. <strong>Open folder</strong> shows what was written in Explorer: the new folder or archive, or the archive itself when its files went beside it. A job that skipped unsafe entries has <strong>Show report</strong>, as in the <a href="app.html#extract-safety">desktop app</a>. <strong>Close</strong> closes the window.</li>
+  <li><strong>Missing files:</strong> an item that has gone since you right-clicked fails on a line of its own, and the rest still run.</li>
+</ul>
+<p>Closing a job window while its job runs asks first: <strong>Cancel and close</strong>, or <strong>Keep working</strong>.</p>
+
+<h3 id="job-window-questions">Passwords and existing files</h3>
+<p>A job window asks the desktop app's questions, and grows to fit them:</p>
+<ul>
+  <li><strong>Password needed</strong>, for an encrypted archive. BeeZip uses the password for this job only, and never saves it.</li>
+  <li><strong>A file with this name exists</strong>, when extracting meets a file that's in the way: <strong>Replace</strong>, <strong>Replace all</strong>, <strong>Skip</strong>, <strong>Skip all</strong>, <strong>Keep both</strong> or <strong>Cancel</strong>. See <a href="app.html#overwrite-prompt">Files that are already there</a>.</li>
+</ul>
+
+<h3 id="archive-already-there">When the archive is already there</h3>
+<p>When <strong>Add to "a.zip"</strong> finds an <code>a.zip</code> already in the folder, the job window asks “a.zip is already there” before it writes anything:</p>
+<ul>
+  <li><strong>Add to it</strong> adds the selection to that archive, at its top level. An entry that's already in it brings up a question (“notes.txt is already in a.zip”), and an encrypted archive asks for the new files' password. This choice comes first, and only for an archive BeeZip can edit; see <a href="app.html#cant-be-edited">What can't be edited</a>.</li>
+  <li><strong>Replace</strong> writes a new <code>a.zip</code> in its place.</li>
+  <li><strong>Keep both</strong> writes the new archive beside it, under the first free name: <code>a (1).zip</code>, <code>a (2).zip</code>…</li>
+  <li><strong>Skip</strong> leaves the archive as it was, and writes nothing.</li>
+</ul>
+
+<h3 id="closing-when-done">Closing when done</h3>
+<p>After a success where nothing was skipped or renamed, the job window says <strong>Closing…</strong> and closes itself two seconds later. After anything else, such as an error, a cancel, or files skipped or renamed, it stays until you close it, so you can read what happened.</p>
+<p>To keep every job window open, turn off <strong>Close the window after a success where nothing was skipped or renamed</strong> in Settings → Job windows, or set it in <code>config.toml</code>:</p>
+<pre><code>[jobs]
+close_when_done = false</code></pre>
+
+<h2 id="two-menus">Windows 11's menu and the classic menu</h2>
+<p>Windows 11 has two right-click menus: its own, and the classic one, which it shows under <strong>Show more options</strong>. Windows 10 has only the classic one.</p>
+<ul>
+  <li><strong>Windows 11's own menu</strong> needs BeeZip's signed package. It comes with the signed installer, from version 1.0.0. There, <strong>BeeZip</strong> is always a submenu.</li>
+  <li><strong>The classic menu</strong> is what the portable copy and unsigned builds register. On Windows 11 you find BeeZip under <strong>Show more options</strong>; on Windows 10 it's in the menu itself. Here BeeZip can be a submenu or put its items at the top of the menu.</li>
+  <li><strong>Only one at a time:</strong> registering one kind takes the other away, so BeeZip never shows twice.</li>
+</ul>
+<p>Before 1.0.0 the portable copy is BeeZip's only Windows download, so for now BeeZip is under <strong>Show more options</strong> on Windows 11. Settings → Explorer menu says which menu you have.</p>
+<div class="note"><p>On an installed BeeZip with Windows' Developer Mode on, <code>beezip shell install --mode modern --dev</code> moves the menu into Windows 11's own menu without a signed package, and <code>beezip shell install --mode classic</code> moves it back.</p></div>
+
+<h2 id="installing">Installing, repairing and removing it</h2>
+<p>The menu is registered for your Windows account only, and needs no administrator rights. The installer adds it without asking, and uninstalling BeeZip removes it, along with BeeZip's other registrations.</p>
+
+<h3 id="from-settings">From Settings</h3>
+<p>Settings → Explorer menu shows what's registered now:</p>
+<ul>
+  <li><strong>Not installed</strong>, with <strong>Install</strong>;</li>
+  <li><strong>Installed: a "BeeZip" submenu</strong> or <strong>Installed: items at the top level</strong> (the classic menu), or <strong>Installed: Windows 11's menu</strong>, with <strong>Repair</strong> and <strong>Remove</strong>.</li>
+</ul>
+<p>Anything wrong with the registration, such as a missing file or both kinds of menu at once, is listed in red below that line. Each button asks before it changes Explorer.</p>
+<ul>
+  <li><strong>Install</strong> registers the best menu this Windows can have from this copy of BeeZip. On Windows 11, when that can't be Windows' own menu, it says why below the buttons.</li>
+  <li><strong>Repair</strong> registers the same kind of menu again, pointing it at the BeeZip you're running. It fixes a menu that has stopped working.</li>
+  <li><strong>Remove</strong> takes BeeZip out of the menu. Your choice of items stays, for when you install it again.</li>
+</ul>
+
+<h3 id="from-the-command-line">From the command line</h3>
+<pre><code>beezip shell status       # which menu is registered, and anything wrong with it
+beezip shell install      # add the menu, or repair it
+beezip shell uninstall    # remove it</code></pre>
+<p><code>beezip shell install</code> picks the menu as Install does; <code>--mode classic</code> or <code>--mode modern</code> asks for one. Running it again repairs the menu. <code>beezip shell uninstall</code> leaves your settings alone. See <a href="cli.html">The command line</a>.</p>
+
+<h3 id="portable-copy">The portable copy</h3>
+<p>The portable copy installs nothing on its own: add the menu from Settings → Explorer menu → <strong>Install</strong>. It registers the classic menu.</p>
+<div class="note warn"><p>The menu runs BeeZip from the portable copy's folder. Remove the menu before you move or delete that folder, or the menu is left pointing at files that aren't there.</p></div>
+<ul>
+  <li><strong>After moving the folder:</strong> run BeeZip from its new place and click <strong>Repair</strong>.</li>
+  <li><strong>After updating:</strong> when you unzip a new version over the folder, click <strong>Repair</strong> afterwards.</li>
+  <li><strong>If the folder is already gone:</strong> run any copy of BeeZip and click <strong>Remove</strong>, or <strong>Repair</strong> to point the menu at that copy.</li>
+</ul>
+
+<h2 id="choosing-items">Choosing the items</h2>
+<p>Settings → Explorer menu has a checkbox for each item, under <strong>Items</strong>, and <strong>Show the items in a "BeeZip" submenu</strong>, under <strong>Layout</strong>. Turning the submenu off puts each item at the top of the classic menu, with BeeZip's icon. Windows 11's own menu always shows a submenu, so the setting is greyed out there. A change reaches the menu at once.</p>
+<p>Both are in <code>config.toml</code>, under <code>[shell]</code>:</p>
+<pre><code>[shell]
+cascade = true             # classic menu: false puts each item at the top level
+[shell.items]              # every item shows unless set to false
+test = false
+add-tar-zst = false</code></pre>
+<p>The items' keys are <code>open</code>, <code>extract-here</code>, <code>extract-folder</code>, <code>extract-to</code>, <code>test</code>, <code>add-zip</code>, <code>add-7z</code>, <code>add-tar-zst</code> and <code>compress-to</code>. The command line sets them too:</p>
+<pre><code>beezip settings set shell.items.test=false shell.cascade=false</code></pre>
+<p><a href="settings.html">Settings</a> lists every setting.</p>
+
+<h2 id="troubleshooting">Troubleshooting</h2>
+<ul>
+  <li><strong>BeeZip isn't in Windows 11's menu:</strong> look under <strong>Show more options</strong>. Without the signed package, that's where BeeZip goes; see <a href="#two-menus">above</a>.</li>
+  <li><strong>The menu stopped working, or a click does nothing:</strong> click <strong>Repair</strong> in Settings → Explorer menu, or run <code>beezip shell install</code>. Anything listed in red there says what was wrong.</li>
+  <li><strong>You moved or updated a portable copy:</strong> click <strong>Repair</strong> from the copy you now use.</li>
+  <li><strong>Only the add items show:</strong> the selection includes a folder, or a file BeeZip doesn't read by its name.</li>
+  <li><strong>Extract to… is missing:</strong> more than one archive is selected. It takes one.</li>
+  <li><strong>No BeeZip at all:</strong> check that the menu is installed, in Settings → Explorer menu, and that the items you want are ticked. Items inside a zip that Explorer opened as a folder, or on a phone, never get BeeZip's menu.</li>
+  <li><strong>A job window keeps asking about existing files:</strong> choose another answer for <strong>A file is already there</strong> in Settings → Extracting.</li>
+</ul>

@@ -1,0 +1,298 @@
+<!-- {"title": "The desktop app", "description": "How to open, browse, extract, create, edit and convert archives in BeeZip's desktop app, with its jobs panel, command palette, settings and keyboard shortcuts.", "layout": "docs"} -->
+<h1>The desktop app</h1>
+<p class="lede">BeeZip's window opens archives in tabs, where you browse, preview, extract and edit them, and it packs files into new archives. This page goes through the window from top to bottom: opening and browsing, every dialog and its fields, the jobs panel, the command palette, settings and updates, and the keys that do each thing.</p>
+
+<h2 id="getting-around">Getting around</h2>
+
+<h3 id="welcome-screen">The welcome screen</h3>
+<p>With no archive open, BeeZip shows its welcome screen: <strong>Open archive…</strong>, <strong>New archive…</strong> and <strong>Settings</strong>, and a drop target. Drop an archive on it to browse it, or files and folders to pack them into a new archive.</p>
+
+<h3 id="tabs">Tabs</h3>
+<p>Each open archive has a tab along the top of the window. Hover a tab to see the archive's full path. Close a tab with its <strong>×</strong>, a middle-click, or <kbd>Ctrl</kbd>+<kbd>W</kbd>.</p>
+<p>At the right of the tab strip are <strong>Open</strong>, <strong>New archive</strong>, <strong>Commands</strong> (the <a href="#command-palette">command palette</a>) and <strong>About BeeZip</strong>, which shows the version, a <strong>Check for updates</strong> button, the formats BeeZip reads, creates and encrypts, and the third-party notices.</p>
+
+<h3 id="opening-archives">Opening archives</h3>
+<ul>
+  <li><strong>Open:</strong> <strong>Open</strong> in the tab strip, <strong>Open archive…</strong> on the welcome screen, or <kbd>Ctrl</kbd>+<kbd>O</kbd>. You can pick several archives at once; each opens in its own tab.</li>
+  <li><strong>Drag and drop:</strong> drop one archive on the welcome screen or the tab strip and it opens. Several files, or a file that isn't an archive, go into the <a href="#creating">New archive</a> dialog instead. Dropped on an open archive's entries, files are <a href="#adding">added to that archive</a>.</li>
+  <li><strong>Double-click in Explorer:</strong> once BeeZip is installed, it's offered for zip, 7z, rar, tar and the compressed and split formats. Windows asks which app to use the first time you open each kind of file. The portable copy leaves file types alone. See <a href="../download.html">Download</a>.</li>
+  <li><strong>From Explorer's menu:</strong> <strong>Open with BeeZip</strong> opens each selected archive in a tab, <strong>Extract to…</strong> opens the Extract dialog, and <strong>Compress to…</strong> opens New archive with the selection. See <a href="explorer.html">Explorer's menu</a>.</li>
+</ul>
+<p>Launching BeeZip again, such as by double-clicking another archive, opens that archive in the window that's already running, rather than in a second window. An archive that's already open switches to its tab.</p>
+<p>A split archive opens from any of its parts, and BeeZip recognises a format by its content, not its extension. Opening a file that isn't an archive says so; drop it on the window to pack it into a new one. Some formats are read through an installed 7-Zip; without it, opening one says what to install. See <a href="formats.html">Formats</a>.</p>
+
+<h2 id="browsing">Browsing an archive</h2>
+<p>An archive's tab has a toolbar along the top, the folder tree on the left, the entries in the middle, the preview on the right, and a status line at the bottom.</p>
+<p>The toolbar starts with the path to the folder shown. Click the archive's name to go to the top, or any folder in the path to go there. <strong>Up one folder</strong> (the arrow, or <kbd>Backspace</kbd>) goes up a level.</p>
+
+<h3 id="folder-tree">The folder tree</h3>
+<p>The tree lists the archive's folders. Click a folder to show its entries, and click the arrow beside it to open or close it without going there. Each level is read the first time you open it.</p>
+
+<h3 id="entries">The entries</h3>
+<p>The table lists the folder shown, one row per entry: <strong>Name</strong>, <strong>Size</strong>, <strong>Packed</strong>, <strong>Modified</strong>, <strong>Method</strong>, <strong>CRC</strong> and a lock for encrypted entries. Beside the packed size, a thin bar shows how much of the entry's size it takes; hover it for the percentage. A symbolic link shows the path it points to.</p>
+<p>The entries start in the archive's own order. Click a column's header to sort by it, and again to reverse; folders stay first. BeeZip sorts the whole folder, not just the rows on screen, and a folder of a million entries is fine.</p>
+<p>Double-click a folder, or press <kbd>Enter</kbd>, to go into it. Double-clicking a file opens it; see <a href="#opening-entries">Opening an entry</a>.</p>
+
+<h3 id="selecting">Selecting entries</h3>
+<ul>
+  <li><strong>Mouse:</strong> click a row to select it. <kbd>Ctrl</kbd>+click adds or removes a row, <kbd>Shift</kbd>+click selects every row from the last one clicked, and <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+click adds that range to the selection.</li>
+  <li><strong>Keyboard:</strong> <kbd>↑</kbd> and <kbd>↓</kbd> move a row, <kbd>Page Up</kbd> and <kbd>Page Down</kbd> move 20, and <kbd>Home</kbd> and <kbd>End</kbd> go to the first and last row. Hold <kbd>Shift</kbd> with any of them to extend the selection.</li>
+  <li><strong>Everything:</strong> <kbd>Ctrl</kbd>+<kbd>A</kbd> selects every entry in the folder shown, however many there are. <kbd>Esc</kbd> clears the selection.</li>
+</ul>
+<p>Going to another folder, or sorting again, clears the selection.</p>
+
+<h3 id="preview">The preview</h3>
+<p>Select one file and the preview pane shows it, with its size, method and date at the top. Selecting a folder clears the pane; selecting several entries leaves it as it was.</p>
+<ul>
+  <li><strong>Text</strong> shows the first 64 KiB, with <strong>Load more</strong> for the next 64 KiB. Bytes that aren't UTF-8 show as �, and the pane says so.</li>
+  <li><strong>Images</strong> (PNG, JPEG, GIF, WebP, BMP, ICO and SVG) show up to 16 MiB. A larger image says to extract it instead.</li>
+  <li><strong>Anything else</strong> shows as hex: the first 64 KiB, eight bytes a row, with the printable characters beside them.</li>
+</ul>
+<p>BeeZip decides by the file's extension first and, for an extension it doesn't know, by its first bytes. In a <em>solid</em> archive, where files are compressed together, previewing a file means decoding everything stored before it in its block, so the pane asks first: click <strong>Preview files</strong> once and the tab previews from then on.</p>
+<p>When the window is narrower than about 1,000 pixels, the preview pane is left out.</p>
+
+<h3 id="resizing-panes">Resizing the panes</h3>
+<p>Drag the edge between the folder tree and the entries, or between the entries and the preview, to make the tree or the preview wider. The entries always keep some room: the preview gives way first, then the tree. Double-click an edge to put that pane back to its default width. An edge also takes the arrow keys, <kbd>Home</kbd> and <kbd>End</kbd> once it has the keyboard focus.</p>
+<p>BeeZip keeps the sizes for every tab, and for the next time you start it. The <a href="#jobs-panel">jobs panel</a> has an edge of its own.</p>
+
+<h3 id="status-line">The status line</h3>
+<p>The line under the entries counts the items in the folder and the ones selected, says why the archive can't be edited when it can't, and gives the archive's format, its unpacked and packed sizes, and whether it's encrypted or solid.</p>
+
+<h2 id="extracting">Extracting</h2>
+<p>The toolbar's first button says what it extracts: <strong>Extract all</strong> with nothing selected, or <strong>Extract 1 item</strong>, <strong>Extract 12 items</strong> and so on. It opens the Extract dialog for the selection. <kbd>Ctrl</kbd>+<kbd>E</kbd>, and <strong>Extract a.zip…</strong> in the command palette, open it for the whole archive.</p>
+
+<h3 id="extract-dialog">The Extract dialog</h3>
+<table>
+  <thead>
+    <tr><th>Field</th><th>What it does</th></tr>
+  </thead>
+  <tbody>
+    <tr><td><strong>Destination</strong></td><td>The folder to extract into; it starts as the archive's own folder. <strong>Browse…</strong> picks another.</td></tr>
+    <tr><td><strong>Into a folder named after the archive, if it holds more than one item</strong></td><td>On by default. When what you extract has more than one item at its top level, it goes into a new folder named after the archive (<code>photos.tar.zst</code> into <code>photos\</code>). A single folder or file goes straight into the destination.</td></tr>
+    <tr><td><strong>Entries</strong></td><td><strong>All entries</strong>, or <strong>Selected entries</strong>, with how many.</td></tr>
+    <tr><td><strong>Existing files</strong></td><td>What to do when a file is already there: <strong>Ask each time</strong> (the default), <strong>Replace</strong>, <strong>Replace if the archive's copy is newer</strong>, <strong>Keep both (rename the new one)</strong>, or <strong>Skip</strong>.</td></tr>
+    <tr><td><strong>Password</strong></td><td>Only for encrypted entries. A password you've already typed for the tab is filled in.</td></tr>
+    <tr><td><strong>Strip folders</strong></td><td>Drops this many leading folders from every path. With 1, <code>project/src/main.c</code> is written as <code>src/main.c</code>.</td></tr>
+    <tr><td><strong>Links</strong></td><td>Create symbolic links that stay inside the destination. Links that lead outside it are never created, and hard links are extracted as copies.</td></tr>
+  </tbody>
+</table>
+<p><strong>Show plan</strong> lists what would be written, and where, without writing anything; entries that would be skipped say why. <strong>Extract</strong> starts the job, which shows in the <a href="#jobs-panel">jobs panel</a>.</p>
+
+<h3 id="extract-safety">Entries that aren't extracted as stored</h3>
+<p>Extraction never writes outside the destination. Entries whose paths lead out of it, and links that do, are skipped. Names Windows can't store, such as <code>CON</code> or names with <code>:</code> in them, are renamed, and the result counts them. When anything was skipped for safety, the rest is still extracted, then the job ends with an <code>Unsafe</code> error and a <strong>Show report</strong> button, which lists the entries skipped, and why, and the ones renamed. Extracted files keep the archive's <em>downloaded</em> mark, as Explorer's do, so Windows still warns before opening a program from a downloaded archive. <a href="safety.html">Safety</a> has the details, and Settings changes the defaults.</p>
+
+<h2 id="creating">Creating archives</h2>
+<p><strong>New archive</strong> (<kbd>Ctrl</kbd>+<kbd>N</kbd>) opens the New archive dialog. So do files dropped on the welcome screen or the tab strip, and <strong>Compress to…</strong> in Explorer's menu, with those files already in it.</p>
+
+<h3 id="new-archive-dialog">The New archive dialog</h3>
+<p>Fields that don't apply to the format you choose are hidden.</p>
+<table>
+  <thead>
+    <tr><th>Field</th><th>What it does</th></tr>
+  </thead>
+  <tbody>
+    <tr><td><strong>Files and folders</strong></td><td>What goes in. <strong>Add files…</strong> and <strong>Add folder…</strong> add more, and so does dropping them on the window while the dialog is open. Each has a <strong>×</strong> to take it out.</td></tr>
+    <tr><td><strong>Save as</strong></td><td>The new archive's path. It starts beside the first item, named after it (one item) or after the folder they're in (several). <strong>Browse…</strong> picks another.</td></tr>
+    <tr><td><strong>Format</strong></td><td>Every format BeeZip writes: zip, 7z, tar and cpio (plain or compressed, such as <code>tar.zst</code>), ar, cab, iso, squashfs and dmg. Changing it changes the extension in <strong>Save as</strong>. See <a href="formats.html">Formats</a>.</td></tr>
+    <tr><td><strong>Method</strong></td><td>For formats with more than one, such as zip and 7z. The first choice, marked <strong>(default)</strong>, is <code>deflate</code> for zip and <code>lzma2</code> for 7z.</td></tr>
+    <tr><td><strong>Level</strong></td><td>A slider over the method's or codec's levels, the lowest fastest and the highest smallest. Leave it alone and the job uses your default level for that codec or method, which Settings → Creating sets.</td></tr>
+    <tr><td><strong>Solid</strong></td><td>7z only, on by default: compresses files together, which is smaller but slower when you read one file.</td></tr>
+    <tr><td><strong>Threads</strong></td><td>For formats and codecs that compress on several threads. Empty uses the setting in Settings; 0 is one per core.</td></tr>
+    <tr><td><strong>Password</strong></td><td>zip and 7z only. Leave it empty for no encryption. For zip, choose <strong>AES-256</strong> or <strong>ZipCrypto (weak, for old tools)</strong>. For 7z, <strong>Encrypt file names too</strong> is on, so nobody can list the archive without the password.</td></tr>
+    <tr><td><strong>Split into volumes</strong></td><td>A size such as <code>100m</code>, <code>4g</code> or <code>700MB</code> (in powers of 1024), for an archive in parts: <code>a.7z.001</code>, <code>a.7z.002</code>… Empty writes one file. Every format can be split.</td></tr>
+    <tr><td><strong>Leave out</strong></td><td>Patterns of files to skip, one per line, such as <code>*.tmp</code> or <code>node_modules</code>.</td></tr>
+  </tbody>
+</table>
+<p><strong>Create</strong> starts the job. BeeZip doesn't write over an existing file: when <strong>Save as</strong> names one that's there, the job fails and says so.</p>
+
+<h2 id="editing">Editing an archive</h2>
+<p>You can add to, delete from and rename entries in zip, 7z, tar, cpio and ar archives, tar and cpio compressed or not. Each edit runs as a job, and when it ends the tab lists the same folder again, with the same entries selected.</p>
+
+<h3 id="adding">Adding files</h3>
+<p><strong>Add files…</strong> and <strong>Add folder…</strong> in the toolbar pick what to add, then open the add dialog. Dropping files on the entries opens it too, with the dropped files: the dialog is the confirmation, so a stray drop changes nothing. While you drag over the window, it says what a drop there will do.</p>
+<table>
+  <thead>
+    <tr><th>Field</th><th>What it does</th></tr>
+  </thead>
+  <tbody>
+    <tr><td><strong>Files and folders</strong></td><td>What goes in, as in New archive.</td></tr>
+    <tr><td><strong>Into the folder</strong></td><td>The folder inside the archive, which starts as the one shown. Empty is the top. A folder that isn't there is made.</td></tr>
+    <tr><td><strong>Already there</strong></td><td>When the archive already has an entry at a file's path: <strong>As in the settings</strong> (the default, naming what Settings says), <strong>Ask each time</strong>, <strong>Replace the archive's entry</strong>, <strong>Replace it if the file is newer</strong>, <strong>Keep both, adding the new one as “name (1)”</strong>, or <strong>Skip the file</strong>.</td></tr>
+    <tr><td><strong>Method</strong> and <strong>Level</strong></td><td>For the new files. In a compressed tar the whole archive is compressed again, at this level.</td></tr>
+    <tr><td><strong>Encrypt the new files</strong></td><td>zip and 7z. When the archive already has encrypted entries, this starts on and needs a password; turn it off to add the new files unencrypted beside them. In a 7z whose names are encrypted, new files always take its password.</td></tr>
+  </tbody>
+</table>
+<p><strong>Add</strong> starts the job.</p>
+
+<h3 id="deleting">Deleting entries</h3>
+<p><strong>Delete</strong> in the toolbar, or <kbd>Del</kbd>, deletes the selected entries. A folder takes everything in it. Windows' own dialog asks first (“Delete 3 items from a.zip?”), since it can't be undone.</p>
+
+<h3 id="renaming">Renaming an entry</h3>
+<p><strong>Rename</strong> in the toolbar, or <kbd>F2</kbd>, turns the selected entry's name into a field, with the name before its extension selected. <kbd>Enter</kbd> saves and <kbd>Esc</kbd> cancels, as does clicking elsewhere. A name can't be empty or contain <code>/</code> or <code>\</code>. When the new name is taken, or the rename fails, the reason shows beside the field and you can try another. Renaming a folder renames everything in it.</p>
+
+<h3 id="cant-be-edited">What can't be edited</h3>
+<p>RAR archives, split and self-extracting archives, read-only files, and the formats BeeZip only reads (or writes but doesn't edit, such as CAB and the disk images) can't be edited. For those, the add, rename and delete buttons are disabled: hover one, or look at the status line, for the reason. Files dropped on such an archive's entries open New archive instead, saying why. <a href="#convert">Convert</a> turns a split or self-extracting archive into one you can edit.</p>
+
+<h3 id="how-edits-are-written">How an edit is written</h3>
+<p>BeeZip never writes into the archive. It writes a new one beside it and swaps it in, so an edit that fails, or that you cancel, leaves the archive as it was. Entries that stay are copied without being decoded: zip entries byte for byte, whole 7z blocks, and tar, cpio and ar members. A solid 7z block that loses an entry is encoded again, and so is a compressed tar's or cpio's stream. The archive keeps its downloaded mark, hidden attribute and creation time.</p>
+
+<h2 id="opening-entries">Opening an entry</h2>
+<p>Double-click a file, or press <kbd>Enter</kbd> on it, and BeeZip extracts it to its temp folder and opens it:</p>
+<ul>
+  <li>an archive BeeZip reads opens in a new tab;</li>
+  <li>a program, script, installer or shortcut asks first: “Run setup.exe from a.zip?”, with <strong>Cancel</strong> focused, so <kbd>Enter</kbd> doesn't run it. Windows checks a program run this way as it does a download;</li>
+  <li>anything else opens in the app Windows uses for its type.</li>
+</ul>
+<p>An entry over 16 MiB shows its extraction in the jobs panel. Opened files stay in the temp folder while an app may still be using them; BeeZip clears out those older than a day.</p>
+
+<h3 id="updating-entries">Updating the archive after a change</h3>
+<p>Change a file you opened from an archive, save it, and come back to BeeZip. It asks: “readme.txt was changed. Update it in a.zip?”</p>
+<ul>
+  <li><strong>Update</strong> puts the changed file back in place of the entry. An encrypted entry is added with the password you typed for the tab.</li>
+  <li><strong>Not now</strong> leaves the archive alone. If you change the file again, BeeZip asks again.</li>
+</ul>
+<p>Closing the tab forgets its opened files. A file whose name BeeZip had to change when extracting it isn't offered for updating.</p>
+
+<h2 id="dragging-out">Dragging entries out</h2>
+<p>On Windows, drag selected entries from the table onto Explorer or the desktop. BeeZip extracts them when you let go, as 7-Zip does, so Explorer waits until they're out. The extraction shows in the jobs panel, and asks for a password if it needs one.</p>
+<ul>
+  <li><strong>Move or copy:</strong> a plain drag moves the files out of BeeZip's temp folder; hold <kbd>Ctrl</kbd> to copy them instead. Either way, nothing leaves the archive.</li>
+  <li><strong>Where they land:</strong> entries arrive without the folders above the one shown. Dragging <code>report.pdf</code> while you're in <code>docs/2026</code> drops <code>report.pdf</code>, not <code>docs\2026\report.pdf</code>.</li>
+  <li><strong>Several entries:</strong> pressing on one row of a selection keeps the whole selection, so a drag takes all of it. A click without a drag selects just that row.</li>
+  <li><strong>The 2 GiB rule:</strong> a selection of more than 2 GiB doesn't drag. The Extract dialog opens for it instead, saying why: Explorer would stop responding until it was all extracted.</li>
+</ul>
+<p>BeeZip never drops entries on its own window.</p>
+
+<h2 id="more-tools">Test, Info, Convert and more</h2>
+
+<h3 id="test">Test</h3>
+<p><strong>Test</strong> in the toolbar reads every entry back and checks it against its CRC, without writing anything. When it passes, BeeZip says “a.zip is OK”, with how many entries and bytes it checked. A disk image read through 7-Zip stores no checksums, and the result says what was checked instead.</p>
+
+<h3 id="info">Info</h3>
+<p><strong>Archive info</strong> (the <strong>i</strong> in the toolbar) shows the archive's format; the program that reads it, for formats read through 7-Zip; how many entries, files, folders and links it holds; its size, packed size and ratio; the methods; whether it's encrypted (none, some entries or every entry, and whether the names are too); whether it's solid, and in how many blocks; and its volumes, comment and notes where it has them. The dialog also has the tab's <a href="#name-encoding">name encoding</a>.</p>
+
+<h3 id="convert">Convert</h3>
+<p><strong>Convert…</strong> in the toolbar writes the archive again in another format, or with other options. The source stays as it was. The dialog is New archive's, with <strong>Source</strong> in place of the files: the new archive starts beside the source with the same name and the new extension, as 7z for a zip and as zip otherwise. <strong>Leave out</strong> skips entries, and <strong>Split into volumes</strong> splits the result.</p>
+<ul>
+  <li><strong>Encrypted sources</strong> stay encrypted: give the new archive a password (the tab's is filled in when you've typed it), or tick <strong>Write a.zip's encrypted entries without a password</strong>. Formats that can't be encrypted, such as tar, need the tick.</li>
+  <li><strong>Copies where it can:</strong> converting to the same format, with no option asking for something else, copies entries without decoding them. <code>a.tar.gz</code> to <code>a.tar.zst</code> copies the tar entries and compresses the stream again.</li>
+  <li><strong>What the new format can't hold</strong>, such as a symbolic link in a format without links, is left out, and the result says how many entries were.</li>
+</ul>
+
+<h3 id="name-encoding">Name encoding</h3>
+<p>Some archives store names as bytes rather than Unicode: zips without the UTF-8 flag, and tars, among others. BeeZip reads those as UTF-8 when they are, and otherwise in Windows' own code page. When an archive's names look wrong, it was probably written in another code page: choose <strong>Name encoding for a.zip…</strong> in the command palette, or <strong>Name encoding</strong> in the Info dialog, and pick one under <strong>Read the names as</strong>, such as <strong>Japanese, Shift-JIS (932)</strong> or <strong>DOS, Cyrillic (866)</strong>. The tab lists again from the top, and every command on it uses that encoding until you close it. <strong>As in the settings</strong> goes back to the default, which Settings sets.</p>
+
+<h3 id="benchmark">Benchmark</h3>
+<p><strong>Benchmark the codecs…</strong> in the command palette opens the Benchmark dialog. Each codec compresses and decompresses a sample in memory; nothing is written.</p>
+<ul>
+  <li><strong>Sample:</strong> BeeZip's own, 8 MiB of text, JSON, code, binary tables and random bytes; or a file of yours, read as 16 slices across it.</li>
+  <li><strong>Cells:</strong> the common codecs and levels (about 10 seconds), every codec at every level (a few minutes), or zstd and xz on 1, 4 and all threads (64 MiB, about a minute).</li>
+</ul>
+<p><strong>Run</strong> starts it, and each result appears as it finishes. The chart plots size against speed, with <strong>Compression speed</strong> and <strong>Decompression speed</strong> to switch between them; hover a point for its numbers. The table under it has every cell: codec, level, threads, size, both speeds, the memory each way, and the time. <strong>Cancel</strong> stops it, and so does closing the dialog.</p>
+
+<h2 id="jobs-panel">The jobs panel</h2>
+<p>Everything BeeZip extracts, creates, tests, edits or converts runs as a job, in the panel at the bottom of the window. Until something runs, the panel is a status line saying <strong>No jobs</strong>. It opens when a job starts; <strong>Hide</strong> and <strong>Show</strong> close and open it, and <strong>Clear finished</strong> takes away the jobs that have ended. Quick work, such as listing a folder or reading a preview, doesn't show here.</p>
+
+<h3 id="job-progress">Each job</h3>
+<ul>
+  <li><strong>While it runs:</strong> a progress bar, the bytes and entries done out of the total, the speed, and the file being worked on. <strong>Cancel</strong> stops it and removes any files it had started writing.</li>
+  <li><strong>When it ends:</strong> one line saying what it did (“Extracted 214 files, 18 MiB, to C:\Users\you\Downloads\photos”), or the error. A job that skipped unsafe entries has <strong>Show report</strong>.</li>
+  <li><strong>Long text:</strong> hover a job's title, or the file being worked on, to see all of it.</li>
+</ul>
+
+<h3 id="job-log">Logs and Copy</h3>
+<p>A job that wrote log lines has <strong>Log</strong>, with their count, which shows them in the list: the first 1,000 lines, then a note saying how many more there are. <strong>Copy</strong>, on a job with a log or an error, puts its title, its result or error, and its whole log on the clipboard.</p>
+
+<h3 id="resizing-jobs">Resizing the jobs list</h3>
+<p>Drag the top edge of the jobs list to make it taller or shorter. Until you do, the list fits its jobs, up to a little over a third of the window. Double-click the edge to go back to that. BeeZip keeps the height for next time.</p>
+
+<h3 id="closing-with-jobs">Closing with jobs running</h3>
+<p>Closing the window while jobs run asks first: <strong>Cancel and quit</strong> cancels them, waits for them to remove their partly written files, and closes; <strong>Keep working</strong> leaves them running.</p>
+
+<h2 id="prompts">Passwords and existing files</h2>
+<p>BeeZip asks these questions as they come up. When several jobs ask at once, the questions come one at a time.</p>
+
+<h3 id="password-prompt">Passwords</h3>
+<p>An encrypted archive, or an encrypted entry, brings up <strong>Password needed</strong>, naming the entry. Type the password and click <strong>Unlock</strong>; the eye button shows what you typed. BeeZip keeps the password in memory for that tab, and passes it to everything you do in the tab afterwards, until you close it. It never saves it.</p>
+
+<h3 id="overwrite-prompt">Files that are already there</h3>
+<p>When extracting would write over a file and <strong>Existing files</strong> is <strong>Ask each time</strong>, BeeZip shows the file's path and asks:</p>
+<ul>
+  <li><strong>Replace</strong> or <strong>Replace all</strong>: write over this file, or every one from now on;</li>
+  <li><strong>Skip</strong> or <strong>Skip all</strong>: keep the file that's there;</li>
+  <li><strong>Keep both</strong>: extract the new one under another name, such as <code>name (1).txt</code>;</li>
+  <li><strong>Cancel</strong>: stop the job.</li>
+</ul>
+<p>Adding to an archive asks the same way when an entry is already there (“notes.txt is already in a.zip”): <strong>Replace</strong> puts the new file in its place, and <strong>Keep both</strong> adds it under a new name.</p>
+
+<h2 id="command-palette">The command palette</h2>
+<p><kbd>Ctrl</kbd>+<kbd>K</kbd>, or <strong>Commands</strong> in the tab strip, opens the command palette. Type to filter: every word you type must appear in an item. It lists two groups:</p>
+<ul>
+  <li><strong>BeeZip:</strong> the app's actions, named after the tab you're on: <strong>Open archive…</strong>, <strong>New archive…</strong>, <strong>Extract a.zip…</strong>, <strong>Test a.zip</strong>, <strong>Add files to a.zip…</strong>, <strong>Add a folder to a.zip…</strong>, <strong>Rename in a.zip</strong>, <strong>Delete selected from a.zip</strong>, <strong>Convert a.zip…</strong>, <strong>Info on a.zip</strong>, <strong>Name encoding for a.zip…</strong>, <strong>Close a.zip</strong>, <strong>Benchmark the codecs…</strong>, <strong>Settings…</strong>, <strong>Theme: System</strong>, <strong>Theme: Light</strong>, <strong>Theme: Dark</strong> and <strong>About BeeZip</strong>. An action that has a key shows it; one that can't run now is greyed, with the reason.</li>
+  <li><strong>Commands:</strong> every BeeZip command, as the <a href="cli.html">command line</a> has them. A command with a dialog of its own opens it, and one that takes only an archive runs on the tab you're on. Any other gets a form built from its options, with <strong>Run</strong>.</li>
+</ul>
+
+<h3 id="copy-as-cli">Copy as CLI</h3>
+<p>The Extract, New archive, Convert, add and Benchmark dialogs, and the palette's forms, have <strong>Copy as CLI</strong>. It shows the <code>beezip</code> command that does the same as the dialog, filled in as it is now, and copies it to the clipboard. A password is left out, and the line says so: the command asks for it when you run it. See <a href="cli.html">The command line</a>.</p>
+
+<h2 id="settings">Settings</h2>
+<p><strong>Settings</strong> opens from the welcome screen, from <strong>Settings…</strong> in the command palette, or with <kbd>Ctrl</kbd>+<kbd>,</kbd>. Its sections are Appearance, Extracting, Editing, Creating, Limits, Job windows, Updates, Explorer menu, 7-Zip and MCP server.</p>
+<ul>
+  <li><strong>Saved as you go:</strong> each change is written to <code>config.toml</code> as you make it, keeping the file's comments, and the next job uses it. There's nothing to apply.</li>
+  <li><strong>Errors beside the field:</strong> a value BeeZip can't take shows its error beside the field and isn't saved.</li>
+  <li><strong>The file:</strong> its path is at the bottom, with <strong>Open config.toml</strong> and <strong>Show in folder</strong>. When the file can't be used, the page says why, and BeeZip uses the defaults until it's fixed.</li>
+</ul>
+<p><a href="settings.html">Settings</a> describes every setting.</p>
+
+<h3 id="theme">Theme</h3>
+<p>Choose <strong>System</strong> (which follows Windows' light or dark mode), <strong>Light</strong> or <strong>Dark</strong> in Settings → Appearance, or from the palette's <strong>Theme: …</strong> actions, where the current one says <strong>current</strong>. Every BeeZip window switches at once, and BeeZip starts in that theme next time.</p>
+
+<h2 id="updates">Updates</h2>
+<p>At most once a day, when it starts, BeeZip asks GitHub for its newest release. When there's a newer one, a banner below the tab strip names it, with <strong>What's new</strong>, which opens the release notes.</p>
+<ul>
+  <li><strong>Update and restart</strong> downloads the new version, checks its signature against the release's version, and installs it; BeeZip restarts. Nothing downloads before you click. While jobs run, the button says <strong>Update when the jobs finish</strong>, and the update waits for them rather than cancelling them.</li>
+  <li><strong>Not now</strong> (the <strong>×</strong>) hides the banner until BeeZip starts again.</li>
+  <li><strong>Check for updates</strong> in About BeeZip asks now, whatever the setting and however recently it last asked.</li>
+  <li><strong>Turning it off:</strong> Settings → Updates → <strong>Look for updates</strong>.</li>
+</ul>
+<p>The command line and the MCP server never check for updates.</p>
+
+<h3 id="portable-updates">The portable copy</h3>
+<p>A portable copy doesn't install updates. Its banner has <strong>Download</strong> instead of <strong>Update and restart</strong>, which opens the new zip in your browser. To update, close BeeZip and unzip the new version over the folder. If you added Explorer's menu from that copy, click <strong>Repair</strong> in Settings → Explorer menu afterwards; see <a href="explorer.html#portable-copy">Explorer's menu</a>.</p>
+
+<h2 id="keyboard-shortcuts">Keyboard shortcuts</h2>
+<table>
+  <thead>
+    <tr><th>Keys</th><th>What they do</th></tr>
+  </thead>
+  <tbody>
+    <tr><td><kbd>Ctrl</kbd>+<kbd>K</kbd></td><td>Open or close the command palette</td></tr>
+    <tr><td><kbd>Ctrl</kbd>+<kbd>O</kbd></td><td>Open an archive</td></tr>
+    <tr><td><kbd>Ctrl</kbd>+<kbd>N</kbd></td><td>New archive</td></tr>
+    <tr><td><kbd>Ctrl</kbd>+<kbd>E</kbd></td><td>Extract the archive in the current tab</td></tr>
+    <tr><td><kbd>Ctrl</kbd>+<kbd>W</kbd></td><td>Close the current tab</td></tr>
+    <tr><td><kbd>Ctrl</kbd>+<kbd>,</kbd></td><td>Settings</td></tr>
+    <tr><td><kbd>↑</kbd> <kbd>↓</kbd></td><td>Move one entry (with <kbd>Shift</kbd>: extend the selection)</td></tr>
+    <tr><td><kbd>Page Up</kbd> <kbd>Page Down</kbd></td><td>Move 20 entries (with <kbd>Shift</kbd>: extend the selection)</td></tr>
+    <tr><td><kbd>Home</kbd> <kbd>End</kbd></td><td>Go to the first or last entry (with <kbd>Shift</kbd>: extend the selection)</td></tr>
+    <tr><td><kbd>Ctrl</kbd>+<kbd>A</kbd></td><td>Select every entry in the folder</td></tr>
+    <tr><td><kbd>Esc</kbd></td><td>Clear the selection</td></tr>
+    <tr><td><kbd>Enter</kbd></td><td>Open the folder or file</td></tr>
+    <tr><td><kbd>Backspace</kbd></td><td>Up one folder</td></tr>
+    <tr><td><kbd>Del</kbd></td><td>Delete the selected entries (asks first)</td></tr>
+    <tr><td><kbd>F2</kbd></td><td>Rename the entry; then <kbd>Enter</kbd> saves and <kbd>Esc</kbd> cancels</td></tr>
+    <tr><td><kbd>Ctrl</kbd> while dragging out</td><td>Copy rather than move (Windows)</td></tr>
+  </tbody>
+</table>
+<p>The entry keys work while the table has the focus: click a row first.</p>
+
+<h2 id="linux-and-macos">On Linux and macOS</h2>
+<p>The app is the same on Linux and macOS, with these differences:</p>
+<ul>
+  <li><strong>No Explorer:</strong> there's no right-click menu, no job windows, and no dragging entries out to the file manager. Settings leaves out the Explorer menu and Job windows sections.</li>
+  <li><strong>Opening archives:</strong> from the file manager's <em>Open With</em> on Linux, or Finder's <em>Open With</em> on macOS, for the archive types BeeZip registers. Opening another archive while BeeZip runs adds a tab to the running window, as on Windows.</li>
+  <li><strong>Keys:</strong> on macOS, <kbd>⌘</kbd> works wherever this page says <kbd>Ctrl</kbd>.</li>
+  <li><strong>The downloaded mark:</strong> on macOS, extracted files keep the archive's quarantine, as Archive Utility does, so macOS still checks an app that came in a download. Linux has no such mark, and Settings leaves the setting out there.</li>
+  <li><strong>Settings</strong> are in <code>~/.config/BeeZip/config.toml</code> on Linux and <code>~/Library/Application Support/BeeZip/config.toml</code> on macOS.</li>
+</ul>
+<p><a href="../download.html">Download</a> covers installing on each.</p>

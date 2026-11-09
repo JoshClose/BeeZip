@@ -3,8 +3,10 @@
 # the Linux deb, rpm and AppImage, and the macOS disk image (arm64, signed ad hoc), and PUBLISHES
 # the release vV with them, the updater's bundles and .sig files, and one latest.json. It goes up
 # as a draft first and is published once every file is there. GitHub adds the source code's zip
-# and tar.gz itself. Run by hand (Actions > Release > Run workflow), it is a dry run: the same
-# builds, kept as the run's artifacts, and no release.
+# and tar.gz itself. Its notes are the version's section of CHANGELOG.md, written for the people
+# using BeeZip; a tag without one stops in the `windows` job, before the builds. Run by hand
+# (Actions > Release > Run workflow), it is a dry run: the same builds, kept as the run's
+# artifacts, and no release.
 #
 # Before 1.0.0, Windows gets the portable zip only: the installer waits for 1.0.0, which must be
 # signed. A tag of 1.0.0 or later with no signing set up stops in the `windows` job.
@@ -61,6 +63,9 @@ jobs:
       - name: The tag is the workspace's version
         if: github.event_name == 'push'
         run: cargo xtask release --check-tag "$GITHUB_REF_NAME"
+      - name: CHANGELOG.md says what's new in it, for the release notes
+        if: github.event_name == 'push'
+        run: bash .github/scripts/changelog-notes.sh CHANGELOG.md "${GITHUB_REF_NAME#v}" > /dev/null
       - uses: pnpm/action-setup@v6
         with: { package_json_file: apps/desktop/package.json }
       - uses: actions/setup-node@v7
@@ -285,7 +290,12 @@ jobs:
           dups=$(printf '%s\n' "${release_files[@]##*/}" | sort | uniq -d)
           if [ -n "$dups" ]; then echo "::error::two platforms made files of one name: $dups"; exit 1; fi
           if [ -f latest.json ]; then release_files+=(latest.json); fi
+          # What's new, from CHANGELOG.md, then where to start with each platform's files.
           {
+            bash repo/.github/scripts/changelog-notes.sh repo/CHANGELOG.md "$version"
+            echo
+            echo "## Downloads"
+            echo
             if [ "${version%%.*}" -eq 0 ]; then
               echo "**Windows:** unzip \`BeeZip_${version}_x64-portable.zip\` anywhere and run \`BeeZip.exe\`. Nothing is installed; the README in the zip says the rest. The installer comes with BeeZip 1.0.0."
             else
@@ -307,9 +317,8 @@ jobs:
             gh release upload "$tag" "${release_files[@]}" --clobber
           else
             # A draft with every file first, then published, so nobody sees a release half there.
-            # GitHub's notes (the pull requests since the last release) follow notes.md.
             gh release create "$tag" --draft --verify-tag --title "BeeZip ${version}" \
-              --notes-file notes.md --generate-notes "${release_files[@]}"
+              --notes-file notes.md "${release_files[@]}"
           fi
           gh release edit "$tag" --draft=false
           echo "Published $tag: $(gh release view "$tag" --json url --jq .url)" >> "$GITHUB_STEP_SUMMARY"

@@ -2,6 +2,8 @@
 
 An archive manager for Windows, also built for Linux and macOS, with a desktop app, a command-line tool (`beezip`) and an MCP server, all driven by one Rust command engine.
 
+**Website, downloads and documentation:** <https://joshclose.github.io/BeeZip/>. What's new in each version is in [CHANGELOG.md](CHANGELOG.md).
+
 > **Status:** milestone M5 is done: the engine, the command line, the MCP server and the desktop app read, write and edit zip, 7z, tar, cpio and ar, write CAB and the disk images (ISO, squashfs, DMG), read RAR, Debian packages, RPMs, CAB, LHA, UDF and the disk images, and Explorer's right-click menu reaches them. See [`docs/PLAN.md`](docs/PLAN.md) for the architecture and roadmap, and [`docs/M5.md`](docs/M5.md) for the current milestone.
 
 ## Building
@@ -22,9 +24,10 @@ pnpm tauri dev      # the desktop app, reloading as you edit
 - **Bindings:** after changing a command's input or output types, regenerate the TypeScript bindings with `cargo xtask codegen`.
 - **Installer:** `cargo xtask dist` builds it (`target\dist\release\bundle\nsis\BeeZip_<version>_x64-setup.exe`), and the portable copy beside it (`bundle\portable\BeeZip_<version>_x64-portable.zip`); `--debug` is quicker. On Linux it builds the deb, rpm and AppImage, and on macOS the app and its disk image (`target/dist/release/bundle/…`), signed ad hoc unless `APPLE_SIGNING_IDENTITY` names a Developer ID. `--sign-dev` adds Windows 11's menu as a package signed with the certificate `cargo xtask dev-cert` makes; Windows installs it once that certificate is trusted, with the elevated command dev-cert prints. `BEEZIP_SIGN` chooses how a build is signed (`none`, `dev`, `pfx` with `BEEZIP_SIGN_PFX` and its password, or `artifact` for Azure Artifact Signing); `packaging/windows/sign.ps1` does the signing.
 - **Third-party notices:** `cargo xtask notices` regenerates `THIRD_PARTY_NOTICES.md` with cargo-about 0.9.3 (`cargo install --locked cargo-about --version 0.9.3 --features cli`), after `pnpm --dir apps/desktop build`; CI fails when it's out of date, so run it after a lockfile changes.
-- **Releases:** `cargo xtask release --version V` sets the version everywhere and prints the commands to commit and tag `vV`; the tag makes `.github/workflows/release.yml` build everything and publish the release, with GitHub's source zip. Before 1.0.0, Windows gets the portable zip only; from 1.0.0 the installer too, and the workflow stops rather than publish it unsigned. `cargo xtask winget` writes the winget manifest from a release (`--local`: from the installer built here).
+- **Releases:** `cargo xtask release --version V` sets the version everywhere and prints the commands to commit and tag `vV`; the tag makes `.github/workflows/release.yml` build everything and publish the release, with GitHub's source zip. Before 1.0.0, Windows gets the portable zip only; from 1.0.0 the installer too, and the workflow stops rather than publish it unsigned. The release's notes are its version's section of `CHANGELOG.md`, written for the people using BeeZip; the workflow stops without one, and CI checks the workspace's version has one. `cargo xtask winget` writes the winget manifest from a release (`--local`: from the installer built here).
 - **Explorer's menu, from this tree:** `cargo xtask shell` registers the classic menu with the debug DLL and app, and `cargo xtask shell --mode modern` registers Windows 11's menu as a development package, which needs Developer Mode but no certificate. `--remove` takes either away. A click starts the debug app, so keep `pnpm dev` running.
 - **A big test archive:** `cargo xtask bigzip` writes a zip of a million entries, for trying the browser.
+- **The website:** `node site/build.mjs --cli target\debug\beezip.exe` builds `site/` into `site/dist` (open `site\dist\index.html`) with Node's own modules. It runs the CLI for the command reference, the formats and the settings, renders `CHANGELOG.md` as the Releases page, and fails on a broken link or a setting the settings page leaves out; CI builds it too. `.github/workflows/pages.yml` publishes it to GitHub Pages when master changes it.
 
 ## Desktop app
 

@@ -1,0 +1,1649 @@
+/* BeeZip's website. The app's palette (apps/desktop/src/index.css): neutral paper and ink, and
+   one accent, propolis amber. Type is Recursive, whose Mono axis serves the command line. */
+
+:root {
+  --paper: #f6f6f3;
+  --panel: #ffffff;
+  --sunken: #ecece8;
+  --ink: #1f2023;
+  --muted: #64656a;
+  --rule: #dadad4;
+  --amber: #9a6700;
+  --amber-fill: #e0a21a;
+  --amber-hover: #c98a0b;
+  --amber-wash: #fbefcf;
+  --deep: #9a6700;
+  --danger: #b42318;
+  --code-bg: #1f2023;
+  --code-ink: #ecece8;
+  --code-dim: #9b9ca0;
+  --shadow: 0 1px 2px rgb(31 32 35 / 0.08), 0 12px 32px -8px rgb(31 32 35 / 0.22);
+  --font: "Recursive", "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  --casl: 0;
+  --mono: 0;
+  --wide: 1200px;
+  --gutter: clamp(16px, 4vw, 40px);
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --paper: #18191b;
+    --panel: #202124;
+    --sunken: #141517;
+    --ink: #e6e6e2;
+    --muted: #a3a4a8;
+    --rule: #303135;
+    --amber: #f2b53a;
+    --amber-fill: #e0a21a;
+    --amber-hover: #f2b53a;
+    --amber-wash: #3a2f14;
+    --deep: #c98a0b;
+    --danger: #f97066;
+    --code-bg: #101113;
+    --code-ink: #e6e6e2;
+    --code-dim: #8b8c90;
+    --shadow: 0 1px 2px rgb(0 0 0 / 0.4), 0 16px 40px -8px rgb(0 0 0 / 0.6);
+    color-scheme: dark;
+  }
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+* {
+  font-variation-settings: "CASL" var(--casl), "MONO" var(--mono);
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+  scroll-padding-top: 88px;
+}
+
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font);
+  font-size: 17px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+
+img,
+svg {
+  display: block;
+  max-width: 100%;
+}
+
+a {
+  color: var(--amber);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.18em;
+}
+
+a:hover {
+  text-decoration-thickness: 2px;
+}
+
+:focus-visible {
+  outline: 2px solid var(--amber);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+::selection {
+  background: var(--amber-wash);
+  color: var(--ink);
+}
+
+h1,
+h2,
+h3,
+h4 {
+  --casl: 0.5;
+  line-height: 1.15;
+  font-weight: 750;
+  letter-spacing: -0.01em;
+  text-wrap: balance;
+}
+
+code,
+kbd,
+pre {
+  --mono: 1;
+  --casl: 0;
+  font-family: var(--font);
+}
+
+.skip {
+  position: absolute;
+  left: 8px;
+  top: -48px;
+  z-index: 20;
+  padding: 8px 14px;
+  background: var(--ink);
+  color: var(--paper);
+  border-radius: 6px;
+}
+
+.skip:focus {
+  top: 8px;
+}
+
+.nowrap {
+  white-space: nowrap;
+}
+
+/* ---- Buttons: a stretched comb cell. The shape is drawn behind, so focus rings stay whole. */
+
+.button {
+  --bg: var(--amber-fill);
+  --fg: #1f2023;
+  --edge: 14px;
+  position: relative;
+  isolation: isolate;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px calc(var(--edge) + 18px);
+  color: var(--fg);
+  font-weight: 700;
+  font-size: 1.05rem;
+  line-height: 1.2;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.button::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: var(--bg);
+  clip-path: polygon(var(--edge) 0, calc(100% - var(--edge)) 0, 100% 50%, calc(100% - var(--edge)) 100%, var(--edge) 100%, 0 50%);
+  transition: background 120ms ease;
+}
+
+.button:hover {
+  text-decoration: none;
+  --bg: var(--amber-hover);
+}
+
+.button.secondary {
+  --bg: var(--rule);
+  --fg: var(--ink);
+}
+
+.button.secondary::after {
+  content: "";
+  position: absolute;
+  inset: 2px;
+  z-index: -1;
+  background: var(--paper);
+  clip-path: polygon(
+    calc(var(--edge) - 1px) 0,
+    calc(100% - var(--edge) + 1px) 0,
+    100% 50%,
+    calc(100% - var(--edge) + 1px) 100%,
+    calc(var(--edge) - 1px) 100%,
+    0 50%
+  );
+}
+
+.button.secondary:hover {
+  --bg: var(--amber-fill);
+}
+
+.button.small {
+  --edge: 10px;
+  padding: 8px calc(var(--edge) + 12px);
+  font-size: 0.95rem;
+}
+
+.button.big {
+  --edge: 20px;
+  padding: 20px calc(var(--edge) + 26px);
+  font-size: 1.2rem;
+}
+
+.button .sub {
+  display: block;
+  font-weight: 450;
+  font-size: 0.82rem;
+  opacity: 0.85;
+}
+
+/* ---- The masthead. */
+
+.masthead {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: color-mix(in srgb, var(--paper) 92%, transparent);
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--rule);
+}
+
+.masthead-inner {
+  max-width: var(--wide);
+  margin: 0 auto;
+  padding: 12px var(--gutter);
+  display: flex;
+  align-items: center;
+  gap: 28px;
+}
+
+.brand {
+  --casl: 1;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--ink);
+  font-weight: 850;
+  font-size: 1.35rem;
+  letter-spacing: -0.02em;
+  text-decoration: none;
+  margin-right: auto;
+}
+
+.brand img {
+  width: 36px;
+  height: 36px;
+}
+
+@media (prefers-color-scheme: dark) {
+  .brand img {
+    content: url("brand/app-icon.svg");
+  }
+}
+
+.menu nav {
+  display: flex;
+  gap: 26px;
+}
+
+.menu nav a {
+  color: var(--muted);
+  text-decoration: none;
+  font-weight: 550;
+  padding: 4px 0;
+  border-bottom: 2px solid transparent;
+}
+
+.menu nav a:hover,
+.menu nav a[aria-current] {
+  color: var(--ink);
+  border-bottom-color: var(--amber-fill);
+}
+
+.menu > summary {
+  display: none;
+}
+
+/* A closed <details> hides its content, so on wide screens the menu is shown open (site.js). */
+@media (max-width: 760px) {
+  .masthead-inner {
+    gap: 12px;
+  }
+
+  .menu {
+    order: 3;
+  }
+
+  .menu > summary {
+    display: grid;
+    place-items: center;
+    width: 40px;
+    height: 40px;
+    list-style: none;
+    cursor: pointer;
+    border-radius: 8px;
+  }
+
+  .menu > summary::-webkit-details-marker {
+    display: none;
+  }
+
+  .menu > summary span,
+  .menu > summary span::before,
+  .menu > summary span::after {
+    display: block;
+    width: 18px;
+    height: 2px;
+    background: var(--ink);
+    position: relative;
+  }
+
+  .menu > summary span::before,
+  .menu > summary span::after {
+    content: "";
+    position: absolute;
+  }
+
+  .menu > summary span::before {
+    top: -6px;
+  }
+
+  .menu > summary span::after {
+    top: 6px;
+  }
+
+  .menu[open] nav {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 100%;
+    flex-direction: column;
+    gap: 0;
+    padding: 8px var(--gutter) 16px;
+    background: var(--paper);
+    border-bottom: 1px solid var(--rule);
+  }
+
+  .menu[open] nav a {
+    padding: 10px 0;
+    border-bottom: 1px solid var(--rule);
+  }
+}
+
+/* ---- The home page. */
+
+.wrap {
+  max-width: var(--wide);
+  margin: 0 auto;
+  padding: 0 var(--gutter);
+}
+
+.hero {
+  max-width: var(--wide);
+  margin: 0 auto;
+  padding: clamp(40px, 7vw, 96px) var(--gutter) clamp(48px, 7vw, 88px);
+  display: grid;
+  grid-template-columns: minmax(0, 0.92fr) minmax(0, 1.08fr);
+  gap: clamp(32px, 5vw, 64px);
+  align-items: center;
+}
+
+.hero h1 {
+  --casl: 1;
+  margin: 0 0 22px;
+  font-size: clamp(2.5rem, 5.6vw, 4.4rem);
+  font-weight: 850;
+  line-height: 1.02;
+  letter-spacing: -0.035em;
+}
+
+.hero .intro {
+  margin: 0 0 32px;
+  font-size: clamp(1.08rem, 1.6vw, 1.25rem);
+  color: var(--muted);
+  max-width: 34em;
+}
+
+.get {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 14px 22px;
+}
+
+.get .others {
+  font-weight: 550;
+}
+
+.release-line {
+  margin: 14px 0 0;
+  min-height: 1.6em;
+  font-size: 0.92rem;
+  color: var(--muted);
+}
+
+/* While the newest release is looked up, a comb's cells take turns. */
+.loading-comb {
+  display: inline-block;
+  width: 18px;
+  height: 18px;
+  vertical-align: -3px;
+  margin-right: 6px;
+}
+
+.loading-comb polygon {
+  animation: cell 1.2s ease-in-out infinite;
+}
+
+.loading-comb polygon:nth-child(2) { animation-delay: 0.15s; }
+.loading-comb polygon:nth-child(3) { animation-delay: 0.3s; }
+.loading-comb polygon:nth-child(4) { animation-delay: 0.45s; }
+.loading-comb polygon:nth-child(5) { animation-delay: 0.6s; }
+.loading-comb polygon:nth-child(6) { animation-delay: 0.75s; }
+.loading-comb polygon:nth-child(7) { animation-delay: 0.9s; }
+
+@keyframes cell {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.25; }
+}
+
+/* What shows while the newest release is looked up, once it's known, and before the first. */
+[data-state] .when-loading,
+[data-state] .when-ready,
+[data-state] .when-none,
+[data-state="none"] .not-none {
+  display: none;
+}
+
+[data-state="loading"] .when-loading,
+[data-state="ready"] .when-ready,
+[data-state="none"] .when-none {
+  display: revert;
+}
+
+/* ---- The menu, as Windows 11 draws it on a right-click: the hero's one moving moment. */
+
+.desk {
+  --s: 1;
+  position: relative;
+  aspect-ratio: 580 / 470;
+  border-radius: 18px;
+  background:
+    radial-gradient(120% 90% at 0% 0%, color-mix(in srgb, var(--amber-fill) 18%, transparent), transparent 60%),
+    var(--sunken);
+  border: 1px solid var(--rule);
+  font-family: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  font-size: 13.5px;
+  overflow: hidden;
+}
+
+/* Drawn at 580 x 470 and scaled to the column (site.js sets --s). */
+.stage {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 580px;
+  height: 470px;
+  transform: scale(var(--s));
+  transform-origin: 0 0;
+}
+
+.file {
+  position: absolute;
+  left: 20px;
+  top: 22px;
+  width: 104px;
+  padding: 10px 6px 8px;
+  border-radius: 6px;
+  text-align: center;
+  color: var(--ink);
+  background: color-mix(in srgb, var(--amber-fill) 22%, transparent);
+  outline: 1px solid color-mix(in srgb, var(--amber-fill) 55%, transparent);
+}
+
+.file img {
+  width: 52px;
+  height: 52px;
+  margin: 0 auto 6px;
+}
+
+.file span {
+  display: block;
+  font-size: 12.5px;
+  line-height: 1.3;
+  word-break: break-all;
+}
+
+.ctx,
+.sub {
+  position: absolute;
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+  background: var(--panel);
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+}
+
+.ctx {
+  left: 112px;
+  top: 86px;
+  width: 224px;
+  transform-origin: 0 0;
+}
+
+.sub {
+  left: 332px;
+  top: 188px;
+  width: 240px;
+}
+
+.ctx li,
+.sub li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px;
+  border-radius: 4px;
+  white-space: nowrap;
+  color: var(--ink);
+}
+
+.ctx li svg,
+.sub li svg {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  color: var(--muted);
+}
+
+.ctx li .more {
+  margin-left: auto;
+  color: var(--muted);
+}
+
+.ctx .icons {
+  justify-content: space-around;
+  padding: 6px 4px 8px;
+  border-bottom: 1px solid var(--rule);
+  margin-bottom: 4px;
+  border-radius: 0;
+}
+
+.ctx .sep,
+.sub .sep {
+  padding: 0;
+  margin: 4px 0;
+  border-top: 1px solid var(--rule);
+  border-radius: 0;
+}
+
+.ctx .on,
+.sub .on {
+  background: var(--sunken);
+}
+
+@media (prefers-color-scheme: dark) {
+  .ctx .on,
+  .sub .on {
+    background: #2c2d31;
+  }
+}
+
+.ctx .bz img {
+  width: 16px;
+  height: 16px;
+}
+
+.cursor {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 20px;
+  height: 20px;
+  z-index: 3;
+  pointer-events: none;
+  filter: drop-shadow(0 1px 1px rgb(0 0 0 / 0.35));
+  transform: translate(529px, 262px);
+}
+
+.job {
+  position: absolute;
+  left: 22px;
+  bottom: 22px;
+  width: 288px;
+  padding: 14px 16px;
+  border-radius: 10px;
+  background: var(--panel);
+  border: 1px solid var(--rule);
+  box-shadow: var(--shadow);
+  display: grid;
+  grid-template-columns: 40px 1fr;
+  gap: 4px 12px;
+  align-items: center;
+}
+
+.job svg {
+  grid-row: span 3;
+  width: 40px;
+  height: 40px;
+}
+
+.job strong {
+  font-weight: 600;
+}
+
+.job .bar {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--sunken);
+  overflow: hidden;
+}
+
+.job .bar i {
+  display: block;
+  height: 100%;
+  width: 100%;
+  background: var(--amber-fill);
+  transform-origin: 0 50%;
+}
+
+.job small {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.job .lifted {
+  transform: translate(0, 0);
+}
+
+/* The sequence: the menu opens at the pointer, BeeZip's submenu opens, "Extract to" is chosen,
+   and the job runs. Without motion, all of it is simply there. */
+@media (prefers-reduced-motion: no-preference) {
+  .desk.play .ctx {
+    animation: open-menu 220ms cubic-bezier(0.2, 0.9, 0.3, 1) 400ms both;
+  }
+
+  .desk.play .ctx .bz {
+    animation: hover-on 1ms linear 1100ms both;
+  }
+
+  .desk.play .sub {
+    animation: open-sub 200ms cubic-bezier(0.2, 0.9, 0.3, 1) 1300ms both;
+  }
+
+  .desk.play .sub .go {
+    animation: hover-on 1ms linear 2100ms both;
+  }
+
+  .desk.play .cursor {
+    animation: point 2200ms cubic-bezier(0.4, 0, 0.2, 1) 0ms both;
+  }
+
+  .desk.play .job {
+    animation: open-job 260ms cubic-bezier(0.2, 0.9, 0.3, 1) 2600ms both;
+  }
+
+  .desk.play .job .bar i {
+    animation: fill 1300ms cubic-bezier(0.3, 0, 0.3, 1) 2800ms both;
+  }
+
+  .desk.play .job .lifted {
+    animation: lift 700ms cubic-bezier(0.2, 0.9, 0.3, 1) 3900ms both;
+  }
+
+  .desk.play .job .running {
+    animation: fade-out 200ms linear 4000ms both;
+  }
+
+  .desk.play .job .done {
+    animation: fade-in 200ms linear 4100ms both;
+  }
+}
+
+@keyframes open-menu {
+  from { opacity: 0; transform: scale(0.94); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes open-sub {
+  from { opacity: 0; transform: translateX(-8px); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes hover-on {
+  from { background: transparent; }
+  to { background: var(--sunken); }
+}
+
+@keyframes point {
+  0% { transform: translate(46px, 52px); }
+  18% { transform: translate(110px, 84px); }
+  50% { transform: translate(220px, 200px); }
+  61% { transform: translate(362px, 200px); }
+  91%, 100% { transform: translate(529px, 262px); }
+}
+
+@keyframes open-job {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes fill {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
+}
+
+@keyframes lift {
+  from { transform: translate(0, 0); }
+  to { transform: translate(10px, -16px); }
+}
+
+@keyframes fade-out {
+  to { opacity: 0; }
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.job .states {
+  display: grid;
+}
+
+.job .states span {
+  grid-area: 1 / 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .job .running { opacity: 0; }
+  .job .lifted { transform: translate(10px, -16px); }
+}
+
+/* ---- Sections of the home page. */
+
+.band {
+  padding: clamp(56px, 8vw, 104px) 0;
+  border-top: 1px solid var(--rule);
+}
+
+.band.wash {
+  background: var(--amber-wash);
+  border-top: 0;
+}
+
+.band h2 {
+  margin: 0 0 16px;
+  font-size: clamp(1.9rem, 3.6vw, 2.8rem);
+  letter-spacing: -0.025em;
+}
+
+.band .lead {
+  margin: 0 0 32px;
+  max-width: 40em;
+  font-size: 1.15rem;
+  color: var(--muted);
+}
+
+.split {
+  display: grid;
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+  gap: clamp(28px, 5vw, 72px);
+  align-items: start;
+}
+
+.points {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 18px;
+}
+
+.points li {
+  position: relative;
+  padding-left: 30px;
+  max-width: 38em;
+}
+
+.points li::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0.42em;
+  width: 14px;
+  height: 16px;
+  background: var(--amber-fill);
+  clip-path: polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%);
+}
+
+.points strong {
+  display: block;
+  font-weight: 700;
+}
+
+/* A job window's question, as BeeZip asks it. */
+.ask {
+  max-width: 440px;
+  margin-left: auto;
+  padding: 20px 22px;
+  border-radius: 10px;
+  background: var(--panel);
+  border: 1px solid var(--rule);
+  box-shadow: var(--shadow);
+  font-family: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  font-size: 14px;
+}
+
+.ask p {
+  margin: 0 0 14px;
+}
+
+.ask .choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.ask .choices span {
+  padding: 6px 12px;
+  border-radius: 6px;
+  border: 1px solid var(--rule);
+  background: var(--paper);
+}
+
+.ask .choices i {
+  flex: 1;
+}
+
+.ask .choices .primary {
+  background: var(--amber-fill);
+  border-color: var(--amber-fill);
+  color: #1f2023;
+  font-weight: 600;
+}
+
+.ask small {
+  color: var(--muted);
+}
+
+.ask > small {
+  display: block;
+  margin-top: 12px;
+}
+
+.fine {
+  margin: 22px 0 0;
+  font-size: 0.92rem;
+  color: var(--muted);
+}
+
+/* The formats, as a comb: amber cells BeeZip reads and writes, outlined cells it reads, deep
+   amber ones it reads through 7-Zip, and the compressors in ink. site.js indents every other row
+   by half a cell and lets the rows interlock; without it, the cells sit in plain rows. */
+.comb {
+  --w: 104px;
+  --m: 3px;
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0;
+  max-width: 1080px;
+}
+
+.comb .cell {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  width: var(--w);
+  height: calc(var(--w) * 1.1547);
+  margin: var(--m);
+  vertical-align: top;
+  text-align: center;
+  font-size: 13.5px;
+  font-weight: 650;
+  line-height: 1.15;
+  isolation: isolate;
+}
+
+.comb.laid {
+  padding-bottom: calc(var(--w) * 0.29);
+}
+
+.comb.laid .cell {
+  margin-bottom: calc(var(--m) - var(--w) * 0.2885);
+}
+
+.comb .cell::before,
+.comb .cell::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  clip-path: polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%);
+}
+
+.comb .cell span {
+  padding: 0 10px;
+}
+
+.comb .rw::before,
+.comb .ro::before {
+  background: var(--amber-fill);
+}
+
+.comb .rw {
+  color: #1f2023;
+}
+
+.comb .ro::after {
+  inset: 3px;
+  background: var(--paper);
+}
+
+.comb .seven::before {
+  background: var(--deep);
+}
+
+.comb .seven {
+  color: #fff;
+}
+
+@media (prefers-color-scheme: dark) {
+  .comb .seven {
+    color: #1f2023;
+  }
+}
+
+.comb .codec::before {
+  background: var(--ink);
+}
+
+.comb .codec {
+  color: var(--paper);
+  font-weight: 550;
+}
+
+
+
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 26px;
+  margin: 24px 0 0;
+  padding: 0;
+  list-style: none;
+  color: var(--muted);
+  font-size: 0.95rem;
+}
+
+.legend li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.legend i {
+  width: 14px;
+  height: 16px;
+  clip-path: polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%);
+}
+
+.legend .rw { background: var(--amber-fill); }
+.legend .ro { background: radial-gradient(circle, var(--paper) 45%, var(--amber-fill) 47%); }
+.legend .seven { background: var(--deep); }
+.legend .codec { background: var(--ink); }
+
+/* Four ways in. */
+.ways {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0;
+  border-top: 2px solid var(--ink);
+}
+
+.ways > div {
+  padding: 22px 24px 8px 0;
+}
+
+.ways > div + div {
+  padding-left: 24px;
+  border-left: 1px solid var(--rule);
+}
+
+.ways h3 {
+  margin: 0 0 8px;
+  font-size: 1.2rem;
+}
+
+.ways p {
+  margin: 0 0 12px;
+  color: var(--muted);
+}
+
+.ways pre {
+  margin: 0 0 12px;
+  font-size: 0.82rem;
+}
+
+.cta {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: clamp(24px, 4vw, 56px);
+  align-items: center;
+}
+
+.cta svg {
+  width: clamp(96px, 14vw, 160px);
+  height: auto;
+}
+
+/* ---- Pages and docs. */
+
+.page {
+  max-width: 880px;
+  margin: 0 auto;
+  padding: clamp(32px, 5vw, 64px) var(--gutter) 80px;
+}
+
+.docs {
+  max-width: 1360px;
+  margin: 0 auto;
+  padding: 0 var(--gutter);
+  display: grid;
+  grid-template-columns: 230px minmax(0, 1fr) 210px;
+  gap: 48px;
+}
+
+.docs-nav {
+  position: sticky;
+  top: 72px;
+  align-self: start;
+  max-height: calc(100vh - 72px);
+  overflow: auto;
+  padding: 36px 0 32px;
+}
+
+.docs-nav summary {
+  display: none;
+}
+
+.docs-nav ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.docs-nav a {
+  display: block;
+  padding: 6px 12px;
+  margin-left: -12px;
+  border-left: 3px solid transparent;
+  color: var(--muted);
+  text-decoration: none;
+  font-weight: 550;
+}
+
+.docs-nav a:hover {
+  color: var(--ink);
+}
+
+.docs-nav a[aria-current] {
+  color: var(--ink);
+  border-left-color: var(--amber-fill);
+  background: var(--amber-wash);
+}
+
+.toc {
+  position: sticky;
+  top: 72px;
+  align-self: start;
+  max-height: calc(100vh - 72px);
+  overflow: auto;
+  padding: 40px 0 32px;
+  font-size: 0.9rem;
+}
+
+.toc p {
+  margin: 0 0 8px;
+  font-weight: 700;
+}
+
+.toc ol {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border-left: 1px solid var(--rule);
+}
+
+.toc a {
+  display: block;
+  padding: 4px 0 4px 14px;
+  color: var(--muted);
+  text-decoration: none;
+}
+
+.toc a:hover {
+  color: var(--ink);
+}
+
+.prose {
+  min-width: 0;
+  padding: 32px 0 80px;
+}
+
+.prose > * {
+  max-width: 46rem;
+}
+
+.prose h1 {
+  --casl: 0.7;
+  margin: 8px 0 14px;
+  font-size: clamp(2.1rem, 4vw, 2.9rem);
+  font-weight: 800;
+  letter-spacing: -0.025em;
+}
+
+.prose .lede {
+  margin: 0 0 36px;
+  font-size: 1.2rem;
+  color: var(--muted);
+}
+
+.prose h2 {
+  margin: 2.4em 0 0.6em;
+  padding-top: 0.9em;
+  border-top: 1px solid var(--rule);
+  font-size: 1.65rem;
+}
+
+.prose h3 {
+  margin: 1.9em 0 0.5em;
+  font-size: 1.2rem;
+}
+
+.prose h4 {
+  margin: 1.4em 0 0.4em;
+  font-size: 1rem;
+}
+
+.prose h2 + h3 {
+  margin-top: 1em;
+}
+
+.prose p,
+.prose li {
+  text-wrap: pretty;
+}
+
+.prose li + li {
+  margin-top: 0.35em;
+}
+
+.prose ul,
+.prose ol {
+  padding-left: 1.3em;
+}
+
+.anchor {
+  margin-left: 0.35em;
+  color: var(--rule);
+  text-decoration: none;
+  font-weight: 400;
+  opacity: 0;
+}
+
+.anchor::before {
+  content: "#";
+}
+
+h2:hover .anchor,
+h3:hover .anchor,
+.anchor:focus-visible {
+  opacity: 1;
+  color: var(--amber);
+}
+
+code {
+  padding: 0.08em 0.36em;
+  border-radius: 4px;
+  background: var(--sunken);
+  font-size: 0.88em;
+  overflow-wrap: anywhere;
+}
+
+pre {
+  position: relative;
+  margin: 1.2em 0;
+  padding: 16px 18px;
+  border-radius: 10px;
+  background: var(--code-bg);
+  color: var(--code-ink);
+  font-size: 0.88rem;
+  line-height: 1.55;
+  overflow-x: auto;
+  max-width: 100%;
+}
+
+pre code {
+  padding: 0;
+  background: none;
+  font-size: inherit;
+  overflow-wrap: normal;
+}
+
+pre .c {
+  color: var(--code-dim);
+}
+
+.copy {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  padding: 4px 10px;
+  border: 1px solid #45464b;
+  border-radius: 6px;
+  background: #2a2b2f;
+  color: var(--code-ink);
+  font: inherit;
+  font-size: 0.78rem;
+  cursor: pointer;
+  opacity: 0;
+}
+
+pre:hover .copy,
+.copy:focus-visible {
+  opacity: 1;
+}
+
+@media (hover: none) {
+  .copy {
+    opacity: 1;
+  }
+}
+
+kbd {
+  display: inline-block;
+  padding: 0.05em 0.45em;
+  border: 1px solid var(--rule);
+  border-bottom-width: 2px;
+  border-radius: 5px;
+  background: var(--panel);
+  font-size: 0.84em;
+  line-height: 1.4;
+}
+
+.table-wrap {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 1.2em 0;
+  font-size: 0.94rem;
+}
+
+th,
+td {
+  padding: 8px 12px 8px 0;
+  border-bottom: 1px solid var(--rule);
+  text-align: left;
+  vertical-align: top;
+}
+
+thead th {
+  border-bottom: 2px solid var(--ink);
+  font-weight: 700;
+}
+
+tbody th {
+  font-weight: 650;
+}
+
+table.formats .yes {
+  font-weight: 600;
+}
+
+table.formats .no {
+  color: var(--muted);
+}
+
+table.formats tr.seven th::after {
+  content: "";
+}
+
+.note {
+  margin: 1.4em 0;
+  padding: 12px 18px;
+  border-left: 4px solid var(--amber-fill);
+  background: var(--amber-wash);
+  border-radius: 0 8px 8px 0;
+}
+
+.note p {
+  margin: 0.4em 0;
+}
+
+.note.warn {
+  border-left-color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 9%, var(--paper));
+}
+
+dl.opts {
+  margin: 0.6em 0 1.4em;
+}
+
+dl.opts dt {
+  margin-top: 1em;
+  font-weight: 600;
+}
+
+dl.opts dt code {
+  background: none;
+  padding: 0;
+  font-size: 0.95em;
+}
+
+dl.opts dd {
+  margin: 0.2em 0 0 1.4em;
+}
+
+dl.opts dd p {
+  margin: 0.3em 0;
+}
+
+.meta {
+  display: block;
+  color: var(--muted);
+  font-size: 0.88em;
+}
+
+.alias {
+  margin-left: 10px;
+  color: var(--muted);
+  font-size: 0.9rem;
+  font-weight: 450;
+}
+
+.cmd {
+  margin-top: 2em;
+}
+
+.cmd h3 code {
+  background: none;
+  padding: 0;
+  font-size: 1em;
+}
+
+pre.usage {
+  background: var(--sunken);
+  color: var(--ink);
+}
+
+.pager {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: 64px;
+  padding-top: 24px;
+  border-top: 1px solid var(--rule);
+}
+
+.pager a {
+  font-weight: 650;
+  text-decoration: none;
+}
+
+.pager a span {
+  display: block;
+  font-weight: 450;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.pager .next {
+  text-align: right;
+}
+
+.release h2 {
+  margin-bottom: 0.1em;
+}
+
+.release .released {
+  margin: 0 0 1em;
+  color: var(--muted);
+}
+
+/* ---- Downloads. */
+
+.page.wide {
+  max-width: var(--wide);
+}
+
+.prose > .platforms,
+.prose > .download-head {
+  max-width: none;
+}
+
+.download-head {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: clamp(20px, 4vw, 48px);
+  align-items: center;
+  margin-bottom: 56px;
+}
+
+.download-head .comb-lifted {
+  width: clamp(88px, 12vw, 150px);
+  height: auto;
+}
+
+.download-head .lede {
+  margin-bottom: 24px;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .download-head .lifted {
+    animation: lift 800ms cubic-bezier(0.2, 0.9, 0.3, 1) 300ms both;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .download-head .lifted {
+    transform: translate(10px, -16px);
+  }
+}
+
+.files {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border-top: 1px solid var(--rule);
+}
+
+.files li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 4px 16px;
+  align-items: center;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--rule);
+}
+
+.files li[hidden] {
+  display: none;
+}
+
+.files strong {
+  display: block;
+}
+
+.files small {
+  color: var(--muted);
+}
+
+.platforms {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 40px;
+}
+
+.platforms h2 {
+  border-top: 2px solid var(--ink);
+}
+
+.lost .comb-lifted {
+  width: 120px;
+  height: auto;
+  margin-bottom: 8px;
+}
+
+/* ---- The footer. */
+
+.foot {
+  border-top: 1px solid var(--rule);
+  background: var(--sunken);
+}
+
+.foot-inner {
+  max-width: var(--wide);
+  margin: 0 auto;
+  padding: 36px var(--gutter) 44px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 8px 24px;
+  align-items: center;
+  color: var(--muted);
+  font-size: 0.92rem;
+}
+
+.foot-mark {
+  grid-row: span 2;
+  width: 56px;
+  height: 56px;
+}
+
+.foot p {
+  margin: 0;
+  max-width: 48em;
+}
+
+.foot nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 22px;
+}
+
+.foot nav a {
+  color: var(--ink);
+}
+
+/* ---- Narrow screens. */
+
+@media (max-width: 1180px) {
+  .docs {
+    grid-template-columns: 210px minmax(0, 1fr);
+  }
+
+  .toc {
+    display: none;
+  }
+}
+
+@media (max-width: 980px) {
+  .hero,
+  .split,
+  .cta {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .ways {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .ways > div:nth-child(3) {
+    padding-left: 0;
+    border-left: 0;
+  }
+
+  .platforms {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .ask {
+    margin-left: 0;
+  }
+}
+
+@media (max-width: 820px) {
+  .docs {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0;
+  }
+
+  .docs-nav {
+    position: static;
+    max-height: none;
+    padding: 16px 0 0;
+  }
+
+  .docs-nav summary {
+    display: block;
+    padding: 10px 14px;
+    border: 1px solid var(--rule);
+    border-radius: 8px;
+    font-weight: 650;
+    cursor: pointer;
+  }
+
+  .docs-nav ul {
+    padding: 8px 0 0 12px;
+  }
+
+  .prose {
+    padding-top: 16px;
+  }
+}
+
+@media (max-width: 620px) {
+  body {
+    font-size: 16px;
+  }
+
+  .ways {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .ways > div + div {
+    padding-left: 0;
+    border-left: 0;
+    border-top: 1px solid var(--rule);
+  }
+
+  .comb {
+    --w: 76px;
+  }
+
+  .comb .cell {
+    font-size: 11px;
+  }
+
+  .masthead .button.small {
+    display: none;
+  }
+
+  .foot-inner {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+
+/* Before the first release, or while it's looked up, a platform's list of files is empty. */
+.files:not(:has(li:not([hidden]))) {
+  display: none;
+}
+
+.ask-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 14px;
+  font-weight: 600;
+}
+
+.ask-head .comb-placing {
+  width: 32px;
+  height: 32px;
+}
