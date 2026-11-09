@@ -1634,3 +1634,16 @@ pre.usage {
 .files:not(:has(li:not([hidden]))) {
   display: none;
 }
+
+.ask-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 14px;
+  font-weight: 600;
+}
+
+.ask-head .comb-placing {
+  width: 32px;
+  height: 32px;
+}
