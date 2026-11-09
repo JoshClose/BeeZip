@@ -43,9 +43,9 @@ const USAGE: &str = "usage: cargo xtask <task>
   release --check-tag TAG
                         fail unless TAG is v and the workspace's version (release.yml)
   winget [--version V] [--local]
-                        write the winget manifest of BeeZip.BeeZip V [default: the workspace's]
-                        into target/winget, from the vV release on GitHub (draft or published),
-                        or with --local from the installer `dist` built";
+                        write the winget manifest of CloseConsulting.BeeZip V [default: the
+                        workspace's] into target/winget, from the vV release on GitHub (draft or
+                        published), or with --local from the installer `dist` built";
 
 /// `dist`'s flags, in any order.
 #[derive(Debug, Default, PartialEq, Eq)]

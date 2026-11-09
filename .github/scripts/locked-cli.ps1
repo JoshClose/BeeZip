@@ -14,6 +14,11 @@ if (-not $setup) { Fail 'no installer under target\dist\debug\bundle\nsis' }
 $dir = Join-Path $env:LOCALAPPDATA 'BeeZip'
 $cli = Join-Path $dir 'bin\beezip.exe'
 $runOnce = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\RunOnce'
+# Apps & features' entry, and Tauri's own key, named after bundle.publisher (docs/M6.md §9.3, §9.6):
+# winget matches the install to its package by this Publisher.
+$uninstallKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\BeeZip'
+$publisher = (Get-Content -Raw (Join-Path $root 'packaging\windows\tauri.dist.json') | ConvertFrom-Json).bundle.publisher
+$tauriKey = "HKCU:\Software\$publisher"
 $work = Join-Path ([IO.Path]::GetTempPath()) "beezip-locked-cli-$PID"
 New-Item -ItemType Directory -Force $work | Out-Null
 $servers = [Collections.Generic.List[Diagnostics.Process]]::new()
@@ -54,6 +59,13 @@ function Moved {
 try {
   if (Moved) { Fail 'RunOnce already has BeeZip-cli values' }
   Install "installing $($setup.Name) silently" $setup.FullName
+  $entry = Get-ItemProperty $uninstallKey -ErrorAction SilentlyContinue
+  if (-not $entry) { Fail "no Apps & features entry at $uninstallKey" }
+  if ($entry.Publisher -cne $publisher) { Fail "Apps & features names the publisher '$($entry.Publisher)', not '$publisher'" }
+  # Compared by what's in it: NSIS may write a folder in its 8.3 form.
+  $kept = (Get-ItemProperty "$tauriKey\BeeZip" -ErrorAction SilentlyContinue).'(default)'
+  if (-not $kept -or -not (Test-Path (Join-Path $kept 'bin\beezip.exe'))) { Fail "$tauriKey\BeeZip holds '$kept', not the install folder $dir" }
+  Write-Host "Apps & features: BeeZip by $($entry.Publisher); the install folder is kept in $tauriKey\BeeZip"
   $first = Start-Server
 
   Install 'reinstalling over it while beezip mcp holds the CLI' $setup.FullName
@@ -83,6 +95,8 @@ try {
   if (Test-Path $dir) { Fail "the uninstaller left $dir`: $((Get-ChildItem -Recurse $dir).FullName -join ', ')" }
   if ($second.HasExited -or $first.HasExited) { Fail 'the uninstall stopped a running server' }
   if (@(Moved).Count -ne 2) { Fail "expected a second RunOnce value, for the CLI the uninstall moved: $(@(Moved).Name -join ', ')" }
+  # Tauri's own key stays unless "Delete the application data" was ticked, which /S doesn't.
+  if (Test-Path $uninstallKey) { Fail "the uninstaller left $uninstallKey" }
   Write-Host 'the uninstaller removed the install folder; both servers still run from %TEMP%'
 } finally {
   foreach ($p in $servers) { if (-not $p.HasExited) { $p.Kill(); $p.WaitForExit(5000) | Out-Null } }

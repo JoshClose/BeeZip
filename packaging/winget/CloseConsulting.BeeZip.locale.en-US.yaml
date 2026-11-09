@@ -1,12 +1,13 @@
-## The default locale manifest of BeeZip.BeeZip (docs/M6.md §9.6), filled in by
+## The default locale manifest of CloseConsulting.BeeZip (docs/M6.md §9.6), filled in by
 ## `cargo xtask winget`. Publisher must be the same string as the installer manifest's
-## AppsAndFeaturesEntries Publisher, which is bundle.publisher; never change either.
+## AppsAndFeaturesEntries Publisher, which is tauri.dist.json's bundle.publisher (xtask's tests
+## check all three). Once released, never change any of them, nor the PackageIdentifier.
 # yaml-language-server: $schema=https://aka.ms/winget-manifest.defaultLocale.1.12.0.schema.json
 
-PackageIdentifier: BeeZip.BeeZip
+PackageIdentifier: CloseConsulting.BeeZip
 PackageVersion: {{VERSION}}
 PackageLocale: en-US
-Publisher: BeeZip
+Publisher: Close Consulting, Inc
 PublisherUrl: {{REPO_URL}}
 PublisherSupportUrl: {{REPO_URL}}/issues
 Author: Josh Close

@@ -1,7 +1,11 @@
-//! `cargo xtask winget [--version V] [--local]`: the winget manifest for `BeeZip.BeeZip`
+//! `cargo xtask winget [--version V] [--local]`: the winget manifest for `CloseConsulting.BeeZip`
 //! (docs/M6.md §9.6), its three files (version, default locale en-US, installer) in schema
 //! 1.12.0, from the templates in `packaging/winget/`, written to
-//! `target/winget/manifests/b/BeeZip/BeeZip/<V>/`, the folder they take in microsoft/winget-pkgs.
+//! `target/winget/manifests/c/CloseConsulting/BeeZip/<V>/`, the folder they take in
+//! microsoft/winget-pkgs.
+//!
+//! The package's Publisher (twice) is the installer's, `bundle.publisher` in
+//! `packaging/windows/tauri.dist.json`, which Apps & features shows; the tests check they match.
 //!
 //! - The version is the workspace's unless `--version` says otherwise.
 //! - The installer's SHA-256 comes from the GitHub release vV, draft or published (`gh`, signed
@@ -35,12 +39,21 @@ pub struct WingetArgs<'a> {
 /// The templates, from the workspace root, and the files they become.
 const TEMPLATES: &str = "packaging/winget";
 const FILES: [&str; 3] = [
-    "BeeZip.BeeZip.yaml",
-    "BeeZip.BeeZip.locale.en-US.yaml",
-    "BeeZip.BeeZip.installer.yaml",
+    "CloseConsulting.BeeZip.yaml",
+    "CloseConsulting.BeeZip.locale.en-US.yaml",
+    "CloseConsulting.BeeZip.installer.yaml",
 ];
+/// The package's identifier: fixed once submitted, as winget keys upgrades on it.
+const PACKAGE: &str = "CloseConsulting.BeeZip";
 /// Where the manifests go, under `target/winget`: winget-pkgs' own layout.
-const OUT: [&str; 6] = ["target", "winget", "manifests", "b", "BeeZip", "BeeZip"];
+const OUT: [&str; 6] = [
+    "target",
+    "winget",
+    "manifests",
+    "c",
+    "CloseConsulting",
+    "BeeZip",
+];
 
 pub fn run(args: WingetArgs) -> anyhow::Result<()> {
     let root = workspace_root();
@@ -85,7 +98,7 @@ pub fn run(args: WingetArgs) -> anyhow::Result<()> {
         let text = render(&text, &fill).with_context(|| format!("filling in {file}"))?;
         std::fs::write(out.join(file), text)?;
     }
-    println!("wrote BeeZip.BeeZip {version} to {}", out.display());
+    println!("wrote {PACKAGE} {version} to {}", out.display());
     println!(
         "check it with `winget validate --manifest {}`; submitting it to microsoft/winget-pkgs \
          is yours, once the release is published",
@@ -285,7 +298,8 @@ mod tests {
                 "{file}"
             );
             assert!(text.contains(".1.12.0.schema.json\n"), "{file}");
-            assert_eq!(field(&text, "PackageIdentifier"), Some("BeeZip.BeeZip"));
+            assert_eq!(field(&text, "PackageIdentifier"), Some(PACKAGE), "{file}");
+            assert!(file.starts_with(&format!("{PACKAGE}.")), "{file}");
             assert_eq!(field(&text, "PackageVersion"), Some("1.2.3"), "{file}");
             assert!(!text.contains('\r') && !text.contains('\t'), "{file}");
         }
@@ -308,7 +322,6 @@ mod tests {
             "  SilentWithProgress: /P\n",
             "  InstallLocation: /D=<INSTALLPATH>\n",
             "Commands:\n- beezip\n",
-            "  Publisher: BeeZip\n",
             "  DisplayVersion: 1.2.3\n",
             "  InstallerUrl: https://github.com/JoshClose/BeeZip/releases/download/v1.2.3/BeeZip_1.2.3_x64-setup.exe\n",
             "  InstallerSha256: 21D6FB8954E5BE5694839C9CFB1CAE8AF701E781D7F4150FD384520049BEEC67\n",
@@ -317,7 +330,6 @@ mod tests {
             assert!(text.contains(line), "{line:?} in\n{text}");
         }
         let (_, locale) = all.iter().find(|(f, _)| f.contains("locale")).unwrap();
-        assert_eq!(field(locale, "Publisher"), Some("BeeZip"));
         assert_eq!(field(locale, "PackageLocale"), Some("en-US"));
         assert_eq!(
             field(locale, "ReleaseNotesUrl"),
@@ -327,6 +339,31 @@ mod tests {
             field(locale, "PublisherSupportUrl"),
             Some("https://github.com/JoshClose/BeeZip/issues")
         );
+    }
+
+    /// winget matches an installed BeeZip to the package by the Publisher Apps & features shows,
+    /// which Tauri's NSIS writes from `bundle.publisher`: the three must be one string.
+    #[test]
+    fn the_publisher_is_the_installers() {
+        let dist =
+            std::fs::read_to_string(workspace_root().join("packaging/windows/tauri.dist.json"))
+                .unwrap();
+        let dist: Value = serde_json::from_str(&dist).unwrap();
+        let publisher = dist["bundle"]["publisher"].as_str().unwrap();
+        assert_eq!(publisher, "Close Consulting, Inc");
+        let all = rendered();
+        let (_, installer) = all
+            .iter()
+            .find(|(f, _)| f.ends_with("installer.yaml"))
+            .unwrap();
+        assert!(
+            installer.contains(&format!(
+                "AppsAndFeaturesEntries:\n- DisplayName: BeeZip\n  Publisher: {publisher}\n"
+            )),
+            "{installer}"
+        );
+        let (_, locale) = all.iter().find(|(f, _)| f.contains("locale")).unwrap();
+        assert_eq!(field(locale, "Publisher"), Some(publisher));
     }
 
     #[test]

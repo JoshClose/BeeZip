@@ -1,10 +1,10 @@
-## The installer manifest of BeeZip.BeeZip (docs/M6.md §9.6), which `cargo xtask winget` fills in
-## and writes to target/winget/manifests/b/BeeZip/BeeZip/<version>/. Lines starting with `##`
-## are notes for this template and stay out of the manifest. Schema 1.12.0, the one most
-## winget-pkgs submissions use.
+## The installer manifest of CloseConsulting.BeeZip (docs/M6.md §9.6), which `cargo xtask winget`
+## fills in and writes to target/winget/manifests/c/CloseConsulting/BeeZip/<version>/. Lines
+## starting with `##` are notes for this template and stay out of the manifest. Schema 1.12.0, the
+## one most winget-pkgs submissions use.
 # yaml-language-server: $schema=https://aka.ms/winget-manifest.installer.1.12.0.schema.json
 
-PackageIdentifier: BeeZip.BeeZip
+PackageIdentifier: CloseConsulting.BeeZip
 PackageVersion: {{VERSION}}
 InstallerLocale: en-US
 Platform:
@@ -36,7 +36,7 @@ FileExtensions:
 ProductCode: BeeZip
 AppsAndFeaturesEntries:
 - DisplayName: BeeZip
-  Publisher: BeeZip
+  Publisher: Close Consulting, Inc
   DisplayVersion: {{VERSION}}
   ProductCode: BeeZip
 InstallationMetadata:

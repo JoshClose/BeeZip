@@ -78,7 +78,7 @@ jobs:
       - name: The winget manifest, from this installer, passes winget validate (docs/M6.md §9.6)
         run: |
           cargo xtask winget --local
-          pwsh -NoProfile -File .github/scripts/winget-validate.ps1 "$(find target/winget/manifests -name BeeZip.BeeZip.yaml -printf '%h')"
+          pwsh -NoProfile -File .github/scripts/winget-validate.ps1 "$(find target/winget/manifests -name CloseConsulting.BeeZip.yaml -printf '%h')"
       - name: Explorer's Windows 11 menu, end to end (docs/M4.md §10)
         run: pwsh -NoProfile -File .github/scripts/shell-modern.ps1
       - name: A reinstall and an uninstall while beezip mcp holds the CLI (docs/M6.md §9.3)

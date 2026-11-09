@@ -4,7 +4,7 @@
   "bundle": {
     "resources": {},
     "fileAssociations": [],
-    "publisher": "BeeZip",
+    "publisher": "Close Consulting, Inc",
     "windows": {
       "nsis": {
         "installMode": "currentUser"
