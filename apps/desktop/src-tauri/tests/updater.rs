@@ -96,3 +96,28 @@ fn only_the_signed_bytes_of_the_signed_version_install() {
             .is_none()
     );
 }
+
+/// A portable copy (update.rs `PORTABLE`) finds the zip's entry, and only that: a manifest
+/// without one offers it nothing, rather than the installer.
+#[test]
+fn a_portable_copy_finds_the_zip() {
+    let app = mock_app();
+    let updater = app
+        .updater_builder()
+        .target("windows-x86_64-portable")
+        .build()
+        .unwrap();
+    let zip = "https://github.com/JoshClose/BeeZip/releases/download/v0.1.1/BeeZip_0.1.1_x64-portable.zip";
+    let mut manifest = release("0.1.1", SIGNATURE_0_1_1);
+    manifest["platforms"]["windows-x86_64-portable"] =
+        serde_json::json!({ "signature": SIGNATURE_0_1_1, "url": zip });
+    let update = updater.restore_update(manifest).unwrap().unwrap();
+    assert_eq!(update.download_url.as_str(), zip);
+
+    assert!(
+        updater
+            .restore_update(release("0.1.1", SIGNATURE_0_1_1))
+            .is_err(),
+        "no zip in the release"
+    );
+}
