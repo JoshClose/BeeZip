@@ -71,6 +71,16 @@ describe("updates", () => {
     expect(await screen.findByRole("button", { name: "Update and restart" })).toBeInTheDocument();
   });
 
+  it("links a portable copy to the new zip instead of installing it", async () => {
+    const zip = "https://github.com/JoshClose/BeeZip/releases/download/v0.1.1/BeeZip_0.1.1_x64-portable.zip";
+    useUpdate.setState({ checked: { ...available, download_url: zip } });
+    render(<UpdateBanner />);
+    expect(screen.queryByRole("button", { name: /Update/ })).toBeNull();
+    await userEvent.click(screen.getByRole("button", { name: "Download" }));
+    expect(openUrl).toHaveBeenCalledWith(zip);
+    expect(invoke).not.toHaveBeenCalled();
+  });
+
   it("can be put off for the session", async () => {
     useUpdate.setState({ checked: available });
     render(<UpdateBanner />);
@@ -86,6 +96,13 @@ describe("About", () => {
     await userEvent.click(screen.getByRole("button", { name: "Check for updates" }));
     expect(invoke).toHaveBeenCalledWith("cmd_update_check", { force: true });
     expect(await screen.findByText("BeeZip 0.1.0 is the newest version.")).toBeInTheDocument();
+
+    vi.mocked(invoke).mockResolvedValueOnce(available);
+    await userEvent.click(screen.getByRole("button", { name: "Check for updates" }));
+    expect(await screen.findByText("BeeZip 0.1.1 is available: the banner above the tabs installs it.")).toBeInTheDocument();
+    vi.mocked(invoke).mockResolvedValueOnce({ ...available, download_url: "https://example.com/BeeZip.zip" });
+    await userEvent.click(screen.getByRole("button", { name: "Check for updates" }));
+    expect(await screen.findByText("BeeZip 0.1.1 is available: the banner above the tabs downloads it.")).toBeInTheDocument();
 
     vi.mocked(invoke).mockResolvedValueOnce({ status: "off", reason: "This build of BeeZip doesn't look for updates." });
     await userEvent.click(screen.getByRole("button", { name: "Check for updates" }));
