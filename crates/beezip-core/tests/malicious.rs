@@ -672,14 +672,15 @@ fn a_wims_links_out_are_refused() {
 
 /// A sparse file of 100 GB in a 256 KiB ext4 image, read by BeeZip's own reader: what the volume
 /// allocated to it (`i_blocks`) is 2 KiB, so it's refused before a byte of it is read, by
-/// extracting and by testing alike. What comes before it extracts.
+/// extracting and by testing alike. Extraction checks every selected file first, so nothing is
+/// written, as through 7-Zip.
 #[test]
 fn a_file_that_claims_100_gb_from_2_kib_hits_the_limit() {
     let (r, inside) = extract("ext4-sparse-100g.img", FsOptions::default());
     let err = r.unwrap_err();
     assert_eq!(err.kind, ErrorKind::LimitExceeded, "{err}");
     assert!(err.message.contains("sparse.bin"), "{err}");
-    assert_eq!(inside, ["lost+found", "safe.txt"]);
+    assert!(inside.is_empty(), "{inside:?}");
     let err = ops::test(
         &corpus("ext4-sparse-100g.img"),
         &Selection::all(),
