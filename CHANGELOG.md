@@ -3,8 +3,9 @@
 What's new in each version of BeeZip, for the people who use it. Each release's notes on GitHub
 come from its section here; the website's Releases page shows them all.
 
-Write a new section as `## X.Y.Z` (and `(YYYY-MM-DD)` once it's released), with `###` groups and
-`- ` items, describing what someone using BeeZip will notice.
+Write a new section as `## X.Y.Z`, with `###` groups and `- ` items, describing what someone
+using BeeZip will notice. Leave the date out: the Releases page dates each version by its
+`vX.Y.Z` tag.
 
 ## 0.1.0
 

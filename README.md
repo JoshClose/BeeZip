@@ -28,7 +28,7 @@ pnpm tauri dev      # the desktop app, reloading as you edit
 - **Explorer's menu, from this tree:** `cargo xtask shell` registers the classic menu with the debug DLL and app, and `cargo xtask shell --mode modern` registers Windows 11's menu as a development package, which needs Developer Mode but no certificate. `--remove` takes either away. A click starts the debug app, so keep `pnpm dev` running.
 - **A big test archive:** `cargo xtask bigzip` writes a zip of a million entries, for trying the browser.
 - **Upstream bugs:** `docs/UPSTREAM.md` lists the bugs in dependencies and tools that BeeZip works around, each with a check for whether a new version fixes it. Look a dependency up there when you update it.
-- **The website:** `node site/build.mjs --cli target\debug\beezip.exe` builds `site/` into `site/dist` (open `site\dist\index.html`) with Node's own modules. It runs the CLI for the command reference, the formats and the settings, renders `CHANGELOG.md` as the Releases page, and fails on a broken link or a setting the settings page leaves out; CI builds it too. `.github/workflows/pages.yml` publishes it to GitHub Pages when master changes it.
+- **The website:** `node site/build.mjs --cli target\debug\beezip.exe` builds `site/` into `site/dist` (open `site\dist\index.html`) with Node's own modules. It runs the CLI for the command reference, the formats and the settings, renders `CHANGELOG.md` as the Releases page (each version dated by its `vX.Y.Z` tag), and fails on a broken link or a setting the settings page leaves out; CI builds it too. `.github/workflows/pages.yml` publishes it to GitHub Pages when master changes it, and after each release.
 
 ## Desktop app
 

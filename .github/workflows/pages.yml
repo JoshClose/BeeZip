@@ -1,7 +1,9 @@
 # The website (site/, `node site/build.mjs`) on GitHub Pages. The build runs the command line for
 # the command reference, the formats and the settings it lists, and renders CHANGELOG.md into the
 # Releases page, so it follows master: a change to the site, the changelog, the brand marks or the
-# commands publishes it again. Run by hand (Actions > Pages > Run workflow) to publish it now.
+# commands publishes it again. The Releases page dates each version by its `vX.Y.Z` tag, so a
+# release published by release.yml publishes it again too, from master. Run by hand (Actions >
+# Pages > Run workflow) to publish it now.
 #
 # The repository's Pages source must be "GitHub Actions" (Settings > Pages).
 name: Pages
@@ -14,6 +16,9 @@ on:
       - 'packaging/brand/**'
       - 'crates/**'
       - '.github/workflows/pages.yml'
+  workflow_run:   # a release published: its date on the Releases page
+    workflows: [Release]
+    types: [completed]
   workflow_dispatch:
 permissions: {}
 concurrency:   # one publish at a time, and none cut short
@@ -22,12 +27,22 @@ concurrency:   # one publish at a time, and none cut short
 
 jobs:
   build:
+    # After a release run, only one that published the release.
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions: { contents: read }
     steps:
       - uses: actions/checkout@v7
         with: { persist-credentials: false }
+      - name: The release tags, which date the Releases page's versions
+        run: |
+          git fetch --no-tags --depth=1 origin '+refs/tags/v*:refs/tags/v*'
+          # There have been releases since 0.1.0: no tags means the fetch went wrong, and every
+          # version would show as not released yet.
+          tags=$(git tag -l 'v*')
+          if [ -z "$tags" ]; then echo "::error::fetched no v* tags"; exit 1; fi
+          echo "$tags"
       - run: rustup toolchain install    # reads rust-toolchain.toml
       - uses: Swatinem/rust-cache@v2
       - name: The command line, whose help the site shows
