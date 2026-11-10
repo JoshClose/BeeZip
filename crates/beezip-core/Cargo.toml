@@ -35,7 +35,6 @@ hadris-udf.workspace = true
 lzfse_rust.workspace = true
 lz4_flex.workspace = true
 lzokay.workspace = true
-lzxd.workspace = true
 lzma-rust2.workspace = true
 md-5.workspace = true
 sevenz-rust2.workspace = true

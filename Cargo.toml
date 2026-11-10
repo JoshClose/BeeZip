@@ -82,7 +82,6 @@ encoding_rs = "0.8.44"
 oem_cp      = "2.1.2"
 # M5 formats (docs/M5.md §1, §5). Churny or young, so pinned exactly.
 lzokay  = { version = "=2.0.1", default-features = false, features = ["std", "compress", "decompress"] }   # LZO1X blocks for lzop
-lzxd    = "=0.2.7"   # CAB's LZX
 # LHA: its defaults (std for io::Read, and the lh1, lz and pm decoders), lhx, and
 # `no-unsafe-assertions`, which turns its unchecked bounds hints into checks.
 delharc = { version = "=0.8.0", default-features = false, features = [

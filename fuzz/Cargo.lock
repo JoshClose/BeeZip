@@ -117,7 +117,6 @@ dependencies = [
  "lzfse_rust",
  "lzma-rust2",
  "lzokay",
- "lzxd",
  "md-5",
  "memchr",
  "oem_cp",
@@ -971,12 +970,6 @@ checksum = "953d350dc065718bb00b61ea2118274ffe2fdf6488f32f720422bcd1c9d6025f"
 dependencies = [
  "zerocopy",
 ]
-
-[[package]]
-name = "lzxd"
-version = "0.2.7"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c17f346186eccb574ba5581acefc514f0c70a642db4f96e245034a0a158a7168"
 
 [[package]]
 name = "md-5"

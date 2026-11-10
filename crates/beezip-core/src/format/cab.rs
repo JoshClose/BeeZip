@@ -4,7 +4,7 @@
 //!   each folder's data blocks (`CFDATA`). A folder is one compressed stream of its files laid
 //!   end to end, cut into blocks of at most 32 KiB uncompressed.
 //! - **Reading:** none, MSZIP (flate2, each block a raw deflate stream whose dictionary is the
-//!   folder's last 32 KiB) and LZX (`lzxd` 0.2.7, one frame per block). Quantum is listed, and
+//!   folder's last 32 KiB) and LZX (BeeZip's own, [`lzx`], one frame per block). Quantum is listed, and
 //!   refused when an entry of its folder is extracted. Blocks' checksums are checked when set.
 //!   Every count and size is checked against the file before anything is allocated for it, and a
 //!   folder whose files claim more than its blocks can hold is `Corrupt` when it opens.
@@ -23,12 +23,13 @@
 //!   first ([`ArchiveWriter::expect`]), so it reserves the header and the folder and file tables
 //!   up front, writes the data, and fills the tables in at the end, in the order the files came.
 
+mod lzx;
+
 use std::{
     borrow::BorrowMut,
     collections::{BTreeMap, HashMap, HashSet, VecDeque},
     fs::File,
     io::{self, BufReader, BufWriter, Read, Seek, SeekFrom, Write},
-    panic::{AssertUnwindSafe, catch_unwind},
     path::{Path, PathBuf},
 };
 
@@ -990,72 +991,7 @@ enum Decoder {
         /// The folder's last 32 KiB: the next block's dictionary.
         history: Vec<u8>,
     },
-    Lzx(Box<Lzx>),
-}
-
-/// An LZX folder: lzxd for the blocks, with BeeZip doing the E8 translation (below).
-struct Lzx {
-    lzxd: lzxd::Lzxd,
-    started: bool,
-    /// The E8 translation size, when the stream turns it on.
-    e8: Option<i32>,
-    /// Bytes decoded so far in the folder.
-    offset: u64,
-}
-
-/// The stream's E8 header, taken out of its first block: lzxd 0.2.7 translates an E8 operand of
-/// 0 to the translation size instead of to minus its position (it tests `> 0` where the LZX
-/// spec says `>= 0`), so BeeZip turns lzxd's translation off and does it itself
-/// ([`e8_translate`]). The header is the stream's first bit, and the 32-bit size after it when
-/// that bit is set. Bits are read from 16-bit little-endian words, high bit first, so taking
-/// out bits 1–32 leaves a first word of a zero bit and bits 33–47, then the rest as it was.
-/// Returns the size and the block without the header.
-fn strip_e8_header(packed: &[u8]) -> Option<(i32, Vec<u8>)> {
-    let word = |i: usize| -> Option<u32> {
-        Some(u32::from(u16::from_le_bytes([
-            *packed.get(i)?,
-            *packed.get(i + 1)?,
-        ])))
-    };
-    let (w0, w1, w2) = (word(0)?, word(2)?, word(4)?);
-    if w0 & 0x8000 == 0 {
-        return None;
-    }
-    let size = (w0 & 0x7FFF) << 17 | w1 << 1 | w2 >> 15;
-    let mut out = Vec::with_capacity(packed.len() - 4);
-    out.extend_from_slice(&((w2 & 0x7FFF) as u16).to_le_bytes());
-    out.extend_from_slice(packed.get(6..)?);
-    Some((size as i32, out))
-}
-
-/// LZX's E8 translation of one decoded block that starts `offset` bytes into its folder, as
-/// the spec (and libmspack, and 7-Zip) do it: an `E8` byte's 32-bit operand `abs`, when
-/// `-pos <= abs < size`, becomes `abs - pos` if `abs >= 0`, else `abs + size`. Not done in the
-/// last 10 bytes of a block, in blocks of 10 bytes or less, or after the first GiB.
-fn e8_translate(data: &mut [u8], offset: u64, size: i32) {
-    if offset >= 0x4000_0000 || data.len() <= 10 {
-        return;
-    }
-    let end = data.len() - 10;
-    let mut i = 0;
-    while i < end {
-        if data[i] != 0xE8 {
-            i += 1;
-            continue;
-        }
-        // Below 1 GiB, so it fits.
-        let pos = (offset + i as u64) as i32;
-        let abs = i32::from_le_bytes([data[i + 1], data[i + 2], data[i + 3], data[i + 4]]);
-        if abs >= -pos && abs < size {
-            let rel = if abs >= 0 {
-                abs.wrapping_sub(pos)
-            } else {
-                abs.wrapping_add(size)
-            };
-            data[i + 1..i + 5].copy_from_slice(&rel.to_le_bytes());
-        }
-        i += 5;
-    }
+    Lzx(Box<lzx::Lzx>),
 }
 
 impl Decoder {
@@ -1078,28 +1014,10 @@ impl Decoder {
                 ));
             }
             METHOD_LZX => {
-                use lzxd::WindowSize as W;
                 let bits = (folder.kind >> 8) & 0x1F;
-                let window = match bits {
-                    15 => W::KB32,
-                    16 => W::KB64,
-                    17 => W::KB128,
-                    18 => W::KB256,
-                    19 => W::KB512,
-                    20 => W::MB1,
-                    21 => W::MB2,
-                    _ => {
-                        return Err(bad(format!(
-                            "an LZX window of {bits} bits (15–21 are valid)"
-                        )));
-                    }
-                };
-                Self::Lzx(Box::new(Lzx {
-                    lzxd: lzxd::Lzxd::new(window),
-                    started: false,
-                    e8: None,
-                    offset: 0,
-                }))
+                Self::Lzx(Box::new(lzx::Lzx::new(u32::from(bits)).map_err(|_| {
+                    bad(format!("an LZX window of {bits} bits (15–21 are valid)"))
+                })?))
             }
             n => {
                 return Err(Error::unsupported_format(format!(
@@ -1134,33 +1052,8 @@ impl Decoder {
                 }
             }
             Self::Lzx(lzx) => {
-                let stripped;
-                let mut packed = packed;
-                if !lzx.started {
-                    lzx.started = true;
-                    if let Some((size, rest)) = strip_e8_header(packed) {
-                        lzx.e8 = Some(size);
-                        stripped = rest;
-                        packed = &stripped;
-                    }
-                }
-                // lzxd can panic on crafted data (arithmetic that overflows with overflow
-                // checks on); a panic is a damaged block, and the decoder isn't used again.
-                let decoded = catch_unwind(AssertUnwindSafe(|| {
-                    lzx.lzxd
-                        .decompress_next(packed, unpacked)
-                        .map(|view| out.extend_from_slice(view))
-                }));
-                match decoded {
-                    Ok(Ok(())) if out.len() == unpacked => {}
-                    Ok(Ok(())) => return Err(bad("an LZX block decodes to the wrong size")),
-                    Ok(Err(e)) => return Err(bad(format!("an LZX block is damaged: {e}"))),
-                    Err(_) => return Err(bad("an LZX block is damaged (the decoder failed)")),
-                }
-                if let Some(size) = lzx.e8 {
-                    e8_translate(out, lzx.offset, size);
-                }
-                lzx.offset += unpacked as u64;
+                lzx.decode_frame(packed, unpacked, out)
+                    .map_err(|e| bad(format!("an LZX block is damaged: {e}")))?;
             }
         }
         Ok(())
@@ -2973,9 +2866,11 @@ mod tests {
     #[test]
     fn a_repeated_offset_past_the_window_is_caught() {
         // A sane offset decodes: "A", then "A" again from one back... at offset 1, twice.
-        let mut lzx = lzxd::Lzxd::new(lzxd::WindowSize::KB32);
-        assert_eq!(lzx.decompress_next(&lzx_repeat(1), 3).unwrap(), b"AAA");
-        // An offset beyond the window: lzxd 0.2.7 subtracts it from the window position, which
+        let mut lzx = lzx::Lzx::new(15).unwrap();
+        let mut out = Vec::new();
+        lzx.decode_frame(&lzx_repeat(1), 3, &mut out).unwrap();
+        assert_eq!(out, b"AAA");
+        // An offset beyond the window: lzxd 0.2.7 subtracted it from the window position, which
         // overflows (a panic with overflow checks, as in debug builds and fuzzing).
         let dir = tempfile::tempdir().unwrap();
         let mut raw = Raw::stored(&[], &[("x", 0, 3)]);

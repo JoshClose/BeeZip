@@ -27,6 +27,8 @@ using BeeZip will notice. Leave the date out: the Releases page dates each versi
   times to the nanosecond, and shows a volume that wasn't cleanly unmounted with its latest
   contents.
 - **FAT** reads long names, and short ones in your system's OEM code page.
+- **Cabinets and MSI installers decode about 40% faster,** with BeeZip's own LZX decoder. A
+  large installer still takes two to three times as long to extract as with 7-Zip.
 - **Info** shows a disk's levels (`gpt › ntfs`) and a volume's label and cluster size.
 - **Still through 7-Zip:** WIM, CHM, NSIS and CramFS, the virtual disks VHD, VHDX, VMDK, QCOW2
   and VDI, MSI patches and merge modules, and a volume that uses something BeeZip doesn't read,

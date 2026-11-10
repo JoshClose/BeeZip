@@ -76,25 +76,6 @@ files under `target/` exist only on the machine that found the bug. The mileston
 - Also: `XzReaderMt` skips block checks (BeeZip doesn't use it), and the private CRC-64 goes a
   byte at a time, about 40 % of `XzReader`'s time.
 
-### lzxd 0.2.7 (Lonami/lzxd)
-
-- **E8 translation turns an operand of 0 into the translation size.** `Lzxd::postprocess`
-  (lib.rs ~272) tests `is_positive()`, where the LZX spec says `>= 0`.
-  - *Check:* `tests/fixtures/thirdparty/libarchive/cab/test_read_format_cab_lzx_e8.cab` must
-    start `E8 00 00 00 00`.
-  - *Workaround:* `format/cab.rs` strips the E8 header from each LZX folder's first block
-    (`strip_e8_header`) and translates itself (`e8_translate`). It can go once fixed.
-- **`Window::copy_from_self` underflows** (`window.rs:118`) on a repeated-offset match whose R0
-  an uncompressed block set past the window: a panic with overflow checks, garbage without.
-  `FOOTER_BITS` also has 289 entries for 290 position slots.
-  - *Check:* `a_repeated_offset_past_the_window_is_caught` in `format/cab.rs`.
-  - *Workaround (keep):* every `decompress_next` runs inside `catch_unwind`; a panic is `Corrupt`.
-- **A match reaching back before the stream's start decodes as zeros** instead of failing.
-  - *Check:* `tests/fixtures/thirdparty/libarchive/cab/broken/test_read_format_cab_lzx_invalid_history.cab`,
-    listed as `Reads` in `broken_fixtures_fail_as_they_should`; once fixed, that case fails and
-    should change to an error.
-  - *Workaround:* none.
-
 ### lzokay 2.0.1 (encounter/lzokay-rs)
 
 - **Compressing empty input gives a block no decoder reads** (4 bytes that liblzo2 and lzokay's
@@ -364,6 +345,15 @@ Crates checked and passed over, mostly because they panic or abort on crafted in
 BeeZip's ARJ, ACE and ZOO readers began as unarc-rs's modules and fix its bugs there; the crate
 also ships HA, UC2 and JAR code derived from GPL, LGPL and proprietary sources under MIT OR
 Apache-2.0.
+
+lzxd 0.2.7 read CAB's LZX until M7, when BeeZip's own decoder (`format/cab/lzx.rs`) replaced it
+(docs/M7.md §8.4): it decoded at about a third of 7-Zip's speed; its E8 translation turned an
+operand of 0 into the translation size (`postprocess`, lib.rs ~272, tests `is_positive()` where the
+spec says `>= 0`); `Window::copy_from_self` underflowed (`window.rs:118`) on a repeated offset an
+uncompressed block set past the window, a panic with overflow checks; `FOOTER_BITS` has 289
+entries for 290 position slots; a match reaching before the stream's start decoded as zeros
+(`tests/fixtures/thirdparty/libarchive/cab/broken/test_read_format_cab_lzx_invalid_history.cab`,
+now `Corrupt`); and an empty block asserted.
 
 For M7's disks and installers (docs/M7.md §15, with repros in its spikes): ext4-view 1.0.0 (can't
 move between threads, no inode numbers, refuses times before 1970 and many features, three

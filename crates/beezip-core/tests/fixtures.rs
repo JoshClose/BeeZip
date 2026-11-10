@@ -477,11 +477,11 @@ fn broken_fixtures_fail_as_they_should() {
         UnsupportedFormat,
     ]);
     let cases = [
-        // lzxd 0.2.7 decodes a match reaching before the stream's start as zeros instead of
-        // failing, and a cabinet has no checksum of its decoded data (the upstream list).
+        // A match that reaches before the stream's start. lzxd 0.2.7 decoded it as zeros;
+        // BeeZip's own LZX decoder refuses it (docs/M7.md §8.4).
         (
             "libarchive/cab/broken/test_read_format_cab_lzx_invalid_history.cab",
-            Fails::Reads,
+            corrupt,
         ),
         (
             "libarchive/cab/broken/test_read_format_cab_lzx_oob.cab",
