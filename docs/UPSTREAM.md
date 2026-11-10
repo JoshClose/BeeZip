@@ -145,7 +145,9 @@ files under `target/` exist only on the machine that found the bug. The mileston
     `target/m5-spikes/squashfs/repro/win-backslash-name-fails.sqfs`.
   - *Workaround:* such paths are left out with a warning.
 
-### fstool 0.5.2 (KarpelesLab/fstool), for HFS+ and APFS inside DMGs
+### fstool 0.5.2 (KarpelesLab/fstool), for HFS+, APFS, NTFS and ext
+
+0.5.3 (2026-11-09) changes only archive, zip and tar writing, and fixes none of these.
 
 - **The decmpfs header's magic is read big-endian**, so every Apple-compressed file fails.
   - *Workaround:* BeeZip decodes decmpfs itself (`format/dmg/decmpfs.rs`, `lzvn.rs`) and never
@@ -156,7 +158,53 @@ files under `target/` exist only on the machine that found the bug. The mileston
     resource-fork ones are `UnsupportedOperation`.
 - **`get_xattr` sizes an attribute from its claimed length**, so a crafted volume could allocate
   gigabytes.
-  - *Workaround (keep):* attributes are read through a `Capped` device of 64 KiB (`format/dmg.rs`).
+  - *Workaround (keep):* attributes are read through a `Capped` device of 64 KiB
+    (`format/volume/apple.rs`).
+- **NTFS: a self-referring `$MFT` overflows the stack**, which aborts the process:
+  `Ntfs::read_mft_record` (`src/fs/ntfs/mod.rs:281`) and `bootstrap_mft_runs` (`:390`) call each
+  other without end when record 0's unnamed `$DATA` has no runs and its attribute list names one
+  in another record.
+  - *Check:* open `tests/fixtures/malicious/ntfs-mft-recursion.img` with fstool directly.
+  - *Workaround (keep):* `check_mft` in `format/volume/ntfs.rs` reads `$MFT` first and refuses
+    empty runs.
+- **NTFS: a short resident attribute panics** in `AttributeIter::next` (`src/fs/ntfs/attribute.rs:170`),
+  which reads the value offset before checking that it fits ("range end index 1028 out of range
+  for slice of length 1024"), for an attribute of 16–23 bytes at a record's end.
+  - *Check:* the `fstool_still_reads_past_a_short_attribute` test in `format/volume/ntfs/tests.rs`
+    (`should_panic`: it fails once fstool fixes this). Repro:
+    `tests/fixtures/malicious/ntfs-short-attr.img`.
+  - *Workaround (keep):* `check_attrs` vets every record before fstool walks it.
+- **NTFS: `read_directory` drops a second name of a file in the same folder** (the `seen_refs`
+  dedup, `src/fs/ntfs/mod.rs:578–598`), so a hard link goes missing.
+  - *Check:* list `tests/fixtures/thirdparty/7zip/ntfs.img` through `read_directory`: one of
+    `readme.txt` and `hard-readme.txt` is missing.
+  - *Workaround:* BeeZip walks the indexes itself.
+- **NTFS: `load_record_set` takes attributes from any record an attribute list names**
+  (`src/fs/ntfs/mod.rs:459–494`), without checking that record's base reference, so another
+  file's data can be merged in.
+  - *Check:* `tests/fixtures/malicious/ntfs-alist-foreign.img`.
+  - *Workaround (keep):* BeeZip gathers the set itself and refuses records that aren't the file's.
+- **NTFS: data stored twice isn't refused:** `open_stream_by_record` (`src/fs/ntfs/mod.rs:831`,
+  `:879`) prefers any resident `$DATA` and takes the size from the first piece without checking
+  that the pieces line up, so it reads past what's there.
+  - *Check:* `tests/fixtures/malicious/ntfs-dup-data.img`.
+  - *Workaround (keep):* such streams are `Corrupt`; the size listed is the one fstool reads.
+- **NTFS: clusters over 64 KiB read as damaged:** `BootSector::decode` (`src/fs/ntfs/boot.rs:70`)
+  rejects the negative encoding of sectors per cluster (over 0x80) that such volumes use.
+  - *Workaround:* BeeZip checks the boot sector first and makes those volumes
+    `UnsupportedOperation`, so 7-Zip reads them when it's installed.
+- **NTFS, found by reading the code and avoided rather than reproduced:**
+  - `descend_index` (`src/fs/ntfs/mod.rs:667`) reads an index block as contiguous bytes from its
+    first cluster, and `read_directory` (`:553`) assumes the root's first entry is at 16: BeeZip
+    walks the indexes itself.
+  - `RunMap::lookup` (`src/fs/ntfs/run_list.rs:80`) scans zero-length runs one by one: BeeZip
+    refuses such runs.
+  - The two compression-unit buffers can reach 256 MiB each (`src/fs/ntfs/mod.rs:894`): BeeZip
+    caps a unit at 1 MiB.
+  - Not worked around: `read_mft_record` (`:310`) reads a record larger than a cluster as
+    contiguous bytes, which misreads a record that crosses runs of a fragmented `$MFT` with
+    clusters under 1 KiB (its fixups then fail it cleanly); LZNT1's `decompress_unit`
+    (`src/fs/ntfs/compression.rs:70`) doesn't pad a short chunk to 4 KiB, as ntfs-3g does.
 - **Its DMG layer caches one decoded chunk** (10 000 files took 25 s against 0.18 s) and caps a
   chunk at 8 GiB.
   - *Workaround:* BeeZip's own UDIF reader (`format/udif.rs`) behind fstool's `BlockDevice`.
@@ -216,6 +264,14 @@ files under `target/` exist only on the machine that found the bug. The mileston
   - *Check:* build on Ubuntu 24.04 and run `beezip --version` on 22.04.
   - *Workaround:* CI's linux-bundle job and release.yml's linux job build on ubuntu-22.04.
 
+### wixl 0.103 (msitools, Ubuntu 24.04), which makes the MSI fixture
+
+- **Under code page 65001 a non-ASCII file name is written empty**, and Latin-1 names are written
+  under code page 0; code page 932 crashes it.
+  - *Check:* `tests/fixtures/make-7z.sh`'s `wixl.msi`: its `名前.txt` is listed by its key, `cjk`.
+  - *Workaround:* none; the fixture's record names that file `cjk`, and the test packages with
+    non-ASCII names are built by the `msi` crate in `tests/msi.rs`.
+
 ## Programs BeeZip runs or targets
 
 ### 7-Zip 26.00
@@ -234,10 +290,12 @@ CI's Windows runner shows which 7-Zip it has; BeeZip needs 25.01 or newer.
 - Not worked around, since BeeZip doesn't ask 7-Zip for these:
   - an ARJ volume set opens one part at a time and tests OK;
   - ntfs-3g's Interix links list as plain files, but `7z x` makes them links;
+  - ntfs-3g's sparse files fail with "Data Error" and extract as empty files (`sparse.bin` in
+    `tests/fixtures/thirdparty/ntfs/rich.img`); BeeZip reads NTFS itself since M7;
   - a qemu-img streamOptimized VMDK can't be opened;
   - neither can a VHDX whose disk is an odd number of 512-byte sectors;
   - a VHD footer's UTC time is shifted by the local offset, even with `-slmu`;
-  - a 4 KiB-sector GPT disk is read as an MBR disk;
+  - a 4 KiB-sector GPT disk is read as an MBR disk (BeeZip reads such disks itself since M7);
   - `7z t tests/fixtures/malicious/bomb.dmg` runs for minutes on a 1.3 KB file.
 
 ### Windows 11 (build 26300)
@@ -263,6 +321,23 @@ BeeZip's ARJ, ACE and ZOO readers began as unarc-rs's modules and fix its bugs t
 also ships HA, UC2 and JAR code derived from GPL, LGPL and proprietary sources under MIT OR
 Apache-2.0.
 
+For M7's disks and installers (docs/M7.md §15, with repros in its spikes): ext4-view 1.0.0 (can't
+move between threads, no inode numbers, refuses times before 1970 and many features, three
+aborting allocations), ntfs 0.4.0 and its master (11 panics in 15 minutes of fuzzing, allocations
+of 4 GiB, compressed files read as raw clusters with no error), fatfs 0.3.6 and its master
+(refuses small FAT32 volumes, panics, hangs, reads wrong data with no error), gpt 4.1.0 (asserts
+128-byte entries, so the spec's 256-byte entries panic; needs write access), and msi 0.11.1 at run
+time. msi stays a dev-dependency for building test packages:
+- allocations of up to 4 GiB from a string pool's or a summary string's claimed length
+  (`stringpool.rs:115`, `propset.rs:69`): `tests/fixtures/malicious/pool-4gib.msi`,
+  `summary-2gib.msi`;
+- `unwrap()` on null cells of its catalog (`package.rs:317, 348, 350, 358, 359, 386, 391, 425`):
+  `catalog-nulls.msi`;
+- code page 0 read as UTF-8 rather than the system's ANSI code page, and `CodePage::from_id(0)`
+  maps to UTF-8, so it can't write a code page 0 package (the test writes 1252 and zeroes the
+  header through cfb);
+- its file needs read and write access: `File::create` gives "Access is denied".
+
 ## Notes
 
 - **License files missing** (the reason for some of `about.toml`'s clarifications): rmcp 3.8.0
@@ -274,6 +349,9 @@ Apache-2.0.
   and say the client needs .NET 8, while `Microsoft.ArtifactSigning.Client` 1.0.147+ needs .NET 10.
 - **APFS keeps a file's old name** when a rename replaces it under another case. That's how APFS
   works, not a bug; BeeZip removes the earlier name first.
+- **cfb 0.16.0's `Stream` can't move between threads** (its `flusher` is a `Box<dyn Flusher>`,
+  `src/internal/stream.rs:29`): a design choice, not a bug. BeeZip's `CfbStream`
+  (`format/msi/tables.rs`) reopens the stream for each read, under a mutex.
 - **Tools met while making test files** (none is used by BeeZip): unar 1.10.1 reads only an ARJ
   set's first volume, flattens Unix ARJ folders, garbles CP437 names and segfaults on some ARC
   entries; arc 5.21q never writes a squeezed stream's last partial byte; Debian's zoo 2.10 leaves
