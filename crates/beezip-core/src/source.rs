@@ -12,15 +12,15 @@ use std::{
 };
 
 use crate::{
-    CodecId, Ctx, Error, Limits, Result,
-    backend::{SevenZipOptions, SevenZipReader},
+    CodecId, Ctx, Error, ErrorKind, Limits, Result,
+    backend::{External, SevenZipOptions, SevenZipReader},
     detect::{Detection, detect_path},
     format::{
         ArchiveReader, FormatId, ace::AceReader, ar::ArReader, arc::ArcReader, arj::ArjReader,
         cab::CabReader, cpio::CpioReader, deb::DebReader, dmg::DmgReader, iso::IsoReader,
-        lzh::LzhReader, pkg::PkgReader, rar::RarReader, rpm::RpmReader, sevenz::SevenZReader,
-        squashfs::SquashfsReader, stream::StreamReader, tar::TarReader, xar::XarReader,
-        zip::ZipReader, zoo::ZooReader,
+        lzh::LzhReader, msi, pkg::PkgReader, rar::RarReader, rpm::RpmReader, sevenz::SevenZReader,
+        squashfs::SquashfsReader, stream::StreamReader, tar::TarReader, volume::DiskReader,
+        xar::XarReader, zip::ZipReader, zoo::ZooReader,
     },
     io::{BUF_SIZE, Counter, CountingReader},
     limits::{Budget, Guarded, RatioGuard},
@@ -44,6 +44,9 @@ pub struct OpenOptions {
     pub min_parallel_files: usize,
     /// The 7-Zip that reads the formats BeeZip leaves to it (docs/M6.md §3.1).
     pub seven_zip: SevenZipOptions,
+    /// Read the disks, file systems and installers with BeeZip's own readers (docs/M7.md), the
+    /// default. `false` reads them through 7-Zip, as before M7: the tests compare the two.
+    pub native: bool,
 }
 
 impl Default for OpenOptions {
@@ -55,6 +58,7 @@ impl Default for OpenOptions {
             threads: 1,
             min_parallel_files: 64,
             seven_zip: SevenZipOptions::default(),
+            native: true,
         }
     }
 }
@@ -333,6 +337,37 @@ pub struct Opened {
     pub size: u64,
 }
 
+/// A disk, file system or installer through BeeZip's own reader (docs/M7.md §2). One that uses
+/// something the reader doesn't support goes to 7-Zip when it's installed, with a note in Info;
+/// one that's damaged doesn't.
+fn native(
+    source: Source,
+    kind: External,
+    opts: &OpenOptions,
+    cx: &mut dyn Ctx,
+) -> Result<Box<dyn ArchiveReader>> {
+    let opened = match kind {
+        External::Msi => msi::open(source.clone(), cx),
+        _ => DiskReader::open(source.clone(), kind, cx).map(|r| Box::new(r) as Box<_>),
+    };
+    match opened {
+        Err(e)
+            if e.kind == ErrorKind::UnsupportedOperation
+                && opts.seven_zip.enabled
+                && crate::backend::find(&opts.seven_zip).is_ok() =>
+        {
+            let why = format!(
+                "BeeZip can't read this one itself ({}), so 7-Zip reads it.",
+                e.message
+            );
+            Ok(Box::new(
+                SevenZipReader::open(source, kind, &opts.seven_zip, cx)?.with_fallback(why),
+            ))
+        }
+        r => r,
+    }
+}
+
 /// Detects `path` and opens it. Any part of a volume set opens the whole set.
 pub fn open(path: &Path, opts: &OpenOptions, cx: &mut dyn Ctx) -> Result<Opened> {
     let detection = detect_path(path, &opts.limits)?;
@@ -368,6 +403,9 @@ pub fn open(path: &Path, opts: &OpenOptions, cx: &mut dyn Ctx) -> Result<Opened>
             FormatId::Arc => Box::new(ArcReader::open(source, cx)?),
             FormatId::Pkg => Box::new(PkgReader::open(source, cx)?),
             FormatId::Xar => Box::new(XarReader::open(source, cx)?),
+            FormatId::External(kind) if kind.native() && opts.native => {
+                native(source, kind, opts, cx)?
+            }
             FormatId::External(kind) => {
                 Box::new(SevenZipReader::open(source, kind, &opts.seven_zip, cx)?)
             }

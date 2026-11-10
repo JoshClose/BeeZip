@@ -128,7 +128,8 @@ fn a_wim_lists_extracts_and_reads_as_written() {
     }
     let info = opened.reader.info(&mut cx).unwrap();
     let ext = info.external.unwrap();
-    assert!(ext.backend.starts_with("7-Zip") || ext.backend.starts_with("NanaZip"));
+    let backend = ext.backend.unwrap();
+    assert!(backend.starts_with("7-Zip") || backend.starts_with("NanaZip"));
     assert_eq!(ext.levels, ["wim"]);
 
     // Everything, streamed.

@@ -40,6 +40,30 @@ pub fn sniff(kind: External, probe: &Probe<'_>) -> Option<Confidence> {
     }
 }
 
+/// The file system whose boot sector or superblock starts `head`, among those BeeZip reads
+/// itself: what's in a disk's partition (docs/M7.md §3). One whose structure checks out wins
+/// over one found by its magic alone.
+pub fn file_system(head: &[u8]) -> Option<External> {
+    const KINDS: [External; 5] = [
+        External::Ntfs,
+        External::Fat,
+        External::Ext,
+        External::Hfs,
+        External::Apfs,
+    ];
+    let found = |k: External| match k {
+        External::Ntfs => ntfs(head),
+        External::Fat => fat(head),
+        External::Ext => ext(head),
+        External::Hfs => hfs(head),
+        _ => apfs(head),
+    };
+    KINDS
+        .into_iter()
+        .find(|&k| found(k) == Some(Confidence::Certain))
+        .or_else(|| KINDS.into_iter().find(|&k| found(k).is_some()))
+}
+
 /// NSIS's first header at the start of `start`: flags NSIS knows (its `FH_FLAGS_MASK`, 0xF),
 /// `EF BE AD DE` and `NullsoftInst`, then the length of the header and of everything after it.
 /// NSIS's loader and 7-Zip look for it at 512-byte boundaries of the executable; installers
@@ -400,10 +424,11 @@ fn cramfs(h: &[u8]) -> Option<Confidence> {
 }
 
 /// A GPT header in sector 1: `EFI PART`, revision 1.0, its own sector number and its CRC.
-/// `Likely` at most (see the module's notes). 512-byte sectors only: 7-Zip 26.00 reads a disk of
-/// 4 KiB sectors as an MBR disk of 512-byte ones and lists garbage, so those aren't claimed.
+/// `Likely` at most (see the module's notes). Sectors of 512 bytes or 4 KiB: BeeZip reads both
+/// itself (docs/M7.md §3), though 7-Zip 26.00 reads a disk of 4 KiB sectors as an MBR disk of
+/// 512-byte ones and lists garbage.
 fn gpt(h: &[u8]) -> Option<Confidence> {
-    gpt_header(h, 512).then_some(Confidence::Likely)
+    (gpt_header(h, 512) || gpt_header(h, 4096)).then_some(Confidence::Likely)
 }
 
 fn gpt_header(h: &[u8], sector: usize) -> bool {

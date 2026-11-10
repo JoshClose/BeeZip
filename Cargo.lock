@@ -375,6 +375,7 @@ dependencies = [
  "beezip-unrar",
  "brotli",
  "bzip2",
+ "cfb 0.16.0",
  "crc32fast",
  "delharc",
  "encoding_rs",
@@ -396,6 +397,7 @@ dependencies = [
  "lzxd",
  "md-5",
  "memchr",
+ "msi",
  "oem_cp",
  "proptest",
  "quick-xml",
@@ -817,6 +819,17 @@ name = "cfb"
 version = "0.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a347dcabdae9c31b0825fd6a8bed285ec9c2acb89c47827126d52fa4f59cece3"
+dependencies = [
+ "fnv",
+ "uuid",
+ "web-time",
+]
+
+[[package]]
+name = "cfb"
+version = "0.16.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fef29b910ef2b9dbecc60168d1568d643c633b0518af970c17e83bd5f6e2c94f"
 dependencies = [
  "fnv",
  "uuid",
@@ -2680,7 +2693,7 @@ version = "0.22.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f4200d433cbd5178df7797c9c2e75b348b728e39631cf14520d1e2fc424201f4"
 dependencies = [
- "cfb",
+ "cfb 0.14.0",
 ]
 
 [[package]]
@@ -3147,6 +3160,18 @@ dependencies = [
  "libc",
  "wasi",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "msi"
+version = "0.11.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d152e3015f63c656d51617047e0516ffa055874fc11e7bdbda83b7a96cb84354"
+dependencies = [
+ "byteorder",
+ "cfb 0.16.0",
+ "encoding_rs",
+ "uuid",
 ]
 
 [[package]]

@@ -172,7 +172,7 @@ impl Command for ArchiveInfo {
                     not_editable,
                     comment: info.comment,
                     archive: input.archive,
-                    backend: info.external.as_ref().map(|x| x.backend.clone()),
+                    backend: info.external.as_ref().and_then(|x| x.backend.clone()),
                     levels: info
                         .external
                         .as_ref()

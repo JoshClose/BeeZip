@@ -92,7 +92,8 @@ pub struct FormatInfo {
     /// Encryption for new archives.
     pub encryption: Vec<String>,
     /// The program that reads it, for the formats BeeZip leaves to one: `7-zip`. `null` for
-    /// BeeZip's own.
+    /// BeeZip's own, which include the disks, file systems and installers it reads since
+    /// docs/M7.md.
     pub backend: Option<String>,
     /// Whether it opens here: false while its backend is missing, too old or turned off.
     pub available: bool,
@@ -268,8 +269,12 @@ impl Command for FormatsList {
                         FormatId::SevenZ => vec!["aes256".into()],
                         _ => Vec::new(),
                     },
-                    backend: f.external().map(|_| "7-zip".to_owned()),
-                    available: f.external().is_none() || seven_zip.name.is_some(),
+                    backend: f
+                        .external()
+                        .filter(|k| !k.native())
+                        .map(|_| "7-zip".to_owned()),
+                    available: f.external().is_none_or(beezip_core::External::native)
+                        || seven_zip.name.is_some(),
                     menu: f.external().is_none_or(beezip_core::External::in_menu),
                 }
             })
