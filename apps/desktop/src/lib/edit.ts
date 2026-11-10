@@ -28,6 +28,8 @@ export type BrowserActions = {
   rename: () => void;
   /** Delete the selection, once the person agrees. */
   remove: () => void;
+  /** Open Extract for the selection, or for everything when nothing is selected. */
+  extract: () => void;
 };
 
 const browsers = new Map<string, BrowserActions>();

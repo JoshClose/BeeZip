@@ -20,6 +20,7 @@ import { archiveArgs, type Tab } from "../../lib/archives";
 import { baseName, joinPath, parentDir } from "../../lib/format";
 import { codecOfTar, methodsOf, useFormats } from "../../lib/formats";
 import { useJobs } from "../../lib/jobs";
+import { loadSettings } from "../../lib/settings";
 import { toastError } from "../../lib/toasts";
 import { CopyAsCli } from "../cli/CopyAsCli";
 
@@ -42,22 +43,60 @@ export type CreateForm = {
 export function applies(f: Pick<CreateForm, "format" | "method">, formats?: FormatsListOutput) {
   const methods = formats ? methodsOf(formats, f.format) : [];
   const codec = formats ? codecOfTar(formats, f.format) : undefined;
-  const fallback = f.format === "7z" ? "lzma2" : f.format === "cab" ? "mszip" : f.format === "squashfs" ? "gzip" : "deflate";
-  const method = methods.find((m) => m.id === (f.method ?? fallback));
+  const method = methods.find((m) => m.id === (f.method ?? defaultMethod(f.format)));
   // zip's, 7z's and squashfs's levels are their methods'; a compressed tar's or cpio's, its codec's.
   const byMethod = f.format === "zip" || f.format === "7z" || f.format === "squashfs";
   const level: LevelRange | null = byMethod ? (method?.levels ?? null) : (codec?.levels ?? null);
+  // The `[levels]` name that sets its default, as the engine looks it up.
+  const levelKey = (byMethod ? method?.id : codec?.id) ?? null;
   const archive = f.format === "zip" || f.format === "7z";
   const stored = f.method === "store" || f.method === "copy";
   return {
     methods,
     level,
+    levelKey,
     password: archive,
     encryption: f.format === "zip",
     solid: f.format === "7z",
     encryptHeaders: f.format === "7z",
     threads: f.format === "7z" || f.format === "zip" ? !stored : (codec?.threads ?? false),
   };
+}
+
+/** The method a format is written with when none is chosen, as the engine picks it. */
+export function defaultMethod(format: string): string {
+  return format === "7z" ? "lzma2" : format === "cab" ? "mszip" : format === "squashfs" ? "gzip" : "deflate";
+}
+
+/** `[levels]` from the settings: a default level by codec or method name. */
+export function useConfiguredLevels(): Record<string, number> {
+  const [levels, setLevels] = useState<Record<string, number>>({});
+  useEffect(() => {
+    let live = true;
+    loadSettings().then(
+      (s) => live && setLevels(s.settings.levels ?? {}),
+      () => {},
+    );
+    return () => {
+      live = false;
+    };
+  }, []);
+  return levels;
+}
+
+/** The level used when none is chosen: `[levels]`'s for the method or codec, else its own. */
+export function defaultLevel(
+  a: Pick<ReturnType<typeof applies>, "level" | "levelKey">,
+  levels: Record<string, number>,
+): { value: number; configured: boolean } | undefined {
+  if (!a.level) return undefined;
+  const configured = a.levelKey === null ? undefined : levels[a.levelKey];
+  return configured === undefined ? { value: a.level.default, configured: false } : { value: configured, configured: true };
+}
+
+/** "Default 6.", or "Default 19, from the settings." */
+export function levelHint(d: { value: number; configured: boolean }): string {
+  return d.configured ? `Default ${d.value}, from the settings.` : `Default ${d.value}.`;
 }
 
 /** Archive extensions a name may already end with, longest first. */
@@ -217,6 +256,8 @@ export function CreateDialog({
   }, [given]);
 
   const a = applies(form, formats);
+  const levels = useConfiguredLevels();
+  const shownLevel = defaultLevel(a, levels);
   const args = useMemo(
     () => (source ? convertArgs(source, form, decrypt, formats) : createArgs(form, formats)),
     [source, form, decrypt, formats],
@@ -257,7 +298,7 @@ export function CreateDialog({
   };
 
   const formatNames = formats?.create ?? ["zip", "7z", "tar"];
-  const defaultMethod = form.format === "7z" ? "lzma2" : "deflate";
+  const methodDefault = defaultMethod(form.format);
 
   return (
     <Dialog
@@ -315,9 +356,9 @@ export function CreateDialog({
               value={form.method ?? ""}
               onChange={(e) => set({ method: (e.target.value || undefined) as MethodName | undefined, level: undefined })}
             >
-              <option value="">{defaultMethod} (default)</option>
+              <option value="">{methodDefault} (default)</option>
               {a.methods
-                .filter((m) => m.id !== defaultMethod)
+                .filter((m) => m.id !== methodDefault)
                 .map((m) => (
                   <option key={m.id} value={m.id}>
                     {m.id}
@@ -326,19 +367,19 @@ export function CreateDialog({
             </Select>
           </Field>
         )}
-        {a.level && (
-          <Field label="Level" htmlFor="level" hint={form.level === undefined ? `Default ${a.level.default}.` : undefined}>
+        {a.level && shownLevel && (
+          <Field label="Level" htmlFor="level" hint={form.level === undefined ? levelHint(shownLevel) : undefined}>
             <div className="flex items-center gap-3">
               <input
                 id="level"
                 type="range"
                 min={a.level.min}
                 max={a.level.max}
-                value={form.level ?? a.level.default}
+                value={form.level ?? shownLevel.value}
                 onChange={(e) => set({ level: Number(e.target.value) })}
                 className="w-56 accent-[var(--amber)]"
               />
-              <span className="tabular w-6">{form.level ?? a.level.default}</span>
+              <span className="tabular w-6">{form.level ?? shownLevel.value}</span>
               <span className="text-[12px] text-muted">
                 {a.level.min} is fastest, {a.level.max} smallest
               </span>

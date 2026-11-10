@@ -99,10 +99,10 @@ describe("About", () => {
 
     vi.mocked(invoke).mockResolvedValueOnce(available);
     await userEvent.click(screen.getByRole("button", { name: "Check for updates" }));
-    expect(await screen.findByText("BeeZip 0.1.1 is available: the banner above the tabs installs it.")).toBeInTheDocument();
+    expect(await screen.findByText("BeeZip 0.1.1 is available: the banner below the tabs installs it.")).toBeInTheDocument();
     vi.mocked(invoke).mockResolvedValueOnce({ ...available, download_url: "https://example.com/BeeZip.zip" });
     await userEvent.click(screen.getByRole("button", { name: "Check for updates" }));
-    expect(await screen.findByText("BeeZip 0.1.1 is available: the banner above the tabs downloads it.")).toBeInTheDocument();
+    expect(await screen.findByText("BeeZip 0.1.1 is available: the banner below the tabs downloads it.")).toBeInTheDocument();
 
     vi.mocked(invoke).mockResolvedValueOnce({ status: "off", reason: "This build of BeeZip doesn't look for updates." });
     await userEvent.click(screen.getByRole("button", { name: "Check for updates" }));

@@ -59,7 +59,7 @@
 <p>The line under the entries counts the items in the folder and the ones selected, says why the archive can't be edited when it can't, and gives the archive's format, its unpacked and packed sizes, and whether it's encrypted or solid.</p>
 
 <h2 id="extracting">Extracting</h2>
-<p>The toolbar's first button says what it extracts: <strong>Extract all</strong> with nothing selected, or <strong>Extract 1 item</strong>, <strong>Extract 12 items</strong> and so on. It opens the Extract dialog for the selection. <kbd>Ctrl</kbd>+<kbd>E</kbd>, and <strong>Extract a.zip…</strong> in the command palette, open it for the whole archive.</p>
+<p>The toolbar's first button says what it extracts: <strong>Extract all</strong> with nothing selected, or <strong>Extract 1 item</strong>, <strong>Extract 12 items</strong> and so on. It opens the Extract dialog for the selection, and so do <kbd>Ctrl</kbd>+<kbd>E</kbd> and <strong>Extract a.zip…</strong> in the command palette.</p>
 
 <h3 id="extract-dialog">The Extract dialog</h3>
 <table>
@@ -70,10 +70,10 @@
     <tr><td><strong>Destination</strong></td><td>The folder to extract into; it starts as the archive's own folder. <strong>Browse…</strong> picks another.</td></tr>
     <tr><td><strong>Into a folder named after the archive, if it holds more than one item</strong></td><td>On by default. When what you extract has more than one item at its top level, it goes into a new folder named after the archive (<code>photos.tar.zst</code> into <code>photos\</code>). A single folder or file goes straight into the destination.</td></tr>
     <tr><td><strong>Entries</strong></td><td><strong>All entries</strong>, or <strong>Selected entries</strong>, with how many.</td></tr>
-    <tr><td><strong>Existing files</strong></td><td>What to do when a file is already there: <strong>Ask each time</strong> (the default), <strong>Replace</strong>, <strong>Replace if the archive's copy is newer</strong>, <strong>Keep both (rename the new one)</strong>, or <strong>Skip</strong>.</td></tr>
+    <tr><td><strong>Existing files</strong></td><td>What to do when a file is already there: <strong>As in the settings</strong> (the default, naming what Settings → Extracting says), <strong>Ask each time</strong>, <strong>Replace</strong>, <strong>Replace if the archive's copy is newer</strong>, <strong>Keep both (rename the new one)</strong>, or <strong>Skip</strong>.</td></tr>
     <tr><td><strong>Password</strong></td><td>Only for encrypted entries. A password you've already typed for the tab is filled in.</td></tr>
     <tr><td><strong>Strip folders</strong></td><td>Drops this many leading folders from every path. With 1, <code>project/src/main.c</code> is written as <code>src/main.c</code>.</td></tr>
-    <tr><td><strong>Links</strong></td><td>Create symbolic links that stay inside the destination. Links that lead outside it are never created, and hard links are extracted as copies.</td></tr>
+    <tr><td><strong>Links</strong></td><td>Create symbolic links that stay inside the destination; it starts as Settings → Extracting says. Links that lead outside it are never created, and hard links are extracted as copies.</td></tr>
   </tbody>
 </table>
 <p><strong>Show plan</strong> lists what would be written, and where, without writing anything; entries that would be skipped say why. <strong>Extract</strong> starts the job, which shows in the <a href="#jobs-panel">jobs panel</a>.</p>
@@ -94,8 +94,8 @@
     <tr><td><strong>Files and folders</strong></td><td>What goes in. <strong>Add files…</strong> and <strong>Add folder…</strong> add more, and so does dropping them on the window while the dialog is open. Each has a <strong>×</strong> to take it out.</td></tr>
     <tr><td><strong>Save as</strong></td><td>The new archive's path. It starts beside the first item, named after it (one item) or after the folder they're in (several). <strong>Browse…</strong> picks another.</td></tr>
     <tr><td><strong>Format</strong></td><td>Every format BeeZip writes: zip, 7z, tar and cpio (plain or compressed, such as <code>tar.zst</code>), ar, cab, iso, squashfs and dmg. Changing it changes the extension in <strong>Save as</strong>. See <a href="formats.html">Formats</a>.</td></tr>
-    <tr><td><strong>Method</strong></td><td>For formats with more than one, such as zip and 7z. The first choice, marked <strong>(default)</strong>, is <code>deflate</code> for zip and <code>lzma2</code> for 7z.</td></tr>
-    <tr><td><strong>Level</strong></td><td>A slider over the method's or codec's levels, the lowest fastest and the highest smallest. Leave it alone and the job uses your default level for that codec or method, which Settings → Creating sets.</td></tr>
+    <tr><td><strong>Method</strong></td><td>For formats with more than one, such as zip and 7z. The first choice, marked <strong>(default)</strong>, is <code>deflate</code> for zip, <code>lzma2</code> for 7z, <code>mszip</code> for cab and <code>gzip</code> for squashfs.</td></tr>
+    <tr><td><strong>Level</strong></td><td>A slider over the method's or codec's levels, the lowest fastest and the highest smallest. Leave it alone and the job uses your default level for that codec or method, which Settings → Creating sets; the slider starts there, and says so.</td></tr>
     <tr><td><strong>Solid</strong></td><td>7z only, on by default: compresses files together, which is smaller but slower when you read one file.</td></tr>
     <tr><td><strong>Threads</strong></td><td>For formats and codecs that compress on several threads. Empty uses the setting in Settings; 0 is one per core.</td></tr>
     <tr><td><strong>Password</strong></td><td>zip and 7z only. Leave it empty for no encryption. For zip, choose <strong>AES-256</strong> or <strong>ZipCrypto (weak, for old tools)</strong>. For 7z, <strong>Encrypt file names too</strong> is on, so nobody can list the archive without the password.</td></tr>
@@ -269,7 +269,7 @@
     <tr><td><kbd>Ctrl</kbd>+<kbd>K</kbd></td><td>Open or close the command palette</td></tr>
     <tr><td><kbd>Ctrl</kbd>+<kbd>O</kbd></td><td>Open an archive</td></tr>
     <tr><td><kbd>Ctrl</kbd>+<kbd>N</kbd></td><td>New archive</td></tr>
-    <tr><td><kbd>Ctrl</kbd>+<kbd>E</kbd></td><td>Extract the archive in the current tab</td></tr>
+    <tr><td><kbd>Ctrl</kbd>+<kbd>E</kbd></td><td>Extract the selection, or the whole archive when nothing is selected</td></tr>
     <tr><td><kbd>Ctrl</kbd>+<kbd>W</kbd></td><td>Close the current tab</td></tr>
     <tr><td><kbd>Ctrl</kbd>+<kbd>,</kbd></td><td>Settings</td></tr>
     <tr><td><kbd>↑</kbd> <kbd>↓</kbd></td><td>Move one entry (with <kbd>Shift</kbd>: extend the selection)</td></tr>
