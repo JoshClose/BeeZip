@@ -25,6 +25,8 @@ mod arj;
 mod fat;
 #[path = "malicious/msi.rs"]
 mod msi;
+#[path = "malicious/ntfs.rs"]
+mod ntfs;
 #[path = "malicious/xar.rs"]
 mod xar;
 #[path = "malicious/zoo.rs"]

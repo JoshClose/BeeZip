@@ -589,6 +589,19 @@ impl DiskReader {
     }
 }
 
+/// Data that can't be read: the reason, at the first read.
+struct Unreadable(Option<Error>);
+
+impl Read for Unreadable {
+    fn read(&mut self, _: &mut [u8]) -> io::Result<usize> {
+        Err(self
+            .0
+            .take()
+            .unwrap_or_else(|| Error::corrupt("an entry that can't be read"))
+            .into_io())
+    }
+}
+
 /// The data of entry `idx`, checked against the ratio limit and held to its size. A hard link
 /// has its file's data only when `links` says so: `open_entry`'s, not `extract`'s.
 fn open_data<'a>(
@@ -665,6 +678,12 @@ impl ArchiveReader for DiskReader {
         sink: &mut dyn EntrySink,
         cx: &mut dyn Ctx,
     ) -> Result<()> {
+        // A sparse file that claims too much is refused before anything is written.
+        for (e, item) in self.entries.iter().zip(&self.items) {
+            if matches!(item, Item::Fs { .. }) && sel.matches(e) {
+                check_claim(e, &self.source.limits)?;
+            }
+        }
         self.source.counter.set(0);
         let mut meter = Meter::new(self.source.counter.clone(), Some(self.source.size));
         meter.entries_total = Some(self.entries.len() as u64);
@@ -678,14 +697,24 @@ impl ArchiveReader for DiskReader {
             meter.current = Some(self.entries[idx].path.clone());
             let mut mcx = MeteredCtx::new(cx, &meter);
             mcx.report();
-            let data = open_data(
+            let data = match open_data(
                 &mut self.parts,
                 &self.entries,
                 &self.items,
                 &self.source.limits,
                 idx,
                 false,
-            )?;
+            ) {
+                Ok(d) => d,
+                // A file that can't be read (damaged, or encrypted by its file system) fails as
+                // its data would, so that a test records it and goes on.
+                Err(e)
+                    if matches!(e.kind, ErrorKind::Corrupt | ErrorKind::UnsupportedOperation) =>
+                {
+                    Box::new(Unreadable(Some(e)))
+                }
+                Err(e) => return Err(e),
+            };
             let mut data = self.source.guard(data);
             sink.entry(&self.entries[idx], &mut data, &mut mcx)?;
             done += 1;

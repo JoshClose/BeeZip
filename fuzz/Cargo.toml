@@ -215,3 +215,10 @@ path = "fuzz_targets/msi.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "ntfs"
+path = "fuzz_targets/ntfs.rs"
+test = false
+doc = false
+bench = false
