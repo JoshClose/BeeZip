@@ -305,12 +305,12 @@ impl Command for FormatsList {
         let yes = |b: bool| if b { "yes" } else { "-" };
         let mut s = String::from("Archive formats\n");
         s.push_str(&format!(
-            "  {:<8} {:<16} {:<5} {:<7} {:<6} {:<8} {:<6}  {}\n",
+            "  {:<8} {:<25} {:<5} {:<7} {:<6} {:<8} {:<6}  {}\n",
             "ID", "NAME", "LIST", "EXTRACT", "CREATE", "ENCRYPT", "RANDOM", "EXTENSIONS"
         ));
         for f in out.formats.iter().filter(|f| f.backend.is_none()) {
             s.push_str(&format!(
-                "  {:<8} {:<16} {:<5} {:<7} {:<6} {:<8} {:<6}  {}\n",
+                "  {:<8} {:<25} {:<5} {:<7} {:<6} {:<8} {:<6}  {}\n",
                 f.id,
                 f.name,
                 yes(f.caps.list),
