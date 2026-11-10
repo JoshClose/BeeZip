@@ -338,8 +338,9 @@ pub struct Opened {
 }
 
 /// A disk, file system or installer through BeeZip's own reader (docs/M7.md §2). One that uses
-/// something the reader doesn't support goes to 7-Zip when it's installed, with a note in Info;
-/// one that's damaged doesn't.
+/// something the reader doesn't support goes to 7-Zip, with a note in Info; one that's damaged
+/// doesn't. Without 7-Zip, the error is 7-Zip's `BackendUnavailable`, which offers to install
+/// it, saying what BeeZip couldn't read.
 fn native(
     source: Source,
     kind: External,
@@ -350,21 +351,25 @@ fn native(
         External::Msi => msi::open(source.clone(), cx),
         _ => DiskReader::open(source.clone(), kind, cx).map(|r| Box::new(r) as Box<_>),
     };
-    match opened {
-        Err(e)
-            if e.kind == ErrorKind::UnsupportedOperation
-                && opts.seven_zip.enabled
-                && crate::backend::find(&opts.seven_zip).is_ok() =>
-        {
-            let why = format!(
-                "BeeZip can't read this one itself ({}), so 7-Zip reads it.",
-                e.message
+    let Err(e) = opened else {
+        return opened;
+    };
+    if e.kind != ErrorKind::UnsupportedOperation {
+        return Err(e);
+    }
+    match SevenZipReader::open(source, kind, &opts.seven_zip, cx) {
+        Ok(r) => Ok(Box::new(r.with_fallback(format!(
+            "BeeZip can't read this one itself ({}), so 7-Zip reads it.",
+            e.message
+        )))),
+        Err(mut missing) if missing.kind == ErrorKind::BackendUnavailable => {
+            missing.message = format!(
+                "BeeZip can't read this one itself ({}). {}",
+                e.message, missing.message
             );
-            Ok(Box::new(
-                SevenZipReader::open(source, kind, &opts.seven_zip, cx)?.with_fallback(why),
-            ))
+            Err(missing)
         }
-        r => r,
+        Err(other) => Err(other),
     }
 }
 
