@@ -205,6 +205,50 @@ files under `target/` exist only on the machine that found the bug. The mileston
     contiguous bytes, which misreads a record that crosses runs of a fragmented `$MFT` with
     clusters under 1 KiB (its fixups then fail it cleanly); LZNT1's `decompress_unit`
     (`src/fs/ntfs/compression.rs:70`) doesn't pad a short chunk to 4 KiB, as ntfs-3g does.
+- **ext: the group layout allocates before checking the device:** `Vec::with_capacity(num_groups)`
+  (`src/fs/ext/layout.rs:683`) can ask for 128 GiB from a superblock of about 4 billion groups,
+  and `1u32 << log_groups_per_flex` (`:680`) overflows (a panic with overflow checks).
+  - *Check:* open `tests/fixtures/malicious/ext4-groups.img` and `ext4-flex-shift.img` with
+    fstool directly.
+  - *Workaround (keep):* `format/volume/ext.rs` checks the superblock first: block size, flex
+    shift, blocks per group, and a group count the image can hold.
+- **ext: a symlink's target is read past its cap:** the cap (`src/fs/ext/mod.rs:4923`) checks only
+  the size's low 32 bits before `read_to_end` (`:4961`).
+  - *Check:* `tests/fixtures/malicious/ext4-symlink-size.img`, `ext4-symlink-100g.img`.
+  - *Workaround (keep):* BeeZip reads targets itself, at most 4096 bytes.
+- **ext: a bigalloc group's unwritten bitmap is indexed past its end** (`synth_block_bitmap`,
+  `src/fs/ext/mod.rs:5285` → `group.rs:86`), a panic in release builds too ("index 1125, len
+  1024"), when a BLOCK_UNINIT group's bitmap lies 8 × the block size or more into the group.
+  - *Check:* the `a_bigalloc_group_with_metadata_past_its_bitmap_is_refused` test in
+    `format/volume/ext.rs`.
+  - *Workaround (keep):* `check_unwritten_bitmaps` refuses such volumes.
+- **ext: 48-bit block numbers are cut to 32 bits** (`src/fs/ext/mod.rs:5763` `phys as u32`, `:4602`
+  and `:5740` `idx.leaf as u32`), so another block is read with no error, and
+  `r.logical + len as u32` (`:5751`) and `(pos / bs) as u32` (`:5063`) overflow. The superblock
+  and group descriptors are read as 32-bit only (`superblock.rs:300`, `GroupDesc::decode`), and
+  incompatible features BeeZip doesn't know (compression, dirdata) aren't refused.
+  - *Workaround:* BeeZip maps blocks itself, in u64 checked against the block count, a whole run
+    at a time; volumes over 2^32 blocks and unknown incompatible features are
+    `UnsupportedOperation`.
+- **ext: `replay_pending_journal` writes onto the device and gets replay wrong** (from reading the
+  code): it replays whenever `s_start` isn't 0, ignoring needs_recovery (`src/fs/ext/mod.rs:828`);
+  `b.fs_block * bs as u64` overflows on a 64-bit tag and the block isn't checked against the
+  volume (`jbd2.rs:531`); `ring_next`'s `idx + 1` overflows and `s_start`/`s_first` aren't checked
+  against `s_maxlen` (`jbd2.rs:551`); and a first tag of block 0 with flags 0 is taken for an empty
+  descriptor (`jbd2.rs:576`), losing that transaction and every one after.
+  - *Workaround:* BeeZip replays the journal itself, as the kernel does (two passes, with
+    revocations), only when needs_recovery is set, into an overlay in memory.
+- **ext: lossy or missing results:** inline folders list empty and inline symlinks fail
+  (`list_inode` and `read_symlink_target` take `i_block` for a block map); names and targets are
+  made lossy (`src/fs/ext/mod.rs:4700`, `:4944`, `:4963`); and one attribute in an EA inode, or
+  with a name that isn't UTF-8, fails all of `read_xattrs` (`xattr.rs:280`, `:290`).
+  - *Check:* `tests/fixtures/thirdparty/ext/inline.img` through fstool's `list` and
+    `read_symlink_target`.
+  - *Workaround:* BeeZip reads folders, symlinks and `system.data` itself.
+- **ext, costs rather than bugs:** `Ext::open` keeps both bitmaps of every group in memory
+  (`src/fs/ext/mod.rs:5226–5227`), bounded by BeeZip's group-count check, and `FileReader` reads
+  one block per `read`, walking the extent tree again each time (`:5048–5085`), which BeeZip's
+  own block map avoids.
 - **Its DMG layer caches one decoded chunk** (10 000 files took 25 s against 0.18 s) and caps a
   chunk at 8 GiB.
   - *Workaround:* BeeZip's own UDIF reader (`format/udif.rs`) behind fstool's `BlockDevice`.
