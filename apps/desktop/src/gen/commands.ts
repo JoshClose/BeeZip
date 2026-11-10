@@ -471,8 +471,8 @@ not_editable: string | null,
  */
 backend: string | null,
 /**
- * The formats 7-Zip opened, outermost first: `["vhdx", "gpt", "ntfs"]`. Empty for
- * BeeZip's own formats.
+ * The formats opened, outermost first: `["vhdx", "gpt", "ntfs"]`, by 7-Zip or by BeeZip's
+ * own disk and file-system readers (`["gpt", "ntfs"]`). Empty for the other formats.
  */
 levels: Array<string>,
 /**
@@ -1168,7 +1168,8 @@ methods: Array<MethodInfo>,
 encryption: Array<string>,
 /**
  * The program that reads it, for the formats BeeZip leaves to one: `7-zip`. `null` for
- * BeeZip's own.
+ * BeeZip's own, which include the disks, file systems and installers it reads since
+ * docs/M7.md.
  */
 backend: string | null,
 /**

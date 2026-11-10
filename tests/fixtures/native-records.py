@@ -1,0 +1,126 @@
+"""The records of what BeeZip's own readers list from the 7-Zip backend's images (docs/M7.md §10).
+
+Since M7 BeeZip reads FAT, NTFS, ext, HFS+, APFS, GPT and MBR disks and MSI installers itself.
+make-7z.sh records what 7-Zip lists from its images (`"backend": "7-zip"`), and the fixture test
+reads those through 7-Zip. This script derives, from each of those records, what BeeZip's own
+reader must list from the same image (`"native": true`): the same files with the same bytes, as
+7-Zip extracted them, under the names BeeZip gives them. Nothing here comes from BeeZip's output.
+
+What differs from 7-Zip's view:
+- 7-Zip's pseudo entries go: ext's `[SYS]/Journal`; HFS+'s volume-name folder, which BeeZip
+  doesn't list (as for a DMG).
+- A second name of a file is a hard link (7-Zip lists a second file): ext's and NTFS's
+  `hard-readme.txt`.
+- A disk of several partitions lists each readable one as a folder: gpt-fat-ext4.img's
+  `0.data/` (the FAT12 of fat12.img) and `1.linux/` (an ext4 of the same tree).
+- An MSI's files are named by where they install, not by their File keys.
+
+Run it after make-7z.sh: `python tests/fixtures/native-records.py`. It owns the records with
+`"native": true` and puts them after the 7-Zip records.
+"""
+
+import copy
+import json
+import os
+
+here = os.path.dirname(os.path.abspath(__file__))
+manifest_path = os.path.join(here, 'manifest.json')
+with open(manifest_path, encoding='utf-8') as f:
+    manifest = json.load(f)
+old = manifest['fixtures']
+by_file = {r['file']: r for r in old if r.get('backend') == '7-zip'}
+
+NOTE = ('Entries are what BeeZip\'s own reader lists (docs/M7.md), derived by native-records.py '
+        'from the 7-Zip record of the same file: the same bytes, as `7z x` extracts them. ')
+
+
+def files(record, drop=(), prefix='', strip=''):
+    """The record's entries, without 7-Zip's pseudo entries and `drop`, renamed."""
+    out = []
+    for e in record['entries']:
+        p = e['path']
+        if p.startswith('[SYSTEM]/$BadClus:') or p.startswith('[SYS]/') or p in drop:
+            continue
+        if strip:
+            if not p.startswith(strip):
+                continue
+            p = p[len(strip):]
+        e = copy.deepcopy(e)
+        e['path'] = prefix + p
+        out.append(e)
+    return out
+
+
+def native(file, levels, entries, hardlinks, symlinks, note, utc=None):
+    r = copy.deepcopy(by_file[file])
+    r.pop('backend', None)
+    r.pop('7z_test', None)
+    r['native'] = True
+    r['levels'] = levels
+    r['hardlinks'] = hardlinks
+    r['symlinks'] = symlinks
+    if utc is not None:
+        r['utc_mtimes'] = utc
+    r['note'] = NOTE + note
+    r['entries'] = entries
+    return r
+
+
+records = []
+for name in ('fat12.img', 'fat32.img'):
+    f = '7zip/' + name
+    records.append(native(f, ['fat'], files(by_file[f]), 0, 0,
+                          'FAT holds local times with no zone, which BeeZip lists as written, so '
+                          'files have no `mtime` here.'))
+f = '7zip/mbr-fat.img'
+records.append(native(f, ['mbr', 'fat'], files(by_file[f]), 0, 0,
+                      'A disk with one partition opens straight into its file system, as 7-Zip '
+                      'opens it.'))
+for name in ('ext2.img', 'ext4.img'):
+    f = '7zip/' + name
+    records.append(native(f, ['ext'], files(by_file[f]), 1, 2,
+                          'hard-readme.txt and readme.txt are one inode: the second name met is '
+                          'a hard link. 7-Zip\'s `[SYS]/Journal` isn't listed.'))
+for name, levels in (('ntfs.img', ['ntfs']), ('gpt-ntfs.img', ['gpt', 'ntfs'])):
+    f = '7zip/' + name
+    records.append(native(f, levels, files(by_file[f]), 1, 2,
+                          'System files are under `[SYSTEM]/` as 7-Zip lists them, without '
+                          '`$BadClus:$Bad`; hard-readme.txt and readme.txt are one file record, '
+                          'the second name a hard link.'))
+f = '7zip/gpt-fat-ext4.img'
+fat = files(by_file['7zip/fat12.img'], prefix='0.data/')
+ext = files(by_file['7zip/ext4.img'], prefix='1.linux/')
+records.append(native(f, ['gpt'], fat + ext, 1, 2,
+                      'A disk of several partitions lists each one BeeZip reads as a folder named '
+                      'as 7-Zip names the partition, without its extension: 0.data/ is fat12.img '
+                      'and 1.linux/ an ext4 of the same tree without a journal.'))
+f = '7zip/dmg-hfs.hfs'
+records.append(native(f, ['hfs'], files(by_file[f], strip='BeeZip HFS/'), 0, 1,
+                      'The volume\'s files are listed from its root, as a DMG\'s are, without '
+                      '7-Zip\'s folder named after the volume.'))
+f = '7zip/dmg-apfs.apfs'
+records.append(native(f, ['apfs'], files(by_file[f]), 0, 1,
+                      'The container\'s first volume, as a DMG\'s.'))
+f = '7zip/wixl.msi'
+msi_names = {
+    'readme': 'LocalAppDataFolder/BeeZip fixture/readme.txt',
+    'empty': 'LocalAppDataFolder/BeeZip fixture/empty.txt',
+    'random': 'LocalAppDataFolder/BeeZip fixture/random.bin',
+    # wixl 0.103 empties a non-ASCII name under code page 65001 (docs/M7.md §15), so the file
+    # is named by its key.
+    'cjk': 'LocalAppDataFolder/BeeZip fixture/cjk',
+}
+msi = files(by_file[f])
+for e in msi:
+    e['path'] = msi_names[e['path']]
+records.append(native(f, ['msi'], msi, 0, 0,
+                      'Files are named by the folder they install to and their File table names '
+                      '(7-Zip lists their keys).'))
+
+mine = lambda r: r.get('native') is True
+rest = [r for r in old if not mine(r)]
+last = max(i for i, r in enumerate(rest) if r.get('backend') == '7-zip')
+manifest['fixtures'] = rest[:last + 1] + records + rest[last + 1:]
+with open(manifest_path, 'w', encoding='utf-8', newline='\n') as f:
+    f.write(json.dumps(manifest, indent=2, ensure_ascii=False))
+print(f'{len(records)} native records')

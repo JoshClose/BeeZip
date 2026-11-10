@@ -29,6 +29,7 @@ pub mod part;
 
 use std::{
     borrow::Cow,
+    collections::HashMap,
     io::{self, Read, Seek, SeekFrom, Write},
     sync::{Arc, Mutex},
 };
@@ -379,6 +380,9 @@ enum Item {
     Fs { part: usize, id: usize },
     /// Part `part`'s sectors.
     Raw { part: usize },
+    /// A hard link to the file that is entry `file` of the archive: no data when extracting,
+    /// since the sink links it to the file already written, and the file's when opened alone.
+    Link { file: usize },
 }
 
 /// A disk or a bare volume (see the module's notes).
@@ -528,6 +532,26 @@ impl DiskReader {
         self.source
             .limits
             .check_entries((base + list.len()) as u64)?;
+        // The files hard links name, by their paths in the volume.
+        let files: HashMap<&str, usize> = if list
+            .iter()
+            .any(|e| matches!(e.kind, EntryKind::Hardlink { .. }))
+        {
+            list.iter()
+                .filter(|e| e.kind == EntryKind::File)
+                .map(|e| (e.path.as_str(), e.id))
+                .collect()
+        } else {
+            HashMap::new()
+        };
+        let links: Vec<Option<usize>> = list
+            .iter()
+            .map(|e| match &e.kind {
+                EntryKind::Hardlink { target } => files.get(target.as_str()).copied(),
+                _ => None,
+            })
+            .collect();
+        drop(files);
         for (i, mut e) in list.into_iter().enumerate() {
             e.id = base + i;
             if let Some(f) = folder {
@@ -540,10 +564,10 @@ impl DiskReader {
                     *target = format!("{f}/{target}");
                 }
             }
-            let item = if e.kind == EntryKind::File {
-                Item::Fs { part, id: i }
-            } else {
-                Item::None
+            let item = match (&e.kind, links[i]) {
+                (EntryKind::File, _) => Item::Fs { part, id: i },
+                (EntryKind::Hardlink { .. }, Some(id)) => Item::Link { file: base + id },
+                _ => Item::None,
             };
             self.entries.push(e);
             self.items.push(item);
@@ -565,13 +589,15 @@ impl DiskReader {
     }
 }
 
-/// The data of entry `idx`, checked against the ratio limit and held to its size.
+/// The data of entry `idx`, checked against the ratio limit and held to its size. A hard link
+/// has its file's data only when `links` says so: `open_entry`'s, not `extract`'s.
 fn open_data<'a>(
     parts: &'a mut [Part],
     entries: &[Entry],
     items: &[Item],
     limits: &Limits,
     idx: usize,
+    links: bool,
 ) -> Result<Box<dyn Read + 'a>> {
     let (Some(entry), Some(item)) = (entries.get(idx), items.get(idx)) else {
         return Err(Error::new(ErrorKind::NotFound, format!("no entry {idx}")));
@@ -579,6 +605,8 @@ fn open_data<'a>(
     let size = entry.size.unwrap_or(0);
     match *item {
         Item::None => Ok(Box::new(io::empty())),
+        Item::Link { .. } if !links => Ok(Box::new(io::empty())),
+        Item::Link { file } => open_data(parts, entries, items, limits, file, false),
         Item::Fs { part, id } => {
             check_claim(entry, limits)?;
             let Some(Part::Fs(fs)) = parts.get_mut(part) else {
@@ -656,6 +684,7 @@ impl ArchiveReader for DiskReader {
                 &self.items,
                 &self.source.limits,
                 idx,
+                false,
             )?;
             let mut data = self.source.guard(data);
             sink.entry(&self.entries[idx], &mut data, &mut mcx)?;
@@ -675,6 +704,7 @@ impl ArchiveReader for DiskReader {
             &self.items,
             &self.source.limits,
             id,
+            true,
         )?;
         Ok(Box::new(self.source.guard(data)))
     }

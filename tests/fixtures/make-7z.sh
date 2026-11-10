@@ -936,12 +936,13 @@ record('dmg-apfs.apfs', PRODUCER['dmg'], '7z e -tdmg dmg/apfs-udro.dmg 4.apfs (t
        ' 7-Zip lists no Folder key: a folder has no size. The symlink is listed with size 11, its target and a NUL.',
        dmg_check('dmg/apfs-udro.dmg', ''))
 
-# manifest.json: the 7zip/ records go where the old ones were.
+# manifest.json: the 7zip/ records go where the old ones were. The records of what BeeZip's own
+# readers list from the same images (`"native": true`) are native-records.py's: run it next.
 manifest_path = os.path.join(here, 'manifest.json')
 with open(manifest_path, encoding='utf-8') as f:
     manifest = json.load(f)
 old = manifest['fixtures']
-mine = lambda r: r['file'].startswith('7zip/')
+mine = lambda r: r['file'].startswith('7zip/') and not r.get('native')
 at = next((i for i, r in enumerate(old) if mine(r)), len(old))
 manifest['fixtures'] = old[:at] + records + [r for r in old[at:] if not mine(r)]
 with open(manifest_path, 'w', encoding='utf-8', newline='\n') as f:
