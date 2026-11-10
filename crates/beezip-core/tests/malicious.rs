@@ -21,6 +21,9 @@ mod ace;
 mod arc;
 #[path = "malicious/arj.rs"]
 mod arj;
+// M7 (docs/M7.md §10).
+#[path = "malicious/fat.rs"]
+mod fat;
 #[path = "malicious/xar.rs"]
 mod xar;
 #[path = "malicious/zoo.rs"]

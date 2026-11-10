@@ -201,3 +201,10 @@ path = "fuzz_targets/xar.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "fat"
+path = "fuzz_targets/fat.rs"
+test = false
+doc = false
+bench = false
