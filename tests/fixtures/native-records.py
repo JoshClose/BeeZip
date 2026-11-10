@@ -113,7 +113,7 @@ msi_names = {
 msi = files(by_file[f])
 for e in msi:
     e['path'] = msi_names[e['path']]
-records.append(native(f, ['msi'], msi, 0, 0,
+records.append(native(f, ['msi', 'cab'], msi, 0, 0,
                       'Files are named by the folder they install to and their File table names '
                       '(7-Zip lists their keys).'))
 
