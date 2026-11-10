@@ -24,7 +24,7 @@ import { useFormats } from "../../lib/formats";
 import { loadSettings } from "../../lib/settings";
 import { toastError } from "../../lib/toasts";
 import { CopyAsCli } from "../cli/CopyAsCli";
-import { applies, InputsField } from "../create/CreateDialog";
+import { applies, defaultLevel, defaultMethod, InputsField, levelHint, useConfiguredLevels } from "../create/CreateDialog";
 
 export type AddForm = {
   inputs: string[];
@@ -135,10 +135,12 @@ export function AddDialog({ tab, inputs: given, dir, onClose }: { tab: Tab; inpu
 
   const format = editFormat(tab.info, formats);
   const a = applies({ format, method: form.method }, formats);
+  const levels = useConfiguredLevels();
+  const shownLevel = defaultLevel(a, levels);
   const { encrypted, headers } = encryptionOf(tab.info);
   const args = useMemo(() => addArgs(tab, form, formats), [tab, form, formats]);
   const ready = addReady(tab, form, formats);
-  const defaultMethod = format === "7z" ? "lzma2" : "deflate";
+  const methodDefault = defaultMethod(format);
   const configuredLabel = EDIT_OVERWRITE.find((o) => o.id === configured)?.label;
 
   const add = () => {
@@ -190,9 +192,9 @@ export function AddDialog({ tab, inputs: given, dir, onClose }: { tab: Tab; inpu
               value={form.method ?? ""}
               onChange={(e) => set({ method: (e.target.value || undefined) as MethodName | undefined, level: undefined })}
             >
-              <option value="">{defaultMethod} (default)</option>
+              <option value="">{methodDefault} (default)</option>
               {a.methods
-                .filter((m) => m.id !== defaultMethod)
+                .filter((m) => m.id !== methodDefault)
                 .map((m) => (
                   <option key={m.id} value={m.id}>
                     {m.id}
@@ -201,11 +203,11 @@ export function AddDialog({ tab, inputs: given, dir, onClose }: { tab: Tab; inpu
             </Select>
           </Field>
         )}
-        {a.level && (
+        {a.level && shownLevel && (
           <Field
             label="Level"
             htmlFor="add-level"
-            hint={format.startsWith("tar.") ? "The whole archive is compressed again at this level." : form.level === undefined ? `Default ${a.level.default}.` : undefined}
+            hint={format.startsWith("tar.") ? "The whole archive is compressed again at this level." : form.level === undefined ? levelHint(shownLevel) : undefined}
           >
             <div className="flex items-center gap-3">
               <input
@@ -213,11 +215,11 @@ export function AddDialog({ tab, inputs: given, dir, onClose }: { tab: Tab; inpu
                 type="range"
                 min={a.level.min}
                 max={a.level.max}
-                value={form.level ?? a.level.default}
+                value={form.level ?? shownLevel.value}
                 onChange={(e) => set({ level: Number(e.target.value) })}
                 className="w-56 accent-[var(--amber)]"
               />
-              <span className="tabular w-6">{form.level ?? a.level.default}</span>
+              <span className="tabular w-6">{form.level ?? shownLevel.value}</span>
             </div>
           </Field>
         )}

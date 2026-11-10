@@ -181,15 +181,18 @@ export function Browser({ tab }: { tab: Tab }) {
     if (!blocked) void deleteSelection(tab, count(selection, total), byPath());
   };
 
-  // The palette's Rename and Delete act through the browser, which has the rows.
-  const latest = useRef({ selection: byPath, rename, remove });
-  latest.current = { selection: byPath, rename, remove };
+  const extract = () => show({ kind: "extract", tab: tab.id, entries: selectedPaths(tab, listing.loaded()) });
+
+  // The palette's Rename, Delete and Extract, and Ctrl+E, act through the browser, which has the rows.
+  const latest = useRef({ selection: byPath, rename, remove, extract });
+  latest.current = { selection: byPath, rename, remove, extract };
   useEffect(
     () =>
       registerBrowser(tab.id, {
         selection: () => latest.current.selection(),
         rename: () => latest.current.rename(),
         remove: () => latest.current.remove(),
+        extract: () => latest.current.extract(),
       }),
     [tab.id],
   );
@@ -242,8 +245,6 @@ export function Browser({ tab }: { tab: Tab }) {
         return;
     }
   };
-
-  const extract = () => show({ kind: "extract", tab: tab.id, entries: selectedPaths(tab, listing.loaded()) });
 
   /** A `dragstart` on row `index`: the selection, as it is now, goes out to Explorer (docs/M6.md §8.4). */
   const dragOut = (index: number) => {

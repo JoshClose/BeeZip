@@ -38,7 +38,7 @@ function UpdateCheck() {
   else if (asked && error) answer = error;
   else if (asked && checked?.status === "up_to_date") answer = `BeeZip ${checked.version} is the newest version.`;
   else if (asked && checked?.status === "available")
-    answer = `BeeZip ${checked.version} is available: the banner above the tabs ${checked.download_url ? "downloads" : "installs"} it.`;
+    answer = `BeeZip ${checked.version} is available: the banner below the tabs ${checked.download_url ? "downloads" : "installs"} it.`;
   else if (asked && checked?.status === "off") answer = checked.reason;
   return (
     <div className="flex items-center gap-3">

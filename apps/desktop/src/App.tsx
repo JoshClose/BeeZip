@@ -116,9 +116,13 @@ export default function App() {
 
   const newArchive = useCallback(() => show({ kind: "create", inputs: [] }), [show]);
   const openSettings = useCallback(() => show({ kind: "settings" }), [show]);
+  // The selection, as the toolbar's Extract takes it; everything before the tab's browser is there.
   const extract = useCallback(() => {
     const t = tabRef.current;
-    if (t) show({ kind: "extract", tab: t.id, entries: [] });
+    if (!t) return;
+    const browser = browserOf(t.id);
+    if (browser) browser.extract();
+    else show({ kind: "extract", tab: t.id, entries: [] });
   }, [show]);
 
   // Once per process (StrictMode mounts twice in development).

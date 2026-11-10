@@ -1,7 +1,7 @@
 // The extract dialog (docs/M3.md §5.3).
 import { open as pickFolder } from "@tauri-apps/plugin-dialog";
 import { FolderOutput, ListTree } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { SevenZipFix } from "../../components/SevenZipFix";
 import { Button } from "../../components/ui/button";
 import { Checkbox } from "../../components/ui/checkbox";
@@ -11,6 +11,7 @@ import type { ArchiveExtractInput, ArchiveExtractOutput, NameEncoding, Overwrite
 import type { Tab } from "../../lib/archives";
 import { describeError, parentDir } from "../../lib/format";
 import { useJobs } from "../../lib/jobs";
+import { loadSettings } from "../../lib/settings";
 import { toastError } from "../../lib/toasts";
 import { CopyAsCli } from "../cli/CopyAsCli";
 
@@ -18,8 +19,10 @@ export type ExtractForm = {
   dest: string;
   selectedOnly: boolean;
   smart: boolean;
-  overwrite: OverwritePolicy;
-  links: boolean;
+  /** Unset, `[extract] overwrite` from the settings. */
+  overwrite?: OverwritePolicy;
+  /** Unset, `[extract] links` from the settings. */
+  links?: boolean;
   password: string;
   strip: number;
 };
@@ -32,8 +35,8 @@ export function extractArgs(archive: string, entries: string[], f: ExtractForm, 
     ...(f.selectedOnly && entries.length > 0 ? { entries } : {}),
     dest: f.dest,
     smart: f.smart,
-    overwrite: f.overwrite,
-    ...(f.links ? { links: true } : {}),
+    ...(f.overwrite ? { overwrite: f.overwrite } : {}),
+    ...(f.links !== undefined ? { links: f.links } : {}),
     ...(f.password ? { password: f.password } : {}),
     ...(f.strip > 0 ? { strip_components: f.strip } : {}),
     ...(dryRun ? { dry_run: true } : {}),
@@ -54,11 +57,22 @@ export function ExtractDialog({ tab, entries, note, onClose }: { tab: Tab; entri
     dest: parentDir(tab.path),
     selectedOnly: entries.length > 0,
     smart: true,
-    overwrite: "ask",
-    links: false,
     password: tab.password ?? "",
     strip: 0,
   });
+  // What the settings say, to name the defaults the extraction gets when they're left alone.
+  const [configured, setConfigured] = useState<{ overwrite: OverwritePolicy; links: boolean }>();
+  useEffect(() => {
+    let live = true;
+    loadSettings().then(
+      (s) => live && s.settings.extract && setConfigured({ overwrite: s.settings.extract.overwrite, links: s.settings.extract.links }),
+      () => {},
+    );
+    return () => {
+      live = false;
+    };
+  }, []);
+  const configuredLabel = POLICIES.find((p) => p.value === configured?.overwrite)?.label;
   const [plan, setPlan] = useState<ArchiveExtractOutput["plan"]>();
   const [planError, setPlanError] = useState<unknown>();
   const set = (patch: Partial<ExtractForm>) => {
@@ -151,7 +165,12 @@ export function ExtractDialog({ tab, entries, note, onClose }: { tab: Tab; entri
           </div>
         </Field>
         <Field label="Existing files" htmlFor="overwrite">
-          <Select id="overwrite" value={form.overwrite} onChange={(e) => set({ overwrite: e.target.value as OverwritePolicy })}>
+          <Select
+            id="overwrite"
+            value={form.overwrite ?? ""}
+            onChange={(e) => set({ overwrite: (e.target.value || undefined) as OverwritePolicy | undefined })}
+          >
+            <option value="">{configuredLabel ? `As in the settings: ${configuredLabel}` : "As in the settings"}</option>
             {POLICIES.map((p) => (
               <option key={p.value} value={p.value}>
                 {p.label}
@@ -174,7 +193,11 @@ export function ExtractDialog({ tab, entries, note, onClose }: { tab: Tab; entri
         </Field>
         <Field label="Links">
           <div className="pt-1">
-            <Checkbox checked={form.links} onChange={(links) => set({ links })} label="Create symbolic links that stay inside the destination" />
+            <Checkbox
+              checked={form.links ?? configured?.links ?? false}
+              onChange={(links) => set({ links })}
+              label="Create symbolic links that stay inside the destination"
+            />
           </div>
         </Field>
         {planError !== undefined && (
