@@ -55,7 +55,7 @@ use fstool::{
 use super::{
     ArchiveFormat, ArchiveInfo, ArchiveReader, ArchiveWriter, Encryption, Entry, EntryKind,
     EntrySink, FormatCaps, FormatId, NewEntry, NewKind, Selection, udif,
-    volume::{Device, Exact, FileSystem, Input, apple::Apple, open_input},
+    volume::{Device, Exact, FileSystem, Input, apple::Apple, open_input, unreadable},
 };
 use crate::{
     Ctx, Error, ErrorKind, Meter, MeteredCtx, Result,
@@ -470,13 +470,23 @@ impl ArchiveReader for DmgReader {
             meter.current = Some(entry.path.clone());
             let mut mcx = MeteredCtx::new(cx, &meter);
             mcx.report();
-            let data = open_data(
+            let data = match open_data(
                 &mut self.volume,
                 &self.disk,
                 &self.image,
                 &self.entries,
                 item,
-            )?;
+            ) {
+                Ok(d) => d,
+                // As on a bare volume: skipped when written to disk, recorded by a test.
+                Err(e) => match unreadable(e, entry, sink, &mut mcx)? {
+                    Some(d) => d,
+                    None => {
+                        done += 1;
+                        continue;
+                    }
+                },
+            };
             let mut data = self.source.guard(data);
             sink.entry(entry, &mut data, &mut mcx)?;
             done += 1;
@@ -1157,6 +1167,31 @@ mod tests {
             read(&mut r, "forked").unwrap_err().kind,
             ErrorKind::UnsupportedOperation
         );
+        // A test records it and goes on; extracting skips it and writes the rest.
+        let mut test = crate::TestSink::default();
+        r.extract(&crate::Selection::all(), &mut test, &mut SimpleCtx::new())
+            .unwrap();
+        let failed: Vec<&str> = test.report.errors.iter().map(|e| e.path.as_str()).collect();
+        assert_eq!(failed, ["forked"]);
+        let dest = tempfile::tempdir().unwrap();
+        let mut sink = crate::FsSink::new(dest.path(), crate::FsOptions::default()).unwrap();
+        let mut cx = SimpleCtx::new();
+        r.extract(&crate::Selection::all(), &mut sink, &mut cx)
+            .unwrap();
+        let report = sink.finish(&mut cx).unwrap();
+        assert!(
+            report
+                .skipped
+                .iter()
+                .any(|s| s.path == "forked" && s.reason == crate::SkipReason::Unreadable),
+            "{report:?}"
+        );
+        assert!(!dest.path().join("forked").exists());
+        assert_eq!(
+            std::fs::read(dest.path().join("dir/a.txt")).unwrap(),
+            b"apfs data"
+        );
+        assert_eq!(std::fs::read(dest.path().join("inline")).unwrap(), small);
     }
 
     #[test]

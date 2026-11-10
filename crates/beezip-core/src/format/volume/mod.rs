@@ -602,6 +602,30 @@ impl Read for Unreadable {
     }
 }
 
+/// What extracting does with a file whose data couldn't be opened, `e` saying why. Written to
+/// disk, a file BeeZip doesn't read (`UnsupportedOperation`: on NTFS, EFS, WOF or deduplicated)
+/// is skipped and reported, as a device is, and the rest extracts: `None` then. Otherwise a
+/// file that can't be read, damaged or unsupported, fails at its first read, so a test records
+/// it and goes on and an extraction stops there. Any other error stops at once.
+pub(crate) fn unreadable(
+    e: Error,
+    entry: &Entry,
+    sink: &mut dyn EntrySink,
+    cx: &mut dyn Ctx,
+) -> Result<Option<Box<dyn Read>>> {
+    match e.kind {
+        ErrorKind::UnsupportedOperation => match sink.as_fs_sink() {
+            Some(fs) => {
+                fs.skip_unreadable(entry, &e, cx)?;
+                Ok(None)
+            }
+            None => Ok(Some(Box::new(Unreadable(Some(e))))),
+        },
+        ErrorKind::Corrupt => Ok(Some(Box::new(Unreadable(Some(e))))),
+        _ => Err(e),
+    }
+}
+
 /// The data of entry `idx`, checked against the ratio limit and held to its size. A hard link
 /// has its file's data only when `links` says so: `open_entry`'s, not `extract`'s.
 fn open_data<'a>(
@@ -706,14 +730,13 @@ impl ArchiveReader for DiskReader {
                 false,
             ) {
                 Ok(d) => d,
-                // A file that can't be read (damaged, or encrypted by its file system) fails as
-                // its data would, so that a test records it and goes on.
-                Err(e)
-                    if matches!(e.kind, ErrorKind::Corrupt | ErrorKind::UnsupportedOperation) =>
-                {
-                    Box::new(Unreadable(Some(e)))
-                }
-                Err(e) => return Err(e),
+                Err(e) => match unreadable(e, &self.entries[idx], sink, &mut mcx)? {
+                    Some(d) => d,
+                    None => {
+                        done += 1;
+                        continue;
+                    }
+                },
             };
             let mut data = self.source.guard(data);
             sink.entry(&self.entries[idx], &mut data, &mut mcx)?;
