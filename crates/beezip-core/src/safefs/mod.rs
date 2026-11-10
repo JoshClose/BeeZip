@@ -63,6 +63,9 @@ pub enum SkipReason {
     InvalidPath,
     /// A device, FIFO or other special file.
     Unsupported,
+    /// A file whose data BeeZip doesn't read: on NTFS, encrypted with EFS, compressed by Windows
+    /// (WOF) or deduplicated (docs/M7.md §16).
+    Unreadable,
     /// Policy `never`, or Skip at the prompt.
     Exists,
     /// Policy `newer`, and the existing file is as new.
@@ -91,6 +94,7 @@ impl SkipReason {
             Self::LinkTargetMissing => "link-target-missing",
             Self::InvalidPath => "invalid-path",
             Self::Unsupported => "unsupported",
+            Self::Unreadable => "unreadable",
             Self::Exists => "exists",
             Self::NotNewer => "not-newer",
             Self::Blocked => "blocked",
@@ -107,6 +111,7 @@ impl SkipReason {
             Self::LinkTargetMissing => "the hard link's target wasn't extracted",
             Self::InvalidPath => "the path is empty once made safe",
             Self::Unsupported => "devices and other special files aren't extracted",
+            Self::Unreadable => "BeeZip doesn't read how its data is stored",
             Self::Exists => "the file exists",
             Self::NotNewer => "the existing file is as new",
             Self::Blocked => "something of another kind is in the way",

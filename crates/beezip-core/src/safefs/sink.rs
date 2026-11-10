@@ -665,6 +665,23 @@ fn name_key(path: &str) -> String {
         .join("/")
 }
 
+impl FsSink {
+    /// Skips a file whose data its reader doesn't read, as a device is skipped, with the
+    /// reader's reason as a warning: an EFS-encrypted or WOF-compressed file on NTFS
+    /// (`format::volume::unreadable`). The rest of the extraction goes on.
+    pub fn skip_unreadable(&mut self, entry: &Entry, why: &Error, cx: &mut dyn Ctx) -> Result<()> {
+        cx.check()?;
+        self.entries += 1;
+        self.opts.limits.check_entries(self.entries)?;
+        if self.safe_path(entry).is_none() {
+            return Ok(());
+        }
+        cx.warn(format!("skipped `{}`: {}", entry.path, why.message));
+        self.report.skip(&entry.path, SkipReason::Unreadable);
+        Ok(())
+    }
+}
+
 impl EntrySink for FsSink {
     fn as_fs_sink(&mut self) -> Option<&mut FsSink> {
         Some(self)

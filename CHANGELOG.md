@@ -22,7 +22,8 @@ using BeeZip will notice. Leave the date out: the Releases page dates each versi
   header is damaged opens from its backup.
 - **NTFS** lists hard links, alternate data streams (`file:stream`), compressed and sparse
   files, and symlinks and junctions as links. Sparse files that 7-Zip 26.00 can't extract come
-  out right.
+  out right. Files BeeZip can't read, encrypted with EFS, compressed by Windows (CompactOS) or
+  deduplicated, are skipped with the reason, and the rest extracts.
 - **ext2/3/4** lists hard links, keeps names that aren't UTF-8 for Name encoding to read, keeps
   times to the nanosecond, and shows a volume that wasn't cleanly unmounted with its latest
   contents.

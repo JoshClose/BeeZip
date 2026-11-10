@@ -86,7 +86,8 @@ pub struct ArchiveExtractInput {
 pub struct SkippedInfo {
     pub path: String,
     /// `traversal`, `outside-dest`, `links-disabled`, `link-outside`, `link-target-missing`,
-    /// `invalid-path`, `unsupported`, `exists`, `not-newer`, `blocked` or `link-failed`.
+    /// `invalid-path`, `unsupported`, `unreadable`, `exists`, `not-newer`, `blocked` or
+    /// `link-failed`.
     pub reason: String,
     /// Refused for safety; these make the command fail with `Unsafe`.
     pub refused: bool,

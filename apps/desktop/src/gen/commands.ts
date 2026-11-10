@@ -1778,7 +1778,8 @@ actions: Array<string>, };
 export type SkippedInfo = { path: string,
 /**
  * `traversal`, `outside-dest`, `links-disabled`, `link-outside`, `link-target-missing`,
- * `invalid-path`, `unsupported`, `exists`, `not-newer`, `blocked` or `link-failed`.
+ * `invalid-path`, `unsupported`, `unreadable`, `exists`, `not-newer`, `blocked` or
+ * `link-failed`.
  */
 reason: string,
 /**

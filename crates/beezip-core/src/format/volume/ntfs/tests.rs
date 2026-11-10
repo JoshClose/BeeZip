@@ -361,6 +361,50 @@ fn rich_image_tests_but_two() {
     assert_eq!(report.entries, 377);
 }
 
+/// Extracting the whole volume skips the two files it can't read, saying why, and writes the
+/// rest (docs/M7.md §16); the first of them used to stop the extraction there.
+#[test]
+fn rich_image_extracts_but_two() {
+    let dest = tempfile::tempdir().unwrap();
+    let mut cx = SimpleCtx::new();
+    let report = ops::extract(
+        &fixture("thirdparty/ntfs/rich.img"),
+        dest.path(),
+        &crate::Selection::all(),
+        &OpenOptions::default(),
+        // `Case.txt` and `case.txt` meet on Windows.
+        crate::FsOptions {
+            overwrite: crate::OverwritePolicy::Rename,
+            ..crate::FsOptions::default()
+        },
+        &mut cx,
+    )
+    .unwrap();
+    let unreadable: Vec<&str> = report
+        .skipped
+        .iter()
+        .filter(|s| s.reason == crate::SkipReason::Unreadable)
+        .map(|s| s.path.as_str())
+        .collect();
+    assert_eq!(unreadable, ["encrypted.bin", "wof.dll"]);
+    for (name, why) in [
+        ("encrypted.bin", "encrypted with EFS"),
+        ("wof.dll", "compressed by Windows (LZX)"),
+    ] {
+        assert!(!dest.path().join(name).exists(), "{name}");
+        assert!(
+            cx.warnings
+                .iter()
+                .any(|w| w.contains(&format!("skipped `{name}`")) && w.contains(why)),
+            "{name}: {:?}",
+            cx.warnings
+        );
+    }
+    assert!(dest.path().join("streams.txt").is_file());
+    // 331 on Windows; hard links may count as links elsewhere.
+    assert!(report.files + report.links > 300, "{report:?}");
+}
+
 /// Clusters of 512 bytes, smaller than a record; two files whose runs are split over extension
 /// records, with a non-resident attribute list; LZNT1 in units of 8 KiB.
 #[test]
