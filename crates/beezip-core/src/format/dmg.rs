@@ -30,9 +30,9 @@
 //!   with data (a bare stream's, whose size wasn't known) is spooled to learn its size, and a
 //!   file that doesn't fit in the volume is refused rather than written into a broken one.
 
-mod decmpfs;
+pub(crate) mod decmpfs;
 mod lzvn;
-mod nfc;
+pub(crate) mod nfc;
 
 use std::{
     cmp::Reverse,
@@ -46,32 +46,25 @@ use std::{
 use fstool::{
     block::BlockDevice,
     fs::{
-        EntryKind as FsKind, FsSizePlan, SetAttrs,
-        hfs_plus::{
-            FormatOpts, HfsPlus,
-            btree::ForkReader,
-            catalog::{Catalog, CatalogKey, CatalogRecord, UniStr},
-            extents::ExtentsOverflow,
-            hfs_date_from_unix,
-            size_plan::HfsPlusSizePlan,
-            volume_header::read_volume_header,
-        },
+        FsSizePlan, SetAttrs,
+        hfs_plus::{FormatOpts, HfsPlus, hfs_date_from_unix, size_plan::HfsPlusSizePlan},
     },
-    inspect::{AnyFs, detect_partition_table},
+    inspect::detect_partition_table,
 };
 
 use super::{
     ArchiveFormat, ArchiveInfo, ArchiveReader, ArchiveWriter, Encryption, Entry, EntryKind,
     EntrySink, FormatCaps, FormatId, NewEntry, NewKind, Selection, udif,
+    volume::{Device, Exact, FileSystem, Input, apple::Apple, open_input},
 };
 use crate::{
     Ctx, Error, ErrorKind, Meter, MeteredCtx, Result,
     detect::{Confidence, Probe},
-    io::{BUF_SIZE, Checked, CountingReader, WriteSeek, copy, read_error, write_error},
+    io::{BUF_SIZE, Checked, WriteSeek, copy, read_error, write_error},
     limits::Limits,
     safefs::Partial,
     source::Source,
-    time::{from_unix, to_unix},
+    time::to_unix,
 };
 
 pub struct Dmg;
@@ -89,13 +82,6 @@ const UID: u32 = 501;
 const GID: u32 = 20;
 /// The latest time HFS+ holds, 2040-02-06 06:28:15 UTC, in Unix seconds.
 const HFS_LAST: i64 = u32::MAX as i64 - 2_082_844_800;
-/// HFS+'s folder for the data of hard links, and how 7-Zip shows it.
-const PRIVATE_DATA: &str = "\0\0\0\0HFS+ Private Data";
-const PRIVATE_DATA_SHOWN: &str = "[HFS+ Private Data]";
-
-const S_IFDIR: u32 = 0o040_000;
-const S_IFREG: u32 = 0o100_000;
-const S_IFLNK: u32 = 0o120_000;
 
 impl ArchiveFormat for Dmg {
     fn id(&self) -> FormatId {
@@ -145,15 +131,6 @@ fn bad(message: impl std::fmt::Display) -> Error {
     Error::corrupt(format!("dmg: {message}"))
 }
 
-/// An fstool error met while reading. Errors of the disk come back as they were.
-fn fs_error(e: fstool::Error) -> Error {
-    match e {
-        fstool::Error::Io(e) => read_error(&e),
-        fstool::Error::Unsupported(m) => Error::unsupported(format!("dmg: {m}")),
-        e => bad(e),
-    }
-}
-
 /// An fstool error met while writing `what`. Errors of the data come back as they were.
 fn write_fs_error(e: fstool::Error, what: &str) -> Error {
     match e {
@@ -171,235 +148,23 @@ fn write_fs_error(e: fstool::Error, what: &str) -> Error {
     }
 }
 
-trait Input: Read + Seek + Send {}
-
-impl<T: Read + Seek + Send> Input for T {}
-
-/// The UDIF disk as fstool's block device. Reading only: a write fails.
-struct Device(udif::Disk<Box<dyn Input>>);
-
-impl Read for Device {
-    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        self.0.read(buf)
-    }
-}
-
-impl Seek for Device {
-    fn seek(&mut self, pos: SeekFrom) -> io::Result<u64> {
-        self.0.seek(pos)
-    }
-}
-
-impl Write for Device {
-    fn write(&mut self, _: &[u8]) -> io::Result<usize> {
-        Err(io::Error::new(
-            io::ErrorKind::Unsupported,
-            "a disk image is read only here",
-        ))
-    }
-
-    fn flush(&mut self) -> io::Result<()> {
-        Ok(())
-    }
-}
-
-impl BlockDevice for Device {
-    fn block_size(&self) -> u32 {
-        udif::SECTOR as u32
-    }
-
-    fn total_size(&self) -> u64 {
-        self.0.len()
-    }
-
-    fn sync(&mut self) -> fstool::Result<()> {
-        Ok(())
-    }
-}
-
-/// The device as fstool's attribute reader sees it. fstool sizes an attribute's buffer from the
-/// length the volume claims, checked only against the device's size, so here the device looks
-/// [`decmpfs::MAX_ATTR`] long; reads still reach all of it.
-struct Capped<'a>(&'a mut Device);
-
-impl Read for Capped<'_> {
-    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        self.0.read(buf)
-    }
-}
-
-impl Seek for Capped<'_> {
-    fn seek(&mut self, pos: SeekFrom) -> io::Result<u64> {
-        self.0.seek(pos)
-    }
-}
-
-impl Write for Capped<'_> {
-    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        self.0.write(buf)
-    }
-
-    fn flush(&mut self) -> io::Result<()> {
-        Ok(())
-    }
-}
-
-impl BlockDevice for Capped<'_> {
-    fn block_size(&self) -> u32 {
-        self.0.block_size()
-    }
-
-    fn total_size(&self) -> u64 {
-        self.0.total_size().min(decmpfs::MAX_ATTR as u64)
-    }
-
-    fn sync(&mut self) -> fstool::Result<()> {
-        Ok(())
-    }
-
-    fn read_at(&mut self, offset: u64, buf: &mut [u8]) -> fstool::Result<()> {
-        self.0.read_at(offset, buf)
-    }
-}
-
 /// What an entry's data is.
 enum Item {
     /// A folder, a link or a special file: none.
     None,
-    /// A file of the volume, at `path` in fstool's terms.
-    File {
-        path: String,
-        size: u64,
-        compressed: bool,
-    },
+    /// Entry `id` of the volume, a file.
+    Fs(usize),
     /// One of the image's partitions, by index.
     Partition(usize),
-}
-
-/// What the entries come from.
-enum Volume {
-    Fs {
-        fs: Box<AnyFs>,
-        /// The HFS+ catalog, opened the first time a resource fork is needed.
-        forks: Option<HfsForks>,
-    },
-    Partitions,
-}
-
-/// HFS+'s catalog and extents-overflow trees, for resource forks, which fstool's own readers
-/// refuse for compressed files.
-struct HfsForks {
-    catalog: Catalog,
-    overflow: Option<ExtentsOverflow>,
-    block_size: u32,
-}
-
-impl HfsForks {
-    fn open(dev: &mut Device) -> Result<Self> {
-        let vh = read_volume_header(dev).map_err(fs_error)?;
-        let fork = ForkReader::from_inline(&vh.catalog_file, vh.block_size, "catalog")
-            .map_err(fs_error)?;
-        let catalog = Catalog::open(dev, fork, vh.is_hfsx()).map_err(fs_error)?;
-        let overflow = if vh.extents_file.total_blocks > 0 {
-            let fork = ForkReader::from_inline(&vh.extents_file, vh.block_size, "extents")
-                .map_err(fs_error)?;
-            Some(ExtentsOverflow::open(dev, fork).map_err(fs_error)?)
-        } else {
-            None
-        };
-        Ok(Self {
-            catalog,
-            overflow,
-            block_size: vh.block_size,
-        })
-    }
-
-    /// The resource fork of the file record `cnid`, found through its thread record.
-    fn resource_fork(&self, dev: &mut Device, cnid: u32) -> Result<ForkReader> {
-        let key = CatalogKey {
-            parent_id: cnid,
-            name: UniStr::default(),
-            encoded_len: 0,
-        };
-        let Some(CatalogRecord::Thread(t)) = self.catalog.lookup(dev, &key).map_err(fs_error)?
-        else {
-            return Err(bad(format!("file {cnid} has no thread record")));
-        };
-        let key = CatalogKey {
-            parent_id: t.parent_id,
-            name: t.name,
-            encoded_len: 0,
-        };
-        let Some(CatalogRecord::File(f)) = self.catalog.lookup(dev, &key).map_err(fs_error)? else {
-            return Err(bad(format!("file {cnid} has no file record")));
-        };
-        let fork = f.resource_fork;
-        if u64::from(fork.total_blocks) <= fork.inline_blocks() {
-            return ForkReader::from_inline(&fork, self.block_size, "resource").map_err(fs_error);
-        }
-        let overflow = self.overflow.as_ref().ok_or_else(|| {
-            bad("a resource fork needs the extents-overflow file, which is empty")
-        })?;
-        let first = u32::try_from(fork.inline_blocks()).map_err(|_| bad("a fork too large"))?;
-        let extra = overflow
-            .find_extents(dev, cnid, 0xFF, first)
-            .map_err(fs_error)?;
-        ForkReader::from_inline_plus_overflow(&fork, &extra, self.block_size, "resource")
-            .map_err(fs_error)
-    }
-}
-
-/// An HFS+ resource fork for [`decmpfs`].
-struct HfsFork<'a> {
-    dev: &'a mut Device,
-    reader: ForkReader,
-}
-
-impl decmpfs::Fork for HfsFork<'_> {
-    fn len(&self) -> u64 {
-        self.reader.logical_size
-    }
-
-    fn read_at(&mut self, offset: u64, buf: &mut [u8]) -> Result<()> {
-        if offset
-            .checked_add(buf.len() as u64)
-            .is_none_or(|end| end > self.reader.logical_size)
-        {
-            return Err(bad("a read past the end of a resource fork"));
-        }
-        self.reader.read(self.dev, offset, buf).map_err(fs_error)
-    }
-}
-
-/// Exactly `left` bytes of `inner`: a file whose data ends early is `Corrupt`.
-struct Exact<R> {
-    inner: R,
-    left: u64,
-    path: String,
-}
-
-impl<R: Read> Read for Exact<R> {
-    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        if self.left == 0 || buf.is_empty() {
-            return Ok(0);
-        }
-        let want = buf
-            .len()
-            .min(usize::try_from(self.left).unwrap_or(usize::MAX));
-        let n = self.inner.read(&mut buf[..want])?;
-        if n == 0 {
-            return Err(bad(format!("`{}` ends {} bytes short", self.path, self.left)).into_io());
-        }
-        self.left -= n as u64;
-        Ok(n)
-    }
 }
 
 pub struct DmgReader {
     source: Source,
     image: udif::Image,
-    dev: Device,
-    volume: Volume,
+    /// The image's whole disk.
+    disk: Device,
+    /// The HFS+ or APFS volume, when there's one; otherwise the entries are the partitions.
+    volume: Option<Box<dyn FileSystem>>,
     entries: Vec<Entry>,
     items: Vec<Item>,
     /// Keeps an image spooled out of a codec alive.
@@ -412,48 +177,38 @@ impl DmgReader {
         refuse_encrypted(&mut *input, len)?;
         let image = udif::read_image(&mut *input, len)?;
         let disk = udif::Disk::new(input, &image, &source.limits)?;
-        let mut dev = Device(disk);
-        let (volume, entries, items) = match find_volume(&mut dev, &image, cx) {
+        let size = disk.disk_size();
+        let disk = Device::new(Box::new(disk), size);
+        let (volume, entries, items) = match find_volume(&disk, &image, &source.limits, cx) {
             Some(mut fs) => {
-                let (entries, items) = walk(&mut fs, &mut dev, &source.limits, cx)?;
-                (Volume::Fs { fs, forks: None }, entries, items)
+                let entries = fs.entries(cx)?;
+                let items = entries
+                    .iter()
+                    .map(|e| {
+                        if e.kind == EntryKind::File {
+                            Item::Fs(e.id)
+                        } else {
+                            Item::None
+                        }
+                    })
+                    .collect();
+                (Some(fs), entries, items)
             }
             None => {
                 let (entries, items) = partition_entries(&image, &source.limits)?;
-                (Volume::Partitions, entries, items)
+                (None, entries, items)
             }
         };
         Ok(Self {
             source,
             image,
-            dev,
+            disk,
             volume,
             entries,
             items,
             _spool: spool,
         })
     }
-}
-
-/// The image to read at offsets, counted: the file, or the stream spooled out of its codecs.
-fn open_input(source: &Source, cx: &mut dyn Ctx) -> Result<(Box<dyn Input>, u64, Option<Partial>)> {
-    if source.codecs.is_empty() {
-        let input = source.input()?;
-        let len = input.len();
-        let counted = CountingReader::new(input, source.counter.clone());
-        return Ok((Box::new(counted), len, None));
-    }
-    let mut tmp = Partial::create_temp("beezip-spool.dmg")?;
-    let mut stream = source.guard(source.open_stream()?);
-    copy(&mut stream, tmp.file_mut(), cx)?;
-    tmp.close();
-    let file = tmp.reopen()?;
-    let len = file
-        .metadata()
-        .map_err(|e| Error::io(format!("reading {}", tmp.path().display()), &e))?
-        .len();
-    let counted = CountingReader::new(file, source.counter.clone());
-    Ok((Box::new(counted), len, Some(tmp)))
 }
 
 fn refuse_encrypted(input: &mut dyn Input, len: u64) -> Result<()> {
@@ -476,13 +231,13 @@ fn refuse_encrypted(input: &mut dyn Input, len: u64) -> Result<()> {
 }
 
 /// The volume's filesystem's name, from its signature, when it's one fstool reads here.
-fn signature(dev: &mut Device, base: u64, len: u64) -> Option<&'static str> {
+fn signature(disk: &Device, base: u64, len: u64) -> Option<&'static str> {
     if len < 1026 {
         return None;
     }
-    dev.0.set_window(base, len).ok()?;
+    let mut win = disk.window(base, len).ok()?;
     let mut head = [0u8; 1026];
-    dev.read_at(0, &mut head).ok()?;
+    win.read_exact_at(0, &mut head).ok()?;
     if &head[1024..] == b"H+" || &head[1024..] == b"HX" {
         Some("HFS+")
     } else if &head[32..36] == b"NXSB" {
@@ -494,20 +249,23 @@ fn signature(dev: &mut Device, base: u64, len: u64) -> Option<&'static str> {
 
 /// The HFS+ or APFS volume to list: the partitions of the partition map, or the whole disk when
 /// there's none, and then the image's own partitions, largest first; the first with a signature
-/// that opens. Volumes that don't open are warned about. The device is left windowed to it.
-fn find_volume(dev: &mut Device, image: &udif::Image, cx: &mut dyn Ctx) -> Option<Box<AnyFs>> {
-    let size = dev.0.disk_size();
+/// that opens. Volumes that don't open are warned about.
+fn find_volume(
+    disk: &Device,
+    image: &udif::Image,
+    limits: &Limits,
+    cx: &mut dyn Ctx,
+) -> Option<Box<dyn FileSystem>> {
+    let size = disk.len();
     let mut spans: Vec<(u64, u64)> = Vec::new();
-    if dev.0.set_window(0, size).is_ok() {
-        match detect_partition_table(dev) {
-            Ok(Some(table)) => spans.extend(table.partitions().iter().filter_map(|p| {
-                let base = p.start_lba.checked_mul(udif::SECTOR)?;
-                let len = p.size_lba.checked_mul(udif::SECTOR)?;
-                (base.checked_add(len)? <= size).then_some((base, len))
-            })),
-            Ok(None) => spans.push((0, size)),
-            Err(_) => {}
-        }
+    match detect_partition_table(&mut disk.clone()) {
+        Ok(Some(table)) => spans.extend(table.partitions().iter().filter_map(|p| {
+            let base = p.start_lba.checked_mul(udif::SECTOR)?;
+            let len = p.size_lba.checked_mul(udif::SECTOR)?;
+            (base.checked_add(len)? <= size).then_some((base, len))
+        })),
+        Ok(None) => spans.push((0, size)),
+        Err(_) => {}
     }
     let mut own: Vec<&udif::Partition> = image.partitions.iter().collect();
     own.sort_by_key(|p| Reverse(p.sectors));
@@ -519,19 +277,19 @@ fn find_volume(dev: &mut Device, image: &udif::Image, cx: &mut dyn Ctx) -> Optio
     }
     let mut found: Vec<(u64, u64, &str)> = spans
         .into_iter()
-        .filter_map(|(base, len)| signature(dev, base, len).map(|kind| (base, len, kind)))
+        .filter_map(|(base, len)| signature(disk, base, len).map(|kind| (base, len, kind)))
         .collect();
     found.sort_by_key(|&(_, len, _)| Reverse(len));
     for (base, len, kind) in found {
-        if dev.0.set_window(base, len).is_err() {
+        let Ok(win) = disk.window(base, len) else {
             continue;
-        }
-        match AnyFs::open(dev) {
+        };
+        match Apple::open(win, limits) {
             Ok(fs) => return Some(Box::new(fs)),
             Err(e) => cx.warn(format!(
                 "the {kind} volume at byte {base} can't be read ({}); the image's partitions are \
                  listed instead",
-                fs_error(e)
+                e.message
             )),
         }
     }
@@ -568,159 +326,6 @@ pub fn decode_decmpfs(attr: &[u8], fork: Option<&[u8]>, max: u64) -> Result<Vec<
         .read_to_end(&mut out)
         .map_err(|e| read_error(&e))?;
     Ok(out)
-}
-
-/// A name as stored: HFS+'s decomposed names composed again.
-fn shown_name(name: &str, hfs: bool) -> String {
-    if hfs {
-        nfc::compose(name, fstool::fs::hfs_plus::unicode::normalize_name)
-    } else {
-        name.to_owned()
-    }
-}
-
-/// The `com.apple.decmpfs` attribute of the file at `path`, if it has one.
-fn decmpfs_attr(fs: &mut AnyFs, dev: &mut Device, path: &str) -> Result<Option<Vec<u8>>> {
-    match fs {
-        AnyFs::HfsPlus(h) => h
-            .get_xattr(&mut Capped(dev), path, decmpfs::XATTR)
-            .map_err(fs_error),
-        AnyFs::Apfs(a) => Ok(a
-            .read_xattrs(dev, path)
-            .map_err(fs_error)?
-            .remove(decmpfs::XATTR)),
-        _ => Ok(None),
-    }
-}
-
-/// Every folder, file, link and special file of the volume, parents before their contents.
-fn walk(
-    fs: &mut AnyFs,
-    dev: &mut Device,
-    limits: &Limits,
-    cx: &mut dyn Ctx,
-) -> Result<(Vec<Entry>, Vec<Item>)> {
-    let hfs = matches!(fs, AnyFs::HfsPlus(_));
-    let mut entries: Vec<Entry> = Vec::new();
-    let mut items = Vec::new();
-    // Both filesystems number the root folder 2.
-    let mut visited = HashSet::from([2u32]);
-    let mut pending = vec![(String::from("/"), String::new(), 0usize)];
-    while let Some((dir, rel, depth)) = pending.pop() {
-        cx.check()?;
-        let children = match fs.list(dev, &dir) {
-            Ok(c) => c,
-            Err(e) if depth == 0 => return Err(fs_error(e)),
-            Err(e) => {
-                cx.warn(format!("`{rel}` can't be listed: {}", fs_error(e)));
-                continue;
-            }
-        };
-        let mut subdirs = Vec::new();
-        for c in children {
-            if c.name == "." || c.name == ".." {
-                continue;
-            }
-            let path = if dir == "/" {
-                format!("/{}", c.name)
-            } else {
-                format!("{dir}/{}", c.name)
-            };
-            let shown = if hfs && depth == 0 && c.name == PRIVATE_DATA {
-                PRIVATE_DATA_SHOWN.to_owned()
-            } else {
-                shown_name(&c.name, hfs)
-            };
-            let rel_path = if rel.is_empty() {
-                shown
-            } else {
-                format!("{rel}/{shown}")
-            };
-            limits.check_entries(entries.len() as u64 + 1)?;
-            let attrs = match fs.getattr(dev, Path::new(&path)) {
-                Ok(a) => Some(a),
-                Err(e) => {
-                    cx.warn(format!(
-                        "`{rel_path}`'s attributes can't be read: {}",
-                        fs_error(e)
-                    ));
-                    None
-                }
-            };
-            let perm = attrs.as_ref().map(|a| u32::from(a.mode & 0o7777));
-            let mut size = None;
-            let mut method = None;
-            let (kind, item, type_bits) = match c.kind {
-                FsKind::Dir => {
-                    if depth + 1 >= MAX_DEPTH {
-                        cx.warn(format!(
-                            "`{rel_path}` is more than {MAX_DEPTH} folders deep; what's in it \
-                             isn't listed"
-                        ));
-                    } else if visited.insert(c.inode) {
-                        subdirs.push((path, rel_path.clone(), depth + 1));
-                    } else {
-                        cx.warn(format!(
-                            "`{rel_path}` is a folder already listed; what's in it isn't listed \
-                             again"
-                        ));
-                    }
-                    (EntryKind::Dir, Item::None, S_IFDIR)
-                }
-                FsKind::Symlink => match fs.read_symlink(dev, &path) {
-                    Ok(target) => {
-                        size = Some(target.len() as u64);
-                        (EntryKind::Symlink { target }, Item::None, S_IFLNK)
-                    }
-                    Err(e) => {
-                        cx.warn(format!(
-                            "`{rel_path}`'s link can't be read: {}",
-                            fs_error(e)
-                        ));
-                        (EntryKind::Other, Item::None, 0)
-                    }
-                },
-                FsKind::Regular => {
-                    let mut bytes = attrs.as_ref().map_or(c.size, |a| a.size);
-                    let mut compressed = false;
-                    // A compressed file's data fork is empty.
-                    if bytes == 0
-                        && let Some(x) = decmpfs_attr(fs, dev, &path)?
-                    {
-                        compressed = true;
-                        match decmpfs::Header::parse(&x) {
-                            Ok(h) => {
-                                bytes = h.size;
-                                method = h.method();
-                            }
-                            Err(e) => cx.warn(format!("`{rel_path}`: {e}")),
-                        }
-                    }
-                    size = Some(bytes);
-                    let item = Item::File {
-                        path,
-                        size: bytes,
-                        compressed,
-                    };
-                    (EntryKind::File, item, S_IFREG)
-                }
-                _ => (EntryKind::Other, Item::None, 0),
-            };
-            let mut e = Entry::new(entries.len(), rel_path, kind);
-            e.size = size;
-            e.method = method.map(Into::into);
-            e.modified = attrs
-                .as_ref()
-                .map(|a| a.mtime)
-                .filter(|&t| t > 0)
-                .and_then(|t| from_unix(i64::from(t), 0));
-            e.unix_mode = perm.map(|p| type_bits | p);
-            entries.push(e);
-            items.push(item);
-        }
-        pending.extend(subdirs.into_iter().rev());
-    }
-    Ok((entries, items))
 }
 
 /// The name of 7-Zip's for a partition named `name`, the `i`th of `count`: the index, padded
@@ -783,33 +388,12 @@ fn partition_entries(image: &udif::Image, limits: &Limits) -> Result<(Vec<Entry>
     Ok((entries, items))
 }
 
-/// An HFS+ file's resource fork, for a compressed file whose data is in it. `None` on APFS.
-fn resource_fork<'a>(
-    fs: &AnyFs,
-    forks: &mut Option<HfsForks>,
-    dev: &'a mut Device,
-    path: &str,
-) -> Result<Option<Box<dyn decmpfs::Fork + 'a>>> {
-    let AnyFs::HfsPlus(h) = fs else {
-        return Ok(None);
-    };
-    if forks.is_none() {
-        *forks = Some(HfsForks::open(dev)?);
-    }
-    let Some(forks) = forks.as_ref() else {
-        return Ok(None);
-    };
-    // A hard link's information is its data's, so this is the file that has the fork.
-    let cnid = h.entry_info(path).map_err(fs_error)?.cnid;
-    let reader = forks.resource_fork(dev, cnid)?;
-    Ok(Some(Box::new(HfsFork { dev, reader })))
-}
-
 /// The data of the entry `item` describes.
 fn open_data<'a>(
-    volume: &'a mut Volume,
-    dev: &'a mut Device,
+    volume: &'a mut Option<Box<dyn FileSystem>>,
+    disk: &Device,
     image: &udif::Image,
+    entries: &[Entry],
     item: &Item,
 ) -> Result<Box<dyn Read + 'a>> {
     match item {
@@ -819,38 +403,19 @@ fn open_data<'a>(
                 .partitions
                 .get(*i)
                 .ok_or_else(|| bad("no such partition"))?;
-            dev.0.set_window(p.first_sector * udif::SECTOR, p.bytes())?;
-            Ok(Box::new(Exact {
-                inner: dev,
-                left: p.bytes(),
-                path: p.name.clone(),
-            }))
+            let win = disk.window(p.first_sector * udif::SECTOR, p.bytes())?;
+            Ok(Box::new(Exact::new(win, p.bytes(), &p.name)))
         }
-        Item::File {
-            path,
-            size,
-            compressed,
-        } => {
-            let Volume::Fs { fs, forks } = volume else {
-                return Err(bad("a file without a volume"));
-            };
-            let data: Box<dyn Read + 'a> = if *compressed {
-                let x = decmpfs_attr(fs, dev, path)?
-                    .ok_or_else(|| bad(format!("`{path}` has lost its decmpfs attribute")))?;
-                let fork = if decmpfs::Header::parse(&x)?.in_fork() {
-                    resource_fork(fs, forks, dev, path)?
-                } else {
-                    None
-                };
-                decmpfs::open(&x, fork, path)?
-            } else {
-                fs.open_body_reader(dev, path).map_err(fs_error)?
-            };
-            Ok(Box::new(Exact {
-                inner: data,
-                left: *size,
-                path: path.trim_start_matches('/').to_owned(),
-            }))
+        Item::Fs(id) => {
+            let e = entries.get(*id).ok_or_else(|| bad("no such entry"))?;
+            let fs = volume
+                .as_mut()
+                .ok_or_else(|| bad("a file without a volume"))?;
+            Ok(Box::new(Exact::new(
+                fs.open(*id)?,
+                e.size.unwrap_or(0),
+                &e.path,
+            )))
         }
     }
 }
@@ -905,7 +470,13 @@ impl ArchiveReader for DmgReader {
             meter.current = Some(entry.path.clone());
             let mut mcx = MeteredCtx::new(cx, &meter);
             mcx.report();
-            let data = open_data(&mut self.volume, &mut self.dev, &self.image, item)?;
+            let data = open_data(
+                &mut self.volume,
+                &self.disk,
+                &self.image,
+                &self.entries,
+                item,
+            )?;
             let mut data = self.source.guard(data);
             sink.entry(entry, &mut data, &mut mcx)?;
             done += 1;
@@ -922,7 +493,13 @@ impl ArchiveReader for DmgReader {
             .get(id)
             .ok_or_else(|| Error::new(ErrorKind::NotFound, format!("no entry {id}")))?;
         self.source.counter.set(0);
-        let data = open_data(&mut self.volume, &mut self.dev, &self.image, item)?;
+        let data = open_data(
+            &mut self.volume,
+            &self.disk,
+            &self.image,
+            &self.entries,
+            item,
+        )?;
         Ok(Box::new(self.source.guard(data)))
     }
 }
@@ -1311,6 +888,10 @@ impl ArchiveWriter for DmgWriter {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{format::volume::apple::shown_name, time::from_unix};
+
+    /// HFS+'s private-data folder as 7-Zip shows it.
+    const PRIVATE_DATA_SHOWN: &str = "[HFS+ Private Data]";
 
     #[test]
     fn partitions_are_named_as_7zip_names_them() {

@@ -7,6 +7,33 @@ Write a new section as `## X.Y.Z`, with `###` groups and `- ` items, describing 
 using BeeZip will notice. Leave the date out: the Releases page dates each version by its
 `vX.Y.Z` tag.
 
+## 0.2.0
+
+### Disks and installers without 7-Zip
+
+- **BeeZip reads FAT, NTFS, ext2/3/4, HFS+ and APFS volumes, GPT and MBR disks, and MSI
+  installers itself,** so they open without 7-Zip.
+- **An MSI lists its files where they install,** such as
+  `ProgramFiles64Folder/RustDesk/RustDesk.exe`, instead of the installer's internal keys. Its
+  custom-action DLLs and icons are under `[Binary]` and `[Icon]`, and files it keeps outside
+  itself are read from beside it.
+- **A disk with several partitions** shows each one BeeZip reads as a folder (`0.data`), and the
+  others as files to open in turn. A disk with 4 KiB sectors opens too, and a GPT disk whose
+  header is damaged opens from its backup.
+- **NTFS** lists hard links, alternate data streams (`file:stream`), compressed and sparse
+  files, and symlinks and junctions as links. Sparse files that 7-Zip 26.00 can't extract come
+  out right.
+- **ext2/3/4** lists hard links, keeps names that aren't UTF-8 for Name encoding to read, keeps
+  times to the nanosecond, and shows a volume that wasn't cleanly unmounted with its latest
+  contents.
+- **FAT** reads long names, and short ones in your system's OEM code page.
+- **Cabinets and MSI installers decode about 40% faster,** with BeeZip's own LZX decoder. A
+  large installer still takes two to three times as long to extract as with 7-Zip.
+- **Info** shows a disk's levels (`gpt › ntfs`) and a volume's label and cluster size.
+- **Still through 7-Zip:** WIM, CHM, NSIS and CramFS, the virtual disks VHD, VHDX, VMDK, QCOW2
+  and VDI, MSI patches and merge modules, and a volume that uses something BeeZip doesn't read,
+  which Info then says.
+
 ## 0.1.0
 
 The first release. On Windows it comes as a portable copy, to unzip and run; the signed

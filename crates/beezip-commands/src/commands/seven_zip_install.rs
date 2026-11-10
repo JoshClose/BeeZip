@@ -19,9 +19,9 @@ use crate::{
 };
 
 /// Install 7-Zip with winget, or update one older than 25.01, so BeeZip can open WIM images,
-/// MSI and NSIS installers, CHM files and disk images. winget downloads 7-Zip's own installer
-/// and checks its hash; the installer asks for administrator rights. Windows only: elsewhere,
-/// get 7-Zip 25.01 or newer (on Linux and macOS, 7-Zip's own `7zz`) from
+/// NSIS installers, CHM files and virtual disks such as VHDX. winget downloads 7-Zip's own
+/// installer and checks its hash; the installer asks for administrator rights. Windows only:
+/// elsewhere, get 7-Zip 25.01 or newer (on Linux and macOS, 7-Zip's own `7zz`) from
 /// https://7-zip.org/download.html.
 #[derive(Debug, Default, Clone, Serialize, Deserialize, JsonSchema, clap::Args, TS)]
 #[serde(deny_unknown_fields)]

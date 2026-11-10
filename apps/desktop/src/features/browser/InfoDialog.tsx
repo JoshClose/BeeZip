@@ -61,6 +61,7 @@ export function InfoDialog({ tab, onClose }: { tab: Tab; onClose: () => void }) 
               {info.levels.length > 1 && <span className="text-muted"> ({info.levels.join(" › ")})</span>}
             </Row>
           )}
+          {!info.backend && info.levels.length > 1 && <Row label="Levels">{info.levels.join(" › ")}</Row>}
           {info.properties.map((p) => (
             <Row key={`${p.level}.${p.name}`} label={p.name}>
               {p.value}

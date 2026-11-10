@@ -1,7 +1,8 @@
 //! Archive formats: ZIP, TAR and the one-entry stream view of a bare compressed file
 //! (docs/M1.md §3.4), 7z and RAR (docs/M3.md), cpio, ar, deb, RPM, CAB and LHA, and the disk
 //! images ISO, squashfs and DMG (docs/M5.md §5), ARJ, ACE, ZOO and ARC, XAR and macOS packages
-//! (docs/M6.md §4, §5), and the formats 7-Zip reads for BeeZip (docs/M6.md §3).
+//! (docs/M6.md §4, §5), the formats 7-Zip reads for BeeZip (docs/M6.md §3), and of those, the
+//! disks, file systems and installers BeeZip now reads itself (docs/M7.md).
 
 pub mod ace;
 pub mod ar;
@@ -13,6 +14,7 @@ pub mod deb;
 pub mod dmg;
 pub mod iso;
 pub mod lzh;
+pub mod msi;
 pub mod pbzx;
 pub mod pkg;
 pub mod rar;
@@ -23,6 +25,7 @@ pub mod squashfs;
 pub mod stream;
 pub mod tar;
 pub mod udif;
+pub mod volume;
 pub mod xar;
 pub mod zip;
 pub mod zip_edit;

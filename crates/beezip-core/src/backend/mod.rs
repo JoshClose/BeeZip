@@ -182,6 +182,23 @@ impl External {
         )
     }
 
+    /// BeeZip reads it with its own code (docs/M7.md): the file systems, partitioned disks and
+    /// MSI installers. 7-Zip still reads what those readers don't support, when it's installed
+    /// (an MSI patch, an NTFS volume of clusters over 64 KiB); the rest are 7-Zip's alone.
+    pub const fn native(self) -> bool {
+        matches!(
+            self,
+            Self::Msi
+                | Self::Fat
+                | Self::Ntfs
+                | Self::Ext
+                | Self::Hfs
+                | Self::Apfs
+                | Self::Gpt
+                | Self::Mbr
+        )
+    }
+
     /// Whether `7z t` checks the files' data against checksums the format stores (WIM's
     /// SHA-1s). For the rest, testing means "7-Zip can decode it" (docs/M6.md §3.5).
     pub const fn checks_data(self) -> bool {
@@ -242,12 +259,13 @@ impl ArchiveFormat for ExternalFormat {
     }
 }
 
-/// What `archive.info` tells about an archive 7-Zip reads (docs/M6.md §3.5).
+/// What `archive.info` tells about an archive 7-Zip reads (docs/M6.md §3.5), or a disk or volume
+/// BeeZip reads itself (docs/M7.md §2).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ExternalInfo {
-    /// The program that reads it: "7-Zip 26.00".
-    pub backend: String,
-    /// The formats 7-Zip opened, outermost first: `["vhdx", "gpt", "ntfs"]`.
+    /// The program that reads it: "7-Zip 26.00". `None` when it's BeeZip.
+    pub backend: Option<String>,
+    /// The formats opened, outermost first: `["vhdx", "gpt", "ntfs"]`.
     pub levels: Vec<String>,
     /// What the levels record: a volume's label, a WIM's images, a cluster size.
     pub properties: Vec<LevelProperty>,

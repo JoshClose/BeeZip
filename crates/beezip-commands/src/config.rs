@@ -41,7 +41,7 @@
 //! [jobs]
 //! close_when_done = true     # a job window closes itself after a clean success
 //!
-//! [seven_zip]                # the 7-Zip that reads WIM, MSI and disk images (docs/M6.md §3)
+//! [seven_zip]                # the 7-Zip that reads WIM, NSIS and virtual disks (docs/M6.md §3)
 //! path = 'C:\Tools\7z.exe'   # empty or missing: found in the registry, PATH or Program Files
 //! enabled = true
 //!
@@ -134,7 +134,8 @@ pub enum MarkOfTheWeb {
 
 /// How names stored as bytes are read: zip names without the UTF-8 flag, tar names outside pax
 /// records, cpio, ar, LHA, ARJ, ACE, ZOO, ARC and squashfs names, CAB names without the UTF-8
-/// flag, ISO names outside Joliet (docs/M5.md §6).
+/// flag, ISO names outside Joliet (docs/M5.md §6), FAT's short names, ext names, and MSI names in
+/// code page 0 (docs/M7.md).
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema, TS)]
 #[serde(default)]
 pub struct NamesConfig {
@@ -281,9 +282,9 @@ impl Default for JobsConfig {
     }
 }
 
-/// The installed 7-Zip, which reads WIM and ESD images, CHM, MSI and NSIS installers, and the
-/// disk images and file systems (VHD, VHDX, VMDK, QCOW2, VDI, FAT, NTFS, ext, HFS+, APFS,
-/// CramFS) for BeeZip (docs/M6.md §3).
+/// The installed 7-Zip, which reads WIM and ESD images, CHM files, NSIS installers, CramFS and
+/// the virtual disks (VHD, VHDX, VMDK, QCOW2, VDI) for BeeZip (docs/M6.md §3), and MSI patches
+/// and what BeeZip's own disk and MSI readers don't support (docs/M7.md).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
 #[serde(default)]
 pub struct SevenZipConfig {

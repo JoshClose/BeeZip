@@ -147,6 +147,13 @@ doc = false
 bench = false
 
 [[bin]]
+name = "part"
+path = "fuzz_targets/part.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
 name = "xz-scan"
 path = "fuzz_targets/xz_scan.rs"
 test = false
@@ -191,6 +198,34 @@ bench = false
 [[bin]]
 name = "xar"
 path = "fuzz_targets/xar.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fat"
+path = "fuzz_targets/fat.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "msi"
+path = "fuzz_targets/msi.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "ntfs"
+path = "fuzz_targets/ntfs.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "ext"
+path = "fuzz_targets/ext.rs"
 test = false
 doc = false
 bench = false

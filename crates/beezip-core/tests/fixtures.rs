@@ -29,15 +29,20 @@ fn manifest() -> Vec<Value> {
 }
 
 /// The options a fixture opens with: its `encoding`, on a US system's code pages (437, 1252).
+/// A record of what 7-Zip lists (`"backend": "7-zip"`) is read through 7-Zip, even for the
+/// formats BeeZip reads itself since M7, whose own records sit beside it (docs/M7.md §10).
 fn options(fx: &Value) -> OpenOptions {
     let encoding = fx["encoding"]
         .as_str()
         .map(|e| NameEncoding::from_name(e).unwrap())
         .unwrap_or_default();
-    OpenOptions::default().with_names(NameDecoding {
-        encoding,
-        ..NameDecoding::default()
-    })
+    OpenOptions {
+        native: fx["backend"] != "7-zip",
+        ..OpenOptions::default().with_names(NameDecoding {
+            encoding,
+            ..NameDecoding::default()
+        })
+    }
 }
 
 /// Four workers for reading, from the first file.
@@ -93,7 +98,7 @@ const MTIME: u64 = 1_767_225_600;
 #[test]
 fn every_fixture_reads_correctly() {
     let all = manifest();
-    assert_eq!(all.len(), 298, "the manifest lists every fixture");
+    assert_eq!(all.len(), 309, "the manifest lists every fixture");
     let mut failures = Vec::new();
     for fx in &all {
         let file = fx["file"].as_str().unwrap();
@@ -472,11 +477,11 @@ fn broken_fixtures_fail_as_they_should() {
         UnsupportedFormat,
     ]);
     let cases = [
-        // lzxd 0.2.7 decodes a match reaching before the stream's start as zeros instead of
-        // failing, and a cabinet has no checksum of its decoded data (the upstream list).
+        // A match that reaches before the stream's start. lzxd 0.2.7 decoded it as zeros;
+        // BeeZip's own LZX decoder refuses it (docs/M7.md §8.4).
         (
             "libarchive/cab/broken/test_read_format_cab_lzx_invalid_history.cab",
-            Fails::Reads,
+            corrupt,
         ),
         (
             "libarchive/cab/broken/test_read_format_cab_lzx_oob.cab",

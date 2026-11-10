@@ -17,6 +17,7 @@ rar = ["dep:beezip-unrar"]
 beezip-unrar = { workspace = true, optional = true }
 brotli.workspace = true
 bzip2.workspace = true
+cfb.workspace = true
 crc32fast.workspace = true
 backhand.workspace = true
 delharc.workspace = true
@@ -34,7 +35,6 @@ hadris-udf.workspace = true
 lzfse_rust.workspace = true
 lz4_flex.workspace = true
 lzokay.workspace = true
-lzxd.workspace = true
 lzma-rust2.workspace = true
 md-5.workspace = true
 sevenz-rust2.workspace = true
@@ -67,6 +67,7 @@ windows-sys = { workspace = true, features = [
 libc.workspace = true
 
 [dev-dependencies]
+msi.workspace = true
 proptest.workspace = true
 serde_json.workspace = true
 

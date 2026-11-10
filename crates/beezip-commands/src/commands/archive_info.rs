@@ -82,8 +82,8 @@ pub struct ArchiveInfoOutput {
     pub not_editable: Option<String>,
     /// The program that reads it, for the formats BeeZip leaves to one: "7-Zip 26.00".
     pub backend: Option<String>,
-    /// The formats 7-Zip opened, outermost first: `["vhdx", "gpt", "ntfs"]`. Empty for
-    /// BeeZip's own formats.
+    /// The formats opened, outermost first: `["vhdx", "gpt", "ntfs"]`, by 7-Zip or by BeeZip's
+    /// own disk and file-system readers (`["gpt", "ntfs"]`). Empty for the other formats.
     pub levels: Vec<String>,
     /// What those levels record: a volume's label, a WIM's images, the cluster size.
     pub properties: Vec<InfoProperty>,
@@ -172,7 +172,7 @@ impl Command for ArchiveInfo {
                     not_editable,
                     comment: info.comment,
                     archive: input.archive,
-                    backend: info.external.as_ref().map(|x| x.backend.clone()),
+                    backend: info.external.as_ref().and_then(|x| x.backend.clone()),
                     levels: info
                         .external
                         .as_ref()
@@ -251,6 +251,8 @@ impl Command for ArchiveInfo {
         }
         if let Some(b) = &out.backend {
             s.push_str(&format!("\n  read by {b}: {}", out.levels.join(" > ")));
+        } else if out.levels.len() > 1 {
+            s.push_str(&format!("\n  levels: {}", out.levels.join(" > ")));
         }
         for p in &out.properties {
             s.push_str(&format!(

@@ -73,6 +73,8 @@ pub struct SevenZipReader {
     /// The paths 7-Zip printed, where they differ from the entries' (names decoded from bytes
     /// that weren't UTF-8): what selects them on its command line.
     listed: HashMap<usize, Box<str>>,
+    /// Why BeeZip's own reader handed the archive to 7-Zip (docs/M7.md §2), for Info.
+    fallback: Option<String>,
 }
 
 impl SevenZipReader {
@@ -132,7 +134,16 @@ impl SevenZipReader {
             levels: listing.levels,
             entries,
             listed,
+            fallback: None,
         })
+    }
+
+    /// The same, noting in Info why BeeZip's own reader left the archive to 7-Zip.
+    pub fn with_fallback(self, why: String) -> Self {
+        Self {
+            fallback: Some(why),
+            ..self
+        }
     }
 
     /// The program reading it: "7-Zip 26.00".
@@ -917,7 +928,7 @@ impl ArchiveReader for SevenZipReader {
             }
             levels.push(name);
         }
-        let mut notes = Vec::new();
+        let mut notes: Vec<String> = self.fallback.iter().cloned().collect();
         if self.kind == External::Msi {
             notes.push(
                 "7-Zip names an installer's files by its internal keys (filFF4C…), not by the names they're installed under.".to_owned(),
@@ -948,7 +959,7 @@ impl ArchiveReader for SevenZipReader {
             locked: false,
             recovery_record: false,
             external: Some(ExternalInfo {
-                backend: self.seven_zip.name.clone(),
+                backend: Some(self.seven_zip.name.clone()),
                 levels,
                 properties,
                 notes,

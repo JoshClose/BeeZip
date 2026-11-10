@@ -4,7 +4,7 @@
 //!   each folder's data blocks (`CFDATA`). A folder is one compressed stream of its files laid
 //!   end to end, cut into blocks of at most 32 KiB uncompressed.
 //! - **Reading:** none, MSZIP (flate2, each block a raw deflate stream whose dictionary is the
-//!   folder's last 32 KiB) and LZX (`lzxd` 0.2.7, one frame per block). Quantum is listed, and
+//!   folder's last 32 KiB) and LZX (BeeZip's own, [`lzx`], one frame per block). Quantum is listed, and
 //!   refused when an entry of its folder is extracted. Blocks' checksums are checked when set.
 //!   Every count and size is checked against the file before anything is allocated for it, and a
 //!   folder whose files claim more than its blocks can hold is `Corrupt` when it opens.
@@ -12,6 +12,8 @@
 //!   (ignoring case if the exact name isn't there), the set is read from its first cabinet, and a
 //!   folder that continues into the next cabinet reads on there, a block split between the two
 //!   joined. A file listed in both cabinets is listed once.
+//! - **A cabinet inside another file** (an MSI's embedded one, docs/M7.md §8.3) is read through a
+//!   [`CabStream`], which opens its bytes afresh for each pass. No set is followed from one.
 //! - **Names** are UTF-8 when `_A_NAME_IS_UTF` is set, otherwise bytes in the ANSI code page
 //!   (docs/M5.md §6); `\` becomes `/`. Times are DOS local times. Entries are files only.
 //! - **Extracting** decodes each folder once, handing its files to the sink in the order of their
@@ -21,12 +23,13 @@
 //!   first ([`ArchiveWriter::expect`]), so it reserves the header and the folder and file tables
 //!   up front, writes the data, and fills the tables in at the end, in the order the files came.
 
+mod lzx;
+
 use std::{
     borrow::BorrowMut,
     collections::{BTreeMap, HashMap, HashSet, VecDeque},
     fs::File,
     io::{self, BufReader, BufWriter, Read, Seek, SeekFrom, Write},
-    panic::{AssertUnwindSafe, catch_unwind},
     path::{Path, PathBuf},
 };
 
@@ -186,9 +189,43 @@ fn checksum_ok(sum: u32, header: &[u8], data: &[u8]) -> bool {
         || sum == block_checksum(header.get(..4).unwrap_or(header), data)
 }
 
-trait ReadSeek: Read + Seek + Send {}
+/// What a cabinet's bytes are read from.
+pub trait ReadSeek: Read + Seek + Send {}
 
 impl<T: Read + Seek + Send> ReadSeek for T {}
+
+/// Opens a cabinet's bytes, and gives their length, each time they're read.
+type OpenCab = dyn Fn() -> Result<(Box<dyn ReadSeek>, u64)> + Send + Sync;
+
+/// A cabinet held inside another file, such as an MSI's embedded one (docs/M7.md §8.3): it's
+/// opened again from its start for each pass, as a cabinet file is.
+#[derive(Clone)]
+pub struct CabStream {
+    /// What messages call it: `cab1.cab in setup.msi`.
+    pub name: String,
+    open: std::sync::Arc<OpenCab>,
+}
+
+impl CabStream {
+    /// `open` gives the cabinet's bytes from their start, and their length.
+    pub fn new(
+        name: impl Into<String>,
+        open: impl Fn() -> Result<(Box<dyn ReadSeek>, u64)> + Send + Sync + 'static,
+    ) -> Self {
+        Self {
+            name: name.into(),
+            open: std::sync::Arc::new(open),
+        }
+    }
+}
+
+impl std::fmt::Debug for CabStream {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CabStream")
+            .field("name", &self.name)
+            .finish_non_exhaustive()
+    }
+}
 
 fn read_exact_or<R: Read + ?Sized>(r: &mut R, buf: &mut [u8], what: &str) -> Result<()> {
     r.read_exact(buf).map_err(|e| {
@@ -393,10 +430,13 @@ enum Loc {
     Input,
     /// Another file: a cabinet beside it in the set, or the cabinet spooled out of a codec.
     Path(PathBuf),
+    /// A cabinet inside another file.
+    Stream(CabStream),
 }
 
 fn open_loc(source: &Source, loc: &Loc) -> Result<(Box<dyn ReadSeek>, u64)> {
     match loc {
+        Loc::Stream(s) => (s.open)(),
         Loc::Input => {
             let input = source.input()?;
             let len = input.len();
@@ -606,7 +646,7 @@ fn build(
 
 /// The cabinet called `name` in `dir`: the exact name, else one that differs only in case.
 /// `name` is a file name alone ([`sibling_name`]), so a set can't reach outside the folder.
-fn find_sibling(dir: &Path, name: &str) -> Option<PathBuf> {
+pub(crate) fn find_sibling(dir: &Path, name: &str) -> Option<PathBuf> {
     let exact = dir.join(name);
     if exact.is_file() {
         return Some(exact);
@@ -681,14 +721,35 @@ impl CabReader {
             tmp.close();
             (Loc::Path(tmp.path().to_path_buf()), Some(tmp))
         };
+        // A set is followed only from a plain file: siblings of an SFX or a spool aren't known.
+        let follow = source.codecs.is_empty() && !source.joined && source.offset == 0;
+        let this = source.file_name();
+        Self::open_at(source, loc, spool, follow, this, cx)
+    }
+
+    /// Opens `stream`, a cabinet held inside another file (an MSI's embedded cabinet,
+    /// docs/M7.md §8.3). `source` is that file: it gives the limits, the name decoding, the byte
+    /// counter and the budget, and isn't read itself. No set is followed from the cabinet.
+    pub fn open_stream(source: Source, stream: CabStream, cx: &mut dyn Ctx) -> Result<Self> {
+        let this = stream.name.clone();
+        Self::open_at(source, Loc::Stream(stream), None, false, this, cx)
+    }
+
+    /// Opens the cabinet at `loc`, called `this` in messages, and, when `follow`, the rest of
+    /// its set beside `source`.
+    fn open_at(
+        source: Source,
+        loc: Loc,
+        spool: Option<Partial>,
+        follow: bool,
+        this: String,
+        cx: &mut dyn Ctx,
+    ) -> Result<Self> {
         let (mut input, len) = open_loc(&source, &loc)?;
         let opened = read_cabinet(&mut *input, len)?;
         drop(input);
 
-        // A set is followed only from a plain file: siblings of an SFX or a spool aren't known.
-        let follow = source.codecs.is_empty() && !source.joined && source.offset == 0;
         let dir = source.path.parent().unwrap_or(Path::new("")).to_path_buf();
-        let this = source.file_name();
         let names = source.names;
         let mut seen = vec![lower_name(&source.path)];
         let mut chain: VecDeque<(Loc, u64, Cabinet)> = VecDeque::from([(loc, len, opened)]);
@@ -776,6 +837,25 @@ impl CabReader {
         let mut meter = Meter::new(self.source.counter.clone(), Some(self.total));
         meter.entries_total = Some(self.entries.len() as u64);
         meter
+    }
+
+    /// The entries' ids in the order [`ArchiveReader::extract`] hands them to the sink: by
+    /// folder, then by where each starts in it.
+    pub fn data_order(&self) -> Vec<usize> {
+        let mut order: Vec<(usize, u32, usize)> = self
+            .set
+            .files
+            .iter()
+            .enumerate()
+            .map(|(id, f)| (f.folder, f.offset, id))
+            .collect();
+        order.sort_unstable();
+        order.into_iter().map(|(_, _, id)| id).collect()
+    }
+
+    /// The size of every cabinet read: the progress a full pass makes.
+    pub fn total_size(&self) -> u64 {
+        self.total
     }
 }
 
@@ -911,72 +991,7 @@ enum Decoder {
         /// The folder's last 32 KiB: the next block's dictionary.
         history: Vec<u8>,
     },
-    Lzx(Box<Lzx>),
-}
-
-/// An LZX folder: lzxd for the blocks, with BeeZip doing the E8 translation (below).
-struct Lzx {
-    lzxd: lzxd::Lzxd,
-    started: bool,
-    /// The E8 translation size, when the stream turns it on.
-    e8: Option<i32>,
-    /// Bytes decoded so far in the folder.
-    offset: u64,
-}
-
-/// The stream's E8 header, taken out of its first block: lzxd 0.2.7 translates an E8 operand of
-/// 0 to the translation size instead of to minus its position (it tests `> 0` where the LZX
-/// spec says `>= 0`), so BeeZip turns lzxd's translation off and does it itself
-/// ([`e8_translate`]). The header is the stream's first bit, and the 32-bit size after it when
-/// that bit is set. Bits are read from 16-bit little-endian words, high bit first, so taking
-/// out bits 1–32 leaves a first word of a zero bit and bits 33–47, then the rest as it was.
-/// Returns the size and the block without the header.
-fn strip_e8_header(packed: &[u8]) -> Option<(i32, Vec<u8>)> {
-    let word = |i: usize| -> Option<u32> {
-        Some(u32::from(u16::from_le_bytes([
-            *packed.get(i)?,
-            *packed.get(i + 1)?,
-        ])))
-    };
-    let (w0, w1, w2) = (word(0)?, word(2)?, word(4)?);
-    if w0 & 0x8000 == 0 {
-        return None;
-    }
-    let size = (w0 & 0x7FFF) << 17 | w1 << 1 | w2 >> 15;
-    let mut out = Vec::with_capacity(packed.len() - 4);
-    out.extend_from_slice(&((w2 & 0x7FFF) as u16).to_le_bytes());
-    out.extend_from_slice(packed.get(6..)?);
-    Some((size as i32, out))
-}
-
-/// LZX's E8 translation of one decoded block that starts `offset` bytes into its folder, as
-/// the spec (and libmspack, and 7-Zip) do it: an `E8` byte's 32-bit operand `abs`, when
-/// `-pos <= abs < size`, becomes `abs - pos` if `abs >= 0`, else `abs + size`. Not done in the
-/// last 10 bytes of a block, in blocks of 10 bytes or less, or after the first GiB.
-fn e8_translate(data: &mut [u8], offset: u64, size: i32) {
-    if offset >= 0x4000_0000 || data.len() <= 10 {
-        return;
-    }
-    let end = data.len() - 10;
-    let mut i = 0;
-    while i < end {
-        if data[i] != 0xE8 {
-            i += 1;
-            continue;
-        }
-        // Below 1 GiB, so it fits.
-        let pos = (offset + i as u64) as i32;
-        let abs = i32::from_le_bytes([data[i + 1], data[i + 2], data[i + 3], data[i + 4]]);
-        if abs >= -pos && abs < size {
-            let rel = if abs >= 0 {
-                abs.wrapping_sub(pos)
-            } else {
-                abs.wrapping_add(size)
-            };
-            data[i + 1..i + 5].copy_from_slice(&rel.to_le_bytes());
-        }
-        i += 5;
-    }
+    Lzx(Box<lzx::Lzx>),
 }
 
 impl Decoder {
@@ -999,28 +1014,10 @@ impl Decoder {
                 ));
             }
             METHOD_LZX => {
-                use lzxd::WindowSize as W;
                 let bits = (folder.kind >> 8) & 0x1F;
-                let window = match bits {
-                    15 => W::KB32,
-                    16 => W::KB64,
-                    17 => W::KB128,
-                    18 => W::KB256,
-                    19 => W::KB512,
-                    20 => W::MB1,
-                    21 => W::MB2,
-                    _ => {
-                        return Err(bad(format!(
-                            "an LZX window of {bits} bits (15–21 are valid)"
-                        )));
-                    }
-                };
-                Self::Lzx(Box::new(Lzx {
-                    lzxd: lzxd::Lzxd::new(window),
-                    started: false,
-                    e8: None,
-                    offset: 0,
-                }))
+                Self::Lzx(Box::new(lzx::Lzx::new(u32::from(bits)).map_err(|_| {
+                    bad(format!("an LZX window of {bits} bits (15–21 are valid)"))
+                })?))
             }
             n => {
                 return Err(Error::unsupported_format(format!(
@@ -1055,33 +1052,8 @@ impl Decoder {
                 }
             }
             Self::Lzx(lzx) => {
-                let stripped;
-                let mut packed = packed;
-                if !lzx.started {
-                    lzx.started = true;
-                    if let Some((size, rest)) = strip_e8_header(packed) {
-                        lzx.e8 = Some(size);
-                        stripped = rest;
-                        packed = &stripped;
-                    }
-                }
-                // lzxd can panic on crafted data (arithmetic that overflows with overflow
-                // checks on); a panic is a damaged block, and the decoder isn't used again.
-                let decoded = catch_unwind(AssertUnwindSafe(|| {
-                    lzx.lzxd
-                        .decompress_next(packed, unpacked)
-                        .map(|view| out.extend_from_slice(view))
-                }));
-                match decoded {
-                    Ok(Ok(())) if out.len() == unpacked => {}
-                    Ok(Ok(())) => return Err(bad("an LZX block decodes to the wrong size")),
-                    Ok(Err(e)) => return Err(bad(format!("an LZX block is damaged: {e}"))),
-                    Err(_) => return Err(bad("an LZX block is damaged (the decoder failed)")),
-                }
-                if let Some(size) = lzx.e8 {
-                    e8_translate(out, lzx.offset, size);
-                }
-                lzx.offset += unpacked as u64;
+                lzx.decode_frame(packed, unpacked, out)
+                    .map_err(|e| bad(format!("an LZX block is damaged: {e}")))?;
             }
         }
         Ok(())
@@ -2720,6 +2692,65 @@ mod tests {
         assert_eq!(open(&p).unwrap().set.cabs.len(), 1);
     }
 
+    /// A cabinet in memory, read as an MSI's embedded one is: the same entries and bytes as
+    /// the file, in the order `data_order` says, and its bytes counted on the source's counter.
+    #[test]
+    fn a_cabinet_inside_another_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("in.cab");
+        let mut files = sample();
+        files.truncate(20);
+        write_cab(&path, CabMethod::Mszip, &files, Some(4));
+        let bytes = std::sync::Arc::new(std::fs::read(&path).unwrap());
+        // Any file stands for the outer one: only its limits and counter are used.
+        let outer = dir.path().join("outer.bin");
+        std::fs::write(&outer, b"not a cabinet").unwrap();
+        let source = Source::new(&outer, Vec::new(), &OpenOptions::default()).unwrap();
+        let counter = source.counter.clone();
+        let opens = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let stream = {
+            let (bytes, opens) = (bytes.clone(), opens.clone());
+            CabStream::new("in.cab in outer.bin", move || {
+                opens.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                let len = bytes.len() as u64;
+                let r: Box<dyn ReadSeek> = Box::new(io::Cursor::new(bytes.to_vec()));
+                Ok((r, len))
+            })
+        };
+        let mut cx = SimpleCtx::new();
+        let mut r = CabReader::open_stream(source, stream, &mut cx).unwrap();
+        assert!(cx.warnings.is_empty(), "{:?}", cx.warnings);
+        assert_eq!(r.total_size(), bytes.len() as u64);
+        let got = extract_all(&mut r).unwrap();
+        let ids: Vec<usize> = got.iter().map(|(e, _)| e.id).collect();
+        assert_eq!(ids, r.data_order());
+        assert_eq!(got.len(), files.len());
+        for (e, data) in &got {
+            assert!(*data == files[e.id].1, "{}", e.path);
+        }
+        assert!(counter.get() > 0, "the packed bytes are counted");
+        assert!(opens.load(std::sync::atomic::Ordering::Relaxed) >= 2);
+        for id in [3, 0, 19] {
+            assert!(read_entry(&mut r, id).unwrap() == files[id].1);
+        }
+
+        // A damaged one fails as a damaged file does, naming nothing outside it.
+        let cut = std::sync::Arc::new(bytes[..bytes.len() / 2].to_vec());
+        let stream = CabStream::new("cut.cab", move || {
+            let r: Box<dyn ReadSeek> = Box::new(io::Cursor::new(cut.to_vec()));
+            Ok((r, cut.len() as u64))
+        });
+        let source = Source::new(&outer, Vec::new(), &OpenOptions::default()).unwrap();
+        assert_eq!(
+            kind_of(CabReader::open_stream(
+                source,
+                stream,
+                &mut SimpleCtx::new()
+            )),
+            ErrorKind::Corrupt
+        );
+    }
+
     #[test]
     fn cancelling_stops_reading_and_writing() {
         use std::sync::{Arc, atomic::AtomicBool};
@@ -2835,9 +2866,11 @@ mod tests {
     #[test]
     fn a_repeated_offset_past_the_window_is_caught() {
         // A sane offset decodes: "A", then "A" again from one back... at offset 1, twice.
-        let mut lzx = lzxd::Lzxd::new(lzxd::WindowSize::KB32);
-        assert_eq!(lzx.decompress_next(&lzx_repeat(1), 3).unwrap(), b"AAA");
-        // An offset beyond the window: lzxd 0.2.7 subtracts it from the window position, which
+        let mut lzx = lzx::Lzx::new(15).unwrap();
+        let mut out = Vec::new();
+        lzx.decode_frame(&lzx_repeat(1), 3, &mut out).unwrap();
+        assert_eq!(out, b"AAA");
+        // An offset beyond the window: lzxd 0.2.7 subtracted it from the window position, which
         // overflows (a panic with overflow checks, as in debug builds and fuzzing).
         let dir = tempfile::tempdir().unwrap();
         let mut raw = Raw::stored(&[], &[("x", 0, 3)]);
