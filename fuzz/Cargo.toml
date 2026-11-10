@@ -208,3 +208,10 @@ path = "fuzz_targets/fat.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "msi"
+path = "fuzz_targets/msi.rs"
+test = false
+doc = false
+bench = false

@@ -12,6 +12,8 @@
 //!   (ignoring case if the exact name isn't there), the set is read from its first cabinet, and a
 //!   folder that continues into the next cabinet reads on there, a block split between the two
 //!   joined. A file listed in both cabinets is listed once.
+//! - **A cabinet inside another file** (an MSI's embedded one, docs/M7.md §8.3) is read through a
+//!   [`CabStream`], which opens its bytes afresh for each pass. No set is followed from one.
 //! - **Names** are UTF-8 when `_A_NAME_IS_UTF` is set, otherwise bytes in the ANSI code page
 //!   (docs/M5.md §6); `\` becomes `/`. Times are DOS local times. Entries are files only.
 //! - **Extracting** decodes each folder once, handing its files to the sink in the order of their
@@ -186,9 +188,43 @@ fn checksum_ok(sum: u32, header: &[u8], data: &[u8]) -> bool {
         || sum == block_checksum(header.get(..4).unwrap_or(header), data)
 }
 
-trait ReadSeek: Read + Seek + Send {}
+/// What a cabinet's bytes are read from.
+pub trait ReadSeek: Read + Seek + Send {}
 
 impl<T: Read + Seek + Send> ReadSeek for T {}
+
+/// Opens a cabinet's bytes, and gives their length, each time they're read.
+type OpenCab = dyn Fn() -> Result<(Box<dyn ReadSeek>, u64)> + Send + Sync;
+
+/// A cabinet held inside another file, such as an MSI's embedded one (docs/M7.md §8.3): it's
+/// opened again from its start for each pass, as a cabinet file is.
+#[derive(Clone)]
+pub struct CabStream {
+    /// What messages call it: `cab1.cab in setup.msi`.
+    pub name: String,
+    open: std::sync::Arc<OpenCab>,
+}
+
+impl CabStream {
+    /// `open` gives the cabinet's bytes from their start, and their length.
+    pub fn new(
+        name: impl Into<String>,
+        open: impl Fn() -> Result<(Box<dyn ReadSeek>, u64)> + Send + Sync + 'static,
+    ) -> Self {
+        Self {
+            name: name.into(),
+            open: std::sync::Arc::new(open),
+        }
+    }
+}
+
+impl std::fmt::Debug for CabStream {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CabStream")
+            .field("name", &self.name)
+            .finish_non_exhaustive()
+    }
+}
 
 fn read_exact_or<R: Read + ?Sized>(r: &mut R, buf: &mut [u8], what: &str) -> Result<()> {
     r.read_exact(buf).map_err(|e| {
@@ -393,10 +429,13 @@ enum Loc {
     Input,
     /// Another file: a cabinet beside it in the set, or the cabinet spooled out of a codec.
     Path(PathBuf),
+    /// A cabinet inside another file.
+    Stream(CabStream),
 }
 
 fn open_loc(source: &Source, loc: &Loc) -> Result<(Box<dyn ReadSeek>, u64)> {
     match loc {
+        Loc::Stream(s) => (s.open)(),
         Loc::Input => {
             let input = source.input()?;
             let len = input.len();
@@ -606,7 +645,7 @@ fn build(
 
 /// The cabinet called `name` in `dir`: the exact name, else one that differs only in case.
 /// `name` is a file name alone ([`sibling_name`]), so a set can't reach outside the folder.
-fn find_sibling(dir: &Path, name: &str) -> Option<PathBuf> {
+pub(crate) fn find_sibling(dir: &Path, name: &str) -> Option<PathBuf> {
     let exact = dir.join(name);
     if exact.is_file() {
         return Some(exact);
@@ -681,14 +720,35 @@ impl CabReader {
             tmp.close();
             (Loc::Path(tmp.path().to_path_buf()), Some(tmp))
         };
+        // A set is followed only from a plain file: siblings of an SFX or a spool aren't known.
+        let follow = source.codecs.is_empty() && !source.joined && source.offset == 0;
+        let this = source.file_name();
+        Self::open_at(source, loc, spool, follow, this, cx)
+    }
+
+    /// Opens `stream`, a cabinet held inside another file (an MSI's embedded cabinet,
+    /// docs/M7.md §8.3). `source` is that file: it gives the limits, the name decoding, the byte
+    /// counter and the budget, and isn't read itself. No set is followed from the cabinet.
+    pub fn open_stream(source: Source, stream: CabStream, cx: &mut dyn Ctx) -> Result<Self> {
+        let this = stream.name.clone();
+        Self::open_at(source, Loc::Stream(stream), None, false, this, cx)
+    }
+
+    /// Opens the cabinet at `loc`, called `this` in messages, and, when `follow`, the rest of
+    /// its set beside `source`.
+    fn open_at(
+        source: Source,
+        loc: Loc,
+        spool: Option<Partial>,
+        follow: bool,
+        this: String,
+        cx: &mut dyn Ctx,
+    ) -> Result<Self> {
         let (mut input, len) = open_loc(&source, &loc)?;
         let opened = read_cabinet(&mut *input, len)?;
         drop(input);
 
-        // A set is followed only from a plain file: siblings of an SFX or a spool aren't known.
-        let follow = source.codecs.is_empty() && !source.joined && source.offset == 0;
         let dir = source.path.parent().unwrap_or(Path::new("")).to_path_buf();
-        let this = source.file_name();
         let names = source.names;
         let mut seen = vec![lower_name(&source.path)];
         let mut chain: VecDeque<(Loc, u64, Cabinet)> = VecDeque::from([(loc, len, opened)]);
@@ -776,6 +836,25 @@ impl CabReader {
         let mut meter = Meter::new(self.source.counter.clone(), Some(self.total));
         meter.entries_total = Some(self.entries.len() as u64);
         meter
+    }
+
+    /// The entries' ids in the order [`ArchiveReader::extract`] hands them to the sink: by
+    /// folder, then by where each starts in it.
+    pub fn data_order(&self) -> Vec<usize> {
+        let mut order: Vec<(usize, u32, usize)> = self
+            .set
+            .files
+            .iter()
+            .enumerate()
+            .map(|(id, f)| (f.folder, f.offset, id))
+            .collect();
+        order.sort_unstable();
+        order.into_iter().map(|(_, _, id)| id).collect()
+    }
+
+    /// The size of every cabinet read: the progress a full pass makes.
+    pub fn total_size(&self) -> u64 {
+        self.total
     }
 }
 
@@ -2718,6 +2797,65 @@ mod tests {
         raw.next = Some("SELF.cab");
         let p = raw.write(&sub, "self.cab");
         assert_eq!(open(&p).unwrap().set.cabs.len(), 1);
+    }
+
+    /// A cabinet in memory, read as an MSI's embedded one is: the same entries and bytes as
+    /// the file, in the order `data_order` says, and its bytes counted on the source's counter.
+    #[test]
+    fn a_cabinet_inside_another_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("in.cab");
+        let mut files = sample();
+        files.truncate(20);
+        write_cab(&path, CabMethod::Mszip, &files, Some(4));
+        let bytes = std::sync::Arc::new(std::fs::read(&path).unwrap());
+        // Any file stands for the outer one: only its limits and counter are used.
+        let outer = dir.path().join("outer.bin");
+        std::fs::write(&outer, b"not a cabinet").unwrap();
+        let source = Source::new(&outer, Vec::new(), &OpenOptions::default()).unwrap();
+        let counter = source.counter.clone();
+        let opens = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let stream = {
+            let (bytes, opens) = (bytes.clone(), opens.clone());
+            CabStream::new("in.cab in outer.bin", move || {
+                opens.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                let len = bytes.len() as u64;
+                let r: Box<dyn ReadSeek> = Box::new(io::Cursor::new(bytes.to_vec()));
+                Ok((r, len))
+            })
+        };
+        let mut cx = SimpleCtx::new();
+        let mut r = CabReader::open_stream(source, stream, &mut cx).unwrap();
+        assert!(cx.warnings.is_empty(), "{:?}", cx.warnings);
+        assert_eq!(r.total_size(), bytes.len() as u64);
+        let got = extract_all(&mut r).unwrap();
+        let ids: Vec<usize> = got.iter().map(|(e, _)| e.id).collect();
+        assert_eq!(ids, r.data_order());
+        assert_eq!(got.len(), files.len());
+        for (e, data) in &got {
+            assert!(*data == files[e.id].1, "{}", e.path);
+        }
+        assert!(counter.get() > 0, "the packed bytes are counted");
+        assert!(opens.load(std::sync::atomic::Ordering::Relaxed) >= 2);
+        for id in [3, 0, 19] {
+            assert!(read_entry(&mut r, id).unwrap() == files[id].1);
+        }
+
+        // A damaged one fails as a damaged file does, naming nothing outside it.
+        let cut = std::sync::Arc::new(bytes[..bytes.len() / 2].to_vec());
+        let stream = CabStream::new("cut.cab", move || {
+            let r: Box<dyn ReadSeek> = Box::new(io::Cursor::new(cut.to_vec()));
+            Ok((r, cut.len() as u64))
+        });
+        let source = Source::new(&outer, Vec::new(), &OpenOptions::default()).unwrap();
+        assert_eq!(
+            kind_of(CabReader::open_stream(
+                source,
+                stream,
+                &mut SimpleCtx::new()
+            )),
+            ErrorKind::Corrupt
+        );
     }
 
     #[test]

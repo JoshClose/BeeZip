@@ -224,6 +224,17 @@ impl NameDecoding {
         }
     }
 
+    /// A name stored in the Windows code page `cp` that the format itself declares (an MSI's
+    /// string pool, docs/M7.md §8.1). Code page 0, "neutral", is the system's ANSI code page, as
+    /// Windows reads it: it goes through [`NameDecoding::decode`] like any name stored as bytes.
+    /// A code page BeeZip doesn't know is read in the system's ANSI code page too.
+    pub fn decode_in(&self, raw: &[u8], cp: u32) -> String {
+        match u16::try_from(cp) {
+            Ok(cp) if cp != 0 && Self::knows(cp) => decode_page(raw, cp, ANSI_FALLBACK),
+            _ => self.decode(raw, false, SystemPage::Ansi),
+        }
+    }
+
     /// Whether BeeZip decodes `cp` itself rather than falling back.
     pub fn knows(cp: u16) -> bool {
         matches!(cp, UTF8 | LATIN1)
@@ -399,5 +410,20 @@ mod tests {
             with(NameEncoding::Utf8).decode(b"a\xFFb", false, SystemPage::Ansi),
             "a\u{FFFD}b"
         );
+    }
+
+    #[test]
+    fn a_declared_code_page_wins_and_neutral_is_the_systems() {
+        let auto = NameDecoding::default();
+        // café in Windows-1252, and in UTF-8.
+        assert_eq!(auto.decode_in(b"caf\xE9.txt", 1252), "café.txt");
+        assert_eq!(auto.decode_in("café.txt".as_bytes(), 65001), "café.txt");
+        // Code page 0 is the system's ANSI page: 1252 here, 1251 on a Russian system.
+        assert_eq!(auto.decode_in(b"caf\xE9.txt", 0), "café.txt");
+        let ru = NameDecoding { ansi: 1251, ..auto };
+        assert_eq!(ru.decode_in(b"\xCF\xF0\xE8", 0), "При");
+        assert_eq!(ru.decode_in(b"caf\xE9", 1252), "café");
+        // One BeeZip doesn't know reads as the system's page.
+        assert_eq!(ru.decode_in(b"\xCF", 77_777), "П");
     }
 }
