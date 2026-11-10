@@ -8,7 +8,8 @@
 //   (site/src/docs/_nav.json), an "On this page" list of its h2s, and the next and previous page;
 // - fills the `<!-- beezip:… -->` slots from what the CLI itself says, so they can't go stale:
 //   the command reference (every command's --help), the formats (`beezip formats`), and the
-//   honeycomb on the home page; and renders CHANGELOG.md into the releases page;
+//   honeycomb on the home page; and renders CHANGELOG.md into the releases page, each version
+//   dated by its `vX.Y.Z` tag;
 // - fails when the settings page leaves out a setting `beezip settings get` lists;
 // - copies site/src/assets, and the brand marks from packaging/brand;
 // - fails when a relative link or #anchor leads nowhere.
@@ -270,8 +271,32 @@ function markdownInline(s) {
     .replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (_, t, u) => `<a href="${u}">${t}</a>`);
 }
 
+// When each version came out: the day its `vX.Y.Z` tag was made, in the tagger's time zone (for a
+// tag without its own date, its commit's). CHANGELOG.md's headings carry no date. A clone without
+// the tags (CI's is shallow; pages.yml fetches them) shows every version as not released yet.
+function releaseDates() {
+  let refs;
+  try {
+    refs = execFileSync("git", ["for-each-ref", "refs/tags/v*", "--format=%(refname:strip=2) %(creatordate:short)"], {
+      cwd: repo,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    });
+  } catch {
+    return new Map();
+  }
+  return new Map(
+    refs
+      .split("\n")
+      .map((l) => /^v(\S+) (\d{4}-\d\d-\d\d)$/.exec(l.trim()))
+      .filter(Boolean)
+      .map(([, v, date]) => [v, date]),
+  );
+}
+
 function changelog() {
   const text = readFileSync(join(repo, "CHANGELOG.md"), "utf8").replace(/\r/g, "");
+  const released = releaseDates();
   const html = [];
   let list;
   let para = [];
@@ -288,8 +313,9 @@ function changelog() {
     if ((m = /^## (\S+)(?: \(([^)]+)\))?\s*$/.exec(line))) {
       flush();
       if (open) html.push("</section>");
-      const [, v, date] = m;
+      const [, v, written] = m;
       if (!/^\d+\.\d+\.\d+/.test(v)) throw new Error(`CHANGELOG.md: "## ${v}" isn't a version`);
+      const date = written ?? released.get(v);
       html.push(`<section class="release"><h2 id="v${slug(v)}">BeeZip ${esc(v)}</h2><p class="released">${date ? `Released ${esc(date)}` : "Not released yet"}</p>`);
       open = true;
     } else if ((m = /^### (.+)$/.exec(line))) {
