@@ -1356,7 +1356,8 @@ export type NameEncoding = "auto" | "utf-8" | "cp437" | "cp850" | "cp852" | "cp8
 /**
  * How names stored as bytes are read: zip names without the UTF-8 flag, tar names outside pax
  * records, cpio, ar, LHA, ARJ, ACE, ZOO, ARC and squashfs names, CAB names without the UTF-8
- * flag, ISO names outside Joliet (docs/M5.md §6).
+ * flag, ISO names outside Joliet (docs/M5.md §6), FAT's short names, ext names, and MSI names in
+ * code page 0 (docs/M7.md).
  */
 export type NamesConfig = {
 /**
@@ -1536,9 +1537,9 @@ error: string | null, };
 export type SevenZipAction = "installed" | "updated" | "none";
 
 /**
- * The installed 7-Zip, which reads WIM and ESD images, CHM, MSI and NSIS installers, and the
- * disk images and file systems (VHD, VHDX, VMDK, QCOW2, VDI, FAT, NTFS, ext, HFS+, APFS,
- * CramFS) for BeeZip (docs/M6.md §3).
+ * The installed 7-Zip, which reads WIM and ESD images, CHM files, NSIS installers, CramFS and
+ * the virtual disks (VHD, VHDX, VMDK, QCOW2, VDI) for BeeZip (docs/M6.md §3), and MSI patches
+ * and what BeeZip's own disk and MSI readers don't support (docs/M7.md).
  */
 export type SevenZipConfig = {
 /**
@@ -1559,9 +1560,9 @@ export type SevenZipFix = "install" | "update" | "download";
 
 /**
  * Install 7-Zip with winget, or update one older than 25.01, so BeeZip can open WIM images,
- * MSI and NSIS installers, CHM files and disk images. winget downloads 7-Zip's own installer
- * and checks its hash; the installer asks for administrator rights. Windows only: elsewhere,
- * get 7-Zip 25.01 or newer (on Linux and macOS, 7-Zip's own `7zz`) from
+ * NSIS installers, CHM files and virtual disks such as VHDX. winget downloads 7-Zip's own
+ * installer and checks its hash; the installer asks for administrator rights. Windows only:
+ * elsewhere, get 7-Zip 25.01 or newer (on Linux and macOS, 7-Zip's own `7zz`) from
  * https://7-zip.org/download.html.
  */
 export type SevenZipInstallInput = Record<symbol, never>;
@@ -2021,9 +2022,9 @@ export type CommandMap = {
   "settings.set": { input: SettingsSetInput; output: SettingsSetOutput };
   /**
    * Install 7-Zip with winget, or update one older than 25.01, so BeeZip can open WIM images,
-   * MSI and NSIS installers, CHM files and disk images. winget downloads 7-Zip's own installer
-   * and checks its hash; the installer asks for administrator rights. Windows only: elsewhere,
-   * get 7-Zip 25.01 or newer (on Linux and macOS, 7-Zip's own `7zz`) from
+   * NSIS installers, CHM files and virtual disks such as VHDX. winget downloads 7-Zip's own
+   * installer and checks its hash; the installer asks for administrator rights. Windows only:
+   * elsewhere, get 7-Zip 25.01 or newer (on Linux and macOS, 7-Zip's own `7zz`) from
    * https://7-zip.org/download.html.
    */
   "seven_zip.install": { input: SevenZipInstallInput; output: SevenZipInstallOutput };
