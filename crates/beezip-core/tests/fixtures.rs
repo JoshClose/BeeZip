@@ -29,15 +29,20 @@ fn manifest() -> Vec<Value> {
 }
 
 /// The options a fixture opens with: its `encoding`, on a US system's code pages (437, 1252).
+/// A record of what 7-Zip lists (`"backend": "7-zip"`) is read through 7-Zip, even for the
+/// formats BeeZip reads itself since M7, whose own records sit beside it (docs/M7.md §10).
 fn options(fx: &Value) -> OpenOptions {
     let encoding = fx["encoding"]
         .as_str()
         .map(|e| NameEncoding::from_name(e).unwrap())
         .unwrap_or_default();
-    OpenOptions::default().with_names(NameDecoding {
-        encoding,
-        ..NameDecoding::default()
-    })
+    OpenOptions {
+        native: fx["backend"] != "7-zip",
+        ..OpenOptions::default().with_names(NameDecoding {
+            encoding,
+            ..NameDecoding::default()
+        })
+    }
 }
 
 /// Four workers for reading, from the first file.
