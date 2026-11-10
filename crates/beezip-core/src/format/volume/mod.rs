@@ -271,7 +271,7 @@ pub trait FileSystem: Send {
 
     /// The data of entry `id` of [`FileSystem::entries`], a file. It may end early or run long:
     /// the disk reader holds it to the entry's size and fails a short one.
-    fn open(&mut self, id: usize) -> Result<Box<dyn Read + Send + '_>>;
+    fn open(&mut self, id: usize) -> Result<Box<dyn Read + '_>>;
 
     /// What Info shows of the volume: its label, cluster size. Names as 7-Zip's (`Label`).
     fn properties(&self) -> Vec<(&'static str, String)> {

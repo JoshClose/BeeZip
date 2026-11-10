@@ -1073,9 +1073,8 @@ mod tests {
             [(External::Gpt, LIKELY)],
             "its protective MBR isn't an MBR disk"
         );
-        // 4 KiB sectors: 7-Zip can't read the disk, so it isn't claimed, nor is its protective
-        // MBR.
-        assert_eq!(sniffs(&gpt(16, 4096)), []);
+        // 4 KiB sectors: BeeZip reads the disk itself (docs/M7.md §3), though 7-Zip can't.
+        assert_eq!(sniffs(&gpt(16, 4096)), [(External::Gpt, LIKELY)]);
         let mut bad = gpt(128, 512);
         bad[512 + 40] ^= 1;
         assert_eq!(sniffs(&bad), []);
