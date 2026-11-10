@@ -21,6 +21,8 @@ mod ace;
 mod arc;
 #[path = "malicious/arj.rs"]
 mod arj;
+#[path = "malicious/ext.rs"]
+mod ext;
 #[path = "malicious/fat.rs"]
 mod fat;
 #[path = "malicious/msi.rs"]
@@ -497,11 +499,88 @@ fn seven_zip_here() -> bool {
     }
 }
 
-/// Names and links 7-Zip lists from an ext4 image are made safe by FsSink's own rules: nothing
-/// climbs out, reserved and odd names are renamed, `trail.` and `trail ` (one name once made
-/// safe) go to the overwrite policy, devices are skipped, and links leading out are refused.
+/// The disks and file systems through 7-Zip, as before M7 (docs/M7.md §10).
+fn through_7zip() -> OpenOptions {
+    OpenOptions {
+        native: false,
+        ..OpenOptions::default()
+    }
+}
+
+/// Names and links BeeZip's own ext reader lists from an ext4 image, as stored, are made safe by
+/// FsSink's own rules: nothing climbs out (`..\..\escape.txt` keeps its `\`, which FsSink takes
+/// as traversal, on every system), reserved and odd names are renamed, `trail.` and `trail `
+/// (one name once made safe) go to the overwrite policy, `...` and the folder `.. ` (both `___`)
+/// can't both be, devices are skipped, and links leading out are refused.
 #[test]
 fn a_hostile_ext4_image_is_made_safe_by_fs_sink() {
+    use beezip_core::OverwritePolicy;
+    let rename = || FsOptions {
+        overwrite: OverwritePolicy::Rename,
+        ..FsOptions::default()
+    };
+    let (r, inside) = extract("ext4-hostile.img", rename());
+    let r = r.unwrap();
+    assert!(r.is_unsafe(), "{r:?}");
+    let skipped = |reason| r.skipped.iter().filter(|s| s.reason == reason).count();
+    assert_eq!(skipped(SkipReason::LinksDisabled), 6, "{r:?}");
+    assert_eq!(
+        skipped(SkipReason::Unsupported),
+        2,
+        "the FIFO and the device: {r:?}"
+    );
+    assert_eq!(
+        skipped(SkipReason::Traversal),
+        2,
+        "`..\\..\\escape.txt` and the forged listing: {r:?}"
+    );
+    assert_eq!(skipped(SkipReason::Blocked), 1, "{r:?}");
+    for want in [
+        "safe.txt",
+        "dir/inside.txt",
+        "drive.txt",
+        "___/escape.txt",
+        "_CON",
+        "_aux.txt",
+        "ads_stream.txt",
+        "cr_name.txt",
+        "trail_",
+        "trail_ (1)",
+    ] {
+        assert!(inside.contains(&want.to_owned()), "{want}: {inside:?}");
+    }
+    assert!(
+        !inside
+            .iter()
+            .any(|p| p.contains("escape.txt") && !p.starts_with("___/"))
+    );
+
+    // Links on: the five that lead out are refused, the one to `dir` is made.
+    let (r, inside) = extract(
+        "ext4-hostile.img",
+        FsOptions {
+            links: true,
+            ..rename()
+        },
+    );
+    let r = r.unwrap();
+    assert_eq!(
+        r.skipped
+            .iter()
+            .filter(|s| s.reason == SkipReason::LinkOutside)
+            .count(),
+        5,
+        "{r:?}"
+    );
+    if r.links > 0 {
+        assert!(inside.contains(&"link-dir".to_owned()), "{inside:?}");
+    }
+}
+
+/// The same image as 7-Zip lists it (M6): its names are 7-Zip's, which on Windows turns `\` into
+/// `_`.
+#[test]
+fn a_hostile_ext4_image_listed_by_7zip_is_made_safe_by_fs_sink() {
     use beezip_core::OverwritePolicy;
     if !seven_zip_here() {
         return;
@@ -510,7 +589,7 @@ fn a_hostile_ext4_image_is_made_safe_by_fs_sink() {
         overwrite: OverwritePolicy::Rename,
         ..FsOptions::default()
     };
-    let (r, inside) = extract("ext4-hostile.img", rename());
+    let (r, inside) = extract_with("ext4-hostile.img", rename(), &through_7zip());
     let r = r.unwrap();
     assert!(r.is_unsafe(), "links are off: {r:?}");
     let skipped = |reason| r.skipped.iter().filter(|s| s.reason == reason).count();
@@ -543,12 +622,13 @@ fn a_hostile_ext4_image_is_made_safe_by_fs_sink() {
     assert_eq!(skipped(SkipReason::Blocked), 1, "{r:?}");
 
     // Links on: the five that lead out are refused, the one to `dir` is made.
-    let (r, inside) = extract(
+    let (r, inside) = extract_with(
         "ext4-hostile.img",
         FsOptions {
             links: true,
             ..rename()
         },
+        &through_7zip(),
     );
     let r = r.unwrap();
     assert_eq!(
@@ -590,20 +670,44 @@ fn a_wims_links_out_are_refused() {
     assert_eq!(reasons(&r.unwrap()), [SkipReason::LinkOutside; 3]);
 }
 
-/// An image whose listing claims 100 GB in 256 KiB: refused before 7-Zip starts, by extracting
-/// and by testing alike, and nothing is written.
+/// A sparse file of 100 GB in a 256 KiB ext4 image, read by BeeZip's own reader: what the volume
+/// allocated to it (`i_blocks`) is 2 KiB, so it's refused before a byte of it is read, by
+/// extracting and by testing alike. What comes before it extracts.
+#[test]
+fn a_file_that_claims_100_gb_from_2_kib_hits_the_limit() {
+    let (r, inside) = extract("ext4-sparse-100g.img", FsOptions::default());
+    let err = r.unwrap_err();
+    assert_eq!(err.kind, ErrorKind::LimitExceeded, "{err}");
+    assert!(err.message.contains("sparse.bin"), "{err}");
+    assert_eq!(inside, ["lost+found", "safe.txt"]);
+    let err = ops::test(
+        &corpus("ext4-sparse-100g.img"),
+        &Selection::all(),
+        &OpenOptions::default(),
+        &mut SimpleCtx::new(),
+    )
+    .unwrap_err();
+    assert_eq!(err.kind, ErrorKind::LimitExceeded);
+}
+
+/// The same image through 7-Zip, whose listing claims 100 GB in 256 KiB: refused before 7-Zip
+/// starts, by extracting and by testing alike, and nothing is written.
 #[test]
 fn a_listing_that_claims_100_gb_hits_the_limit() {
     if !seven_zip_here() {
         return;
     }
-    let (r, inside) = extract("ext4-sparse-100g.img", FsOptions::default());
+    let (r, inside) = extract_with(
+        "ext4-sparse-100g.img",
+        FsOptions::default(),
+        &through_7zip(),
+    );
     assert_eq!(r.unwrap_err().kind, ErrorKind::LimitExceeded);
     assert!(inside.is_empty(), "{inside:?}");
     let err = ops::test(
         &corpus("ext4-sparse-100g.img"),
         &Selection::all(),
-        &OpenOptions::default(),
+        &through_7zip(),
         &mut SimpleCtx::new(),
     )
     .unwrap_err();

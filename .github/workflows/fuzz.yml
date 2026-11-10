@@ -20,7 +20,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target: [detect, zip, tar, sevenz, rar, codecs, paths, menu, cpio, ar, rpm, cab, lzh, iso, squashfs, dmg, part, xz-scan, sevenzip-listing, arj, ace, zoo, arc, xar, fat, msi, ntfs]
+        target: [detect, zip, tar, sevenz, rar, codecs, paths, menu, cpio, ar, rpm, cab, lzh, iso, squashfs, dmg, part, xz-scan, sevenzip-listing, arj, ace, zoo, arc, xar, fat, ext, ntfs, msi]
     env:
       SECONDS_PER_TARGET: ${{ github.event_name == 'schedule' && '600' || '60' }}
     steps:

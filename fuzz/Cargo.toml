@@ -222,3 +222,10 @@ path = "fuzz_targets/ntfs.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "ext"
+path = "fuzz_targets/ext.rs"
+test = false
+doc = false
+bench = false
