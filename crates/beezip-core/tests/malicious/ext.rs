@@ -11,7 +11,7 @@
 //!   `ext4-symlink-100g.img` (`crafted/symlink-100g.img`): a symlink claiming 100 GB. fstool read
 //!   it into memory past its own 512 MiB cap (`mod.rs:4961`).
 
-use beezip_core::EntryKind;
+use beezip_core::{EntryKind, External, format::volume::DiskReader, source::Source};
 
 use super::*;
 
@@ -34,6 +34,26 @@ fn ext_superblocks_that_fstool_choked_on_are_corrupt() {
         let (r, inside) = extract(name, FsOptions::default());
         assert_eq!(r.unwrap_err().kind, ErrorKind::Corrupt, "{name}");
         assert!(inside.is_empty(), "{name}: {inside:?}");
+    }
+}
+
+/// Opened as a bare HFS+ or APFS volume, as the `part` fuzz target opens every input, an ext
+/// image is `UnsupportedOperation` without fstool's detection running fstool's ext layout,
+/// which asked for 128 GiB on `ext4-groups.img` (CI's fuzz run, 2026-11-10).
+#[test]
+fn ext_images_opened_as_apple_volumes_never_reach_fstools_ext() {
+    for name in ["ext4-groups.img", "ext4-flex-shift.img"] {
+        for kind in [External::Hfs, External::Apfs] {
+            let source = Source::new(&corpus(name), Vec::new(), &OpenOptions::default()).unwrap();
+            let err = DiskReader::open(source, kind, &mut SimpleCtx::new())
+                .err()
+                .unwrap();
+            assert_eq!(
+                err.kind,
+                ErrorKind::UnsupportedOperation,
+                "{name}, {kind:?}: {err}"
+            );
+        }
     }
 }
 

@@ -192,7 +192,10 @@ files under `target/` exist only on the machine that found the bug. The mileston
   - *Check:* open `tests/fixtures/malicious/ext4-groups.img` and `ext4-flex-shift.img` with
     fstool directly.
   - *Workaround (keep):* `format/volume/ext.rs` checks the superblock first: block size, flex
-    shift, blocks per group, and a group count the image can hold.
+    shift, blocks per group, and a group count the image can hold. `format/volume/apple.rs` opens
+    HFS+ and APFS by their own signatures, never through `AnyFs::open`, whose detection tries ext
+    first and would reach this layout: CI's `part` fuzz target did, on `ext4-groups.img` opened as
+    APFS.
 - **ext: a symlink's target is read past its cap:** the cap (`src/fs/ext/mod.rs:4923`) checks only
   the size's low 32 bits before `read_to_end` (`:4961`).
   - *Check:* `tests/fixtures/malicious/ext4-symlink-size.img`, `ext4-symlink-100g.img`.

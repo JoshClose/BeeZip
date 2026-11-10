@@ -23,7 +23,9 @@ use fstool::{
     block::BlockDevice,
     fs::{
         EntryKind as FsKind,
+        apfs::Apfs,
         hfs_plus::{
+            HfsPlus,
             btree::ForkReader,
             catalog::{Catalog, CatalogKey, CatalogRecord, UniStr},
             extents::ExtentsOverflow,
@@ -74,6 +76,21 @@ pub fn open(dev: Device, opts: &VolumeOptions, cx: &mut dyn Ctx) -> Result<Box<d
     Ok(Box::new(Apple::open(dev, &opts.limits)?))
 }
 
+/// APFS or HFS+ (HFSX too), by the signatures fstool's detection looks for: `NXSB` at 32, `H+`
+/// or `HX` at 1024.
+fn signature(dev: &Device) -> Option<External> {
+    let mut d = dev.clone();
+    let mut nx = [0u8; 4];
+    if d.read_exact_at(32, &mut nx).is_ok() && nx == *b"NXSB" {
+        return Some(External::Apfs);
+    }
+    let mut hfs = [0u8; 2];
+    if d.read_exact_at(1024, &mut hfs).is_ok() && (hfs == *b"H+" || hfs == *b"HX") {
+        return Some(External::Hfs);
+    }
+    None
+}
+
 /// An HFS+ or APFS volume.
 pub struct Apple {
     fs: Box<AnyFs>,
@@ -85,13 +102,19 @@ pub struct Apple {
 }
 
 impl Apple {
+    /// Opens the volume by its own signature, never through fstool's `AnyFs::open`: that tries
+    /// the other file systems fstool is built with first, ext and NTFS since M7, and their bugs
+    /// with them (an ext superblock fstool lays out in 128 GiB, `ext4-groups.img`).
     pub fn open(mut dev: Device, limits: &Limits) -> Result<Self> {
-        let fs = AnyFs::open(&mut dev).map_err(fs_error)?;
-        if !matches!(fs, AnyFs::HfsPlus(_) | AnyFs::Apfs(_)) {
-            return Err(Error::unsupported(
-                "the volume isn't HFS+ or APFS".to_owned(),
-            ));
-        }
+        let fs = match signature(&dev) {
+            Some(External::Apfs) => AnyFs::Apfs(Box::new(Apfs::open(&mut dev).map_err(fs_error)?)),
+            Some(_) => AnyFs::HfsPlus(Box::new(HfsPlus::open(&mut dev).map_err(fs_error)?)),
+            None => {
+                return Err(Error::unsupported(
+                    "the volume isn't HFS+ or APFS".to_owned(),
+                ));
+            }
+        };
         Ok(Self {
             fs: Box::new(fs),
             dev,
