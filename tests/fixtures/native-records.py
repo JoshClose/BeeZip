@@ -8,7 +8,7 @@ reader must list from the same image (`"native": true`): the same files with the
 
 What differs from 7-Zip's view:
 - 7-Zip's pseudo entries go: ext's `[SYS]/Journal`; HFS+'s volume-name folder, which BeeZip
-  doesn't list (as for a DMG).
+  doesn't list (as for a DMG). HFS+'s decomposed names are listed composed.
 - A second name of a file is a hard link (7-Zip lists a second file): ext's and NTFS's
   `hard-readme.txt`.
 - A disk of several partitions lists each readable one as a folder: gpt-fat-ext4.img's
@@ -22,6 +22,7 @@ Run it after make-7z.sh: `python tests/fixtures/native-records.py`. It owns the 
 import copy
 import json
 import os
+import unicodedata
 
 here = os.path.dirname(os.path.abspath(__file__))
 manifest_path = os.path.join(here, 'manifest.json')
@@ -80,13 +81,15 @@ for name in ('ext2.img', 'ext4.img'):
     f = '7zip/' + name
     records.append(native(f, ['ext'], files(by_file[f]), 1, 2,
                           'hard-readme.txt and readme.txt are one inode: the second name met is '
-                          'a hard link. 7-Zip\'s `[SYS]/Journal` isn't listed.'))
+                          "a hard link. 7-Zip's `[SYS]/Journal` isn't listed."))
 for name, levels in (('ntfs.img', ['ntfs']), ('gpt-ntfs.img', ['gpt', 'ntfs'])):
     f = '7zip/' + name
-    records.append(native(f, levels, files(by_file[f]), 1, 2,
+    records.append(native(f, levels, files(by_file[f]), 2, 2,
                           'System files are under `[SYSTEM]/` as 7-Zip lists them, without '
-                          '`$BadClus:$Bad`; hard-readme.txt and readme.txt are one file record, '
-                          'the second name a hard link.'))
+                          '`$BadClus:$Bad`. hard-readme.txt and readme.txt are one file record: '
+                          "the second name in the folder's index order (readme.txt) is a hard "
+                          'link, and so is its alternate stream readme.txt:hidden, which 7-Zip '
+                          'lists only with `-sns`.'))
 f = '7zip/gpt-fat-ext4.img'
 fat = files(by_file['7zip/fat12.img'], prefix='0.data/')
 ext = files(by_file['7zip/ext4.img'], prefix='1.linux/')
@@ -95,12 +98,16 @@ records.append(native(f, ['gpt'], fat + ext, 1, 2,
                       'as 7-Zip names the partition, without its extension: 0.data/ is fat12.img '
                       'and 1.linux/ an ext4 of the same tree without a journal.'))
 f = '7zip/dmg-hfs.hfs'
-records.append(native(f, ['hfs'], files(by_file[f], strip='BeeZip HFS/'), 0, 1,
-                      'The volume\'s files are listed from its root, as a DMG\'s are, without '
-                      '7-Zip\'s folder named after the volume.'))
+hfs = files(by_file[f], strip='BeeZip HFS/')
+for e in hfs:
+    e['path'] = unicodedata.normalize('NFC', e['path'])
+records.append(native(f, ['hfs'], hfs, 0, 1,
+                      "The volume's files are listed from its root, as a DMG's are, without "
+                      "7-Zip's folder named after the volume, and with HFS+'s decomposed names "
+                      'composed (7-Zip lists them as stored).'))
 f = '7zip/dmg-apfs.apfs'
 records.append(native(f, ['apfs'], files(by_file[f]), 0, 1,
-                      'The container\'s first volume, as a DMG\'s.'))
+                      "The container's first volume, as a DMG's."))
 f = '7zip/wixl.msi'
 msi_names = {
     'readme': 'LocalAppDataFolder/BeeZip fixture/readme.txt',
