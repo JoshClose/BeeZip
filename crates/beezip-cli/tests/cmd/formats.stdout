@@ -20,6 +20,7 @@ Archive formats
   pkg      macOS package             yes   yes     -      -        -       .pkg .mpkg
   xar      XAR                       yes   yes     -      -        -       .xar
   stream   compressed file           yes   yes     -      -        -       
+  wim      WIM image                 yes   yes     -      -        yes     .wim .esd .swm
   msi      Windows Installer package yes   yes     -      -        yes     .msi .msp .msm
   vhdx     VHDX disk image           yes   yes     -      -        yes     .vhdx
   vhd      VHD disk image            yes   yes     -      -        yes     .vhd
@@ -35,7 +36,6 @@ Archive formats
   mbr      MBR disk image            yes   yes     -      -        yes     .img .raw
 
 Read through 7-Zip 25.01 or newer, list and extract: turned off in Settings
-  wim      WIM image                  .wim .esd .swm
   chm      CHM help file              .chm
   nsis     NSIS installer             (an installer program)
   cramfs   CramFS image               .cramfs .img

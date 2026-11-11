@@ -49,7 +49,8 @@ pub const SYSTEM_OWNS: &[&str] = &[
 /// Associated on Windows and macOS, but not here, for want of a MIME type: `.001` is the first
 /// part of anything split, and the desktop types such a file by its content instead, so a
 /// `x.7z.001` is `application/x-7z-compressed`, which BeeZip claims. A glob would outrank that.
-pub const LEFT_OUT: &[&str] = &["001"];
+/// WIM's (`.wim`, `.esd`, `.swm`, BeeZip's own from M8) have no type BeeZip relies on yet.
+pub const LEFT_OUT: &[&str] = &["001", "wim", "esd", "swm"];
 
 /// Each associated extension's MIME type: shared-mime-info's for `*.<ext>` (Ubuntu 24.04's
 /// shared-mime-info 2.4, matched by glob), or for the extensions in [`GLOBS`] the type BeeZip's

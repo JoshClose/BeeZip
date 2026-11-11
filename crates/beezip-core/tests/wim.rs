@@ -433,6 +433,7 @@ impl EntrySink for HashSink {
         &mut self,
         entry: &Entry,
         earlier: &Entry,
+        _: bool,
         _: &mut dyn Ctx,
     ) -> beezip_core::Result<bool> {
         let Some(h) = self.sha1.get(&earlier.id).cloned() else {

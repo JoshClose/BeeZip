@@ -84,7 +84,7 @@ export async function fixSevenZip(fix: SevenZipFix): Promise<void> {
     useSevenZip.setState((s) => ({ status, arrived: status.name ? s.arrived + 1 : s.arrived }));
     if (status.name) {
       const done = { installed: "installed", updated: "updated", none: "is ready" }[out.action];
-      toastInfo(`${status.name} ${done}`, `BeeZip opens WIM images, NSIS installers and virtual disks with ${status.path ?? "it"}.`);
+      toastInfo(`${status.name} ${done}`, `BeeZip opens NSIS installers, CHM files and CramFS images with ${status.path ?? "it"}.`);
     } else {
       toastInfo("7-Zip is installed, but BeeZip doesn't use it", `${status.problem ?? "Its settings"}: change that in Settings → 7-Zip.`);
     }

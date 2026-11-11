@@ -756,7 +756,9 @@ impl ArchiveReader for WimReader {
                     let mut mcx = MeteredCtx::new(cx, &meter);
                     mcx.report();
                     done += 1;
-                    if sink.same_as(entry, &entries[first], &mut mcx)? {
+                    // Kept in memory: writing it costs less than copying a file just written.
+                    let decoded = whole.is_ok() && data.keep.is_some();
+                    if sink.same_as(entry, &entries[first], decoded, &mut mcx)? {
                         continue;
                     }
                     let path = entry.path.clone();
