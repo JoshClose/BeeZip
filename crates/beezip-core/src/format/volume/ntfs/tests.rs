@@ -430,6 +430,62 @@ fn fragmented_image() {
     );
 }
 
+/// Empty streams Windows made non-resident: one piece, last cluster −1, no runs. BeeZip 0.2.0
+/// took them for damaged, so every Windows-formatted volume stopped extracting at
+/// `$Extend/$RmMetadata/$Repair` (docs/M8.md, decision 1).
+#[test]
+fn empty_non_resident_streams() {
+    let rel = "thirdparty/ntfs/empty-nonres.img";
+    let (mut opened, entries, warnings) = native(rel);
+    assert!(warnings.is_empty(), "{warnings:?}");
+    for path in ["empty.bin", "after.txt:empty"] {
+        let e = find(&entries, path);
+        assert_eq!((e.size, e.packed_size), (Some(0), Some(0)), "{path}");
+        assert_eq!(data(&mut opened, e.id).unwrap(), b"", "{path}");
+    }
+    let after = find(&entries, "after.txt").id;
+    assert_eq!(data(&mut opened, after).unwrap(), b"after the empty one\n");
+    let report = ops::test(
+        &fixture(rel),
+        &crate::Selection::all(),
+        &OpenOptions::default(),
+        &mut SimpleCtx::new(),
+    )
+    .unwrap();
+    assert!(report.errors.is_empty(), "{:?}", report.errors);
+
+    // Runs past such a piece's end are damage, as is a second piece after it.
+    let g = Geometry {
+        sector: 512,
+        cluster: 4096,
+        record: 1024,
+        mft_lcn: 4,
+        len: 1 << 20,
+        clusters: 256,
+        serial: 0,
+    };
+    let empty = || Piece {
+        first_vcn: 0,
+        last_vcn: u64::MAX,
+        size: 0,
+        unit: 0,
+        runs: Vec::new(),
+    };
+    assert_eq!(
+        join_checked(&g, &mut [empty()]).unwrap().total_clusters(),
+        0
+    );
+    let mut runs = empty();
+    runs.runs.push(Extent {
+        lcn: Some(8),
+        length: 1,
+    });
+    assert!(join_checked(&g, &mut [runs]).is_err());
+    let mut second = empty();
+    second.first_vcn = 1;
+    assert!(join_checked(&g, &mut [empty(), second]).is_err());
+}
+
 fn base_image() -> Vec<u8> {
     std::fs::read(fixture("thirdparty/7zip/ntfs.img")).unwrap()
 }
