@@ -318,22 +318,76 @@ fn rich_image() {
     assert_eq!(read("case.txt").unwrap(), b"lower\n");
     assert!(!entries.iter().any(|e| e.path == "deleted.txt"));
 
-    // EFS and WOF: listed, not read.
+    // EFS and WIMBoot: listed, not read.
     let enc = find(&entries, "encrypted.bin");
     assert!(enc.encrypted);
     assert_eq!(
         read("encrypted.bin").unwrap_err().kind,
         ErrorKind::UnsupportedOperation
     );
-    assert_eq!(find(&entries, "wof.dll").method.as_deref(), Some("LZX"));
-    assert_eq!(
-        read("wof.dll").unwrap_err().kind,
-        ErrorKind::UnsupportedOperation
-    );
-    assert_eq!(read("wof.dll:WofCompressedData").unwrap(), b"");
+    assert_eq!(find(&entries, "wof.dll").method.as_deref(), Some("WIM"));
+    let e = read("wof.dll").unwrap_err();
+    assert_eq!(e.kind, ErrorKind::UnsupportedOperation);
+    assert!(e.message.contains("WIMBoot"), "{e}");
 
     let info = opened.reader.info(&mut SimpleCtx::new()).unwrap();
-    assert_eq!(info.methods, ["LZNT1", "LZX"]);
+    assert_eq!(info.methods, ["LZNT1", "WIM"]);
+}
+
+/// `thirdparty/ntfs/wof.img` (docs/M8.md §4): the same 40,000 bytes WOF-compressed with each
+/// algorithm, XPRESS's by Windows' own compressor and LZX's by wimlib's (`tests/fixtures/wof/`),
+/// and damaged ones.
+#[test]
+fn files_windows_compressed() {
+    let streams = std::fs::read_to_string(fixture("wof/streams.txt")).unwrap();
+    let want = streams.split_whitespace().nth(2).unwrap().to_owned();
+    let (mut opened, entries, warnings) = native("thirdparty/ntfs/wof.img");
+    assert!(warnings.is_empty(), "{warnings:?}");
+    let mut read = |path: &str| data(&mut opened, find(&entries, path).id);
+    for (name, method) in [
+        ("xpress4k.bin", "XPRESS4K"),
+        ("xpress8k.bin", "XPRESS8K"),
+        ("xpress16k.bin", "XPRESS16K"),
+        ("lzx.bin", "LZX"),
+    ] {
+        let e = find(&entries, name);
+        assert_eq!(e.size, Some(40_000), "{name}");
+        assert_eq!(e.method.as_deref(), Some(method), "{name}");
+        // What the volume holds for it: its stream.
+        assert!(
+            e.packed_size.unwrap() < 20_000,
+            "{name}: {:?}",
+            e.packed_size
+        );
+        assert_eq!(sha256(&read(name).unwrap()), want, "{name}");
+        // Its compressed stream isn't listed once it decodes, as Windows hides it.
+        let stream = format!("{name}:WofCompressedData");
+        assert!(!entries.iter().any(|e| e.path == stream), "{stream}");
+    }
+    let e = read("no-stream.bin").unwrap_err();
+    assert_eq!(e.kind, ErrorKind::Corrupt, "{e}");
+    let e = read("bad-chunk.bin").unwrap_err();
+    assert_eq!(e.kind, ErrorKind::Corrupt, "{e}");
+    assert!(e.message.contains("chunk 0"), "{e}");
+    let e = read("unknown.bin").unwrap_err();
+    assert_eq!(e.kind, ErrorKind::UnsupportedOperation, "{e}");
+    // What can't be decoded keeps its stream listed, as before.
+    assert!(
+        entries
+            .iter()
+            .any(|e| e.path == "unknown.bin:WofCompressedData")
+    );
+    assert!(
+        !entries
+            .iter()
+            .any(|e| e.path == "bad-chunk.bin:WofCompressedData")
+    );
+
+    let info = opened.reader.info(&mut SimpleCtx::new()).unwrap();
+    assert_eq!(
+        info.methods,
+        ["LZX", "WOF", "XPRESS16K", "XPRESS4K", "XPRESS8K"]
+    );
 }
 
 /// Testing the whole volume reads everything but the two files it can't, and says so.
@@ -358,7 +412,7 @@ fn rich_image_tests_but_two() {
             ("wof.dll", ErrorKind::UnsupportedOperation)
         ]
     );
-    assert_eq!(report.entries, 377);
+    assert_eq!(report.entries, 376);
 }
 
 /// Extracting the whole volume skips the two files it can't read, saying why, and writes the
@@ -389,7 +443,10 @@ fn rich_image_extracts_but_two() {
     assert_eq!(unreadable, ["encrypted.bin", "wof.dll"]);
     for (name, why) in [
         ("encrypted.bin", "encrypted with EFS"),
-        ("wof.dll", "compressed by Windows (LZX)"),
+        (
+            "wof.dll",
+            "compressed by Windows from a WIM file elsewhere (WIMBoot)",
+        ),
     ] {
         assert!(!dest.path().join(name).exists(), "{name}");
         assert!(
@@ -610,11 +667,24 @@ fn reparse_points() {
         (value(TAG_LX_FIFO, b""), Reparse::Special),
         (
             value(TAG_WOF, &[1, 0, 0, 0, 2, 0, 0, 0, 1, 0, 0, 0, 3, 0, 0, 0]),
-            Reparse::Wof("XPRESS16K"),
+            Reparse::Wof("XPRESS16K", Some(Algorithm::Xpress16k)),
+        ),
+        (
+            value(TAG_WOF, &[1, 0, 0, 0, 2, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0]),
+            Reparse::Wof("LZX", Some(Algorithm::Lzx)),
+        ),
+        // Another provider version, or an algorithm BeeZip doesn't know: named, not decoded.
+        (
+            value(TAG_WOF, &[1, 0, 0, 0, 2, 0, 0, 0, 2, 0, 0, 0, 1, 0, 0, 0]),
+            Reparse::Wof("LZX", None),
+        ),
+        (
+            value(TAG_WOF, &[1, 0, 0, 0, 2, 0, 0, 0, 1, 0, 0, 0, 9, 0, 0, 0]),
+            Reparse::Wof("WOF", None),
         ),
         (
             value(TAG_WOF, &[1, 0, 0, 0, 1, 0, 0, 0]),
-            Reparse::Wof("WIM"),
+            Reparse::Wof("WIM", None),
         ),
         (value(TAG_DEDUP, b""), Reparse::Dedup),
         (value(0x9000_001A, b"cloud"), Reparse::Other),

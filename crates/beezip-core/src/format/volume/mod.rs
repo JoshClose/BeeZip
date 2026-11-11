@@ -34,6 +34,7 @@ pub mod fat;
 pub mod ntfs;
 pub mod part;
 pub mod vdisk;
+pub mod wof;
 
 use std::{
     borrow::Cow,
