@@ -264,3 +264,10 @@ path = "fuzz_targets/wof.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "wim"
+path = "fuzz_targets/wim.rs"
+test = false
+doc = false
+bench = false
