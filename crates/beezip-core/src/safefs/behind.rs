@@ -130,6 +130,11 @@ impl Behind {
                 .is_some_and(|r| self.pending.contains(r))
     }
 
+    /// Whether `file` was queued since the last wait: it may not be written yet.
+    pub fn queued(&self, file: &std::path::Path) -> bool {
+        self.pending.contains(file)
+    }
+
     /// Queues a file, once there's room for it. A worker's error ends the queueing.
     pub fn send(&mut self, w: Write1) -> Result<()> {
         let len = w.data.len() as u64;
