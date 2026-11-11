@@ -28,6 +28,7 @@ pub mod stream;
 pub mod tar;
 pub mod udif;
 pub mod volume;
+pub mod wim;
 pub mod xar;
 pub mod xpress;
 pub mod zip;

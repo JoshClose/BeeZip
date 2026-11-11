@@ -690,6 +690,8 @@ mod tests {
             "lz", "tlz", "lzma", "lz4", "br", "sz", "cbz", "cb7", "cbr", "001", "cpio", "ar",
             "deb", "udeb", "rpm", "lzh", "lha", "z", "taz", "lzo", "tzo", "arj", "ace", "cba",
             "zoo", "arc", "pkg", "mpkg", "xar", "vmdk", "qcow2", "vdi",
+            // BeeZip's own since M8 (docs/M8.md decision 6).
+            "wim", "esd", "swm",
         ] {
             assert!(exts.contains(&want), "{want} is missing from {exts:?}");
         }

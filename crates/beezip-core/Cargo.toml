@@ -53,13 +53,14 @@ zip.workspace = true
 zlib-rs.workspace = true
 zstd.workspace = true
 
-# bench.rs reads the process's private bytes (docs/M6.md §7), and safefs/disk.rs asks whether
-# a destination's disk pays for seeks (§6.3).
+# bench.rs reads the process's private bytes (docs/M6.md §7), safefs/disk.rs asks whether a
+# destination's disk pays for seeks (§6.3), and format/wim/lzms_win.rs loads cabinet.dll's LZMS
+# decoder from System32 (docs/M8.md §5.3).
 [target.'cfg(windows)'.dependencies]
 windows-sys = { workspace = true, features = [
     "Win32_Foundation", "Win32_Security", "Win32_Storage_FileSystem", "Win32_System_IO",
-    "Win32_System_Ioctl", "Win32_System_ProcessStatus", "Win32_System_Registry",
-    "Win32_System_Threading",
+    "Win32_System_Ioctl", "Win32_System_LibraryLoader", "Win32_System_ProcessStatus",
+    "Win32_System_Registry", "Win32_System_Threading",
 ] }
 
 # safefs/quarantine.rs reads and writes extended attributes (docs/M6.md §8.3).
