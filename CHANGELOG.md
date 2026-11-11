@@ -27,6 +27,13 @@ using BeeZip will notice. Leave the date out: the Releases page dates each versi
   `.vhdx` stay with Windows, which mounts them. On Linux and macOS they stay with your virtual
   machine apps.
 
+### Windows-compressed files on NTFS
+
+- **Files Windows compressed on NTFS extract,** with CompactOS or `compact /exe:` (XPRESS4K,
+  XPRESS8K, XPRESS16K or LZX), where 0.2.0 skipped them, and their compressed data isn't listed
+  beside them any more. 7-Zip 26.00 extracts such a file as zeros. Files compressed from a WIM
+  elsewhere (WIMBoot), encrypted with EFS or deduplicated are still skipped, with the reason.
+
 ### Installers and cabinets
 
 - **MSI installers and cabinets extract about twice as fast,** with a faster LZX decoder:

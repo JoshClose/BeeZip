@@ -31,8 +31,12 @@
 //!   disk reader's ratio check refuses a sparse file of 100 GB before any byte is read. A stream
 //!   whose pieces or runs don't add up is listed, and reading it is `Corrupt`.
 //! - **Data** comes through fstool's stream reader, which decodes LZNT1 and reads holes as
-//!   zeros. Files encrypted with EFS, compressed by Windows (WOF) or deduplicated by Windows
-//!   Server are listed; reading them is `UnsupportedOperation`.
+//!   zeros. A file Windows compressed (WOF: XPRESS4K, XPRESS8K, XPRESS16K or LZX, through the
+//!   file provider) decodes from its `WofCompressedData` stream ([`super::wof`], docs/M8.md
+//!   §4.4), which then isn't listed beside it, as Windows hides it; a WOF file with no such
+//!   stream is `Corrupt`. Files encrypted with EFS, deduplicated by Windows Server, or
+//!   compressed by WOF from a WIM elsewhere (WIMBoot) or in a way BeeZip doesn't know are listed,
+//!   and reading them is `UnsupportedOperation`, as is a WOF file's compressed stream then.
 //! - Names are UTF-16, an unpaired surrogate read as U+FFFD; a name holding `/` or NUL is left
 //!   out with a warning. Times are `$STANDARD_INFORMATION`'s, to 100 ns.
 
@@ -55,7 +59,10 @@ use fstool::fs::ntfs::{
     run_list::{Extent, RunMap},
 };
 
-use super::{Device, FileSystem, VolumeOptions};
+use super::{
+    Device, FileSystem, VolumeOptions,
+    wof::{Algorithm, WofReader},
+};
 use crate::{
     Ctx, Error, ErrorKind, Result,
     backend::External,
@@ -502,8 +509,9 @@ enum Reparse {
     Link(String),
     /// WSL's FIFOs, devices and sockets.
     Special,
-    /// Compressed by Windows (WOF), with the method's name.
-    Wof(&'static str),
+    /// Compressed by Windows (WOF), with the method's name and, for the file provider's
+    /// algorithms BeeZip decodes, the algorithm.
+    Wof(&'static str, Option<Algorithm>),
     /// Deduplicated by Windows Server: the data is in a chunk store elsewhere.
     Dedup,
     /// A link whose target can't be read.
@@ -516,6 +524,8 @@ const TAG_MOUNT_POINT: u32 = 0xA000_0003;
 const TAG_SYMLINK: u32 = 0xA000_000C;
 const TAG_DEDUP: u32 = 0x8000_0013;
 const TAG_WOF: u32 = 0x8000_0017;
+/// The stream a WOF file's compressed data is in.
+const WOF_STREAM: &str = "WofCompressedData";
 const TAG_LX_SYMLINK: u32 = 0xA000_001D;
 const TAG_AF_UNIX: u32 = 0x8000_0023;
 const TAG_LX_FIFO: u32 = 0x8000_0024;
@@ -557,14 +567,24 @@ fn decode_reparse(v: &[u8]) -> Reparse {
         TAG_SYMLINK | TAG_MOUNT_POINT | TAG_LX_SYMLINK => Reparse::Bad,
         TAG_AF_UNIX | TAG_LX_FIFO | TAG_LX_CHR | TAG_LX_BLK => Reparse::Special,
         // WOF's version and provider; the file provider's version and algorithm.
-        TAG_WOF => Reparse::Wof(match (le32(data, 4), le32(data, 12)) {
-            (1, _) => "WIM",
-            (2, 0) => "XPRESS4K",
-            (2, 1) => "LZX",
-            (2, 2) => "XPRESS8K",
-            (2, 3) => "XPRESS16K",
-            _ => "WOF",
-        }),
+        TAG_WOF => {
+            let name = match (le32(data, 4), le32(data, 12)) {
+                (1, _) => "WIM",
+                (2, 0) => "XPRESS4K",
+                (2, 1) => "LZX",
+                (2, 2) => "XPRESS8K",
+                (2, 3) => "XPRESS16K",
+                _ => "WOF",
+            };
+            // WOF version 1, the file provider (2), its version 1: an algorithm BeeZip decodes.
+            let algo = (data.len() >= 16
+                && le32(data, 0) == 1
+                && le32(data, 4) == 2
+                && le32(data, 8) == 1)
+                .then(|| Algorithm::from_id(le32(data, 12)))
+                .flatten();
+            Reparse::Wof(name, algo)
+        }
         TAG_DEDUP => Reparse::Dedup,
         _ => Reparse::Other,
     }
@@ -843,6 +863,13 @@ enum Data {
     Empty,
     /// The stream `name` (`""`: the file's data) of record `rec`, through fstool.
     Stream { rec: u64, name: String },
+    /// A WOF file of `size` bytes, `path`: record `rec`'s `WofCompressedData`, decoded.
+    Wof {
+        rec: u64,
+        algo: Algorithm,
+        size: u64,
+        path: String,
+    },
     /// Can't be read, for this reason.
     Refused(Error),
 }
@@ -1110,7 +1137,8 @@ impl Volume {
         }
         let mut methods = Vec::new();
         for (e, d) in self.entries.iter().zip(&self.data) {
-            if let (Some(m), Data::Stream { .. } | Data::Refused(_)) = (&e.method, d)
+            if let (Some(m), Data::Stream { .. } | Data::Wof { .. } | Data::Refused(_)) =
+                (&e.method, d)
                 && !methods.contains(m)
             {
                 methods.push(m.clone());
@@ -1209,6 +1237,7 @@ impl Volume {
         let unnamed = r.streams.iter().find(|s| s.name.is_empty());
         let mut refused: Option<Error> = None;
         let mut method = None;
+        let mut wof = None;
         let kind = match &reparse {
             Some(Reparse::Link(t)) => EntryKind::Symlink { target: t.clone() },
             Some(Reparse::Special) => EntryKind::Other,
@@ -1216,11 +1245,33 @@ impl Volume {
                 cx.warn(format!("ntfs: `{path}`'s link can't be read"));
                 EntryKind::Other
             }
-            Some(Reparse::Wof(m)) if !r.dir => {
+            Some(Reparse::Wof(m, algo)) if !r.dir => {
                 method = Some(Cow::Borrowed(*m));
-                refused = Some(Error::unsupported(format!(
-                    "ntfs: `{path}` is compressed by Windows ({m}), which BeeZip doesn't read"
-                )));
+                let stream = r.streams.iter().find(|s| s.name == WOF_STREAM);
+                match (algo, stream) {
+                    (Some(a), Some(s)) => match s.refusal(&format!("{path}:{WOF_STREAM}")) {
+                        Some(e) => refused = Some(e),
+                        None => wof = Some(*a),
+                    },
+                    (Some(_), None) => {
+                        refused = Some(bad(format!(
+                            "`{path}` is compressed by Windows ({m}), and its compressed data \
+                             isn't there"
+                        )));
+                    }
+                    (None, _) if *m == "WIM" => {
+                        refused = Some(Error::unsupported(format!(
+                            "ntfs: `{path}` is compressed by Windows from a WIM file elsewhere \
+                             (WIMBoot), which BeeZip doesn't read"
+                        )));
+                    }
+                    (None, _) => {
+                        refused = Some(Error::unsupported(format!(
+                            "ntfs: `{path}` is compressed by Windows ({m}) in a way BeeZip \
+                             doesn't read"
+                        )));
+                    }
+                }
                 EntryKind::File
             }
             Some(Reparse::Dedup) if !r.dir => {
@@ -1250,6 +1301,12 @@ impl Volume {
             (EntryKind::File, _) if refused.is_some() => {
                 Data::Refused(refused.take().unwrap_or_else(|| bad("refused")))
             }
+            (EntryKind::File, s) if let Some(algo) = wof => Data::Wof {
+                rec,
+                algo,
+                size: s.map_or(0, |s| s.size),
+                path: path.clone(),
+            },
             (EntryKind::File, Some(s)) => match s.refusal(&path) {
                 Some(e) => Data::Refused(e),
                 None => Data::Stream {
@@ -1278,7 +1335,7 @@ impl Volume {
                 let wof = r
                     .streams
                     .iter()
-                    .filter(|s| method.is_some() && s.name == "WofCompressedData")
+                    .filter(|s| method.is_some() && s.name == WOF_STREAM)
                     .map(|s| s.packed)
                     .sum::<u64>();
                 e.size = Some(unnamed.map_or(0, |s| s.size));
@@ -1291,6 +1348,10 @@ impl Volume {
         for s in r.streams.iter().filter(|s| !s.name.is_empty()) {
             // `$BadClus:$Bad` is a hole as long as the volume (decision 3).
             if rec == BAD_CLUS && system && s.name == "$Bad" {
+                continue;
+            }
+            // Hidden once its file decodes, as Windows hides it (docs/M8.md decision 7).
+            if wof.is_some() && s.name == WOF_STREAM {
                 continue;
             }
             let spath = format!("{path}:{}", s.name);
@@ -1452,6 +1513,19 @@ impl FileSystem for Volume {
                     .open_stream_by_record(&mut self.dev, rec, &name)
                     .map_err(fs_error)?;
                 Ok(Box::new(Reader(r)))
+            }
+            Some(Data::Wof {
+                rec,
+                algo,
+                size,
+                path,
+            }) => {
+                let (rec, algo, size, path) = (*rec, *algo, *size, path.clone());
+                let stream = self
+                    .ntfs
+                    .open_stream_by_record(&mut self.dev, rec, WOF_STREAM)
+                    .map_err(fs_error)?;
+                Ok(Box::new(WofReader::new(stream, &path, algo, size)?))
             }
             Some(Data::Refused(e)) => Err(e.clone()),
             Some(Data::Empty | Data::None) => Ok(Box::new(io::empty())),

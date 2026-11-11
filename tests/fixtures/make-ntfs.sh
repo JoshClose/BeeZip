@@ -16,8 +16,9 @@
 # both mixed, and one with a hole); sparse.bin, 8 MiB with three islands of 8 KiB (7-Zip 26.00
 # says Data Error); a folder of 200 files, whose index has three levels; a file with 61 names in
 # links/ and one with 41 streams, both with attribute lists; DOS 8.3 names; Case.txt and case.txt;
-# a symlink relative and one absolute, a junction, a WSL symlink and a WOF file with its
-# WofCompressedData stream; ntfs-3g's Interix symlinks, FIFO and character device; a deleted
+# a symlink relative and one absolute, a junction, a WSL symlink and a file WOF compressed from a
+# WIM elsewhere (WIMBoot, which BeeZip doesn't read); ntfs-3g's Interix symlinks, FIFO and
+# character device; a deleted
 # file; encrypted.bin with EFS's flags set (no real EFS stream); a path 30 folders deep ending in
 # a name of 255 characters; streams.txt's time to 100 ns.
 #
@@ -30,6 +31,15 @@
 # Windows writes `$Extend/$RmMetadata/$Repair` and empty files on every volume it formats (ntfs-3g
 # keeps an empty value resident, so the attributes are rewritten once it's unmounted); after.txt
 # comes after empty.bin in the folder.
+#
+# thirdparty/ntfs/wof.img (1.25 MiB, clusters of 4 KiB): files Windows compressed with WOF
+# (docs/M8.md §4), each the same 40,000 bytes (text, zeros and noise, so chunks compress and some
+# are stored), its unnamed data sparse and its `WofCompressedData` stream as WOF writes it behind
+# the 16-byte reparse point: xpress4k.bin, xpress8k.bin and xpress16k.bin hold
+# tests/fixtures/wof/*.stream, made by Windows' own compressor (`cargo test -p beezip-core --test
+# wof -- --ignored`); lzx.bin holds the resource wimlib-imagex 1.14.4 writes for the same bytes
+# with LZX in 32 KiB chunks, which is laid out as WOF's stream is. Damaged ones: no-stream.bin
+# (LZX, no stream), bad-chunk.bin (XPRESS4K, a chunk of junk) and unknown.bin (algorithm 9).
 #
 # malicious/ntfs-*.img, each refused cleanly or read within limits (crates/beezip-core/tests/
 # malicious/ntfs.rs); all but ntfs-sparse-100g.img are thirdparty/7zip/ntfs.img edited:
@@ -161,9 +171,8 @@ reparse(f'{M}/symlink-abs', 0xA000000C,
         names('\\??\\C:\\Windows\\win.ini', 'C:\\Windows\\win.ini', struct.pack('<I', 0)))
 reparse(f'{M}/junction', 0xA0000003, names('\\??\\C:\\Users', 'C:\\Users'), folder=True)
 reparse(f'{M}/lx-symlink', 0xA000001D, struct.pack('<I', 2) + b'target-dir/in.txt')
-# WOF: version 1, the file provider (2), its version 1 and LZX (1).
-reparse(f'{M}/wof.dll', 0x80000017, struct.pack('<IIII', 1, 2, 1, 1))
-open(f'{M}/wof.dll:WofCompressedData', 'wb').write(b'not really LZX ' * 4)
+# WOF: version 1, the WIM provider (1, WIMBoot): its data is in a WIM elsewhere.
+reparse(f'{M}/wof.dll', 0x80000017, struct.pack('<IIII', 1, 1, 1, 0))
 
 # Interix links and specials, as ntfs-3g makes them itself.
 os.symlink('target-dir/in.txt', f'{M}/interix-link')
@@ -330,6 +339,73 @@ for n in range(64, 128):  # ntfs-3g gives new files records from 64
 assert sorted(c[0] for c in changed) == ['after.txt', 'empty.bin'], changed
 open(path, 'wb').write(d)
 PY
+
+    # WOF files: the LZX stream from wimlib, the rest from tests/fixtures/wof/.
+    rm -rf /tmp/wof && mkdir -p /tmp/wof/src
+    python3 -I - /tmp/wof/src/content.bin /fixtures/wof/streams.txt <<'PY'
+import hashlib, sys
+v = bytearray()
+i = 0
+while len(v) < 24000:
+    v += b'line %05d of a file Windows compressed with WOF\n' % i
+    i += 1
+del v[24000:]
+v += bytes(6000)
+x = 0x2545F491
+while len(v) < 40000:
+    x ^= (x << 13) & 0xFFFFFFFF
+    x ^= x >> 17
+    x ^= (x << 5) & 0xFFFFFFFF
+    v.append(x & 0xFF)
+want = open(sys.argv[2]).read().split()[2]
+assert hashlib.sha256(v).hexdigest() == want, 'the content differs from wof.rs'
+open(sys.argv[1], 'wb').write(v)
+PY
+    "${faked[@]}" wimlib-imagex capture /tmp/wof/src /tmp/wof/lzx.wim --compress=LZX \
+        --chunk-size=32768 --no-acls >/dev/null
+    python3 -I - /tmp/wof/lzx.wim /tmp/wof/lzx.stream <<'PY'
+import struct, sys
+w = open(sys.argv[1], 'rb').read()
+assert w[:8] == b'MSWIM\0\0\0' and struct.unpack_from('<I', w, 20)[0] == 32768
+size_flags, off, orig = struct.unpack_from('<QQQ', w, 48)
+table = w[off:off + (size_flags & 0xFFFFFFFFFFFFFF)]
+found = []
+for at in range(0, len(table), 50):
+    sf, o, n = struct.unpack_from('<QQQ', table, at)
+    flags = sf >> 56
+    # Not metadata (2), compressed (4), and the 40,000-byte file.
+    if not flags & 2 and flags & 4 and n == 40000:
+        found.append(w[o:o + (sf & 0xFFFFFFFFFFFFFF)])
+assert len(found) == 1, found
+open(sys.argv[2], 'wb').write(found[0])
+PY
+    volume "$out/wof.img" 1280K 4096 BeeZipWof
+    mount_ntfs "$out/wof.img"
+    python3 -I - /mnt/n /fixtures/wof /tmp/wof/lzx.stream <<'PY'
+import os, struct, sys
+M, streams, lzx = sys.argv[1:4]
+def wof(name, algo, stream, provider=2):
+    path = f'{M}/{name}'
+    with open(path, 'wb') as f:
+        f.truncate(40000)
+    if stream is not None:
+        open(f'{path}:WofCompressedData', 'wb').write(stream)
+    body = struct.pack('<IIII', 1, provider, 1, algo)
+    os.setxattr(path, 'system.ntfs_reparse_data',
+                struct.pack('<IHH', 0x80000017, len(body), 0) + body)
+for name, algo in (('xpress4k', 0), ('xpress8k', 2), ('xpress16k', 3)):
+    wof(f'{name}.bin', algo, open(f'{streams}/{name}.stream', 'rb').read())
+wof('lzx.bin', 1, open(lzx, 'rb').read())
+wof('no-stream.bin', 1, None)
+bad = bytearray(open(f'{streams}/xpress4k.stream', 'rb').read())
+first = struct.unpack_from('<I', bad, 0)[0] + 36
+bad[36:first] = b'\xff' * (first - 36)
+wof('bad-chunk.bin', 0, bytes(bad))
+wof('unknown.bin', 9, open(f'{streams}/xpress4k.stream', 'rb').read())
+open(f'{M}/plain.txt', 'wb').write(b'not compressed\n')
+PY
+    sync
+    umount_ntfs
 
     volume "$mal/ntfs-sparse-100g.img" 1280K 4096 BeeZipSparse
     mount_ntfs "$mal/ntfs-sparse-100g.img"
