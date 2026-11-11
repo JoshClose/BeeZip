@@ -314,7 +314,21 @@ fn join_like_fstool(pieces: &mut [(u64, Vec<Extent>)]) -> Vec<Extent> {
 
 /// `pieces` joined into one run list after checking that they follow each other from cluster 0
 /// and that every run is real and inside the volume.
+///
+/// A value of no clusters has one piece whose last cluster is −1, with no runs: Windows writes
+/// an empty non-resident stream that way (`$Extend/$RmMetadata/$Repair` on every volume it
+/// formats).
 fn join_checked(g: &Geometry, pieces: &mut [Piece]) -> std::result::Result<RunMap, String> {
+    if let [p] = &*pieces
+        && p.first_vcn == 0
+        && p.last_vcn == u64::MAX
+    {
+        return if p.runs.is_empty() {
+            Ok(RunMap::new(Vec::new()).map_err(fs_why)?)
+        } else {
+            Err("it has runs past its last cluster".into())
+        };
+    }
     pieces.sort_by_key(|p| p.first_vcn);
     let mut next = 0u64;
     let mut runs = Vec::new();

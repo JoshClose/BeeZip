@@ -11,9 +11,11 @@
 //! - **Huffman codes** are canonical, up to 16 bits: a table of [`TABLE_BITS`] decodes the short
 //!   ones in one lookup, and the rest are decoded from the code counts. A tree must be complete,
 //!   or empty where LZX allows it (the length tree, when no match is longer than 8).
-//! - **Matches** may run past a frame's end into the next one, as Microsoft's compressor makes
-//!   them, but not past their LZX block's end, nor reach before the stream's start or further
-//!   back than the window.
+//! - **Matches** may not run past their frame's end (MS-PATCH §2.1.5: no match spans a 32 KiB
+//!   boundary; 7-Zip calls one a data error), nor past their LZX block's end, nor reach before the
+//!   stream's start or further back than the window. BeeZip 0.2.0 let one run on into the next
+//!   frame, which in a 32 KiB window overwrote the frame's own first bytes: wrong data, no error
+//!   (docs/M8.md §6.1).
 //! - **E8 translation** (x86 call addresses) is undone on each frame's output after it's copied
 //!   out of the window, as the spec, libmspack and 7-Zip do.
 //!
@@ -534,8 +536,8 @@ impl Lzx {
         Ok(())
     }
 
-    /// Decodes a verbatim or aligned block's symbols, up to the frame's end; the last match may
-    /// run past it. The state it changes is kept in locals while it runs.
+    /// Decodes a verbatim or aligned block's symbols, up to the frame's end. The state it changes
+    /// is kept in locals while it runs.
     fn decode_symbols(&mut self, bits: &mut Bits<'_>, end: u64) -> Result<(), Error> {
         let aligned = self.kind == Kind::Aligned;
         let slots = self.slots;
@@ -622,6 +624,9 @@ impl Lzx {
             }
             if len > remaining as usize {
                 break Err("an LZX match that runs past its block");
+            }
+            if total + len as u64 > end {
+                break Err("an LZX match that runs past its frame");
             }
             copy_match(window, mask, total as usize & mask, offset, len);
             total += len as u64;
@@ -820,6 +825,79 @@ mod tests {
         let mut out = Vec::new();
         lzx.decode_frame(&data, 5, &mut out).unwrap();
         assert_eq!(out, b"abcde");
+    }
+
+    /// A verbatim block of `b`, then `literals - 1` of `a`, then a match of 8 bytes at offset 1,
+    /// in a 32 KiB window. Main tree: `a` 0, `b` 10, the match (slot 0, length 8) 11.
+    fn ending_in_a_match(literals: usize) -> Vec<u8> {
+        let block = literals as u32 + 8;
+        let mut w = Writer::new();
+        w.put(0, 1);
+        w.put(1, 3);
+        w.put(block >> 8, 16);
+        w.put(block & 0xFF, 8);
+        // A pretree of 0 (no change: `0`), 15 (2 more: `10`) and 16 (1 more: `11`).
+        let lengths = |w: &mut Writer, lens: &mut dyn Iterator<Item = u8>| {
+            for z in 0..PRETREE {
+                w.put(
+                    match z {
+                        0 => 1,
+                        15 | 16 => 2,
+                        _ => 0,
+                    },
+                    4,
+                );
+            }
+            for l in lens {
+                match l {
+                    0 => w.put(0, 1),
+                    1 => w.put(0b11, 2),
+                    _ => w.put(0b10, 2),
+                }
+            }
+        };
+        lengths(
+            &mut w,
+            &mut (0..NUM_CHARS).map(|i| match i {
+                0x61 => 1,
+                0x62 => 2,
+                _ => 0,
+            }),
+        );
+        lengths(
+            &mut w,
+            &mut (NUM_CHARS..NUM_CHARS + 8 * 30).map(|i| u8::from(i == NUM_CHARS + 6) * 2),
+        );
+        lengths(&mut w, &mut std::iter::repeat_n(0, LENGTHS));
+        w.put(0b10, 2);
+        for _ in 1..literals {
+            w.put(0, 1);
+        }
+        w.put(0b11, 2);
+        w.finish()
+    }
+
+    /// No match may run past its frame's end (MS-PATCH §2.1.5). BeeZip 0.2.0 decoded one, and in
+    /// a 32 KiB window its overflow landed on the frame's first bytes: this frame came out
+    /// starting `a`, not `b`, with no error (docs/M8.md §6.1).
+    #[test]
+    fn a_match_past_its_frame_is_corrupt() {
+        let mut out = Vec::new();
+        let err = Lzx::new(15)
+            .unwrap()
+            .decode_frame(&ending_in_a_match(FRAME - 3), FRAME, &mut out)
+            .unwrap_err();
+        assert_eq!(err, "an LZX match that runs past its frame");
+
+        // Ending at the frame's end is fine.
+        out.clear();
+        Lzx::new(15)
+            .unwrap()
+            .decode_frame(&ending_in_a_match(FRAME - 8), FRAME, &mut out)
+            .unwrap();
+        assert_eq!(out.len(), FRAME);
+        assert_eq!(out[0], b'b');
+        assert!(out[1..].iter().all(|&b| b == b'a'));
     }
 
     #[test]

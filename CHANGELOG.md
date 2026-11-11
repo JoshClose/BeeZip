@@ -7,6 +7,17 @@ Write a new section as `## X.Y.Z`, with `###` groups and `- ` items, describing 
 using BeeZip will notice. Leave the date out: the Releases page dates each version by its
 `vX.Y.Z` tag.
 
+## 0.3.0
+
+### Fixes
+
+- **An NTFS volume Windows formatted extracts whole.** BeeZip 0.2.0 took the empty files
+  Windows keeps on every volume (such as `$Extend/$RmMetadata/$Repair`) for damaged, so testing
+  reported them and extracting stopped there.
+- **A cabinet or MSI with an LZX match that runs past its 32 KiB frame is damaged,** as the
+  format and 7-Zip say. BeeZip 0.2.0 could decode such a file to the wrong bytes with no error.
+  No real installer tested has one.
+
 ## 0.2.0
 
 ### Disks and installers without 7-Zip

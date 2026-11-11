@@ -25,6 +25,12 @@
 # 512 bytes at a time in turn, 400 pieces each, so that each one's runs fill more than a record and
 # are split into pieces over extension records; compressed/text.txt in units of 8 KiB.
 #
+# thirdparty/ntfs/empty-nonres.img (1.25 MiB, clusters of 4 KiB): empty.bin's data and
+# after.txt's stream `empty` are empty and non-resident, with no runs and a last VCN of -1, as
+# Windows writes `$Extend/$RmMetadata/$Repair` and empty files on every volume it formats (ntfs-3g
+# keeps an empty value resident, so the attributes are rewritten once it's unmounted); after.txt
+# comes after empty.bin in the folder.
+#
 # malicious/ntfs-*.img, each refused cleanly or read within limits (crates/beezip-core/tests/
 # malicious/ntfs.rs); all but ntfs-sparse-100g.img are thirdparty/7zip/ntfs.img edited:
 #   ntfs-mft-recursion.img  $MFT's first record: its data has no runs, and an attribute list in
@@ -249,6 +255,81 @@ open(f'{M}/compressed/text.txt', 'wb').write(
 PY
     sync
     umount_ntfs
+
+    volume "$out/empty-nonres.img" 1280K 4096 BeeZipEmpty
+    mount_ntfs "$out/empty-nonres.img"
+    python3 -I - /mnt/n <<'PY'
+import sys
+M = sys.argv[1]
+open(f'{M}/empty.bin', 'wb').close()
+open(f'{M}/after.txt', 'wb').write(b'after the empty one\n')
+open(f'{M}/after.txt:empty', 'wb').close()
+PY
+    sync
+    umount_ntfs
+    # Every empty resident $DATA becomes non-resident: starting VCN 0, last VCN -1, sizes 0 and
+    # a run list of just its end.
+    python3 -I - "$out/empty-nonres.img" <<'PY'
+import struct, sys
+path = sys.argv[1]
+d = bytearray(open(path, 'rb').read())
+cs = struct.unpack_from('<H', d, 11)[0] * d[13]
+mft = struct.unpack_from('<Q', d, 0x30)[0] * cs
+REC = 1024
+
+def fix(r, undo):
+    off, n = struct.unpack_from('<HH', r, 4)
+    for i in range(1, n):
+        t = i * 512 - 2
+        if undo:
+            r[t:t + 2] = r[off + 2 * i:off + 2 * i + 2]
+        else:
+            r[off + 2 * i:off + 2 * i + 2] = r[t:t + 2]
+            r[t:t + 2] = r[off:off + 2]
+
+def nonresident(name_len, name, ident):
+    name_off = 0x40
+    runs = (name_off + 2 * name_len + 7) & ~7
+    a = bytearray(runs + 8)
+    struct.pack_into('<IIBBHHH', a, 0, 0x80, len(a), 1, name_len, name_off, 0, ident)
+    struct.pack_into('<QqHH', a, 0x10, 0, -1, runs, 0)
+    struct.pack_into('<QQQ', a, 0x28, 0, 0, 0)
+    a[name_off:name_off + 2 * name_len] = name
+    return bytes(a)
+
+changed = []
+for n in range(64, 128):  # ntfs-3g gives new files records from 64
+    at = mft + n * REC
+    if at + REC > len(d) or d[at:at + 4] != b'FILE' or not d[at + 0x16] & 1:
+        continue
+    r = bytearray(d[at:at + REC])
+    fix(r, True)
+    first = struct.unpack_from('<H', r, 0x14)[0]
+    parts, off, fname = [], first, None
+    while True:
+        ty, ln = struct.unpack_from('<II', r, off)
+        if ty == 0xFFFFFFFF:
+            break
+        a = bytes(r[off:off + ln])
+        if ty == 0x30:
+            v = struct.unpack_from('<H', a, 0x14)[0]
+            fname = a[v + 66:v + 66 + 2 * a[v + 64]].decode('utf-16-le')
+        if ty == 0x80 and a[8] == 0 and struct.unpack_from('<I', a, 0x10)[0] == 0:
+            name_len, name_off = a[9], struct.unpack_from('<H', a, 10)[0]
+            a = nonresident(name_len, a[name_off:name_off + 2 * name_len],
+                            struct.unpack_from('<H', a, 14)[0])
+            changed.append((fname, n))
+        parts.append(a)
+        off += ln
+    body = b''.join(parts) + b'\xff\xff\xff\xff' + bytes(4)
+    assert first + len(body) <= struct.unpack_from('<I', r, 0x1C)[0]
+    r[first:first + len(body)] = body
+    struct.pack_into('<I', r, 0x18, first + len(body))
+    fix(r, False)
+    d[at:at + REC] = r
+assert sorted(c[0] for c in changed) == ['after.txt', 'empty.bin'], changed
+open(path, 'wb').write(d)
+PY
 
     volume "$mal/ntfs-sparse-100g.img" 1280K 4096 BeeZipSparse
     mount_ntfs "$mal/ntfs-sparse-100g.img"
