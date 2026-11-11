@@ -140,6 +140,16 @@ impl FsSink {
         Ok(())
     }
 
+    /// Waits for the files being written on other threads when `file` may be one of them: what a
+    /// hard link or a copy reads. A WIM's thousands of hard links, handed over after their files,
+    /// then don't wait for each other's copies (docs/M8.md §16).
+    fn wait_behind_for(&mut self, file: &Path, cx: &mut dyn Ctx) -> Result<()> {
+        if self.behind.as_ref().is_some_and(|b| b.queued(file)) {
+            self.wait_behind(cx)?;
+        }
+        Ok(())
+    }
+
     fn took(&mut self, done: behind::Done, cx: &mut dyn Ctx) {
         self.report.files += done.files;
         self.report.bytes += done.bytes;
@@ -563,8 +573,6 @@ impl FsSink {
             self.report.skip(&entry.path, SkipReason::LinkOutside);
             return Ok(());
         }
-        // A copy reads the file it links to, which may still be being written.
-        self.wait_behind(cx)?;
         // The target is an archive name: the file written for that name, not whichever file
         // took the same place once made safe.
         let source = match sanitize::sanitize(target) {
@@ -579,6 +587,8 @@ impl FsSink {
             self.report.skip(&entry.path, SkipReason::LinkTargetMissing);
             return Ok(());
         };
+        // A copy reads the file it links to, which may still be being written.
+        self.wait_behind_for(&source, cx)?;
         let file = fs::File::open(&source)
             .map_err(|e| Error::io(format!("reading {}", source.display()), &e))?;
         let guard = self
@@ -809,7 +819,7 @@ impl EntrySink for FsSink {
         let Some(source) = self.by_id.get(&earlier.id).cloned() else {
             return Ok(false);
         };
-        self.wait_behind(cx)?;
+        self.wait_behind_for(&source, cx)?;
         let current = self
             .relative(&source)
             .and_then(|rel| self.written.get(&fold(&rel)));

@@ -27,6 +27,16 @@ using BeeZip will notice. Leave the date out: the Releases page dates each versi
   `.vhdx` stay with Windows, which mounts them. On Linux and macOS they stay with your virtual
   machine apps.
 
+### WIM and ESD images without 7-Zip
+
+- **BeeZip reads WIM, ESD and split WIM images itself,** Windows' install images among them:
+  each image is a folder (`1/`, `2/`), every file is checked against the SHA-1 the image
+  records, and chunks decode on every core. Testing all seven images of Windows 10's
+  `install.esd` takes 12–15 s here, where 7-Zip takes 46 s for one.
+- **On Windows, ESD's LZMS is decoded by Windows' own decoder;** on Linux and macOS an ESD still
+  goes to 7-Zip.
+- **`.wim`, `.esd` and `.swm` open in BeeZip** on Windows and macOS once it's installed.
+
 ### Windows-compressed files on NTFS
 
 - **Files Windows compressed on NTFS extract,** with CompactOS or `compact /exe:` (XPRESS4K,

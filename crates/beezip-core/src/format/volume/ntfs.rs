@@ -66,7 +66,10 @@ use super::{
 use crate::{
     Ctx, Error, ErrorKind, Result,
     backend::External,
-    format::{Entry, EntryKind},
+    format::{
+        Entry, EntryKind,
+        reparse::{self, Reparse, target},
+    },
     io::read_error,
     limits::Limits,
     time::from_ntfs,
@@ -502,93 +505,8 @@ fn check_mft(dev: &mut Device, g: &Geometry) -> Result<u64> {
     Ok((size / g.record as u64).clamp(16, g.len / g.record as u64 + 16))
 }
 
-/// What a reparse point makes of its file (docs/M7.md §6).
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum Reparse {
-    /// A symlink, junction or WSL symlink, with its target as stored, `\` made `/`.
-    Link(String),
-    /// WSL's FIFOs, devices and sockets.
-    Special,
-    /// Compressed by Windows (WOF), with the method's name and, for the file provider's
-    /// algorithms BeeZip decodes, the algorithm.
-    Wof(&'static str, Option<Algorithm>),
-    /// Deduplicated by Windows Server: the data is in a chunk store elsewhere.
-    Dedup,
-    /// A link whose target can't be read.
-    Bad,
-    /// A tag BeeZip leaves alone: the file reads as stored.
-    Other,
-}
-
-const TAG_MOUNT_POINT: u32 = 0xA000_0003;
-const TAG_SYMLINK: u32 = 0xA000_000C;
-const TAG_DEDUP: u32 = 0x8000_0013;
-const TAG_WOF: u32 = 0x8000_0017;
 /// The stream a WOF file's compressed data is in.
 const WOF_STREAM: &str = "WofCompressedData";
-const TAG_LX_SYMLINK: u32 = 0xA000_001D;
-const TAG_AF_UNIX: u32 = 0x8000_0023;
-const TAG_LX_FIFO: u32 = 0x8000_0024;
-const TAG_LX_CHR: u32 = 0x8000_0025;
-const TAG_LX_BLK: u32 = 0x8000_0026;
-
-/// A link target as stored: UTF-16 or UTF-8, `\` made `/`. Empty or holding NUL is no target.
-fn target(t: String) -> Reparse {
-    if t.is_empty() || t.contains('\0') {
-        Reparse::Bad
-    } else {
-        Reparse::Link(t.replace('\\', "/"))
-    }
-}
-
-/// A `$REPARSE_POINT` value: its tag, the length of its data, then the data.
-fn decode_reparse(v: &[u8]) -> Reparse {
-    let tag = le32(v, 0);
-    let len = usize::from(le16(v, 4));
-    let data = v.get(8..).map_or(&[][..], |d| &d[..len.min(d.len())]);
-    // Substitute and print names, as offsets and lengths into the path buffer at `buf`.
-    let names = |buf: usize| -> Option<String> {
-        let path = data.get(buf..)?;
-        let name = |off: usize, n: usize| -> Option<String> {
-            path.get(usize::from(le16(data, off))..)?
-                .get(..usize::from(le16(data, n)))
-                .map(decode_utf16le)
-        };
-        let subst = name(0, 2).unwrap_or_default();
-        Some(if subst.is_empty() { name(4, 6)? } else { subst })
-    };
-    match tag {
-        TAG_SYMLINK if data.len() >= 12 => names(12).map_or(Reparse::Bad, target),
-        TAG_MOUNT_POINT if data.len() >= 8 => names(8).map_or(Reparse::Bad, target),
-        // A version (2), then the target in UTF-8.
-        TAG_LX_SYMLINK if data.len() > 4 => {
-            target(String::from_utf8_lossy(&data[4..]).into_owned())
-        }
-        TAG_SYMLINK | TAG_MOUNT_POINT | TAG_LX_SYMLINK => Reparse::Bad,
-        TAG_AF_UNIX | TAG_LX_FIFO | TAG_LX_CHR | TAG_LX_BLK => Reparse::Special,
-        // WOF's version and provider; the file provider's version and algorithm.
-        TAG_WOF => {
-            let name = match (le32(data, 4), le32(data, 12)) {
-                (1, _) => "WIM",
-                (2, 0) => "XPRESS4K",
-                (2, 1) => "LZX",
-                (2, 2) => "XPRESS8K",
-                (2, 3) => "XPRESS16K",
-                _ => "WOF",
-            };
-            // WOF version 1, the file provider (2), its version 1: an algorithm BeeZip decodes.
-            let algo = (data.len() >= 16
-                && le32(data, 0) == 1
-                && le32(data, 4) == 2
-                && le32(data, 8) == 1)
-                .then(|| Algorithm::from_id(le32(data, 12)))
-                .flatten();
-            Reparse::Wof(name, algo)
-        }
-        TAG_DEDUP => Reparse::Dedup,
-        _ => Reparse::Other,
-    }
-}
 
 /// What ntfs-3g's Interix special files are, by their data's start: a symlink with its target,
 /// or a device. ntfs-3g's FIFOs are empty system files, so they can't be told from one.
@@ -1233,7 +1151,7 @@ impl Volume {
             ));
             return Ok(());
         }
-        let reparse = r.reparse.as_deref().map(decode_reparse);
+        let reparse = r.reparse.as_deref().map(reparse::decode_value);
         let unnamed = r.streams.iter().find(|s| s.name.is_empty());
         let mut refused: Option<Error> = None;
         let mut method = None;

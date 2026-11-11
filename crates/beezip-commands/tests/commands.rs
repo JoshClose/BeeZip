@@ -114,6 +114,15 @@ fn formats_list_has_everything() {
     assert_eq!(cab["methods"][1]["id"], "mszip");
     assert_eq!(cab["caps"]["create"], true);
     assert_eq!(cab["caps"]["append"], false);
+    // BeeZip reads WIM itself since M8 (docs/M8.md §5): no backend, available without 7-Zip.
+    let wim = out["formats"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|f| f["id"] == "wim")
+        .unwrap();
+    assert!(wim["backend"].is_null(), "{wim}");
+    assert_eq!(wim["available"], true);
     let sz = &out["formats"][2];
     assert_eq!(sz["id"], "7z");
     assert_eq!(sz["methods"][0]["id"], "lzma2");

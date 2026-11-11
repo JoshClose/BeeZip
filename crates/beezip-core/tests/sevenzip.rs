@@ -98,6 +98,15 @@ fn fs_opts() -> beezip_core::FsOptions {
     }
 }
 
+/// Through 7-Zip: BeeZip reads WIMs itself since M8 (docs/M8.md §5), and these tests are the
+/// 7-Zip backend's, on WIMs 7-Zip makes.
+fn via_7z() -> OpenOptions {
+    OpenOptions {
+        native: false,
+        ..OpenOptions::default()
+    }
+}
+
 #[test]
 fn a_wim_lists_extracts_and_reads_as_written() {
     use beezip_core::{EntryKind, Selection, ops};
@@ -108,7 +117,7 @@ fn a_wim_lists_extracts_and_reads_as_written() {
     assert_eq!(det.format(), Some(FormatId::External(External::Wim)));
 
     let mut cx = SimpleCtx::new();
-    let mut opened = open(&wim, &OpenOptions::default(), &mut cx).unwrap();
+    let mut opened = open(&wim, &via_7z(), &mut cx).unwrap();
     let entries = opened.reader.entries(&mut cx).unwrap().to_vec();
     for (p, data) in &files {
         let e = entries
@@ -134,15 +143,7 @@ fn a_wim_lists_extracts_and_reads_as_written() {
 
     // Everything, streamed.
     let all = dir.path().join("all");
-    ops::extract(
-        &wim,
-        &all,
-        &Selection::all(),
-        &OpenOptions::default(),
-        fs_opts(),
-        &mut cx,
-    )
-    .unwrap();
+    ops::extract(&wim, &all, &Selection::all(), &via_7z(), fs_opts(), &mut cx).unwrap();
     assert_eq!(read_tree(&all), files);
 
     // A selection: a folder and a file, through a list file `7z l` checks first. `[` and `*`
@@ -154,15 +155,7 @@ fn a_wim_lists_extracts_and_reads_as_written() {
         &[],
     )
     .unwrap();
-    ops::extract(
-        &wim,
-        &some,
-        &sel,
-        &OpenOptions::default(),
-        fs_opts(),
-        &mut cx,
-    )
-    .unwrap();
+    ops::extract(&wim, &some, &sel, &via_7z(), fs_opts(), &mut cx).unwrap();
     let want: Vec<_> = files
         .iter()
         .filter(|(p, _)| p.starts_with("tree/sub/") || p == "tree/readme.txt")
@@ -171,7 +164,7 @@ fn a_wim_lists_extracts_and_reads_as_written() {
     assert_eq!(read_tree(&some), want);
 
     // `7z t`.
-    let report = ops::test(&wim, &Selection::all(), &OpenOptions::default(), &mut cx).unwrap();
+    let report = ops::test(&wim, &Selection::all(), &via_7z(), &mut cx).unwrap();
     assert!(report.ok(), "{report:?}");
     assert!(report.note.is_none(), "a WIM's hashes are checked");
 }
@@ -191,7 +184,7 @@ fn a_damaged_wim_fails_its_test_and_its_extraction_names_the_entry() {
     fs::write(&wim, &bytes).unwrap();
 
     let mut cx = SimpleCtx::new();
-    let report = ops::test(&wim, &Selection::all(), &OpenOptions::default(), &mut cx).unwrap();
+    let report = ops::test(&wim, &Selection::all(), &via_7z(), &mut cx).unwrap();
     assert_eq!(report.errors_total, 1, "{report:?}");
     assert_eq!(report.errors[0].path, "tree/readme.txt");
     assert_eq!(report.errors[0].kind, ErrorKind::Corrupt);
@@ -200,7 +193,7 @@ fn a_damaged_wim_fails_its_test_and_its_extraction_names_the_entry() {
         &wim,
         &dir.path().join("x"),
         &Selection::all(),
-        &OpenOptions::default(),
+        &via_7z(),
         fs_opts(),
         &mut cx,
     )
@@ -219,24 +212,22 @@ fn cancelling_and_the_limits_stop_before_anything_is_written() {
 
     let cancelled = SimpleCtx::new().with_cancel(Arc::new(AtomicBool::new(true)));
     let dest = dir.path().join("cancelled");
-    let err = ops::extract(
-        &wim,
-        &dest,
-        &Selection::all(),
-        &OpenOptions::default(),
-        fs_opts(),
-        &mut { cancelled },
-    )
+    let err = ops::extract(&wim, &dest, &Selection::all(), &via_7z(), fs_opts(), &mut {
+        cancelled
+    })
     .unwrap_err();
     assert_eq!(err.kind, ErrorKind::Cancelled);
     assert!(read_tree(&dest).is_empty());
     assert_eq!(partial::live(), 0);
 
     // The listing claims more than the job may unpack: refused before 7-Zip starts.
-    let small = OpenOptions::new(Limits {
-        max_total_bytes: Some(1000),
-        ..Limits::default()
-    });
+    let small = OpenOptions {
+        native: false,
+        ..OpenOptions::new(Limits {
+            max_total_bytes: Some(1000),
+            ..Limits::default()
+        })
+    };
     let dest = dir.path().join("total");
     let err = ops::extract(
         &wim,
@@ -251,10 +242,13 @@ fn cancelling_and_the_limits_stop_before_anything_is_written() {
     assert!(read_tree(&dest).is_empty());
 
     // More entries than allowed: refused while the listing is read.
-    let few = OpenOptions::new(Limits {
-        max_entries: Some(3),
-        ..Limits::default()
-    });
+    let few = OpenOptions {
+        native: false,
+        ..OpenOptions::new(Limits {
+            max_entries: Some(3),
+            ..Limits::default()
+        })
+    };
     let err = open(&wim, &few, &mut SimpleCtx::new()).err().unwrap();
     assert_eq!(err.kind, ErrorKind::LimitExceeded, "{err}");
 }
@@ -278,7 +272,7 @@ fn without_seven_zip_the_format_is_named_and_opening_says_what_is_missing() {
     let det = detect_path(&wim, &Limits::default()).unwrap();
     assert_eq!(det.format(), Some(FormatId::External(External::Wim)));
 
-    let nowhere = OpenOptions::default().with_seven_zip(SevenZipOptions {
+    let nowhere = via_7z().with_seven_zip(SevenZipOptions {
         path: Some(dir.path().join("no-such-7z.exe")),
         enabled: true,
     });
@@ -294,7 +288,7 @@ fn without_seven_zip_the_format_is_named_and_opening_says_what_is_missing() {
         err.message
     );
 
-    let off = OpenOptions::default().with_seven_zip(SevenZipOptions {
+    let off = via_7z().with_seven_zip(SevenZipOptions {
         path: None,
         enabled: false,
     });

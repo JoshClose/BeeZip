@@ -447,6 +447,22 @@ impl Lzx {
         })
     }
 
+    /// A fresh stream again, as [`Lzx::new`] made it, keeping its buffers: the next of a WIM's
+    /// chunks, each of which starts afresh. What the window held can't be reached, since no match
+    /// may reach before the stream's start.
+    pub fn reset(&mut self) {
+        self.total = 0;
+        self.frame_start = 0;
+        self.r = [1, 1, 1];
+        self.kind = Kind::None;
+        self.remaining = 0;
+        self.pad = false;
+        self.main_lens.fill(0);
+        self.length_lens = [0; LENGTHS];
+        self.started = false;
+        self.e8 = None;
+    }
+
     /// Decodes one frame from `input` (one data block's bytes, or a WIM chunk's) into `out`, which
     /// gets `out_len` bytes (at most [`FRAME`], or the window for a WIM chunk).
     pub fn decode_frame(

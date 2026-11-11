@@ -63,7 +63,7 @@ pub const CLI_GROUPS: &[(&str, &str)] = &[
     ("shell", "BeeZip's Explorer menu: what a click on it does"),
     (
         "7zip",
-        "7-Zip, which opens WIM images, NSIS installers, CHM files and virtual disks for BeeZip",
+        "7-Zip, which opens NSIS installers, CHM files and CramFS images for BeeZip",
     ),
 ];
 

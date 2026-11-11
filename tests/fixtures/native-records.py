@@ -1,6 +1,8 @@
 """The records of what BeeZip's own readers list from the 7-Zip backend's images (docs/M7.md §10).
 
-Since M7 BeeZip reads FAT, NTFS, ext, HFS+, APFS, GPT and MBR disks and MSI installers itself.
+Since M7 BeeZip reads FAT, NTFS, ext, HFS+, APFS, GPT and MBR disks and MSI installers itself,
+and since M8 WIM images (docs/M8.md §5; an LZMS one only on Windows, so wimlib-solid.esd has no
+native record here: tests/wim.rs reads wimlib's LZMS images natively on Windows).
 make-7z.sh records what 7-Zip lists from its images (`"backend": "7-zip"`), and the fixture test
 reads those through 7-Zip. This script derives, from each of those records, what BeeZip's own
 reader must list from the same image (`"native": true`): the same files with the same bytes, as
@@ -14,6 +16,7 @@ What differs from 7-Zip's view:
 - A disk of several partitions lists each readable one as a folder: gpt-fat-ext4.img's
   `0.data/` (the FAT12 of fat12.img) and `1.linux/` (an ext4 of the same tree).
 - An MSI's files are named by where they install, not by their File keys.
+- A WIM's `[1].xml` goes; a second name of a hard link group is a hard link.
 
 Run it after make-7z.sh: `python tests/fixtures/native-records.py`. It owns the records with
 `"native": true` and puts them after the 7-Zip records.
@@ -40,7 +43,8 @@ def files(record, drop=(), prefix='', strip=''):
     out = []
     for e in record['entries']:
         p = e['path']
-        if p.startswith('[SYSTEM]/$BadClus:') or p.startswith('[SYS]/') or p in drop:
+        if (p.startswith('[SYSTEM]/$BadClus:') or p.startswith('[SYS]/') or p in drop
+                or p == '[1].xml'):
             continue
         if strip:
             if not p.startswith(strip):
@@ -138,6 +142,16 @@ for e in msi:
 records.append(native(f, ['msi', 'cab'], msi, 0, 0,
                       'Files are named by the folder they install to and their File table names '
                       '(7-Zip lists their keys).'))
+
+f = '7zip/tree.wim'
+records.append(native(f, ['wim'], files(by_file[f]), 0, 0,
+                      'BeeZip reads WIM images itself since M8 (docs/M8.md §5). One image, at the '
+                      'top, as 7-Zip lists it; 7-Zip wrote the hard link pair as two files.'))
+f = '7zip/wimlib.wim'
+records.append(native(f, ['wim'], files(by_file[f]), 1, 3,
+                      'Two images, the folders 1/ and 2/ as 7-Zip names them, without its '
+                      "`[1].xml`. hard-readme.txt and readme.txt are one hard link group: the "
+                      'second name in the image (readme.txt) is a hard link.'))
 
 mine = lambda r: r.get('native') is True
 rest = [r for r in old if not mine(r)]

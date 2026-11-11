@@ -41,7 +41,7 @@
 //! [jobs]
 //! close_when_done = true     # a job window closes itself after a clean success
 //!
-//! [seven_zip]                # the 7-Zip that reads WIM, NSIS and virtual disks (docs/M6.md §3)
+//! [seven_zip]                # the 7-Zip that reads NSIS, CHM and CramFS (docs/M6.md §3)
 //! path = 'C:\Tools\7z.exe'   # empty or missing: found in the registry, PATH or Program Files
 //! enabled = true
 //!
@@ -282,9 +282,9 @@ impl Default for JobsConfig {
     }
 }
 
-/// The installed 7-Zip, which reads WIM and ESD images, CHM files, NSIS installers, CramFS and
-/// the virtual disks (VHD, VHDX, VMDK, QCOW2, VDI) for BeeZip (docs/M6.md §3), and MSI patches
-/// and what BeeZip's own disk and MSI readers don't support (docs/M7.md).
+/// The installed 7-Zip, which reads CHM files, NSIS installers and CramFS for BeeZip (docs/M6.md
+/// §3), and MSI patches and what BeeZip's own disk, MSI and WIM readers don't support
+/// (docs/M7.md, docs/M8.md): an ESD on Linux and macOS, for one.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
 #[serde(default)]
 pub struct SevenZipConfig {

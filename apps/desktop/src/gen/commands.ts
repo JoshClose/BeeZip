@@ -1537,9 +1537,9 @@ error: string | null, };
 export type SevenZipAction = "installed" | "updated" | "none";
 
 /**
- * The installed 7-Zip, which reads WIM and ESD images, CHM files, NSIS installers, CramFS and
- * the virtual disks (VHD, VHDX, VMDK, QCOW2, VDI) for BeeZip (docs/M6.md §3), and MSI patches
- * and what BeeZip's own disk and MSI readers don't support (docs/M7.md).
+ * The installed 7-Zip, which reads CHM files, NSIS installers and CramFS for BeeZip (docs/M6.md
+ * §3), and MSI patches and what BeeZip's own disk, MSI and WIM readers don't support
+ * (docs/M7.md, docs/M8.md): an ESD on Linux and macOS, for one.
  */
 export type SevenZipConfig = {
 /**
@@ -1559,8 +1559,8 @@ enabled: boolean, };
 export type SevenZipFix = "install" | "update" | "download";
 
 /**
- * Install 7-Zip with winget, or update one older than 25.01, so BeeZip can open WIM images,
- * NSIS installers, CHM files and virtual disks such as VHDX. winget downloads 7-Zip's own
+ * Install 7-Zip with winget, or update one older than 25.01, so BeeZip can open NSIS
+ * installers, CHM files and CramFS images. winget downloads 7-Zip's own
  * installer and checks its hash; the installer asks for administrator rights. Windows only:
  * elsewhere, get 7-Zip 25.01 or newer (on Linux and macOS, 7-Zip's own `7zz`) from
  * https://7-zip.org/download.html.
@@ -2022,8 +2022,8 @@ export type CommandMap = {
    */
   "settings.set": { input: SettingsSetInput; output: SettingsSetOutput };
   /**
-   * Install 7-Zip with winget, or update one older than 25.01, so BeeZip can open WIM images,
-   * NSIS installers, CHM files and virtual disks such as VHDX. winget downloads 7-Zip's own
+   * Install 7-Zip with winget, or update one older than 25.01, so BeeZip can open NSIS
+   * installers, CHM files and CramFS images. winget downloads 7-Zip's own
    * installer and checks its hash; the installer asks for administrator rights. Windows only:
    * elsewhere, get 7-Zip 25.01 or newer (on Linux and macOS, 7-Zip's own `7zz`) from
    * https://7-zip.org/download.html.
