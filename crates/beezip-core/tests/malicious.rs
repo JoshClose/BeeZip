@@ -33,6 +33,8 @@ mod ntfs;
 mod vdisk;
 #[path = "malicious/vhd.rs"]
 mod vhd;
+#[path = "malicious/wim.rs"]
+mod wim;
 #[path = "malicious/xar.rs"]
 mod xar;
 #[path = "malicious/zoo.rs"]
@@ -648,22 +650,17 @@ fn a_hostile_ext4_image_listed_by_7zip_is_made_safe_by_fs_sink() {
     }
 }
 
-/// A WIM's symlinks, stored as reparse points, that lead out: refused with links on.
+/// A WIM's symlinks, stored as reparse points, that lead out: refused with links on. BeeZip
+/// reads the WIM itself (docs/M8.md §5); the targets weren't fixed at capture (`--norpfix`), so
+/// they're as stored: `../../outside.txt`, `/??/C:/etc/passwd`, `../..` and `dir`.
 #[test]
 fn a_wims_links_out_are_refused() {
-    if !seven_zip_here() {
-        return;
-    }
     let (r, inside) = extract("wim-links-out.wim", FsOptions::default());
     let r = r.unwrap();
     assert_eq!(reasons(&r), [SkipReason::LinksDisabled; 4], "{r:?}");
     assert_eq!(inside, ["dir", "dir/inside.txt", "safe.txt"]);
 
-    // Links on. 7-Zip on Linux lists the targets with their `\` (`..\..`), which is a plain
-    // name there, so they stay inside; Windows' 7-Zip lists `/`.
-    if !cfg!(windows) {
-        return;
-    }
+    // Links on.
     let (r, _) = extract(
         "wim-links-out.wim",
         FsOptions {

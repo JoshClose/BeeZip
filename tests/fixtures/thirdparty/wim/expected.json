@@ -1,0 +1,598 @@
+{
+ "note": "Made by tests/fixtures/make-wim.sh. `trees` is what each source folder holds, read from the folder itself: paths from its root, links as created (absolute ones point into /work/tree when inside it), hard link groups numbered per tree, times in ns.",
+ "roots": {
+  "tree": "/work/tree",
+  "sub": "/work/tree/sub",
+  "small": "/work/small",
+  "empty": "/work/empty",
+  "extra": "/work/extra"
+ },
+ "trees": {
+  "tree": [
+   {
+    "path": "deep",
+    "mtime_ns": 1767225600000000000,
+    "kind": "folder"
+   },
+   {
+    "path": "sub",
+    "mtime_ns": 1767225600000000000,
+    "kind": "folder"
+   },
+   {
+    "path": "Ünïcödé dir",
+    "mtime_ns": 1767225600000000000,
+    "kind": "folder"
+   },
+   {
+    "path": "abs-link-inside",
+    "mtime_ns": 1767225600000000000,
+    "kind": "symlink",
+    "target": "/work/tree/sub/nested/deep.txt"
+   },
+   {
+    "path": "abs-link-outside",
+    "mtime_ns": 1767225600000000000,
+    "kind": "symlink",
+    "target": "/etc/hostname"
+   },
+   {
+    "path": "bee-🐝.txt",
+    "mtime_ns": 1767225600000000000,
+    "kind": "file",
+    "size": 6,
+    "sha256": "fd01be44bca26feb95420c0f68c9803515ad0a081801365777f2c15d1238fb35"
+   },
+   {
+    "path": "café-ñandú.txt",
+    "mtime_ns": 1767225600000000000,
+    "kind": "file",
+    "size": 8,
+    "sha256": "48b1abd43f44834d24dc243de1fb8ba8a370b5975fa70ff7ae72f70b3af889fb"
+   },
+   {
+    "path": "code.bin",
+    "mtime_ns": 1767225600000000000,
+    "kind": "file",
+    "size": 36000,
+    "sha256": "b38a39135cf769442cd9312eda323166b3071a0a9ce970545f2bac3eb1acd55f"
+   },
+   {
+    "path": "dangling",
+    "mtime_ns": 1767225600000000000,
+    "kind": "symlink",
+    "target": "missing-target"
+   },
+   {
+    "path": "dup-a.txt",
+    "mtime_ns": 1767225600000000000,
+    "kind": "file",
+    "size": 2740,
+    "sha256": "eee8155a8460902701f672e60b99437bc87c36f897d21299411c9e0fc0e5020f"
+   },
+   {
+    "path": "empty.txt",
+    "mtime_ns": 1767225600000000000,
+    "kind": "file",
+    "size": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+   },
+   {
+    "path": "hard-readme.txt",
+    "mtime_ns": 1767225600000000000,
+    "kind": "file",
+    "size": 15,
+    "sha256": "881335b2d92e7983d9f9eed91238d88626d5402948079501a52461e117966874",
+    "link_group": 1
+   },
+   {
+    "path": "link-to-readme",
+    "mtime_ns": 1767225600000000000,
+    "kind": "symlink",
+    "target": "readme.txt"
+   },
+   {
+    "path": "mtime.txt",
+    "mtime_ns": 1715000000123456789,
+    "kind": "file",
+    "size": 12,
+    "sha256": "13c39f30532e5fafd2e4ff18bed31d5fd140940297d4c9611078e4f6db60fd42"
+   },
+   {
+    "path": "random.bin",
+    "mtime_ns": 1767225600000000000,
+    "kind": "file",
+    "size": 4096,
+    "sha256": "76c97ff8110c3b34a8b91fb5ab86dc9d00bb64b59186b156dd70a9a7bbbdc2ab"
+   },
+   {
+    "path": "readme.txt",
+    "mtime_ns": 1767225600000000000,
+    "kind": "file",
+    "size": 15,
+    "sha256": "881335b2d92e7983d9f9eed91238d88626d5402948079501a52461e117966874",
+    "link_group": 1
+   },
+   {
+    "path": "text.txt",
+    "mtime_ns": 1767225600000000000,
+    "kind": "file",
+    "size": 158289,
+    "sha256": "a2b8f08d7fadb4c763ba766488b9dbaa01309a0cd3eeef6925a8f27663a8e9d1"
+   },
+   {
+    "path": "with space.txt",
+    "mtime_ns": 1767225600000000000,
+    "kind": "file",
+    "size": 8,
+    "sha256": "91817540829127d22844bbad851e0e236aff485a11a36e4b281255df589c570c"
+   },
+   {
+    "path": "zeros.bin",
+    "mtime_ns": 1767225600000000000,
+    "kind": "file",
+    "size": 70000,
+    "sha256": "f51b279903037b37ea1828a1021499995718d38016cad6c0da30962a41be052f"
+   },
+   {
+    "path": "名前.txt",
+    "mtime_ns": 1767225600000000000,
+    "kind": "file",
+    "size": 4,
+    "sha256": "3bb531d71e45c2aaf47a23e0563b850dbde8a941b87ebf1143fd65d93333ca52"
+   },
+   {
+    "path": "deep/d00",
+    "mtime_ns": 1767225600000000000,
+    "kind": "folder"
+   },
+   {
+    "path": "deep/d00/d01",
+    "mtime_ns": 1767225600000000000,
+    "kind": "folder"
+   },
+   {
+    "path": "deep/d00/d01/d02",
+    "mtime_ns": 1767225600000000000,
+    "kind": "folder"
+   },
+   {
+    "path": "deep/d00/d01/d02/d03",
+    "mtime_ns": 1767225600000000000,
+    "kind": "folder"
+   },
+   {
+    "path": "deep/d00/d01/d02/d03/d04",
+    "mtime_ns": 1767225600000000000,
+    "kind": "folder"
+   },
+   {
+    "path": "deep/d00/d01/d02/d03/d04/d05",
+    "mtime_ns": 1767225600000000000,
+    "kind": "folder"
+   },
+   {
+    "path": "deep/d00/d01/d02/d03/d04/d05/d06",
+    "mtime_ns": 1767225600000000000,
+    "kind": "folder"
+   },
+   {
+    "path": "deep/d00/d01/d02/d03/d04/d05/d06/d07",
+    "mtime_ns": 1767225600000000000,
+    "kind": "folder"
+   },
+   {
+    "path": "deep/d00/d01/d02/d03/d04/d05/d06/d07/d08",
+    "mtime_ns": 1767225600000000000,
+    "kind": "folder"
+   },
+   {
+    "path": "deep/d00/d01/d02/d03/d04/d05/d06/d07/d08/d09",
+    "mtime_ns": 1767225600000000000,
+    "kind": "folder"
+   },
+   {
+    "path": "deep/d00/d01/d02/d03/d04/d05/d06/d07/d08/d09/d10",
+    "mtime_ns": 1767225600000000000,
+    "kind": "folder"
+   },
+   {
+    "path": "deep/d00/d01/d02/d03/d04/d05/d06/d07/d08/d09/d10/d11",
+    "mtime_ns": 1767225600000000000,
+    "kind": "folder"
+   },
+   {
+    "path": "deep/d00/d01/d02/d03/d04/d05/d06/d07/d08/d09/d10/d11/d12",
+    "mtime_ns": 1767225600000000000,
+    "kind": "folder"
+   },
+   {
+    "path": "deep/d00/d01/d02/d03/d04/d05/d06/d07/d08/d09/d10/d11/d12/d13",
+    "mtime_ns": 1767225600000000000,
+    "kind": "folder"
+   },
+   {
+    "path": "deep/d00/d01/d02/d03/d04/d05/d06/d07/d08/d09/d10/d11/d12/d13/d14",
+    "mtime_ns": 1767225600000000000,
+    "kind": "folder"
+   },
+   {
+    "path": "deep/d00/d01/d02/d03/d04/d05/d06/d07/d08/d09/d10/d11/d12/d13/d14/d15",
+    "mtime_ns": 1767225600000000000,
+    "kind": "folder"
+   },
+   {
+    "path": "deep/d00/d01/d02/d03/d04/d05/d06/d07/d08/d09/d10/d11/d12/d13/d14/d15/d16",
+    "mtime_ns": 1767225600000000000,
+    "kind": "folder"
+   },
+   {
+    "path": "deep/d00/d01/d02/d03/d04/d05/d06/d07/d08/d09/d10/d11/d12/d13/d14/d15/d16/d17",
+    "mtime_ns": 1767225600000000000,
+    "kind": "folder"
+   },
+   {
+    "path": "deep/d00/d01/d02/d03/d04/d05/d06/d07/d08/d09/d10/d11/d12/d13/d14/d15/d16/d17/d18",
+    "mtime_ns": 1767225600000000000,
+    "kind": "folder"
+   },
+   {
+    "path": "deep/d00/d01/d02/d03/d04/d05/d06/d07/d08/d09/d10/d11/d12/d13/d14/d15/d16/d17/d18/d19",
+    "mtime_ns": 1767225600000000000,
+    "kind": "folder"
+   },
+   {
+    "path": "deep/d00/d01/d02/d03/d04/d05/d06/d07/d08/d09/d10/d11/d12/d13/d14/d15/d16/d17/d18/d19/nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn.txt",
+    "mtime_ns": 1767225600000000000,
+    "kind": "file",
+    "size": 10,
+    "sha256": "f1647a19179687a4d458aa924fad8ebc3737c65f8e36d625ca6b699412dd3afa"
+   },
+   {
+    "path": "sub/link-to-nested",
+    "mtime_ns": 1767225600000000000,
+    "kind": "symlink",
+    "target": "nested"
+   },
+   {
+    "path": "sub/nested",
+    "mtime_ns": 1767225600000000000,
+    "kind": "folder"
+   },
+   {
+    "path": "sub/deep-link.txt",
+    "mtime_ns": 1767225600000000000,
+    "kind": "file",
+    "size": 5,
+    "sha256": "64896f89fd11190013b70103e603a1c5826e56b7fb7d2197ab279b0690043599",
+    "link_group": 2
+   },
+   {
+    "path": "sub/dup-b.txt",
+    "mtime_ns": 1767225600000000000,
+    "kind": "file",
+    "size": 2740,
+    "sha256": "eee8155a8460902701f672e60b99437bc87c36f897d21299411c9e0fc0e5020f"
+   },
+   {
+    "path": "sub/rel-link-outside",
+    "mtime_ns": 1767225600000000000,
+    "kind": "symlink",
+    "target": "../../outside.txt"
+   },
+   {
+    "path": "sub/nested/deep.txt",
+    "mtime_ns": 1767225600000000000,
+    "kind": "file",
+    "size": 5,
+    "sha256": "64896f89fd11190013b70103e603a1c5826e56b7fb7d2197ab279b0690043599",
+    "link_group": 2
+   },
+   {
+    "path": "Ünïcödé dir/日本語.txt",
+    "mtime_ns": 1767225600000000000,
+    "kind": "file",
+    "size": 17,
+    "sha256": "bd5015a4d2be73252c88c451fac1c2d944ab9335e65bb3773b67cf44d5352610"
+   }
+  ],
+  "sub": [
+   {
+    "path": "link-to-nested",
+    "mtime_ns": 1767225600000000000,
+    "kind": "symlink",
+    "target": "nested"
+   },
+   {
+    "path": "nested",
+    "mtime_ns": 1767225600000000000,
+    "kind": "folder"
+   },
+   {
+    "path": "deep-link.txt",
+    "mtime_ns": 1767225600000000000,
+    "kind": "file",
+    "size": 5,
+    "sha256": "64896f89fd11190013b70103e603a1c5826e56b7fb7d2197ab279b0690043599",
+    "link_group": 1
+   },
+   {
+    "path": "dup-b.txt",
+    "mtime_ns": 1767225600000000000,
+    "kind": "file",
+    "size": 2740,
+    "sha256": "eee8155a8460902701f672e60b99437bc87c36f897d21299411c9e0fc0e5020f"
+   },
+   {
+    "path": "rel-link-outside",
+    "mtime_ns": 1767225600000000000,
+    "kind": "symlink",
+    "target": "../../outside.txt"
+   },
+   {
+    "path": "nested/deep.txt",
+    "mtime_ns": 1767225600000000000,
+    "kind": "file",
+    "size": 5,
+    "sha256": "64896f89fd11190013b70103e603a1c5826e56b7fb7d2197ab279b0690043599",
+    "link_group": 1
+   }
+  ],
+  "small": [
+   {
+    "path": "sub",
+    "mtime_ns": 1767225600000000000,
+    "kind": "folder"
+   },
+   {
+    "path": "Ünïcödé dir",
+    "mtime_ns": 1767225600000000000,
+    "kind": "folder"
+   },
+   {
+    "path": "bee-🐝.txt",
+    "mtime_ns": 1767225600000000000,
+    "kind": "file",
+    "size": 6,
+    "sha256": "fd01be44bca26feb95420c0f68c9803515ad0a081801365777f2c15d1238fb35"
+   },
+   {
+    "path": "café-ñandú.txt",
+    "mtime_ns": 1767225600000000000,
+    "kind": "file",
+    "size": 8,
+    "sha256": "48b1abd43f44834d24dc243de1fb8ba8a370b5975fa70ff7ae72f70b3af889fb"
+   },
+   {
+    "path": "dup-a.txt",
+    "mtime_ns": 1767225600000000000,
+    "kind": "file",
+    "size": 2740,
+    "sha256": "eee8155a8460902701f672e60b99437bc87c36f897d21299411c9e0fc0e5020f"
+   },
+   {
+    "path": "empty.txt",
+    "mtime_ns": 1767225600000000000,
+    "kind": "file",
+    "size": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+   },
+   {
+    "path": "hard-readme.txt",
+    "mtime_ns": 1767225600000000000,
+    "kind": "file",
+    "size": 15,
+    "sha256": "881335b2d92e7983d9f9eed91238d88626d5402948079501a52461e117966874",
+    "link_group": 1
+   },
+   {
+    "path": "mtime.txt",
+    "mtime_ns": 1715000000123456789,
+    "kind": "file",
+    "size": 12,
+    "sha256": "13c39f30532e5fafd2e4ff18bed31d5fd140940297d4c9611078e4f6db60fd42"
+   },
+   {
+    "path": "readme.txt",
+    "mtime_ns": 1767225600000000000,
+    "kind": "file",
+    "size": 15,
+    "sha256": "881335b2d92e7983d9f9eed91238d88626d5402948079501a52461e117966874",
+    "link_group": 1
+   },
+   {
+    "path": "with space.txt",
+    "mtime_ns": 1767225600000000000,
+    "kind": "file",
+    "size": 8,
+    "sha256": "91817540829127d22844bbad851e0e236aff485a11a36e4b281255df589c570c"
+   },
+   {
+    "path": "名前.txt",
+    "mtime_ns": 1767225600000000000,
+    "kind": "file",
+    "size": 4,
+    "sha256": "3bb531d71e45c2aaf47a23e0563b850dbde8a941b87ebf1143fd65d93333ca52"
+   },
+   {
+    "path": "sub/nested",
+    "mtime_ns": 1767225600000000000,
+    "kind": "folder"
+   },
+   {
+    "path": "sub/deep-link.txt",
+    "mtime_ns": 1767225600000000000,
+    "kind": "file",
+    "size": 5,
+    "sha256": "64896f89fd11190013b70103e603a1c5826e56b7fb7d2197ab279b0690043599",
+    "link_group": 2
+   },
+   {
+    "path": "sub/dup-b.txt",
+    "mtime_ns": 1767225600000000000,
+    "kind": "file",
+    "size": 2740,
+    "sha256": "eee8155a8460902701f672e60b99437bc87c36f897d21299411c9e0fc0e5020f"
+   },
+   {
+    "path": "sub/nested/deep.txt",
+    "mtime_ns": 1767225600000000000,
+    "kind": "file",
+    "size": 5,
+    "sha256": "64896f89fd11190013b70103e603a1c5826e56b7fb7d2197ab279b0690043599",
+    "link_group": 2
+   },
+   {
+    "path": "Ünïcödé dir/日本語.txt",
+    "mtime_ns": 1767225600000000000,
+    "kind": "file",
+    "size": 17,
+    "sha256": "bd5015a4d2be73252c88c451fac1c2d944ab9335e65bb3773b67cf44d5352610"
+   }
+  ],
+  "empty": [],
+  "extra": [
+   {
+    "path": "more.txt",
+    "mtime_ns": 1767225600000000000,
+    "kind": "file",
+    "size": 30100,
+    "sha256": "d9f869a144e5233888620875634146a9a5e62870c24fa3ebe061f49b8ded3f18"
+   },
+   {
+    "path": "noise.bin",
+    "mtime_ns": 1767225600000000000,
+    "kind": "file",
+    "size": 1500,
+    "sha256": "8d692f82e17e7f344e1aeb7da56e79915b3e817ef3e473346f74703c58c33f05"
+   },
+   {
+    "path": "readme.txt",
+    "mtime_ns": 1767225600000000000,
+    "kind": "file",
+    "size": 15,
+    "sha256": "881335b2d92e7983d9f9eed91238d88626d5402948079501a52461e117966874"
+   }
+  ]
+ },
+ "fixtures": [
+  {
+   "file": "xpress.wim",
+   "images": [
+    "tree"
+   ],
+   "method": "XPRESS"
+  },
+  {
+   "file": "lzx-64k.wim",
+   "images": [
+    "tree"
+   ],
+   "method": "LZX"
+  },
+  {
+   "file": "lzms.wim",
+   "images": [
+    "tree"
+   ],
+   "method": "LZMS",
+   "lzms": true
+  },
+  {
+   "file": "solid-lzms.esd",
+   "images": [
+    "tree"
+   ],
+   "method": "LZMS",
+   "lzms": true,
+   "solid": 1
+  },
+  {
+   "file": "solid-lzx.wim",
+   "images": [
+    "tree"
+   ],
+   "method": "LZX",
+   "solid": 1
+  },
+  {
+   "file": "solid-xpress.wim",
+   "images": [
+    "tree"
+   ],
+   "method": "XPRESS",
+   "solid": 1
+  },
+  {
+   "file": "multi-solid.wim",
+   "images": [
+    "tree",
+    "extra"
+   ],
+   "method": "LZX",
+   "solid": 2
+  },
+  {
+   "file": "multi-solid.esd",
+   "images": [
+    "tree",
+    "extra"
+   ],
+   "method": "LZMS",
+   "lzms": true,
+   "solid": 2
+  },
+  {
+   "file": "multi.wim",
+   "images": [
+    "tree",
+    "sub",
+    "empty"
+   ],
+   "method": "LZX"
+  },
+  {
+   "file": "empty-image.wim",
+   "images": [
+    "empty"
+   ],
+   "method": "LZX"
+  },
+  {
+   "file": "no-images.wim",
+   "images": [],
+   "method": "Store"
+  },
+  {
+   "file": "check.wim",
+   "images": [
+    "small"
+   ],
+   "method": "XPRESS",
+   "integrity": true
+  },
+  {
+   "file": "none.wim",
+   "images": [
+    "small"
+   ],
+   "method": "Store"
+  },
+  {
+   "file": "split.swm",
+   "images": [
+    "tree"
+   ],
+   "method": "LZX",
+   "parts": 2
+  },
+  {
+   "file": "split2.swm",
+   "images": [
+    "tree"
+   ],
+   "method": "LZX",
+   "parts": 2
+  }
+ ]
+}
