@@ -731,6 +731,8 @@ impl FsSink {
 /// What renaming a written file over `target` needs first: Windows won't rename over a read-only
 /// file, and a file this job wrote under another case (`replaces`) goes.
 pub(super) fn before_rename(target: &Path, replaces: Option<&Path>) -> Result<()> {
+    #[cfg(not(windows))]
+    let _ = target;
     #[cfg(windows)]
     if let Ok(m) = fs::symlink_metadata(target)
         && m.permissions().readonly()

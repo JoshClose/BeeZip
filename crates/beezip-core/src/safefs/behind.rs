@@ -48,6 +48,7 @@ pub struct Meta {
     pub modified: Option<SystemTime>,
     #[cfg_attr(not(unix), allow(dead_code))]
     pub unix_mode: Option<u32>,
+    #[cfg_attr(not(windows), allow(dead_code))]
     pub readonly: bool,
 }
 
