@@ -23,8 +23,6 @@
 //!   first ([`ArchiveWriter::expect`]), so it reserves the header and the folder and file tables
 //!   up front, writes the data, and fills the tables in at the end, in the order the files came.
 
-mod lzx;
-
 use std::{
     borrow::BorrowMut,
     collections::{BTreeMap, HashMap, HashSet, VecDeque},
@@ -1056,7 +1054,7 @@ enum Decoder {
         /// The folder's last 32 KiB: the next block's dictionary.
         history: Vec<u8>,
     },
-    Lzx(Box<lzx::Lzx>),
+    Lzx(Box<super::lzx::Lzx>),
 }
 
 impl Decoder {
@@ -1080,9 +1078,9 @@ impl Decoder {
             }
             METHOD_LZX => {
                 let bits = (folder.kind >> 8) & 0x1F;
-                Self::Lzx(Box::new(lzx::Lzx::new(u32::from(bits)).map_err(|_| {
-                    bad(format!("an LZX window of {bits} bits (15–21 are valid)"))
-                })?))
+                Self::Lzx(Box::new(super::lzx::Lzx::new(u32::from(bits)).map_err(
+                    |_| bad(format!("an LZX window of {bits} bits (15–21 are valid)")),
+                )?))
             }
             n => {
                 return Err(Error::unsupported_format(format!(
@@ -2940,7 +2938,7 @@ mod tests {
     #[test]
     fn a_repeated_offset_past_the_window_is_caught() {
         // A sane offset decodes: "A", then "A" again from one back... at offset 1, twice.
-        let mut lzx = lzx::Lzx::new(15).unwrap();
+        let mut lzx = crate::format::lzx::Lzx::new(15).unwrap();
         let mut out = Vec::new();
         lzx.decode_frame(&lzx_repeat(1), 3, &mut out).unwrap();
         assert_eq!(out, b"AAA");

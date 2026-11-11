@@ -1,5 +1,5 @@
-//! LZX decoding as cabinets use it (MS-CAB's LZX, the LZXD of MS-PATCH without reference data),
-//! BeeZip's own (docs/M7.md §8.4). It replaced lzxd 0.2.7, which decoded at about a quarter of
+//! LZX decoding as cabinets, WIM images and WOF files use it (MS-CAB's LZX, the LZXD of MS-PATCH
+//! without reference data), BeeZip's own (docs/M7.md §8.4, docs/M8.md §4.3). It replaced lzxd 0.2.7, which decoded at about a quarter of
 //! 7-Zip's speed and needed three workarounds (`docs/UPSTREAM.md`).
 //!
 //! - **One frame per call:** each cabinet data block is a frame of 32 KiB of output (the last
@@ -18,6 +18,12 @@
 //!   (docs/M8.md §6.1).
 //! - **E8 translation** (x86 call addresses) is undone on each frame's output after it's copied
 //!   out of the window, as the spec, libmspack and 7-Zip do.
+//! - **WIM and WOF** ([`Lzx::new_wim`]) compress each chunk on its own, as one frame as long as
+//!   the chunk (32 KiB in WOF, up to 2 MiB in a WIM), each with a fresh state: no E8 header
+//!   (translation is always on, with a size of 12,000,000), and a block's size is one bit for
+//!   32,768, else 16 bits, or 24 past a 32 KiB window. A match may not run past the chunk's end.
+//!   Found by trying the variants on Microsoft's boot.wim, DISM's and wimlib's WIMs and
+//!   Windows-written WOF files (docs/M8.md §4.3).
 //!
 //! - **The window is a ring of twice the window's size plus [`SLACK`] bytes** (docs/M8.md §6.1),
 //!   so a match is copied 16 and then 8 bytes at a time and may run over into bytes no match can
@@ -389,6 +395,8 @@ pub struct Lzx {
     e8: Option<i32>,
     /// Blocks read, for the benchmark.
     blocks: u64,
+    /// A WIM or WOF chunk ([`Lzx::new_wim`]).
+    wim: bool,
 }
 
 impl Lzx {
@@ -426,24 +434,36 @@ impl Lzx {
             started: false,
             e8: None,
             blocks: 0,
+            wim: false,
         })
     }
 
-    /// Decodes one frame from `input` (one data block's bytes) into `out`, which gets `out_len`
-    /// bytes (at most [`FRAME`]).
+    /// One WIM or WOF chunk's stream, with a window of 2^`bits` bytes (15 for WOF's 32 KiB
+    /// chunks), decoded as one frame of up to the window's size.
+    pub fn new_wim(bits: u32) -> Result<Self, Error> {
+        Ok(Self {
+            wim: true,
+            ..Self::new(bits)?
+        })
+    }
+
+    /// Decodes one frame from `input` (one data block's bytes, or a WIM chunk's) into `out`, which
+    /// gets `out_len` bytes (at most [`FRAME`], or the window for a WIM chunk).
     pub fn decode_frame(
         &mut self,
         input: &[u8],
         out_len: usize,
         out: &mut Vec<u8>,
     ) -> Result<(), Error> {
-        if out_len > FRAME {
-            return Err("an LZX frame of more than 32 KiB");
+        if out_len > if self.wim { self.wsize } else { FRAME } {
+            return Err("an LZX frame longer than its window");
         }
         let mut bits = Bits::new(input);
         if !self.started {
             self.started = true;
-            if bits.read(1) == 1 {
+            if self.wim {
+                self.e8 = Some(12_000_000);
+            } else if bits.read(1) == 1 {
                 let hi = bits.read(16);
                 let lo = bits.read(16);
                 self.e8 = Some(((hi << 16) | lo) as i32);
@@ -488,9 +508,17 @@ impl Lzx {
         }
         self.blocks += 1;
         let kind = bits.read(3);
-        let hi = bits.read(16);
-        let lo = bits.read(8);
-        let size = (hi << 8) | lo;
+        let size = if !self.wim {
+            let hi = bits.read(16);
+            (hi << 8) | bits.read(8)
+        } else if bits.read(1) == 1 {
+            32_768
+        } else if self.wsize > FRAME {
+            let hi = bits.read(8);
+            (hi << 16) | bits.read(16)
+        } else {
+            bits.read(16)
+        };
         if size == 0 {
             return Err("an empty LZX block");
         }
