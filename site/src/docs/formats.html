@@ -42,8 +42,17 @@
   <li><strong>What BeeZip doesn't read itself</strong> in a volume, and MSI patches, transforms and merge modules, go to 7-Zip when it's installed, and Info says so.</li>
 </ul>
 
+<h2 id="wim">WIM and ESD images</h2>
+<p>BeeZip reads Windows' install images itself: WIM, ESD and split WIMs (<code>.swm</code>, opened from any part), stored or compressed with XPRESS, LZX or LZMS, solid or not. LZMS, which ESD images use, is decoded by Windows' own decoder, so on Linux and macOS an ESD goes to 7-Zip.</p>
+<ul>
+  <li><strong>Images</strong> are folders <code>1/</code>, <code>2/</code>, as 7-Zip names them; an image file with one image lists it at the top. Info gives the images' names.</li>
+  <li><strong>Every file is checked</strong> against the SHA-1 the image records as it's read, and testing also checks the image's integrity table when it has one.</li>
+  <li><strong>Hard links</strong> are listed as links, alternate streams as <code>file:stream</code>, and links and junctions as NTFS's are. A link Windows rewrote when it captured the image (a target inside the captured folder) points inside the image again.</li>
+  <li><strong>Large images extract in parallel:</strong> chunks decode on every core, as <code>[extract] threads</code> allows.</li>
+</ul>
+
 <h2 id="through-7-zip">Formats read through 7-Zip</h2>
-<p>With <a href="https://7-zip.org">7-Zip</a> 25.01 or newer installed, BeeZip also lists, tests and extracts the formats marked "Through 7-Zip" above: WIM and ESD images, CHM files, NSIS installers and CramFS images.</p>
+<p>With <a href="https://7-zip.org">7-Zip</a> 25.01 or newer installed, BeeZip also lists, tests and extracts the formats marked "Through 7-Zip" above: CHM files, NSIS installers and CramFS images, and on Linux and macOS ESD images and WIMs compressed with LZMS.</p>
 <ul>
   <li><strong>7-Zip only reads:</strong> every file streams from it through BeeZip's own extraction, with the same safety rules as every other format.</li>
   <li><strong>An MSI patch or merge module</strong> shows its files under the installer's internal names, as 7-Zip does.</li>
