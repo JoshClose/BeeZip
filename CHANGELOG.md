@@ -9,6 +9,24 @@ using BeeZip will notice. Leave the date out: the Releases page dates each versi
 
 ## 0.3.0
 
+### Virtual disks without 7-Zip
+
+- **BeeZip reads VHD, VHDX, VMDK, QCOW2 and VDI itself,** with the disks and file systems in
+  them, so they open without 7-Zip: `vhdx › gpt › ntfs`. A disk of several partitions shows
+  each one BeeZip reads as a folder, where 7-Zip gave partition images to extract and open in
+  turn.
+- **Differencing disks and snapshots open with their parents,** found by the path the disk
+  records, by name beside it, or by its full path on a local drive, and checked to be the disk
+  the child was made from. 7-Zip follows only a VHDX parent in the same folder. A network path
+  in a disk is never opened.
+- **A VHDX that Hyper-V left with writes pending** shows its latest contents: the log is applied
+  in memory, never to the file. 7-Zip shows the disk as it was before.
+- **More variants read:** qemu's stream-optimized VMDKs, QCOW2 with zstd or extended L2 entries,
+  VDIs with blocks other than 1 MiB, and VMDK descriptors with zero extents.
+- **On Windows, `.vmdk`, `.qcow2` and `.vdi` open in BeeZip** once it's installed; `.vhd` and
+  `.vhdx` stay with Windows, which mounts them. On Linux and macOS they stay with your virtual
+  machine apps.
+
 ### Fixes
 
 - **An NTFS volume Windows formatted extracts whole.** BeeZip 0.2.0 took the empty files

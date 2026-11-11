@@ -374,6 +374,16 @@ CI's Windows runner shows which 7-Zip it has; BeeZip needs 25.01 or newer.
   - an LZMS WIM is decoded on one thread;
   - an MSI whose cabinet folder continues into a second embedded cabinet lists only its streams
     (`cab/span/span.msi`).
+- Seen while building M8 PR 1 (docs/M8.md §16), repros committed:
+  - **a QCOW2 with incompatible-feature bits it doesn't know opens, and `7z t` says "Everything is
+    Ok",** where qemu's qcow2.txt says to refuse it
+    (`tests/fixtures/thirdparty/vdisk/q-refuse-bit.qcow2`);
+  - a VHD child's `..\` W2ru locator isn't followed either ("Missing volume :
+    ..\parents\fe.vhd", `tests/fixtures/thirdparty/vhd/kids/fe-1.vhd`); when a VHD's parent fails,
+    it names the parent's W2ku absolute path ("Can't open parent VHD file :
+    C:\BeeZip\fixtures\vhd\kids\fe-1.vhd" for `kids/fe-2.vhd`), more sign that it would open a
+    UNC path a crafted VHD names (still not verified);
+  - the extended-L2 wrong data above shows with 16 KiB clusters too.
 
 ### Windows 11 (build 26300)
 
@@ -401,6 +411,10 @@ CI's Windows runner shows which 7-Zip it has; BeeZip needs 25.01 or newer.
     once crashes. BeeZip checks WIM's SHA-1s and keeps one decoder per worker (M8 §5.3).
   - MS-XCA's decoder pseudocode lacks the 32-bit match length its encoder pseudocode and
     Windows' compressor write.
+- Seen while building M8 PR 1, for anyone making test disks: `New-VHD` refuses disks under 3 MB,
+  though `Convert-VHD` writes smaller ones; `Convert-VHD` of a 4 KiB-sector VHDX to `.vhd` fails
+  with "The parameter is incorrect (0x80070057)", which doesn't say why; a differencing VHDX
+  child gets its parent's Virtual Disk ID.
 
 ## Fixed upstream
 
