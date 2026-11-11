@@ -19,6 +19,7 @@ pub mod msi;
 pub mod pbzx;
 pub mod pkg;
 pub mod rar;
+pub mod reparse;
 pub mod rpm;
 pub mod sevenz;
 pub mod sevenz_header;
