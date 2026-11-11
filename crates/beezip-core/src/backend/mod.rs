@@ -182,13 +182,19 @@ impl External {
         )
     }
 
-    /// BeeZip reads it with its own code (docs/M7.md): the file systems, partitioned disks and
-    /// MSI installers. 7-Zip still reads what those readers don't support, when it's installed
-    /// (an MSI patch, an NTFS volume of clusters over 64 KiB); the rest are 7-Zip's alone.
+    /// BeeZip reads it with its own code (docs/M7.md, docs/M8.md): the file systems,
+    /// partitioned disks, virtual disks and MSI installers. 7-Zip still reads what those readers
+    /// don't support, when it's installed (an MSI patch, an NTFS volume of clusters over 64 KiB,
+    /// a QCOW version 1); the rest are 7-Zip's alone.
     pub const fn native(self) -> bool {
         matches!(
             self,
             Self::Msi
+                | Self::Vhd
+                | Self::Vhdx
+                | Self::Vmdk
+                | Self::Qcow2
+                | Self::Vdi
                 | Self::Fat
                 | Self::Ntfs
                 | Self::Ext

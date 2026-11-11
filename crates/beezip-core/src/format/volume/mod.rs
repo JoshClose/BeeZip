@@ -20,12 +20,20 @@
 //! - **What a reader doesn't support** (`UnsupportedOperation`) in a bare volume or a disk's only
 //!   partition fails the open, so that `source::open` can hand the file to 7-Zip when it's
 //!   installed (docs/M7.md decision 7). A damaged volume never goes to 7-Zip.
+//! - **A virtual disk** ([`vdisk`]: VHD, VHDX, VMDK, QCOW2, VDI) is one more level, opened first
+//!   (docs/M8.md §2): inside it, a bare file system opens straight through, a partition table as
+//!   above, and anything else is listed as one raw file, `<file stem>.img`, as 7-Zip names it.
+//!   Info gives the levels, `vhdx > gpt > ntfs`. The ratio limit reads such a disk as it would a
+//!   raw image, counting the disk's bytes rather than its files' (holes and compressed grains read
+//!   little of them); a raw item is claim-checked against what the disk's files hold for it; and
+//!   one disk yields at most `max_ratio` times its files' size in a pass (docs/M8.md §3.7).
 
 pub mod apple;
 pub mod ext;
 pub mod fat;
 pub mod ntfs;
 pub mod part;
+pub mod vdisk;
 
 use std::{
     borrow::Cow,
@@ -42,8 +50,8 @@ use super::{
 use crate::{
     Ctx, Error, ErrorKind, Meter, MeteredCtx, Result,
     backend::{External, ExternalInfo, LevelProperty},
-    io::{CountingReader, copy, read_error},
-    limits::Limits,
+    io::{Counter, CountingReader, copy, read_error},
+    limits::{Guarded, Limits, RatioGuard},
     names::NameDecoding,
     safefs::Partial,
     source::Source,
@@ -228,6 +236,68 @@ impl BlockDevice for Device {
     }
 }
 
+/// A virtual disk as its device reads it: every byte counts toward the ratio limit's input, and
+/// toward the disk-wide cap of the current pass (docs/M8.md §3.7).
+struct Metered {
+    disk: vdisk::VirtualDisk,
+    /// Bytes of the disk read: what each entry's ratio is measured against.
+    read: Counter,
+    /// Bytes of the disk read in this pass: an extraction, or every `open_entry` together.
+    used: Counter,
+    /// `max_ratio` times the disk's files' size, plus the grace.
+    cap: Option<u64>,
+}
+
+impl Read for Metered {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        let n = self.disk.read(buf)?;
+        self.read.add(n as u64);
+        self.used.add(n as u64);
+        if let Some(cap) = self.cap
+            && self.used.get() > cap
+        {
+            return Err(Error::limit(format!(
+                "the {} gives more than {cap} bytes in one go, past the ratio limit for its \
+                 files' {} bytes (limit `max_ratio`)",
+                self.disk.format().display_name(),
+                self.disk.file_bytes()
+            ))
+            .into_io());
+        }
+        Ok(n)
+    }
+}
+
+impl Seek for Metered {
+    fn seek(&mut self, pos: SeekFrom) -> io::Result<u64> {
+        self.disk.seek(pos)
+    }
+}
+
+/// A [`Metered`] disk shared by its device and the reader, which asks it what its files hold.
+#[derive(Clone)]
+struct SharedDisk(Arc<Mutex<Metered>>);
+
+impl SharedDisk {
+    fn lock(&self) -> io::Result<std::sync::MutexGuard<'_, Metered>> {
+        self.0
+            .lock()
+            .map_err(|_| io::Error::other("a reader of this disk failed earlier"))
+    }
+}
+
+impl Read for SharedDisk {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        self.lock()?.read(buf)
+    }
+}
+
+impl Seek for SharedDisk {
+    fn seek(&mut self, pos: SeekFrom) -> io::Result<u64> {
+        self.lock()?.seek(pos)
+    }
+}
+
 /// The image to read at offsets, counted: the file, or the stream spooled out of its codecs.
 pub fn open_input(
     source: &Source,
@@ -389,6 +459,13 @@ enum Item {
 pub struct DiskReader {
     kind: External,
     source: Source,
+    /// What each entry's ratio is measured against: the image's bytes read, or a virtual
+    /// disk's.
+    ratio: Counter,
+    /// The bytes progress runs to: the image's, or every file of a virtual disk.
+    size: u64,
+    /// A virtual disk, read through its device.
+    vdisk: Option<SharedDisk>,
     parts: Vec<Part>,
     entries: Vec<Entry>,
     items: Vec<Item>,
@@ -404,13 +481,15 @@ impl DiskReader {
     /// Opens the image `kind` says it is: a disk or a bare file system.
     pub fn open(source: Source, kind: External, cx: &mut dyn Ctx) -> Result<Self> {
         let (input, len, spool) = open_input(&source, cx)?;
-        let dev = Device::new(input, len);
         let opts = VolumeOptions {
             limits: source.limits.clone(),
             names: source.names,
         };
         let mut r = Self {
             kind,
+            ratio: source.counter.clone(),
+            size: source.size,
+            vdisk: None,
             source,
             parts: Vec::new(),
             entries: Vec::new(),
@@ -422,18 +501,131 @@ impl DiskReader {
             _spool: spool,
         };
         match kind {
-            External::Gpt | External::Mbr => r.disk(dev, &opts, cx)?,
+            External::Gpt | External::Mbr => {
+                let dev = Device::new(input, len);
+                let table = part::read(&dev, cx)?;
+                r.disk(table, dev, &opts, cx)?;
+            }
+            External::Vhd | External::Vhdx | External::Vmdk | External::Qcow2 | External::Vdi => {
+                r.virtual_disk(kind, input, len, &opts, cx)?;
+            }
             _ => {
-                let fs = open_fs(kind, dev, &opts, cx)?;
+                let fs = open_fs(kind, Device::new(input, len), &opts, cx)?;
                 r.add_fs(fs, None, cx)?;
             }
         }
         Ok(r)
     }
 
+    /// A virtual disk, then what's inside it (see the module's notes).
+    fn virtual_disk(
+        &mut self,
+        kind: External,
+        input: Box<dyn Input>,
+        len: u64,
+        opts: &VolumeOptions,
+        cx: &mut dyn Ctx,
+    ) -> Result<()> {
+        // A disk spooled out of a codec looks for its parents beside the original.
+        let origin = vdisk::Origin::of(&self.source.path);
+        let mut files = vdisk::Files::new(&origin, self.source.counter.clone());
+        let disk = vdisk::open(kind, vdisk::Handle::new(input, len), origin, &mut files)?;
+        let level = kind.name().to_owned();
+        for (name, value) in disk.properties() {
+            self.properties.push(LevelProperty {
+                level: level.clone(),
+                name: name.to_owned(),
+                value,
+            });
+        }
+        self.notes.extend(disk.notes());
+        self.levels.push(level);
+        let files_size = disk.file_bytes();
+        self.size = files_size.max(self.source.size);
+        let (disk_len, sector) = (disk.len(), disk.sector());
+        let limits = &self.source.limits;
+        let cap = limits.max_ratio.map(|max| {
+            max.saturating_mul(files_size)
+                .saturating_add(limits.ratio_grace)
+        });
+        let read = Counter::new();
+        let shared = SharedDisk(Arc::new(Mutex::new(Metered {
+            disk,
+            read: read.clone(),
+            used: Counter::new(),
+            cap,
+        })));
+        self.ratio = read;
+        self.vdisk = Some(shared.clone());
+        let dev = Device::new(Box::new(shared), disk_len).with_sector(sector);
+        // A bare file system first: FAT's and NTFS's boot sectors end as an MBR does.
+        if let Some(fs_kind) = identify(&dev) {
+            match open_fs(fs_kind, dev.clone(), opts, cx) {
+                Ok(fs) => return self.add_fs(fs, None, cx),
+                Err(e) if !matches!(e.kind, ErrorKind::Corrupt | ErrorKind::Io) => return Err(e),
+                Err(e) => cx.warn(format!(
+                    "the {} in the disk can't be read ({}); the disk is listed as a file",
+                    fs_kind.display_name(),
+                    e.message
+                )),
+            }
+        } else {
+            match part::read(&dev, cx) {
+                Ok(table) => return self.disk(table, dev, opts, cx),
+                Err(e) if e.kind != ErrorKind::Corrupt => return Err(e),
+                Err(_) => {}
+            }
+        }
+        let stem = self.stem();
+        self.raw(format!("{stem}.img"), dev, disk_len)
+    }
+
+    /// The image's file name without its extension, nor its codecs' (`disk` for `disk.vhdx.gz`).
+    fn stem(&self) -> String {
+        let mut p = self.source.path.clone();
+        for _ in &self.source.codecs {
+            p.set_extension("");
+        }
+        p.file_stem()
+            .map(|s| s.to_string_lossy().into_owned())
+            .unwrap_or_else(|| "disk".to_owned())
+    }
+
+    /// Bytes of `start..start + len` of `win` its virtual disk's files hold; of an image, what
+    /// of it the file has.
+    fn held(&self, win: &Device, start: u64, len: u64) -> u64 {
+        match &self.vdisk {
+            Some(d) => d
+                .lock()
+                .map_or(len, |m| m.disk.held_in(win.base() + start, len)),
+            None => win.real_len(),
+        }
+    }
+
+    /// `win` listed as one raw file `name` of `len` bytes.
+    fn raw(&mut self, name: String, win: Device, len: u64) -> Result<()> {
+        self.source
+            .limits
+            .check_entries(self.entries.len() as u64 + 1)?;
+        let mut e = Entry::new(self.entries.len(), name, EntryKind::File);
+        e.size = Some(len);
+        e.packed_size = Some(self.held(&win, 0, len));
+        self.entries.push(e);
+        self.items.push(Item::Raw {
+            part: self.parts.len(),
+        });
+        self.parts.push(Part::Raw(win));
+        Ok(())
+    }
+
     /// A partitioned disk's partitions (see the module's notes).
-    fn disk(&mut self, dev: Device, opts: &VolumeOptions, cx: &mut dyn Ctx) -> Result<()> {
-        let table = part::read(&dev, cx)?;
+    fn disk(
+        &mut self,
+        table: part::Table,
+        dev: Device,
+        opts: &VolumeOptions,
+        cx: &mut dyn Ctx,
+    ) -> Result<()> {
         self.levels.push(table.scheme.name().to_owned());
         let found: Vec<(part::Partition, Device, Option<External>)> = table
             .partitions
@@ -489,19 +681,23 @@ impl DiskReader {
                 }
             }
             let name = format!("{}.{}", p.name, part::extension(fs_kind));
-            self.source
-                .limits
-                .check_entries(self.entries.len() as u64 + 1)?;
-            let mut e = Entry::new(self.entries.len(), name, EntryKind::File);
-            e.size = Some(p.len);
-            e.packed_size = Some(win.real_len());
-            self.entries.push(e);
-            self.items.push(Item::Raw {
-                part: self.parts.len(),
-            });
-            self.parts.push(Part::Raw(win));
+            self.raw(name, win, p.len)?;
         }
         Ok(())
+    }
+
+    /// The ratio check of an entry's data, against [`DiskReader::ratio`].
+    fn ratio_guard(&self) -> RatioGuard {
+        RatioGuard::new(&self.ratio, &self.source.limits)
+    }
+
+    /// Starts a pass over a virtual disk: an extraction's yield is capped on its own.
+    fn new_pass(&self) {
+        if let Some(d) = &self.vdisk
+            && let Ok(m) = d.lock()
+        {
+            m.used.set(0);
+        }
     }
 
     /// `fs`'s entries, under the folder `folder` when it's a partition of several.
@@ -627,7 +823,8 @@ pub(crate) fn unreadable(
 }
 
 /// The data of entry `idx`, checked against the ratio limit and held to its size. A hard link
-/// has its file's data only when `links` says so: `open_entry`'s, not `extract`'s.
+/// has its file's data only when `links` says so: `open_entry`'s, not `extract`'s. A raw item
+/// is claim-checked too with `claim_raw`: a virtual disk's, whose holes cost nothing to read.
 fn open_data<'a>(
     parts: &'a mut [Part],
     entries: &[Entry],
@@ -635,6 +832,7 @@ fn open_data<'a>(
     limits: &Limits,
     idx: usize,
     links: bool,
+    claim_raw: bool,
 ) -> Result<Box<dyn Read + 'a>> {
     let (Some(entry), Some(item)) = (entries.get(idx), items.get(idx)) else {
         return Err(Error::new(ErrorKind::NotFound, format!("no entry {idx}")));
@@ -643,7 +841,7 @@ fn open_data<'a>(
     match *item {
         Item::None => Ok(Box::new(io::empty())),
         Item::Link { .. } if !links => Ok(Box::new(io::empty())),
-        Item::Link { file } => open_data(parts, entries, items, limits, file, false),
+        Item::Link { file } => open_data(parts, entries, items, limits, file, false, claim_raw),
         Item::Fs { part, id } => {
             check_claim(entry, limits)?;
             let Some(Part::Fs(fs)) = parts.get_mut(part) else {
@@ -652,6 +850,9 @@ fn open_data<'a>(
             Ok(Box::new(Exact::new(fs.open(id)?, size, &entry.path)))
         }
         Item::Raw { part } => {
+            if claim_raw {
+                check_claim(entry, limits)?;
+            }
             let Some(Part::Raw(dev)) = parts.get(part) else {
                 return Err(Error::corrupt("an entry without its partition"));
             };
@@ -702,14 +903,22 @@ impl ArchiveReader for DiskReader {
         sink: &mut dyn EntrySink,
         cx: &mut dyn Ctx,
     ) -> Result<()> {
-        // A sparse file that claims too much is refused before anything is written.
+        // A sparse file, or a virtual disk's raw item, that claims too much is refused before
+        // anything is written.
+        let claim_raw = self.vdisk.is_some();
         for (e, item) in self.entries.iter().zip(&self.items) {
-            if matches!(item, Item::Fs { .. }) && sel.matches(e) {
+            let claimed = match item {
+                Item::Fs { .. } => true,
+                Item::Raw { .. } => claim_raw,
+                _ => false,
+            };
+            if claimed && sel.matches(e) {
                 check_claim(e, &self.source.limits)?;
             }
         }
         self.source.counter.set(0);
-        let mut meter = Meter::new(self.source.counter.clone(), Some(self.source.size));
+        self.new_pass();
+        let mut meter = Meter::new(self.source.counter.clone(), Some(self.size));
         meter.entries_total = Some(self.entries.len() as u64);
         let mut done = 0u64;
         for idx in 0..self.entries.len() {
@@ -728,6 +937,7 @@ impl ArchiveReader for DiskReader {
                 &self.source.limits,
                 idx,
                 false,
+                claim_raw,
             ) {
                 Ok(d) => d,
                 Err(e) => match unreadable(e, &self.entries[idx], sink, &mut mcx)? {
@@ -738,7 +948,8 @@ impl ArchiveReader for DiskReader {
                     }
                 },
             };
-            let mut data = self.source.guard(data);
+            let ratio = RatioGuard::new(&self.ratio, &self.source.limits);
+            let mut data = Guarded::new(data, ratio, self.source.budget.clone());
             sink.entry(&self.entries[idx], &mut data, &mut mcx)?;
             done += 1;
         }
@@ -750,6 +961,7 @@ impl ArchiveReader for DiskReader {
 
     fn open_entry(&mut self, id: usize, _: &mut dyn Ctx) -> Result<Box<dyn Read + '_>> {
         self.source.counter.set(0);
+        let ratio = self.ratio_guard();
         let data = open_data(
             &mut self.parts,
             &self.entries,
@@ -757,7 +969,12 @@ impl ArchiveReader for DiskReader {
             &self.source.limits,
             id,
             true,
+            self.vdisk.is_some(),
         )?;
-        Ok(Box::new(self.source.guard(data)))
+        Ok(Box::new(Guarded::new(
+            data,
+            ratio,
+            self.source.budget.clone(),
+        )))
     }
 }

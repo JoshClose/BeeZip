@@ -117,8 +117,40 @@ pub fn seek_penalty(_: &Path) -> Option<bool> {
     None
 }
 
+/// Whether the drive `path` (`C:\…`) is on is local: removable, fixed, a CD-ROM or a RAM disk,
+/// not a mapped network drive. A virtual disk's parent is opened by its absolute path only on
+/// one (docs/M8.md §3.6), since opening a network path sends the user's credentials to it.
+#[cfg(windows)]
+#[allow(unsafe_code)]
+pub fn is_local_drive(path: &Path) -> bool {
+    use windows_sys::Win32::Storage::FileSystem::GetDriveTypeW;
+
+    let s = path.to_string_lossy();
+    let b = s.as_bytes();
+    if b.len() < 3 || !b[0].is_ascii_alphabetic() || b[1] != b':' || !matches!(b[2], b'\\' | b'/') {
+        return false;
+    }
+    let root: Vec<u16> = format!("{}:\\", &s[..1])
+        .encode_utf16()
+        .chain([0])
+        .collect();
+    // SAFETY: the root is NUL-terminated and outlives the call.
+    let t = unsafe { GetDriveTypeW(root.as_ptr()) };
+    // DRIVE_REMOVABLE 2, DRIVE_FIXED 3, DRIVE_CDROM 5, DRIVE_RAMDISK 6; DRIVE_REMOTE is 4.
+    matches!(t, 2 | 3 | 5 | 6)
+}
+
 #[cfg(test)]
 mod tests {
+    #[cfg(windows)]
+    #[test]
+    fn the_temp_folder_is_on_a_local_drive() {
+        assert!(super::is_local_drive(&std::env::temp_dir()));
+        assert!(!super::is_local_drive(std::path::Path::new(
+            r"\\server\share\x"
+        )));
+    }
+
     #[test]
     fn asking_never_fails() {
         // A local SSD answers Some(false) (this machine's NVMe drive does); the CI runners'
