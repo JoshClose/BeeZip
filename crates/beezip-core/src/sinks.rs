@@ -65,6 +65,8 @@ fn fatal(e: &Error) -> bool {
 #[derive(Debug, Default)]
 pub struct TestSink {
     pub report: TestReport,
+    /// The entries that passed, for [`EntrySink::same_as`].
+    passed: std::collections::HashSet<usize>,
 }
 
 impl EntrySink for TestSink {
@@ -73,6 +75,7 @@ impl EntrySink for TestSink {
             Ok(n) => {
                 self.report.entries += 1;
                 self.report.bytes += n;
+                self.passed.insert(entry.id);
                 Ok(())
             }
             Err(e) if fatal(&e) => Err(e),
@@ -82,6 +85,23 @@ impl EntrySink for TestSink {
                 Ok(())
             }
         }
+    }
+
+    fn same_as(
+        &mut self,
+        entry: &Entry,
+        earlier: &Entry,
+        _: bool,
+        cx: &mut dyn Ctx,
+    ) -> Result<bool> {
+        if !self.passed.contains(&earlier.id) {
+            return Ok(false);
+        }
+        cx.check()?;
+        self.report.entries += 1;
+        self.report.bytes += earlier.size.unwrap_or(0);
+        self.passed.insert(entry.id);
+        Ok(true)
     }
 }
 

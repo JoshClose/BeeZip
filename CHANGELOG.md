@@ -27,6 +27,18 @@ using BeeZip will notice. Leave the date out: the Releases page dates each versi
   `.vhdx` stay with Windows, which mounts them. On Linux and macOS they stay with your virtual
   machine apps.
 
+### Installers and cabinets
+
+- **MSI installers and cabinets extract about twice as fast,** with a faster LZX decoder:
+  LLVM's installer in 6.7 s where 0.2.0 took 13 s (7-Zip: 4.7 s), and QGIS's 35,800 files in
+  21 s where 0.2.0 took 41 s (7-Zip: 18 s). Testing one takes about half as long.
+- **Files an installer holds twice are copied, not decoded again,** as LLVM's `clang.exe` and
+  `clang++.exe` are, and testing passes the copy without reading it twice.
+- **Small files are written on other threads** while the next ones decode, as `[extract]
+  threads` allows; and an installer's file hashes are checked on a thread of their own.
+- **An MSI whose cabinet runs on into a second embedded cabinet** extracts whole. 0.2.0 failed
+  the files that spanned the two.
+
 ### Fixes
 
 - **An NTFS volume Windows formatted extracts whole.** BeeZip 0.2.0 took the empty files

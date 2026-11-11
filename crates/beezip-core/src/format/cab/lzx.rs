@@ -19,6 +19,13 @@
 //! - **E8 translation** (x86 call addresses) is undone on each frame's output after it's copied
 //!   out of the window, as the spec, libmspack and 7-Zip do.
 //!
+//! - **The window is a ring of twice the window's size plus [`SLACK`] bytes** (docs/M8.md §6.1),
+//!   so a match is copied 16 and then 8 bytes at a time and may run over into bytes no match can
+//!   reach yet, and the hot loop checks one bound: the nearest of the block's end, the frame's
+//!   end and the ring's end. A two-literal table (`pairs`) decodes two short literal codes in one
+//!   lookup. About 1.45 times as fast as BeeZip 0.2.0's decoder, for 2 MiB more memory with a
+//!   21-bit window.
+//!
 //! Nothing here may panic, whatever the bytes: every index is bounded.
 
 /// The bits the fast table decodes at once.
@@ -88,7 +95,7 @@ impl<'a> Bits<'a> {
     /// Fills the buffer to more than 48 bits. Away from the data's end it loads the next four
     /// words at once and counts the whole ones that fit; the bits of the next word that spill
     /// below them are its own, so ORing that word in again later changes nothing.
-    #[inline]
+    #[inline(always)]
     fn refill(&mut self) {
         if self.n > 48 {
             return;
@@ -101,6 +108,13 @@ impl<'a> Bits<'a> {
             self.pos += words as usize * 2;
             return;
         }
+        self.refill_end();
+    }
+
+    /// [`Bits::refill`] within eight bytes of the data's end: a word at a time, zeros past it.
+    #[cold]
+    #[inline(never)]
+    fn refill_end(&mut self) {
         while self.n <= 48 {
             let w = match self.data.get(self.pos..self.pos + 2) {
                 Some(w) => {
@@ -127,6 +141,14 @@ impl<'a> Bits<'a> {
     fn skip(&mut self, k: u32) {
         self.buf <<= k;
         self.n -= k;
+    }
+
+    /// The next `k` bits, 0 to 32, which must be in the buffer.
+    #[inline(always)]
+    fn take(&mut self, k: u32) -> u32 {
+        let v = ((self.buf >> (63 - k)) >> 1) as u32;
+        self.skip(k);
+        v
     }
 
     /// The next `k` bits, up to 32.
@@ -204,6 +226,8 @@ impl Huff {
         self.count[0] = 0;
         let used: u32 = self.count.iter().map(|&c| u32::from(c)).sum();
         if used == 0 {
+            // No code reads as a short one: decode() finds it empty off its fast path.
+            self.table.fill(0);
             self.empty = true;
             return if may_be_empty {
                 Ok(())
@@ -260,14 +284,14 @@ impl Huff {
     /// The next symbol. The buffer must hold 16 bits.
     #[inline]
     fn decode(&self, bits: &mut Bits<'_>) -> Result<u16, Error> {
-        if self.empty {
-            return Err("a symbol from an empty LZX tree");
-        }
         let e = self.table[bits.peek(TABLE_BITS) as usize];
         let l = u32::from(e & 0x1F);
         if l != 0 {
             bits.skip(l);
             return Ok(e >> 5);
+        }
+        if self.empty {
+            return Err("a symbol from an empty LZX tree");
         }
         let code16 = bits.peek(16);
         let mut first: u32 = 0;
@@ -286,6 +310,39 @@ impl Huff {
     }
 }
 
+/// A pair-table entry's kind: none (a code longer than the table: decode it alone), one literal,
+/// two literals, or a match's main symbol.
+const PAIR_KIND: u32 = 0x60;
+const PAIR_ONE: u32 = 0x20;
+const PAIR_TWO: u32 = 0x40;
+const PAIR_MATCH: u32 = 0x60;
+
+/// The main tree's table as up to two symbols a lookup: bits 0-4 the bits all of them take, 5-6
+/// the kind, 8-15 and 16-23 two literals (or 8-19 a match's symbol), 24-28 the first literal's
+/// bits alone.
+fn pair_table(main: &Huff, pairs: &mut [u32; 1 << TABLE_BITS]) {
+    let mask = (1usize << TABLE_BITS) - 1;
+    for (i, p) in pairs.iter_mut().enumerate() {
+        let e1 = main.table[i];
+        let l1 = u32::from(e1 & 0x1F);
+        let s1 = u32::from(e1 >> 5);
+        *p = if l1 == 0 {
+            0
+        } else if s1 as usize >= NUM_CHARS {
+            PAIR_MATCH | (s1 << 8) | l1
+        } else {
+            let e2 = main.table[(i << l1) & mask];
+            let l2 = u32::from(e2 & 0x1F);
+            let s2 = u32::from(e2 >> 5);
+            if l2 != 0 && l1 + l2 <= TABLE_BITS && (s2 as usize) < NUM_CHARS {
+                PAIR_TWO | (l1 << 24) | (s2 << 16) | (s1 << 8) | (l1 + l2)
+            } else {
+                PAIR_ONE | (l1 << 24) | (s1 << 8) | l1
+            }
+        };
+    }
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Kind {
     /// Before the first block, and between blocks.
@@ -295,10 +352,19 @@ enum Kind {
     Uncompressed,
 }
 
+/// Bytes past the ring's end: a match that runs over it (at most 257 bytes) and a wide copy's
+/// overrun land there before they're moved to the ring's start.
+const SLACK: usize = 512;
+
 /// One folder's LZX stream.
 pub struct Lzx {
+    /// A ring of twice the window, and [`SLACK`]: a wide copy's overrun (up to 15 bytes past a
+    /// match) then only touches bytes further back than any offset reaches.
     window: Vec<u8>,
+    /// The ring's size, less one.
     mask: usize,
+    /// The window's size: the furthest a match may reach.
+    wsize: usize,
     slots: usize,
     /// Bytes decoded so far, from the stream's start.
     total: u64,
@@ -313,6 +379,8 @@ pub struct Lzx {
     main_lens: Vec<u8>,
     length_lens: [u8; LENGTHS],
     main: Huff,
+    /// The main tree's table read for up to two symbols at once ([`pair_table`]).
+    pairs: Box<[u32; 1 << TABLE_BITS]>,
     length: Huff,
     aligned: Huff,
     pretree: Huff,
@@ -338,8 +406,9 @@ impl Lzx {
         };
         let size = 1usize << bits;
         Ok(Self {
-            window: vec![0; size],
-            mask: size - 1,
+            window: vec![0; 2 * size + SLACK],
+            mask: 2 * size - 1,
+            wsize: size,
             slots,
             total: 0,
             frame_start: 0,
@@ -350,6 +419,7 @@ impl Lzx {
             main_lens: vec![0; NUM_CHARS + 8 * slots],
             length_lens: [0; LENGTHS],
             main: Huff::new(),
+            pairs: Box::new([0; 1 << TABLE_BITS]),
             length: Huff::new(),
             aligned: Huff::new(),
             pretree: Huff::new(),
@@ -438,6 +508,7 @@ impl Lzx {
                 self.read_lengths(bits, Which::Main, NUM_CHARS, main_len)?;
                 self.read_lengths(bits, Which::Length, 0, LENGTHS)?;
                 self.main.build(&self.main_lens, false)?;
+                pair_table(&self.main, &mut self.pairs);
                 self.length.build(&self.length_lens, true)?;
                 self.kind = if kind == 2 {
                     Kind::Aligned
@@ -526,7 +597,7 @@ impl Lzx {
         let mut done = 0;
         while done < n {
             let pos = (self.total as usize + done) & self.mask;
-            let room = (self.window.len() - pos).min(n - done);
+            let room = (self.mask + 1 - pos).min(n - done);
             self.window[pos..pos + room].copy_from_slice(&src[done..done + room]);
             done += room;
         }
@@ -536,19 +607,21 @@ impl Lzx {
         Ok(())
     }
 
-    /// Decodes a verbatim or aligned block's symbols, up to the frame's end. The state it changes
-    /// is kept in locals while it runs.
+    /// Decodes a verbatim or aligned block's symbols, up to the frame's end. The state it
+    /// changes is kept in locals while it runs. The hot loop works in
+    /// ring positions with one bound, the nearest of the block's end, the frame's end and the
+    /// ring's end; a match that runs past the ring's end is moved to its start afterwards.
+    #[inline(never)]
     fn decode_symbols(&mut self, bits: &mut Bits<'_>, end: u64) -> Result<(), Error> {
         let aligned = self.kind == Kind::Aligned;
         let slots = self.slots;
-        let mask = self.mask;
+        let ring = self.mask + 1;
+        let wsize = self.wsize;
         let mut b = *bits;
-        let mut total = self.total;
-        let mut remaining = self.remaining;
         let mut r = self.r;
-        let window = &mut self.window[..];
         let (main, length, aligned_tree) = (&self.main, &self.length, &self.aligned);
-        let wsize = window.len();
+        let pairs = &*self.pairs;
+        let window = &mut self.window[..];
         macro_rules! tri {
             ($e:expr) => {
                 match $e {
@@ -558,83 +631,109 @@ impl Lzx {
             };
         }
         let result = loop {
-            if remaining == 0 || total >= end {
+            if self.remaining == 0 || self.total >= end {
                 break Ok(());
             }
-            // Enough for a main and a length symbol.
-            if b.n < 32 {
-                b.refill();
-            }
-            let sym = usize::from(tri!(main.decode(&mut b)));
-            if sym < NUM_CHARS {
-                window[total as usize & mask] = sym as u8;
-                total += 1;
-                remaining -= 1;
-                // A second literal without refilling, while 16 bits are left.
-                if remaining != 0 && total < end && b.n >= 16 {
-                    let e = main.table[b.peek(TABLE_BITS) as usize];
-                    let l = u32::from(e & 0x1F);
-                    let s2 = usize::from(e >> 5);
-                    if l != 0 && s2 < NUM_CHARS {
-                        b.skip(l);
-                        window[total as usize & mask] = s2 as u8;
-                        total += 1;
-                        remaining -= 1;
-                    }
+            let start = self.total as usize & self.mask;
+            let room = u64::from(self.remaining)
+                .min(end - self.total)
+                .min((ring - start) as u64) as usize;
+            let stop = start + room;
+            let block_end = start + self.remaining as usize;
+            let frame_end = start + (end - self.total) as usize;
+            // Where a match must end: its block's end, and its frame's.
+            let limit = block_end.min(frame_end);
+            // The furthest back a match may reach, at `pos`: `pos + before`, at most the window.
+            let before = (self.total - start as u64).min(wsize as u64) as usize;
+            let mut pos = start;
+            let inner = loop {
+                if pos >= stop {
+                    break Ok(());
                 }
-                continue;
-            }
-            let m = sym - NUM_CHARS;
-            let slot = m >> 3;
-            let mut len = m & 7;
-            if len == 7 {
-                len += usize::from(tri!(length.decode(&mut b)));
-            }
-            len += MIN_MATCH;
-            let offset = match slot {
-                0 => r[0],
-                1 => {
-                    r.swap(0, 1);
+                // Enough for a main and a length symbol.
+                if b.n < 32 {
+                    b.refill();
+                }
+                let e = pairs[b.peek(TABLE_BITS) as usize];
+                let kind = e & PAIR_KIND;
+                if kind == PAIR_TWO && pos + 1 < stop {
+                    b.skip(e & 0x1F);
+                    window[pos] = (e >> 8) as u8;
+                    window[pos + 1] = (e >> 16) as u8;
+                    pos += 2;
+                    continue;
+                }
+                if kind != PAIR_MATCH && kind != 0 {
+                    b.skip((e >> 24) & 0x1F);
+                    window[pos] = (e >> 8) as u8;
+                    pos += 1;
+                    continue;
+                }
+                let sym = if kind == PAIR_MATCH {
+                    b.skip(e & 0x1F);
+                    ((e >> 8) & 0xFFF) as usize
+                } else {
+                    usize::from(tri!(main.decode(&mut b)))
+                };
+                if sym < NUM_CHARS {
+                    window[pos] = sym as u8;
+                    pos += 1;
+                    continue;
+                }
+                let m = sym - NUM_CHARS;
+                let slot = m >> 3;
+                let mut len = m & 7;
+                if len == 7 {
+                    len += usize::from(tri!(length.decode(&mut b)));
+                }
+                len += MIN_MATCH;
+                let offset = if slot < 3 {
+                    // A repeated offset, swapped to the front.
+                    r.swap(slot, 0);
                     r[0]
-                }
-                2 => {
-                    r.swap(0, 2);
-                    r[0]
-                }
-                _ => {
+                } else {
                     if slot >= slots {
                         break Err("an LZX position slot past the window");
                     }
+                    // More than 48 bits: at most 17 extra bits, or 14 and an aligned symbol of
+                    // at most 7.
                     b.refill();
                     let extra = extra_bits(slot);
                     let base = POSITION_BASE[slot] - 2;
                     let off = if aligned && extra >= 3 {
-                        let verbatim = b.read(extra - 3) << 3;
-                        b.refill();
+                        let verbatim = b.take(extra - 3) << 3;
                         base + verbatim + u32::from(tri!(aligned_tree.decode(&mut b)))
                     } else {
-                        base + b.read(extra)
+                        base + b.take(extra)
                     };
                     r = [off, r[0], r[1]];
                     off
+                } as usize;
+                if offset == 0 || offset > (pos + before).min(wsize) {
+                    break Err("an LZX match that reaches before the data");
                 }
-            } as usize;
-            if offset == 0 || offset as u64 > total || offset > wsize {
-                break Err("an LZX match that reaches before the data");
+                if pos + len > limit {
+                    break Err(if pos + len > block_end {
+                        "an LZX match that runs past its block"
+                    } else {
+                        "an LZX match that runs past its frame"
+                    });
+                }
+                copy_match(window, ring, pos, offset, len);
+                pos += len;
+            };
+            let done = pos - start;
+            self.total += done as u64;
+            self.remaining -= done as u32;
+            if let Err(e) = inner {
+                break Err(e);
             }
-            if len > remaining as usize {
-                break Err("an LZX match that runs past its block");
+            // Past the ring's end: those bytes belong at its start.
+            if pos > ring {
+                window.copy_within(ring..pos, 0);
             }
-            if total + len as u64 > end {
-                break Err("an LZX match that runs past its frame");
-            }
-            copy_match(window, mask, total as usize & mask, offset, len);
-            total += len as u64;
-            remaining -= len as u32;
         };
         *bits = b;
-        self.total = total;
-        self.remaining = remaining;
         self.r = r;
         result
     }
@@ -642,36 +741,71 @@ impl Lzx {
     /// The frame's output, out of the window.
     fn output(&self, len: usize, out: &mut Vec<u8>) {
         let start = self.frame_start as usize & self.mask;
-        let first = len.min(self.window.len() - start);
+        let first = len.min(self.mask + 1 - start);
         out.extend_from_slice(&self.window[start..start + first]);
         out.extend_from_slice(&self.window[..len - first]);
     }
 }
 
-/// Copies `len` bytes from `offset` back to `dst`, in the window.
-#[inline]
-fn copy_match(window: &mut [u8], mask: usize, dst: usize, offset: usize, len: usize) {
-    let src = dst.wrapping_sub(offset) & mask;
-    let w = window.len();
-    if dst + len <= w && src + len <= w {
-        // Eight bytes at a time when the source is at least that far back, which a copy of a
-        // fixed size compiles to a load and a store for; then byte by byte.
-        let mut i = 0;
-        if offset >= 8 {
-            while i + 8 <= len {
-                let chunk: [u8; 8] = window[src + i..src + i + 8].try_into().unwrap_or_default();
-                window[dst + i..dst + i + 8].copy_from_slice(&chunk);
-                i += 8;
+/// Copies `len` bytes from `offset` back to `dst` in the ring of `ring` bytes, the slack past
+/// it taking what runs over its end. `dst < ring`, `offset` at most half the ring, and `len` at
+/// most 257, so `dst + len` is within the slack.
+#[inline(always)]
+fn copy_match(window: &mut [u8], ring: usize, dst: usize, offset: usize, len: usize) {
+    if offset > dst {
+        // From before the ring's start: byte by byte, wrapping. `dst` is then within the first
+        // half of the ring, so the match doesn't reach the slack.
+        let mut s = dst + ring - offset;
+        for i in 0..len {
+            if s >= ring {
+                s -= ring;
+            }
+            let v = window.get(s).copied().unwrap_or_default();
+            if let Some(d) = window.get_mut(dst + i) {
+                *d = v;
+            }
+            s += 1;
+        }
+        return;
+    }
+    let src = dst - offset;
+    if dst + len + 16 > window.len() {
+        // Not reached: the slack holds a whole match and an overrun.
+        for i in 0..len {
+            let v = window.get(src + i).copied().unwrap_or_default();
+            if let Some(d) = window.get_mut(dst + i) {
+                *d = v;
             }
         }
-        while i < len {
-            window[dst + i] = window[src + i];
-            i += 1;
+        return;
+    }
+    // Sixteen bytes at a time when the source is at least that far back, then eight; each copy
+    // may write up to 15 bytes past the match, into bytes not yet decoded or further back than
+    // the window.
+    let mut i = 0;
+    if offset >= 16 {
+        loop {
+            let chunk: [u8; 16] = window[src + i..src + i + 16].try_into().unwrap_or_default();
+            window[dst + i..dst + i + 16].copy_from_slice(&chunk);
+            i += 16;
+            if i >= len {
+                return;
+            }
         }
-    } else {
-        for i in 0..len {
-            window[(dst + i) & mask] = window[(src + i) & mask];
+    }
+    if offset >= 8 {
+        loop {
+            let chunk: [u8; 8] = window[src + i..src + i + 8].try_into().unwrap_or_default();
+            window[dst + i..dst + i + 8].copy_from_slice(&chunk);
+            i += 8;
+            if i >= len {
+                return;
+            }
         }
+    }
+    while i < len {
+        window[dst + i] = window[src + i];
+        i += 1;
     }
 }
 

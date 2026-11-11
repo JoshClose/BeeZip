@@ -9,7 +9,9 @@ use std::{
 use filetime::FileTime;
 
 use super::{
-    ExtractReport, FsOptions, OverwritePolicy, Partial, SkipReason, motw,
+    ExtractReport, FsOptions, OverwritePolicy, Partial, SkipReason,
+    behind::{self, Behind, Meta, Write1},
+    motw,
     sanitize::{self, Refusal, SafePath},
 };
 use crate::{
@@ -36,6 +38,9 @@ pub struct FsSink {
     /// The file written for each archive name ([`name_key`]), last one kept: what a hardlink's
     /// target means.
     by_name: HashMap<String, PathBuf>,
+    /// The file written for each entry of this job, by entry id: what a later entry with the
+    /// same data is copied from ([`EntrySink::same_as`]).
+    by_id: HashMap<usize, PathBuf>,
     links: Vec<PendingLink>,
     dir_times: Vec<(PathBuf, SystemTime)>,
     replace_all: bool,
@@ -45,11 +50,15 @@ pub struct FsSink {
     /// ratio limit against the whole job's input.
     link_guard: Option<RatioGuard>,
     report: ExtractReport,
+    /// Small files' writing, on other threads (docs/M8.md §6.3): see [`FsSink::write_behind`].
+    behind: Option<Behind>,
 }
 
 struct Written {
     /// The archive name it came from ([`name_key`]).
     name: String,
+    /// The entry it came from.
+    id: usize,
     path: PathBuf,
     /// The entry's time, which the file gets: what the `newer` policy compares a later entry
     /// with while the file may not be written yet (parallel extraction plans first).
@@ -96,6 +105,7 @@ impl FsSink {
             checked: HashSet::from([abs]),
             written: HashMap::new(),
             by_name: HashMap::new(),
+            by_id: HashMap::new(),
             links: Vec::new(),
             dir_times: Vec::new(),
             replace_all: false,
@@ -103,7 +113,39 @@ impl FsSink {
             entries: 0,
             link_guard,
             report: ExtractReport::default(),
+            behind: None,
         })
+    }
+
+    /// Writes small files on other threads from now on, while the reader decodes the next
+    /// ([`behind`]): what a reader that decodes on one thread asks for, given `[extract]
+    /// threads` (0: one a logical core). Left to BeeZip, a spinning disk gets none, as zip's
+    /// parallel extraction does; one thread is none.
+    pub(crate) fn write_behind(&mut self, threads: u32) {
+        let mut workers = crate::codec::resolve_threads(threads) as usize;
+        if threads == 0 && super::disk::seek_penalty(&self.dest) == Some(true) {
+            workers = 1;
+        }
+        if workers >= 2 && self.behind.is_none() {
+            self.behind = Some(Behind::new(workers, self.opts.zone.clone()));
+        }
+    }
+
+    /// Waits for the files being written on other threads, and counts them.
+    fn wait_behind(&mut self, cx: &mut dyn Ctx) -> Result<()> {
+        if let Some(b) = &mut self.behind {
+            let done = b.wait()?;
+            self.took(done, cx);
+        }
+        Ok(())
+    }
+
+    fn took(&mut self, done: behind::Done, cx: &mut dyn Ctx) {
+        self.report.files += done.files;
+        self.report.bytes += done.bytes;
+        for w in done.warnings {
+            cx.warn(w);
+        }
     }
 
     pub fn dest(&self) -> &Path {
@@ -139,6 +181,8 @@ impl FsSink {
     /// Creates the deferred symlinks, sets directory times (deepest first) and returns the
     /// report.
     pub fn finish(mut self, cx: &mut dyn Ctx) -> Result<ExtractReport> {
+        self.wait_behind(cx)?;
+        self.behind = None;
         let links = std::mem::take(&mut self.links);
         let link_paths: HashSet<String> = links
             .iter()
@@ -302,8 +346,44 @@ impl FsSink {
         let Some(job) = self.place(entry, safe, cx)? else {
             return Ok(());
         };
+        if let Some(b) = &self.behind
+            && entry.size.is_some_and(|n| n <= behind::SMALL)
+        {
+            if b.touches(&job) {
+                self.wait_behind(cx)?;
+            }
+            // The data is read here, through the reader's checks; a file that turns out larger
+            // than it said is written here after all.
+            let mut buf = Vec::with_capacity(entry.size.unwrap_or(0) as usize);
+            copy(&mut data.take(behind::SMALL + 1), &mut buf, cx)?;
+            if buf.len() as u64 <= behind::SMALL {
+                let meta = Meta {
+                    modified: entry.modified,
+                    unix_mode: entry.unix_mode,
+                    readonly: entry.dos_attrs.is_some_and(|a| a & 0x01 != 0),
+                };
+                let target = job.target.clone();
+                if let Some(b) = &mut self.behind {
+                    b.send(Write1 {
+                        job,
+                        data: buf,
+                        meta,
+                    })?;
+                    let done = b.poll()?;
+                    self.took(done, cx);
+                }
+                self.by_id.insert(entry.id, target);
+                return Ok(());
+            }
+            let mut rest = io::Cursor::new(buf).chain(data);
+            let bytes = self.write_job(&job, entry, &mut rest, cx)?;
+            self.wrote(bytes);
+            self.by_id.insert(entry.id, job.target);
+            return Ok(());
+        }
         let bytes = self.write_job(&job, entry, data, cx)?;
         self.wrote(bytes);
+        self.by_id.insert(entry.id, job.target);
         Ok(())
     }
 
@@ -351,6 +431,7 @@ impl FsSink {
             fold(&rel),
             Written {
                 name: key,
+                id: entry.id,
                 path: target.clone(),
                 modified: entry.modified,
             },
@@ -421,55 +502,18 @@ impl FsSink {
             .unwrap_or_default();
         let mut tmp = Partial::create(dir, &name)?;
         let bytes = copy(data, tmp.file_mut(), cx)?;
-        // Windows won't rename over a read-only file.
-        #[cfg(windows)]
-        if let Ok(m) = fs::symlink_metadata(target)
-            && m.permissions().readonly()
-        {
-            let mut p = m.permissions();
-            #[allow(clippy::permissions_set_readonly_false)] // Windows: just the attribute
-            p.set_readonly(false);
-            let _ = fs::set_permissions(target, p);
-        }
-        if let Some(earlier) = &job.replaces {
-            match fs::remove_file(earlier) {
-                Err(e) if e.kind() != io::ErrorKind::NotFound => {
-                    return Err(Error::io(format!("replacing {}", earlier.display()), &e));
-                }
-                _ => {}
-            }
-        }
+        before_rename(target, job.replaces.as_deref())?;
         tmp.persist(target)?;
         Ok(bytes)
     }
 
     fn apply_metadata(&self, path: &Path, entry: &Entry, cx: &mut dyn Ctx) {
-        if let Some(zone) = &self.opts.zone
-            && let Err(e) = motw::write_zone(path, zone)
-        {
-            cx.warn(format!(
-                "could not mark {} as downloaded: {e}",
-                path.display()
-            ));
-        }
-        if let Some(t) = entry.modified
-            && let Err(e) = filetime::set_file_mtime(path, FileTime::from_system_time(t))
-        {
-            cx.warn(format!("could not set the time of {}: {e}", path.display()));
-        }
-        #[cfg(unix)]
-        if let Some(mode) = entry.unix_mode {
-            use std::os::unix::fs::PermissionsExt;
-            let _ = fs::set_permissions(path, fs::Permissions::from_mode(mode & 0o777));
-        }
-        #[cfg(windows)]
-        if entry.dos_attrs.is_some_and(|a| a & 0x01 != 0)
-            && let Ok(m) = fs::metadata(path)
-        {
-            let mut p = m.permissions();
-            p.set_readonly(true);
-            let _ = fs::set_permissions(path, p);
-        }
+        let meta = Meta {
+            modified: entry.modified,
+            unix_mode: entry.unix_mode,
+            readonly: entry.dos_attrs.is_some_and(|a| a & 0x01 != 0),
+        };
+        metadata(path, self.opts.zone.as_deref(), &meta, &mut |m| cx.warn(m));
     }
 
     fn relative(&self, path: &Path) -> Option<String> {
@@ -519,6 +563,8 @@ impl FsSink {
             self.report.skip(&entry.path, SkipReason::LinkOutside);
             return Ok(());
         }
+        // A copy reads the file it links to, which may still be being written.
+        self.wait_behind(cx)?;
         // The target is an archive name: the file written for that name, not whichever file
         // took the same place once made safe.
         let source = match sanitize::sanitize(target) {
@@ -682,9 +728,115 @@ impl FsSink {
     }
 }
 
+/// What renaming a written file over `target` needs first: Windows won't rename over a read-only
+/// file, and a file this job wrote under another case (`replaces`) goes.
+pub(super) fn before_rename(target: &Path, replaces: Option<&Path>) -> Result<()> {
+    #[cfg(not(windows))]
+    let _ = target;
+    #[cfg(windows)]
+    if let Ok(m) = fs::symlink_metadata(target)
+        && m.permissions().readonly()
+    {
+        let mut p = m.permissions();
+        #[allow(clippy::permissions_set_readonly_false)] // Windows: just the attribute
+        p.set_readonly(false);
+        let _ = fs::set_permissions(target, p);
+    }
+    if let Some(earlier) = replaces {
+        match fs::remove_file(earlier) {
+            Err(e) if e.kind() != io::ErrorKind::NotFound => {
+                return Err(Error::io(format!("replacing {}", earlier.display()), &e));
+            }
+            _ => {}
+        }
+    }
+    Ok(())
+}
+
+/// A written file's Mark of the Web, time and attributes; what can't be set is a warning.
+pub(super) fn metadata(
+    path: &Path,
+    zone: Option<&[u8]>,
+    meta: &Meta,
+    warn: &mut dyn FnMut(String),
+) {
+    if let Some(zone) = zone
+        && let Err(e) = motw::write_zone(path, zone)
+    {
+        warn(format!(
+            "could not mark {} as downloaded: {e}",
+            path.display()
+        ));
+    }
+    if let Some(t) = meta.modified
+        && let Err(e) = filetime::set_file_mtime(path, FileTime::from_system_time(t))
+    {
+        warn(format!("could not set the time of {}: {e}", path.display()));
+    }
+    #[cfg(unix)]
+    if let Some(mode) = meta.unix_mode {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = fs::set_permissions(path, fs::Permissions::from_mode(mode & 0o777));
+    }
+    #[cfg(windows)]
+    if meta.readonly
+        && let Ok(m) = fs::metadata(path)
+    {
+        let mut p = m.permissions();
+        p.set_readonly(true);
+        let _ = fs::set_permissions(path, p);
+    }
+}
+
 impl EntrySink for FsSink {
     fn as_fs_sink(&mut self) -> Option<&mut FsSink> {
         Some(self)
+    }
+
+    /// A copy of the file written for `earlier`, while it's still there as written; the copy's
+    /// bytes are held to the ratio limit as a hard link's are.
+    fn same_as(
+        &mut self,
+        entry: &Entry,
+        earlier: &Entry,
+        decoded: bool,
+        cx: &mut dyn Ctx,
+    ) -> Result<bool> {
+        if decoded || !matches!(entry.kind, EntryKind::File) {
+            return Ok(false);
+        }
+        // Still the file written for it: no later entry has taken its place.
+        let Some(source) = self.by_id.get(&earlier.id).cloned() else {
+            return Ok(false);
+        };
+        self.wait_behind(cx)?;
+        let current = self
+            .relative(&source)
+            .and_then(|rel| self.written.get(&fold(&rel)));
+        if current.map(|w| w.id) != Some(earlier.id) {
+            return Ok(false);
+        }
+        match fs::metadata(&source) {
+            Ok(m) if m.is_file() && Some(m.len()) == earlier.size => {}
+            _ => return Ok(false),
+        }
+        let Ok(file) = fs::File::open(&source) else {
+            return Ok(false);
+        };
+        cx.check()?;
+        self.entries += 1;
+        self.opts.limits.check_entries(self.entries)?;
+        let Some(safe) = self.safe_path(entry) else {
+            return Ok(true);
+        };
+        let guard = self
+            .link_guard
+            .take()
+            .unwrap_or_else(|| RatioGuard::new(&self.opts.input, &self.opts.limits));
+        let mut data = Guarded::new(file, guard, self.opts.budget.clone());
+        let result = self.write_file(entry, &safe, &mut data, cx);
+        self.link_guard = Some(data.into_parts().1);
+        result.map(|()| true)
     }
 
     fn entry(&mut self, entry: &Entry, data: &mut dyn Read, cx: &mut dyn Ctx) -> Result<()> {

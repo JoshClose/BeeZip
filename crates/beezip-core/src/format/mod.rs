@@ -494,6 +494,23 @@ fn globs(patterns: &[String]) -> Result<Option<GlobSet>> {
 pub trait EntrySink {
     fn entry(&mut self, entry: &Entry, data: &mut dyn Read, cx: &mut dyn Ctx) -> Result<()>;
 
+    /// `entry` holds the same bytes as `earlier`, which this pass handed over in full: a cabinet
+    /// file that shares its data with another. A sink that can take it from what it made of
+    /// `earlier` does, and says so (`FsSink` copies the file it wrote, `TestSink` counts it);
+    /// otherwise the reader hands the data over as usual. `decoded` says the reader still holds
+    /// those bytes decoded, so handing them over costs no decoding: `FsSink` then writes them
+    /// rather than copy a file it has just written, which Windows may scan before it can be
+    /// read (docs/M8.md §16).
+    fn same_as(
+        &mut self,
+        _entry: &Entry,
+        _earlier: &Entry,
+        _decoded: bool,
+        _cx: &mut dyn Ctx,
+    ) -> Result<bool> {
+        Ok(false)
+    }
+
     /// The sink, when it writes files to disk: a reader that can extract on several threads
     /// then plans and writes through it (zip, docs/M6.md §6.3).
     fn as_fs_sink(&mut self) -> Option<&mut crate::FsSink> {

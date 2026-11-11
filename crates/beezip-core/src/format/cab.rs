@@ -680,27 +680,60 @@ fn lower_name(p: &Path) -> String {
         .unwrap_or_default()
 }
 
-/// Opens the set member `name`, or says why it can't be.
+/// A set's cabinet held in the same file, by the name a cabinet gives it.
+pub type StreamFinder = std::sync::Arc<dyn Fn(&str) -> Option<CabStream> + Send + Sync>;
+
+/// Where a set's other cabinets are found, by the names a cabinet gives them.
+#[derive(Clone)]
+pub enum Siblings {
+    /// Nowhere: an SFX's or a spooled cabinet's set isn't known.
+    None,
+    /// Files in this folder.
+    Dir(PathBuf),
+    /// Cabinets held in the same file as this one: a name to its stream (an MSI's embedded
+    /// cabinets), or `None`.
+    Streams(StreamFinder),
+}
+
+/// Opens the set member `name`, or says why it can't be; with the name it's known by in `seen`.
 fn load_sibling(
-    dir: &Path,
+    siblings: &Siblings,
     name: &str,
     seen: &[String],
-) -> std::result::Result<(PathBuf, u64, Cabinet), String> {
+) -> std::result::Result<(Loc, String, u64, Cabinet), String> {
     if name.is_empty() || name == "." || name == ".." {
         return Err("its name is empty".to_owned());
     }
-    let path = find_sibling(dir, name).ok_or_else(|| "it isn't in the same folder".to_owned())?;
-    if seen.contains(&lower_name(&path)) {
-        return Err("the set names it twice".to_owned());
+    match siblings {
+        Siblings::None => Err("a set is only followed from a cabinet file".to_owned()),
+        Siblings::Dir(dir) => {
+            let path =
+                find_sibling(dir, name).ok_or_else(|| "it isn't in the same folder".to_owned())?;
+            if seen.contains(&lower_name(&path)) {
+                return Err("the set names it twice".to_owned());
+            }
+            let mut file = File::open(&path).map_err(|e| e.to_string())?;
+            let len = file.metadata().map_err(|e| e.to_string())?.len();
+            let cab = read_cabinet(&mut file, len).map_err(|e| e.message)?;
+            Ok((Loc::Path(path.clone()), lower_name(&path), len, cab))
+        }
+        Siblings::Streams(find) => {
+            let stream = find(name).ok_or_else(|| "the package doesn't hold it".to_owned())?;
+            let key = name.to_lowercase();
+            if seen.contains(&key) {
+                return Err("the set names it twice".to_owned());
+            }
+            let (mut r, len) = (stream.open)().map_err(|e| e.message)?;
+            let cab = read_cabinet(&mut *r, len).map_err(|e| e.message)?;
+            Ok((Loc::Stream(stream), key, len, cab))
+        }
     }
-    let mut file = File::open(&path).map_err(|e| e.to_string())?;
-    let len = file.metadata().map_err(|e| e.to_string())?.len();
-    let cab = read_cabinet(&mut file, len).map_err(|e| e.message)?;
-    Ok((path, len, cab))
 }
 
 pub struct CabReader {
     source: Source,
+    /// The set's cabinets, by the names they're known by (lower case).
+    members: Vec<String>,
     set: CabSet,
     entries: Vec<Entry>,
     /// The size of every cabinet of the set.
@@ -722,17 +755,30 @@ impl CabReader {
             (Loc::Path(tmp.path().to_path_buf()), Some(tmp))
         };
         // A set is followed only from a plain file: siblings of an SFX or a spool aren't known.
-        let follow = source.codecs.is_empty() && !source.joined && source.offset == 0;
+        let siblings = if source.codecs.is_empty() && !source.joined && source.offset == 0 {
+            Siblings::Dir(source.path.parent().unwrap_or(Path::new("")).to_path_buf())
+        } else {
+            Siblings::None
+        };
         let this = source.file_name();
-        Self::open_at(source, loc, spool, follow, this, cx)
+        let key = lower_name(&source.path);
+        Self::open_at(source, loc, spool, siblings, this, key, cx)
     }
 
     /// Opens `stream`, a cabinet held inside another file (an MSI's embedded cabinet,
     /// docs/M7.md §8.3). `source` is that file: it gives the limits, the name decoding, the byte
     /// counter and the budget, and isn't read itself. No set is followed from the cabinet.
-    pub fn open_stream(source: Source, stream: CabStream, cx: &mut dyn Ctx) -> Result<Self> {
+    /// `name` is what the set's other cabinets call it, and `siblings` finds them.
+    pub fn open_stream(
+        source: Source,
+        stream: CabStream,
+        name: &str,
+        siblings: Siblings,
+        cx: &mut dyn Ctx,
+    ) -> Result<Self> {
         let this = stream.name.clone();
-        Self::open_at(source, Loc::Stream(stream), None, false, this, cx)
+        let key = name.to_lowercase();
+        Self::open_at(source, Loc::Stream(stream), None, siblings, this, key, cx)
     }
 
     /// Opens the cabinet at `loc`, called `this` in messages, and, when `follow`, the rest of
@@ -741,17 +787,17 @@ impl CabReader {
         source: Source,
         loc: Loc,
         spool: Option<Partial>,
-        follow: bool,
+        siblings: Siblings,
         this: String,
+        key: String,
         cx: &mut dyn Ctx,
     ) -> Result<Self> {
         let (mut input, len) = open_loc(&source, &loc)?;
         let opened = read_cabinet(&mut *input, len)?;
         drop(input);
 
-        let dir = source.path.parent().unwrap_or(Path::new("")).to_path_buf();
         let names = source.names;
-        let mut seen = vec![lower_name(&source.path)];
+        let mut seen = vec![key];
         let mut chain: VecDeque<(Loc, u64, Cabinet)> = VecDeque::from([(loc, len, opened)]);
         let mut missing_prev = None;
         let mut missing_next = None;
@@ -761,21 +807,17 @@ impl CabReader {
             && head.flags & FLAG_PREV != 0
         {
             let name = sibling_name(head.prev.as_deref(), &names);
-            let why = if follow {
-                match load_sibling(&dir, &name, &seen) {
-                    Ok((path, len, cab))
-                        if cab.set_id == head.set_id
-                            && u32::from(cab.index) + 1 == u32::from(head.index) =>
-                    {
-                        seen.push(lower_name(&path));
-                        chain.push_front((Loc::Path(path), len, cab));
-                        continue;
-                    }
-                    Ok(_) => "it isn't the cabinet before in this set".to_owned(),
-                    Err(why) => why,
+            let why = match load_sibling(&siblings, &name, &seen) {
+                Ok((loc, key, len, cab))
+                    if cab.set_id == head.set_id
+                        && u32::from(cab.index) + 1 == u32::from(head.index) =>
+                {
+                    seen.push(key);
+                    chain.push_front((loc, len, cab));
+                    continue;
                 }
-            } else {
-                "a set is only followed from a cabinet file".to_owned()
+                Ok(_) => "it isn't the cabinet before in this set".to_owned(),
+                Err(why) => why,
             };
             if head.continues_from_prev() {
                 cx.warn(format!(
@@ -791,21 +833,17 @@ impl CabReader {
             && tail.flags & FLAG_NEXT != 0
         {
             let name = sibling_name(tail.next.as_deref(), &names);
-            let why = if follow {
-                match load_sibling(&dir, &name, &seen) {
-                    Ok((path, len, cab))
-                        if cab.set_id == tail.set_id
-                            && u32::from(tail.index) + 1 == u32::from(cab.index) =>
-                    {
-                        seen.push(lower_name(&path));
-                        chain.push_back((Loc::Path(path), len, cab));
-                        continue;
-                    }
-                    Ok(_) => "it isn't the next cabinet in this set".to_owned(),
-                    Err(why) => why,
+            let why = match load_sibling(&siblings, &name, &seen) {
+                Ok((loc, key, len, cab))
+                    if cab.set_id == tail.set_id
+                        && u32::from(tail.index) + 1 == u32::from(cab.index) =>
+                {
+                    seen.push(key);
+                    chain.push_back((loc, len, cab));
+                    continue;
                 }
-            } else {
-                "a set is only followed from a cabinet file".to_owned()
+                Ok(_) => "it isn't the next cabinet in this set".to_owned(),
+                Err(why) => why,
             };
             cx.warn(format!(
                 "{this}: the set's next cabinet, {name}, can't be read ({why}); the files in it \
@@ -825,6 +863,7 @@ impl CabReader {
         )?;
         Ok(Self {
             source,
+            members: seen,
             set,
             entries,
             total,
@@ -851,6 +890,12 @@ impl CabReader {
             .collect();
         order.sort_unstable();
         order.into_iter().map(|(_, _, id)| id).collect()
+    }
+
+    /// The set's cabinets, by the names they're known by (lower case): what else this reader
+    /// reads, so a package naming them too opens them once.
+    pub fn members(&self) -> &[String] {
+        &self.members
     }
 
     /// The size of every cabinet read: the progress a full pass makes.
@@ -916,6 +961,9 @@ impl ArchiveReader for CabReader {
         sink: &mut dyn EntrySink,
         cx: &mut dyn Ctx,
     ) -> Result<()> {
+        if let Some(fs) = sink.as_fs_sink() {
+            fs.write_behind(self.source.threads);
+        }
         let mut meter = self.pass_meter();
         let mut by_folder: BTreeMap<usize, Vec<(u32, usize)>> = BTreeMap::new();
         for (e, at) in self.entries.iter().zip(&self.set.files) {
@@ -927,7 +975,11 @@ impl ArchiveReader for CabReader {
             }
         }
         let mut done = 0u64;
+        // Files handed over in full, by where their data is: a later one with the same data is
+        // offered to the sink as a copy first, instead of decoding its folder again.
+        let mut served: HashMap<(u32, u32), usize> = HashMap::new();
         for (folder, mut ids) in by_folder {
+            served.clear();
             ids.sort_unstable();
             let mut reader: Option<FolderReader<'_>> = None;
             for (_, id) in ids {
@@ -941,6 +993,18 @@ impl ArchiveReader for CabReader {
                 mcx.report();
                 if at.size == 0 {
                     sink.entry(entry, &mut io::empty(), &mut mcx)?;
+                } else if let Some(earlier) = served
+                    .get(&(at.offset, at.size))
+                    .and_then(|&e| self.entries.get(e))
+                    && sink.same_as(
+                        entry,
+                        earlier,
+                        reader
+                            .as_ref()
+                            .is_some_and(|r| r.holds(u64::from(at.offset), u64::from(at.size))),
+                        &mut mcx,
+                    )?
+                {
                 } else {
                     if reader.is_none() {
                         reader = Some(FolderReader::new(&self.source, &self.set, folder)?);
@@ -954,6 +1018,7 @@ impl ArchiveReader for CabReader {
                         left: u64::from(at.size),
                     });
                     sink.entry(entry, &mut data, &mut mcx)?;
+                    served.entry((at.offset, at.size)).or_insert(id);
                 }
                 done += 1;
             }
@@ -1264,6 +1329,12 @@ impl<'a> FolderReader<'a> {
             }
         }
         Ok(true)
+    }
+
+    /// Whether `len` bytes at `from` are in the blocks kept, decoded.
+    fn holds(&self, from: u64, len: u64) -> bool {
+        let oldest = self.ring.front().map_or(self.end, |(s, _)| *s);
+        from >= oldest && from.saturating_add(len) <= self.end
     }
 
     /// Moves to `to` in the folder, decoding up to it, from the start again if it's behind the
@@ -2718,7 +2789,8 @@ mod tests {
             })
         };
         let mut cx = SimpleCtx::new();
-        let mut r = CabReader::open_stream(source, stream, &mut cx).unwrap();
+        let mut r =
+            CabReader::open_stream(source, stream, "in.cab", Siblings::None, &mut cx).unwrap();
         assert!(cx.warnings.is_empty(), "{:?}", cx.warnings);
         assert_eq!(r.total_size(), bytes.len() as u64);
         let got = extract_all(&mut r).unwrap();
@@ -2745,6 +2817,8 @@ mod tests {
             kind_of(CabReader::open_stream(
                 source,
                 stream,
+                "cut.cab",
+                Siblings::None,
                 &mut SimpleCtx::new()
             )),
             ErrorKind::Corrupt

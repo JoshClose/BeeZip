@@ -31,7 +31,8 @@ use std::{
     fs::File,
     io::{self, BufReader, Read},
     path::{Path, PathBuf},
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex, mpsc},
+    thread::JoinHandle,
 };
 
 use md5::Digest as _;
@@ -305,19 +306,30 @@ impl MsiReader {
             })
             .collect();
         media.sort_by_key(|m| (m.last, m.disk));
+        // The embedded cabinets the table names: what a set may continue into.
+        let embedded: Vec<String> = media
+            .iter()
+            .filter_map(|m| m.cabinet.as_deref()?.strip_prefix('#').map(str::to_owned))
+            .collect();
+        // By name, ignoring case: a cabinet set is opened once, by its first member named.
         let mut opened: HashMap<String, std::result::Result<usize, Error>> = HashMap::new();
         for m in &mut media {
             cx.check()?;
             let Some(name) = m.cabinet.clone() else {
                 continue;
             };
-            let cab = match opened.get(&name) {
+            let cab = match opened.get(&name.to_lowercase()) {
                 Some(c) => c.clone(),
                 None => {
-                    let c = match self.open_cab(&name, cx) {
+                    let c = match self.open_cab(&name, &embedded, cx) {
                         Ok(reader) => {
+                            let at = self.cabs.len();
+                            let prefix = if name.starts_with('#') { "#" } else { "" };
+                            for member in reader.members() {
+                                opened.insert(format!("{prefix}{member}"), Ok(at));
+                            }
                             self.cabs.push(reader);
-                            Ok(self.cabs.len() - 1)
+                            Ok(at)
                         }
                         Err(e)
                             if matches!(
@@ -341,7 +353,7 @@ impl MsiReader {
                             Err(e)
                         }
                     };
-                    opened.insert(name, c.clone());
+                    opened.insert(name.to_lowercase(), c.clone());
                     c
                 }
             };
@@ -351,32 +363,22 @@ impl MsiReader {
     }
 
     /// The cabinet a Media row names: `#name` in the package, else a file beside it.
-    fn open_cab(&mut self, name: &str, cx: &mut dyn Ctx) -> Result<CabReader> {
+    fn open_cab(&mut self, name: &str, embedded: &[String], cx: &mut dyn Ctx) -> Result<CabReader> {
         let msi = self.source.file_name();
         if let Some(stream) = name.strip_prefix('#') {
-            let path = tables::stream_path(stream, false);
-            if CfbStream::open(&self.file, &path).is_none() {
+            let Some(first) = embedded_cab(&self.file, self.file_len, &msi, stream) else {
                 return Err(bad(format!(
                     "the cabinet `{stream}` the Media table names isn't in the package"
                 )));
-            }
-            let file = Arc::clone(&self.file);
-            let limit = self.file_len;
-            let name = stream.to_owned();
-            let open = move || -> Result<(Box<dyn ReadSeek>, u64)> {
-                let s = CfbStream::open(&file, &path)
-                    .ok_or_else(|| bad(format!("the cabinet `{name}` vanished")))?;
-                // The directory's claim, held to the file.
-                let len = s.len();
-                if len > limit {
-                    return Err(bad(format!(
-                        "the cabinet `{name}` claims {len} bytes, in a file of {limit}"
-                    )));
-                }
-                Ok((Box::new(s), len))
             };
-            let stream = CabStream::new(format!("{stream} in {msi}"), open);
-            let reader = CabReader::open_stream(self.source.clone(), stream, cx)?;
+            // A set continues into another cabinet the Media table names, by its name.
+            let (file, limit, names) = (Arc::clone(&self.file), self.file_len, embedded.to_vec());
+            let find = move |want: &str| {
+                let name = names.iter().find(|n| n.eq_ignore_ascii_case(want))?;
+                embedded_cab(&file, limit, &msi, name)
+            };
+            let siblings = crate::format::cab::Siblings::Streams(Arc::new(find));
+            let reader = CabReader::open_stream(self.source.clone(), first, stream, siblings, cx)?;
             self.total += reader.total_size();
             return Ok(reader);
         }
@@ -802,6 +804,32 @@ impl MsiReader {
     }
 }
 
+/// The embedded cabinet `name`, if the package holds it, opened afresh for each pass.
+fn embedded_cab(
+    file: &Arc<Mutex<Compound>>,
+    limit: u64,
+    msi: &str,
+    name: &str,
+) -> Option<CabStream> {
+    let path = tables::stream_path(name, false);
+    CfbStream::open(file, &path)?;
+    let file = Arc::clone(file);
+    let what = name.to_owned();
+    let open = move || -> Result<(Box<dyn ReadSeek>, u64)> {
+        let s = CfbStream::open(&file, &path)
+            .ok_or_else(|| bad(format!("the cabinet `{what}` vanished")))?;
+        // The directory's claim, held to the file.
+        let len = s.len();
+        if len > limit {
+            return Err(bad(format!(
+                "the cabinet `{what}` claims {len} bytes, in a file of {limit}"
+            )));
+        }
+        Ok((Box::new(s), len))
+    };
+    Some(CabStream::new(format!("{name} in {msi}"), open))
+}
+
 /// `rel/leaf` under `dir`, each name matched exactly or else ignoring case, as on Windows.
 fn find_path(dir: &Path, rel: &str, leaf: &str) -> Option<PathBuf> {
     let mut at = dir.to_path_buf();
@@ -835,25 +863,106 @@ impl Read for Failing {
     }
 }
 
+/// The smallest file whose MD5 goes to the [`Hasher`]'s thread: below it, handing the bytes
+/// over costs about what hashing them does.
+const HASH_ELSEWHERE: u64 = 64 * 1024;
+
+/// MsiFileHash's MD5, computed on a thread of its own while the job's thread decodes the rest of
+/// the file (docs/M8.md §6.3): 1.8 s of the 5.4 s QGIS's installer took to test. One file at a
+/// time; its digest is waited for at its end, so a mismatch still fails that file's read.
+struct Hasher {
+    tx: Option<mpsc::SyncSender<HashMsg>>,
+    thread: Option<JoinHandle<()>>,
+}
+
+enum HashMsg {
+    Start,
+    Data(Vec<u8>),
+    End(mpsc::SyncSender<[u8; 16]>),
+}
+
+impl Hasher {
+    fn new() -> Option<Self> {
+        // At most 16 reads of a file waiting to be hashed.
+        let (tx, rx) = mpsc::sync_channel::<HashMsg>(16);
+        let thread = std::thread::Builder::new()
+            .name("beezip-msi-md5".to_owned())
+            .spawn(move || {
+                let mut h = md5::Md5::new();
+                while let Ok(m) = rx.recv() {
+                    match m {
+                        HashMsg::Start => h = md5::Md5::new(),
+                        HashMsg::Data(d) => h.update(&d),
+                        HashMsg::End(reply) => {
+                            let d = std::mem::replace(&mut h, md5::Md5::new()).finalize();
+                            let _ = reply.send(d.into());
+                        }
+                    }
+                }
+            })
+            .ok()?;
+        Some(Self {
+            tx: Some(tx),
+            thread: Some(thread),
+        })
+    }
+
+    fn send(&self, m: HashMsg) -> bool {
+        self.tx.as_ref().is_some_and(|tx| tx.send(m).is_ok())
+    }
+
+    /// The digest of what was sent since the last [`HashMsg::Start`].
+    fn finish(&self) -> Option<[u8; 16]> {
+        let (reply, rx) = mpsc::sync_channel(1);
+        self.send(HashMsg::End(reply)).then(|| rx.recv().ok())?
+    }
+}
+
+impl Drop for Hasher {
+    fn drop(&mut self) {
+        self.tx = None;
+        if let Some(t) = self.thread.take() {
+            let _ = t.join();
+        }
+    }
+}
+
+/// Where a file's MD5 is computed.
+enum Md5At<'h> {
+    Here(md5::Md5),
+    There(&'h Hasher),
+}
+
 /// A file's data held to the File table: its size, and MsiFileHash's MD5 where there is one.
-struct Checked<R> {
+struct Checked<'h, R> {
     inner: R,
     path: String,
     check: Check,
     got: u64,
-    md5: Option<md5::Md5>,
+    md5: Option<Md5At<'h>>,
     failed: Option<Error>,
     done: bool,
 }
 
-impl<R: Read> Checked<R> {
+impl<R: Read> Checked<'static, R> {
     fn new(inner: R, path: &str, check: Check) -> Self {
+        Checked::hashed_by(inner, path, check, None)
+    }
+}
+
+impl<'h, R: Read> Checked<'h, R> {
+    /// The same, with the MD5 of a file of [`HASH_ELSEWHERE`] or more computed by `hasher`.
+    fn hashed_by(inner: R, path: &str, check: Check, hasher: Option<&'h Hasher>) -> Self {
+        let md5 = check.md5.map(|_| match hasher {
+            Some(h) if check.size >= HASH_ELSEWHERE && h.send(HashMsg::Start) => Md5At::There(h),
+            _ => Md5At::Here(md5::Md5::new()),
+        });
         Self {
             inner,
             path: path.to_owned(),
             check,
             got: 0,
-            md5: check.md5.map(|_| md5::Md5::new()),
+            md5,
             failed: None,
             done: false,
         }
@@ -872,8 +981,13 @@ impl<R: Read> Checked<R> {
                 self.path, self.got, self.check.size
             )));
         }
-        if let (Some(h), Some(want)) = (self.md5.take(), self.check.md5)
-            && h.finalize()[..] != want[..]
+        let got = match self.md5.take() {
+            Some(Md5At::Here(h)) => Some(h.finalize().into()),
+            Some(Md5At::There(h)) => h.finish(),
+            None => None,
+        };
+        if let Some(want) = self.check.md5
+            && got != Some(want)
         {
             return Some(bad(format!(
                 "`{}` doesn't match its hash in the MsiFileHash table",
@@ -884,7 +998,7 @@ impl<R: Read> Checked<R> {
     }
 }
 
-impl<R: Read> Read for Checked<R> {
+impl<R: Read> Read for Checked<'_, R> {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         if let Some(e) = &self.failed {
             return Err(e.clone().into_io());
@@ -908,8 +1022,13 @@ impl<R: Read> Read for Checked<R> {
             ));
             return Err(self.fail(e));
         }
-        if let Some(h) = &mut self.md5 {
-            h.update(&buf[..n]);
+        match &mut self.md5 {
+            Some(Md5At::Here(h)) => h.update(&buf[..n]),
+            Some(Md5At::There(h)) if !h.send(HashMsg::Data(buf[..n].to_vec())) => {
+                let e = bad("the thread hashing the installer's files stopped");
+                return Err(self.fail(e));
+            }
+            Some(Md5At::There(_)) | None => {}
         }
         Ok(n)
     }
@@ -998,6 +1117,7 @@ struct ToMsi<'a> {
     entries: &'a [Entry],
     items: &'a [Item],
     pass: &'a Pass,
+    hasher: Option<&'a Hasher>,
 }
 
 impl EntrySink for ToMsi<'_> {
@@ -1011,10 +1131,49 @@ impl EntrySink for ToMsi<'_> {
             return Ok(());
         };
         self.pass.start(&entry.path);
-        let mut data = Checked::new(data, &entry.path, *check);
+        let mut data = Checked::hashed_by(data, &entry.path, *check, self.hasher);
         self.sink.entry(entry, &mut data, cx)?;
         self.pass.finished();
         Ok(())
+    }
+
+    /// The same bytes pass the same checks: only a file held to the earlier one's size and hash
+    /// is taken as a copy of it.
+    fn same_as(
+        &mut self,
+        cab_entry: &Entry,
+        cab_earlier: &Entry,
+        decoded: bool,
+        cx: &mut dyn Ctx,
+    ) -> Result<bool> {
+        let (Some(&idx), Some(&first)) =
+            (self.map.get(&cab_entry.id), self.map.get(&cab_earlier.id))
+        else {
+            return Ok(false);
+        };
+        let (
+            Some(entry),
+            Some(Item::Cab { check, .. }),
+            Some(earlier),
+            Some(Item::Cab { check: was, .. }),
+        ) = (
+            self.entries.get(idx),
+            self.items.get(idx),
+            self.entries.get(first),
+            self.items.get(first),
+        )
+        else {
+            return Ok(false);
+        };
+        if check.size != was.size || check.md5 != was.md5 {
+            return Ok(false);
+        }
+        self.pass.start(&entry.path);
+        if !self.sink.same_as(entry, earlier, decoded, cx)? {
+            return Ok(false);
+        }
+        self.pass.finished();
+        Ok(true)
     }
 }
 
@@ -1065,6 +1224,15 @@ impl ArchiveReader for MsiReader {
         cx: &mut dyn Ctx,
     ) -> Result<()> {
         let selected: Vec<bool> = self.entries.iter().map(|e| sel.matches(e)).collect();
+        // Many small files: written on other threads while the cabinets decode (docs/M8.md §6.3).
+        if let Some(fs) = sink.as_fs_sink() {
+            fs.write_behind(self.source.threads);
+        }
+        let hasher = if crate::codec::resolve_threads(self.source.threads) > 1 {
+            Hasher::new()
+        } else {
+            None
+        };
         self.source.counter.set(0);
         let pass = Pass {
             counter: self.source.counter.clone(),
@@ -1101,6 +1269,7 @@ impl ArchiveReader for MsiReader {
                         entries: &self.entries,
                         items: &self.items,
                         pass: &pass,
+                        hasher: hasher.as_ref(),
                     };
                     let mut pcx = PassCtx {
                         inner: &mut *cx,
@@ -1153,5 +1322,58 @@ impl ArchiveReader for MsiReader {
                 Ok(data)
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn read(r: &mut dyn Read) -> std::result::Result<Vec<u8>, String> {
+        let mut v = Vec::new();
+        r.read_to_end(&mut v).map(|_| v).map_err(|e| e.to_string())
+    }
+
+    /// A file's MD5 on the hashing thread passes and fails as on the job's own, one file after
+    /// another, a failed one included.
+    #[test]
+    fn the_hashing_thread_checks_as_the_job_would() {
+        let hasher = Hasher::new().unwrap();
+        let big: Vec<u8> = (0..300_000u32).map(|i| (i * 7 + i / 13) as u8).collect();
+        let md5: [u8; 16] = md5::Md5::digest(&big).into();
+        let check = |md5| Check {
+            size: big.len() as u64,
+            md5: Some(md5),
+        };
+        let mut wrong = md5;
+        wrong[0] ^= 1;
+        for (want, ok) in [(md5, true), (wrong, false), (md5, true)] {
+            let mut c =
+                Checked::hashed_by(io::Cursor::new(&big), "big.bin", check(want), Some(&hasher));
+            assert!(matches!(c.md5, Some(Md5At::There(_))));
+            let got = read(&mut c);
+            assert_eq!(got.is_ok(), ok, "{got:?}");
+            if !ok {
+                assert!(got.unwrap_err().contains("doesn't match its hash"));
+            }
+        }
+        // One that stops early leaves nothing behind for the next.
+        let mut c = Checked::hashed_by(
+            io::Cursor::new(&big[..1000]),
+            "cut.bin",
+            check(md5),
+            Some(&hasher),
+        );
+        assert!(read(&mut c).is_err());
+        let mut c = Checked::hashed_by(io::Cursor::new(&big), "big.bin", check(md5), Some(&hasher));
+        assert!(read(&mut c).is_ok());
+        // Small files are hashed here.
+        let small = Check {
+            size: 10,
+            md5: Some(md5::Md5::digest(b"0123456789").into()),
+        };
+        let mut c = Checked::hashed_by(io::Cursor::new(b"0123456789"), "s", small, Some(&hasher));
+        assert!(matches!(c.md5, Some(Md5At::Here(_))));
+        assert!(read(&mut c).is_ok());
     }
 }
