@@ -1034,6 +1034,75 @@ fn mutated_packages_never_panic() {
     }
 }
 
+// --- An embedded cabinet set ------------------------------------------------------------------
+
+/// `thirdparty/msi/span-small.msi`: an MSI whose cabinet folder runs on from one embedded
+/// cabinet into the next (docs/M8.md §7). makecab split `one.txt`, `two.bin` and `three.txt`
+/// (LZX:15, `MaxDiskSize=20480`) across `a.cab` and `b.cab`, and the CAB spike's `mkmsi`
+/// (`target/m8-spikes/cab/src/bin/mkmsi.rs`, on the msi crate) embedded both, with Media rows
+/// `1:#a.cab` and `3:#b.cab` and MsiFileHash rows. Windows Installer's database API reads it,
+/// and `7z t` passes it, though 7-Zip lists only its streams. BeeZip 0.2.0 failed two of its
+/// files: "the file continues in b.cab, which is missing".
+#[test]
+fn an_embedded_cabinet_set_reads_whole() {
+    let path = fixtures().join("thirdparty/msi/span-small.msi");
+    let want = [
+        (
+            "one.txt",
+            "37eb6cf711e31036e0aff78f202a5c2c7c042f38096c74e5070caa06230c639b",
+        ),
+        (
+            "two.bin",
+            "5eb9962cbe2cf0da534e868d671afc6acf63b4728e8d78e26c6b5815b42e8bf2",
+        ),
+        (
+            "three.txt",
+            "c748558a528106262b39b135741607db1c8f172a17f510c7d1bffa28dd288f28",
+        ),
+    ];
+    let mut cx = SimpleCtx::new();
+    let mut opened = open(&path, &native(), &mut cx).unwrap();
+    let entries = opened.reader.entries(&mut cx).unwrap().to_vec();
+    assert!(cx.warnings.is_empty(), "{:?}", cx.warnings);
+    for (name, hash) in want {
+        let e = by_path(&entries, &format!("ProgramFilesFolder/BeeZip Span/{name}"));
+        assert_eq!(
+            sha256(&read_entry(&mut *opened.reader, e.id).unwrap()),
+            hash,
+            "{name}"
+        );
+    }
+
+    let report = ops::test(
+        &path,
+        &beezip_core::Selection::all(),
+        &native(),
+        &mut SimpleCtx::new(),
+    )
+    .unwrap();
+    assert!(report.errors.is_empty(), "{:?}", report.errors);
+
+    let dest = tempfile::tempdir().unwrap();
+    ops::extract(
+        &path,
+        dest.path(),
+        &beezip_core::Selection::all(),
+        &native(),
+        FsOptions::default(),
+        &mut SimpleCtx::new(),
+    )
+    .unwrap();
+    for (name, hash) in want {
+        let got = fs::read(
+            dest.path()
+                .join("ProgramFilesFolder/BeeZip Span")
+                .join(name),
+        )
+        .unwrap();
+        assert_eq!(sha256(&got), hash, "{name}");
+    }
+}
+
 // --- The malicious corpus ---------------------------------------------------------------------
 
 /// A package whose folders nest `depth` deep, each named `name` (one string), with a file in

@@ -691,3 +691,197 @@ proptest! {
         round_trip(CabMethod::Mszip, &tree)?;
     }
 }
+
+/// A stored cabinet of one folder whose files `a.txt`, `b.txt` and `c.txt` are all its 20 bytes,
+/// as an installer's identical files are (LLVM's `clang.exe` and `clang++.exe`), and `d.txt` the
+/// last 10 of them.
+fn shared_cabinet(path: &Path) -> &'static [u8] {
+    const DATA: &[u8] = b"hello, shared bytes\n";
+    let names = [
+        ("a.txt", 0u32, 20u32),
+        ("b.txt", 0, 20),
+        ("c.txt", 0, 20),
+        ("d.txt", 10, 10),
+    ];
+    let files_len: usize = names.iter().map(|(n, _, _)| 16 + n.len() + 1).sum();
+    let data_at = 36 + 8 + files_len;
+    let total = data_at + 8 + DATA.len();
+    let mut c = Vec::new();
+    c.extend_from_slice(b"MSCF");
+    c.extend_from_slice(&0u32.to_le_bytes());
+    c.extend_from_slice(&(total as u32).to_le_bytes());
+    c.extend_from_slice(&0u32.to_le_bytes());
+    c.extend_from_slice(&44u32.to_le_bytes());
+    c.extend_from_slice(&0u32.to_le_bytes());
+    c.extend_from_slice(&[3, 1]);
+    c.extend_from_slice(&1u16.to_le_bytes());
+    c.extend_from_slice(&(names.len() as u16).to_le_bytes());
+    c.extend_from_slice(&[0, 0, 0x34, 0x12, 0, 0]);
+    // The folder: its one data block, stored.
+    c.extend_from_slice(&(data_at as u32).to_le_bytes());
+    c.extend_from_slice(&1u16.to_le_bytes());
+    c.extend_from_slice(&0u16.to_le_bytes());
+    for (name, offset, size) in names {
+        c.extend_from_slice(&size.to_le_bytes());
+        c.extend_from_slice(&offset.to_le_bytes());
+        c.extend_from_slice(&0u16.to_le_bytes());
+        // 2024-05-06 07:08:10
+        c.extend_from_slice(&0x58A6u16.to_le_bytes());
+        c.extend_from_slice(&0x3905u16.to_le_bytes());
+        c.extend_from_slice(&0x20u16.to_le_bytes());
+        c.extend_from_slice(name.as_bytes());
+        c.push(0);
+    }
+    c.extend_from_slice(&0u32.to_le_bytes());
+    c.extend_from_slice(&(DATA.len() as u16).to_le_bytes());
+    c.extend_from_slice(&(DATA.len() as u16).to_le_bytes());
+    c.extend_from_slice(DATA);
+    assert_eq!(c.len(), total);
+    fs::write(path, &c).unwrap();
+    DATA
+}
+
+/// What a reader hands a sink: each file's data, or `same_as` an earlier one.
+#[derive(Default)]
+struct Recorder {
+    data: Vec<String>,
+    same: Vec<(String, String)>,
+}
+
+impl beezip_core::EntrySink for Recorder {
+    fn entry(
+        &mut self,
+        entry: &beezip_core::Entry,
+        data: &mut dyn std::io::Read,
+        _: &mut dyn beezip_core::Ctx,
+    ) -> beezip_core::Result<()> {
+        std::io::copy(data, &mut std::io::sink()).unwrap();
+        self.data.push(entry.path.clone());
+        Ok(())
+    }
+
+    fn same_as(
+        &mut self,
+        entry: &beezip_core::Entry,
+        earlier: &beezip_core::Entry,
+        _: bool,
+        _: &mut dyn beezip_core::Ctx,
+    ) -> beezip_core::Result<bool> {
+        self.same.push((entry.path.clone(), earlier.path.clone()));
+        Ok(true)
+    }
+}
+
+/// Files whose folder, offset and size are another's are offered to the sink as the same bytes
+/// (docs/M8.md §6.2): extracting copies the file written, testing passes them unread, and a
+/// sink that can't take them (`d.txt`, part of the data) gets the data as before.
+#[test]
+fn files_that_share_their_data_are_served_once() {
+    let dir = tempfile::tempdir().unwrap();
+    let cab = dir.path().join("shared.cab");
+    let data = shared_cabinet(&cab);
+
+    let mut cx = SimpleCtx::new();
+    let mut opened = open(&cab, &OpenOptions::default(), &mut cx).unwrap();
+    let mut rec = Recorder::default();
+    opened
+        .reader
+        .extract(&Selection::all(), &mut rec, &mut cx)
+        .unwrap();
+    assert_eq!(rec.data, ["a.txt", "d.txt"]);
+    assert_eq!(
+        rec.same,
+        [
+            ("b.txt".to_owned(), "a.txt".to_owned()),
+            ("c.txt".to_owned(), "a.txt".to_owned())
+        ]
+    );
+
+    let out = dir.path().join("out");
+    extract(&cab, &out);
+    let got = files_under(&out);
+    for name in ["a.txt", "b.txt", "c.txt"] {
+        assert_eq!(got[name], data, "{name}");
+    }
+    assert_eq!(got["d.txt"], &data[10..]);
+
+    let report = ops::test(
+        &cab,
+        &Selection::all(),
+        &OpenOptions::default(),
+        &mut SimpleCtx::new(),
+    )
+    .unwrap();
+    assert!(report.errors.is_empty(), "{:?}", report.errors);
+    assert_eq!(report.entries, 4);
+}
+
+/// A copy is only made from a file this job wrote: with a.txt left out, b.txt is decoded and
+/// c.txt copied from it.
+#[test]
+fn a_shared_file_whose_first_is_left_out_is_decoded() {
+    let dir = tempfile::tempdir().unwrap();
+    let cab = dir.path().join("shared.cab");
+    let data = shared_cabinet(&cab);
+    let out = dir.path().join("out");
+    let sel = Selection::new(&["b.txt".into(), "c.txt".into()], &[], &[]).unwrap();
+    ops::extract(
+        &cab,
+        &out,
+        &sel,
+        &OpenOptions::default(),
+        FsOptions::default(),
+        &mut SimpleCtx::new(),
+    )
+    .unwrap();
+    let got = files_under(&out);
+    assert_eq!(got.len(), 2);
+    assert_eq!(got["b.txt"], data);
+    assert_eq!(got["c.txt"], data);
+}
+
+/// Small files are written on other threads while the folder decodes (docs/M8.md §6.3): every
+/// file comes out whole, with its time, the same as on one thread, and a file of the same name
+/// later in the cabinet still replaces the earlier one.
+#[test]
+fn small_files_are_written_on_other_threads() {
+    let dir = tempfile::tempdir().unwrap();
+    let src = dir.path().join("src");
+    let mut inputs = Vec::new();
+    for d in 0..4 {
+        let folder = src.join(format!("d{d}"));
+        fs::create_dir_all(&folder).unwrap();
+        for i in 0..150 {
+            let p = folder.join(format!("f{i:03}.bin"));
+            fs::write(&p, noise(100 + i * 37 + d * 11, (d * 1000 + i) as u32)).unwrap();
+            filetime::set_file_mtime(&p, FileTime::from_unix_time(1_700_000_000 + i as i64, 0))
+                .unwrap();
+        }
+        inputs.push(folder);
+    }
+    let big = src.join("big.bin");
+    fs::write(&big, noise(6 << 20, 7)).unwrap();
+    inputs.push(big);
+    let cab = dir.path().join("many.cab");
+    create(&cab, &inputs, CabMethod::Mszip);
+
+    let threaded = dir.path().join("threaded");
+    let report = ops::extract(
+        &cab,
+        &threaded,
+        &Selection::all(),
+        &OpenOptions::default().with_threads(4),
+        FsOptions::default(),
+        &mut SimpleCtx::new(),
+    )
+    .unwrap();
+    assert_eq!(report.files, 601);
+    let one = dir.path().join("one");
+    extract(&cab, &one);
+    assert_eq!(files_under(&threaded), files_under(&one));
+    let t = fs::metadata(threaded.join("d2/f018.bin"))
+        .unwrap()
+        .modified()
+        .unwrap();
+    assert_eq!(t, UNIX_EPOCH + Duration::from_secs(1_700_000_018));
+}
