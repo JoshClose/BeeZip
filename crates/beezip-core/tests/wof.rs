@@ -9,6 +9,7 @@
 //! cluster with it), stored when it doesn't shrink. `streams.txt` beside them records each one's
 //! size and the content's SHA-256. The LZX stream is wimlib's, made in make-ntfs.sh's container.
 
+#![cfg(windows)]
 #![allow(clippy::unwrap_used)]
 
 use std::path::Path;
@@ -38,7 +39,6 @@ fn content() -> Vec<u8> {
     v
 }
 
-#[cfg(windows)]
 #[allow(unsafe_code)]
 fn rtl_compress(chunk: &[u8]) -> Vec<u8> {
     #[link(name = "ntdll")]
@@ -101,7 +101,6 @@ fn stream(data: &[u8], chunk: usize, compress: &dyn Fn(&[u8]) -> Vec<u8>) -> Vec
     out
 }
 
-#[cfg(windows)]
 #[test]
 #[ignore = "writes tests/fixtures/wof/: run it to remake them"]
 fn write_the_xpress_streams() {
