@@ -688,6 +688,11 @@ fn what_it_doesnt_read_is_unsupported() {
         refused("s.wim", &|b| b[lookup + 7] |= 0x8),
         Some(ErrorKind::UnsupportedOperation)
     );
+    // A compressed lookup table, which no writer makes.
+    assert_eq!(
+        refused("c.wim", &|b| b[55] |= 0x4),
+        Some(ErrorKind::UnsupportedOperation)
+    );
     // A lookup table past the file's end is damage.
     assert_eq!(
         refused("t.wim", &|b| b[56..64]

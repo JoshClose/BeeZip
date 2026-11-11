@@ -25,7 +25,9 @@
 //!   [`KEEP`] is handed over); `open_entry` keeps the last chunk decoded.
 //! - **Limits:** the lookup table and a metadata resource are read whole up to 256 MiB, all
 //!   images' metadata up to [`MAX_METADATA_TOTAL`], the XML up to 16 MiB (past it, it's skipped
-//!   with a warning). Before extracting, each selected file's size is held to the ratio limit
+//!   with a warning). The lookup table and the XML must be stored, as every writer stores them
+//!   (a compressed lookup table is `UnsupportedOperation`, a compressed XML skipped), so they
+//!   hold no more than the file's bytes. Before extracting, each selected file's size is held to the ratio limit
 //!   against its share of its resource's bytes, and their total to `max_total_bytes`; while it's
 //!   read, its share is what the ratio counts as its input.
 

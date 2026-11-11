@@ -574,6 +574,11 @@ impl Container {
         if lk.size == 0 {
             return Ok(());
         }
+        // Stored, as WIMGAPI, DISM and wimlib write it (Microsoft's ESDs too): what it holds is
+        // then bytes of the file, not a few bytes decoding to 256 MiB of entries.
+        if lk.compressed() {
+            return Err(unsupported("a compressed lookup table"));
+        }
         let table = self.read_res(p, &lk, MAX_LOOKUP, "the lookup table")?;
         if table.len() % LOOKUP_ENTRY != 0 {
             self.warnings.push(format!(
@@ -847,11 +852,12 @@ impl Container {
         if xml.size == 0 {
             return Ok(());
         }
-        if xml.original > MAX_XML {
+        if xml.original > MAX_XML || xml.compressed() {
             self.warnings.push(format!(
-                "the XML is {} bytes, more than BeeZip reads ({MAX_XML}); the images' names \
-                 aren't shown",
-                xml.original
+                "the XML is {} bytes{}, which BeeZip doesn't read; the images' names aren't \
+                 shown",
+                xml.original,
+                if xml.compressed() { ", compressed" } else { "" }
             ));
             return Ok(());
         }
