@@ -1,0 +1,8 @@
+# Disk DescriptorFile
+version=1
+CID=6d7a0021
+parentCID=ffffffff
+createType="seSparse"
+
+# Extent description
+RW 512 SESPARSE "v-refuse-sesparse-x.vmdk"

@@ -1,0 +1,8 @@
+# Disk DescriptorFile
+version=1
+CID=6d7a0022
+parentCID=ffffffff
+createType="vmfsRawDeviceMap"
+
+# Extent description
+RW 512 VMFSRDM "v-refuse-rdm-x.vmdk"

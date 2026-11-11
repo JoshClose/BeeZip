@@ -1,0 +1,8 @@
+# Disk DescriptorFile
+version=1
+CID=6d7a0020
+parentCID=ffffffff
+createType="vmfsSparse"
+
+# Extent description
+RW 512 VMFSSPARSE "v-refuse-vmfssparse-x.vmdk"

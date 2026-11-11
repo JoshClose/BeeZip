@@ -1,0 +1,19 @@
+# Disk DescriptorFile
+version=1
+encoding="UTF-8"
+CID=6d7a0010
+parentCID=ffffffff
+createType="custom"
+
+# Extent description
+RW 3 FLAT "v-multi-a.bin" 7
+RDONLY 32 ZERO
+NOACCESS 28 FLAT "v-multi-a.bin" 0
+RW 193 VMFS "v-multi-b.bin"
+RW 44 FLAT "v-multi-a.bin" 11
+RW 212 SPARSE "v-multi-c.vmdk"
+
+# The Disk Data Base
+#DDB
+
+ddb.adapterType = "ide"

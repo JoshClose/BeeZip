@@ -1,0 +1,15 @@
+# Disk DescriptorFile
+version=1
+CID=6d7a0031
+parentCID=ffffffff
+createType="twoGbMaxExtentSparse"
+
+# Extent description
+RW 4194304 SPARSE "b-split-s001.vmdk"
+RW 4194304 SPARSE "b-split-s002.vmdk"
+RW 2097155 SPARSE "b-split-s003.vmdk"
+
+# The Disk Data Base
+#DDB
+
+ddb.adapterType = "ide"

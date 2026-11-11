@@ -1,0 +1,18 @@
+# Disk DescriptorFile
+version=1
+CID=6d7a0006
+parentCID=ffffffff
+createType="twoGbMaxExtentFlat"
+
+# Extent description
+RW 512 FLAT "v-2gf-f001.vmdk" 0
+
+# The Disk Data Base
+#DDB
+
+ddb.virtualHWVersion = "4"
+ddb.geometry.cylinders = "0"
+ddb.geometry.heads = "16"
+ddb.geometry.sectors = "63"
+ddb.adapterType = "ide"
+ddb.toolsVersion = "2147483647"

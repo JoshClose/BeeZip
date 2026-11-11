@@ -1,0 +1,8 @@
+# Disk DescriptorFile
+version=1
+CID=6d7a0050
+parentCID=ffffffff
+createType="fullDevice"
+
+# Extent description
+RW 4096 FLAT "\\.\PhysicalDrive0" 0
