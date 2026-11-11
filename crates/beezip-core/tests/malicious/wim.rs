@@ -82,16 +82,23 @@ fn wim_claims_are_refused_or_read_within_limits() {
     assert_eq!(e.kind, ErrorKind::Corrupt);
     assert!(e.message.contains("text.txt"), "{e}");
 
-    let mut r = native("wim-spike-panic.wim").unwrap();
-    let (report, _) = exercise("wim-spike-panic.wim", &mut *r);
-    assert!(!report.ok());
-    assert!(
-        report
-            .errors
-            .iter()
-            .all(|e| e.kind == ErrorKind::Corrupt || e.kind == ErrorKind::NotFound),
-        "{report:?}"
-    );
+    // Its solid resource says LZMS: on Windows, read and found damaged; elsewhere, left to 7-Zip.
+    let opened = native("wim-spike-panic.wim");
+    assert_eq!(opened.is_ok(), cfg!(windows), "{:?}", opened.as_ref().err());
+    match opened {
+        Ok(mut r) => {
+            let (report, _) = exercise("wim-spike-panic.wim", &mut *r);
+            assert!(!report.ok());
+            assert!(
+                report
+                    .errors
+                    .iter()
+                    .all(|e| e.kind == ErrorKind::Corrupt || e.kind == ErrorKind::NotFound),
+                "{report:?}"
+            );
+        }
+        Err(e) => assert_eq!(e.kind, ErrorKind::UnsupportedOperation),
+    }
 
     // LZMS: on Windows, read and found damaged; elsewhere, left to 7-Zip.
     let opened = native("wim-spike-hang.wim");
