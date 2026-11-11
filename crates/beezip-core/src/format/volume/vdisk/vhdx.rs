@@ -1673,8 +1673,10 @@ mod tests {
         let e = open_path(&child).err().unwrap();
         assert_eq!(e.kind, ErrorKind::NotFound, "{e}");
         assert!(e.message.contains("odd-1.avhdx"), "{e}");
+        let looked = Path::new("parents").join("odd.vhdx");
         assert!(
-            e.message.contains(r"parents\odd.vhdx (its relative path"),
+            e.message
+                .contains(&format!("{} (its relative path", looked.display())),
             "{e}"
         );
         assert!(e.message.contains("not there"), "{e}");

@@ -140,6 +140,12 @@ pub fn is_local_drive(path: &Path) -> bool {
     matches!(t, 2 | 3 | 5 | 6)
 }
 
+/// Not a Windows drive path: there are none here.
+#[cfg(not(windows))]
+pub fn is_local_drive(_: &Path) -> bool {
+    false
+}
+
 #[cfg(test)]
 mod tests {
     #[cfg(windows)]
