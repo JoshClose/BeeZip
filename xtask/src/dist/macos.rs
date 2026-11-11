@@ -26,8 +26,11 @@ use super::{
     write_latest_json, write_overlay,
 };
 
-/// Extensions macOS opens itself: disk images, and installer packages.
-pub const SYSTEM_OWNS: &[&str] = &["dmg", "iso", "pkg", "mpkg"];
+/// Extensions macOS opens itself: disk images, and installer packages. Virtual disks stay with
+/// the virtual machine apps (UTM, Parallels, VMware Fusion) too.
+pub const SYSTEM_OWNS: &[&str] = &[
+    "dmg", "iso", "pkg", "mpkg", "vhd", "vhdx", "vmdk", "qcow2", "qcow", "vdi",
+];
 
 /// The content types (UTIs) macOS declares for associated extensions, as macOS 26.7 on CI's
 /// runner reported them (`UTType(filenameExtension:)`, docs/M6.md §16). The others have only

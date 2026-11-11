@@ -29,6 +29,10 @@ mod fat;
 mod msi;
 #[path = "malicious/ntfs.rs"]
 mod ntfs;
+#[path = "malicious/vdisk.rs"]
+mod vdisk;
+#[path = "malicious/vhd.rs"]
+mod vhd;
 #[path = "malicious/xar.rs"]
 mod xar;
 #[path = "malicious/zoo.rs"]

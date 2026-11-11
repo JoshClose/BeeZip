@@ -229,3 +229,24 @@ path = "fuzz_targets/ext.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "vhd"
+path = "fuzz_targets/vhd.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "vhdx"
+path = "fuzz_targets/vhdx.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "vdisk"
+path = "fuzz_targets/vdisk.rs"
+test = false
+doc = false
+bench = false

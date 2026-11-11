@@ -1,0 +1,8 @@
+# Disk DescriptorFile
+version=1
+CID=6d7a0052
+parentCID=ffffffff
+createType="custom"
+
+# Extent description
+RW 4294967296 ZERO

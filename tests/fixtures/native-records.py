@@ -97,6 +97,21 @@ records.append(native(f, ['gpt'], fat + ext, 1, 2,
                       'A disk of several partitions lists each one BeeZip reads as a folder named '
                       'as 7-Zip names the partition, without its extension: 0.data/ is fat12.img '
                       'and 1.linux/ an ext4 of the same tree without a journal.'))
+# Virtual disks (docs/M8.md §3): the disk inside, as its raw image lists.
+for kind in ('vmdk', 'qcow2', 'vdi'):
+    f = '7zip/gpt-fat-ext4.' + kind
+    records.append(native(f, [kind, 'gpt'], copy.deepcopy(fat + ext), 1, 2,
+                          f'BeeZip reads the {kind.upper()} itself and lists the disk inside as '
+                          'gpt-fat-ext4.img lists: 0.data/ and 1.linux/ as folders (7-Zip lists '
+                          'the two partitions as files).'))
+for name in ('mbr-fat.vhd', 'mbr-fat-fixed.vhd'):
+    f = '7zip/' + name
+    records.append(native(f, ['vhd', 'mbr', 'fat'], files(by_file[f]), 0, 0,
+                          'BeeZip reads the VHD itself; the disk inside has one partition, so it '
+                          'opens straight into its file system, as 7-Zip opens it.'))
+f = '7zip/gpt-ntfs.vhdx'
+records.append(native(f, ['vhdx', 'gpt', 'ntfs'], files(by_file[f]), 2, 2,
+                      'BeeZip reads the VHDX itself; inside, as gpt-ntfs.img lists.'))
 f = '7zip/dmg-hfs.hfs'
 hfs = files(by_file[f], strip='BeeZip HFS/')
 for e in hfs:

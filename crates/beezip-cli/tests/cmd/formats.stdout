@@ -21,6 +21,11 @@ Archive formats
   xar      XAR                       yes   yes     -      -        -       .xar
   stream   compressed file           yes   yes     -      -        -       
   msi      Windows Installer package yes   yes     -      -        yes     .msi .msp .msm
+  vhdx     VHDX disk image           yes   yes     -      -        yes     .vhdx
+  vhd      VHD disk image            yes   yes     -      -        yes     .vhd
+  vmdk     VMDK disk image           yes   yes     -      -        yes     .vmdk
+  qcow2    QCOW2 disk image          yes   yes     -      -        yes     .qcow2 .qcow
+  vdi      VDI disk image            yes   yes     -      -        yes     .vdi
   fat      FAT image                 yes   yes     -      -        yes     .img .ima
   ntfs     NTFS image                yes   yes     -      -        yes     .img
   ext      ext2/3/4 image            yes   yes     -      -        yes     .img .ext2 .ext3 .ext4
@@ -33,11 +38,6 @@ Read through 7-Zip 25.01 or newer, list and extract: turned off in Settings
   wim      WIM image                  .wim .esd .swm
   chm      CHM help file              .chm
   nsis     NSIS installer             (an installer program)
-  vhdx     VHDX disk image            .vhdx
-  vhd      VHD disk image             .vhd
-  vmdk     VMDK disk image            .vmdk
-  qcow2    QCOW2 disk image           .qcow2 .qcow
-  vdi      VDI disk image             .vdi
   cramfs   CramFS image               .cramfs .img
   zip methods: store, deflate (1-9, 6), bzip2 (1-9, 9), zstd (1-22, 3), xz (0-9, 6), ppmd (1-9, 7)
   7z methods: lzma2 (0-9, 5), lzma (0-9, 5), ppmd (1-9, 6), bzip2 (1-9, 9), deflate (1-9, 6), copy

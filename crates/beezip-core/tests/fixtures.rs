@@ -98,7 +98,7 @@ const MTIME: u64 = 1_767_225_600;
 #[test]
 fn every_fixture_reads_correctly() {
     let all = manifest();
-    assert_eq!(all.len(), 309, "the manifest lists every fixture");
+    assert_eq!(all.len(), 315, "the manifest lists every fixture");
     let mut failures = Vec::new();
     for fx in &all {
         let file = fx["file"].as_str().unwrap();
@@ -164,6 +164,13 @@ fn check(fx: &Value) -> Result<(), String> {
             .ne(levels.iter().filter_map(Value::as_str))
         {
             return Err(format!("7-Zip opened {got:?}, expected {levels:?}"));
+        }
+    }
+    // A record of BeeZip's own reader is read by it, not handed to 7-Zip.
+    if fx["native"] == true {
+        let info = opened.reader.info(&mut cx).map_err(|e| e.to_string())?;
+        if let Some(backend) = info.external.and_then(|x| x.backend) {
+            return Err(format!("read by {backend:?}, not BeeZip's own reader"));
         }
     }
     let count = |pred: fn(&EntryKind) -> bool| entries.iter().filter(|e| pred(&e.kind)).count();

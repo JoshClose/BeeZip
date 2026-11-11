@@ -99,10 +99,10 @@ const DOCUMENTS: &[&str] = &[
 /// Extensions that only name a later part of a set; the first part is what people open.
 const LATER_PARTS: &[&str] = &["r00"];
 
-/// Extensions Windows opens itself: it mounts disk images and shows cabinets as folders, and
-/// taking those over would surprise people (docs/M5.md §5.12). Explorer's menu still offers
-/// BeeZip's items for them.
-const WINDOWS_OWNS: &[&str] = &["cab", "iso"];
+/// Extensions Windows opens itself: it mounts disk images (ISO, and VHD and VHDX, docs/M8.md
+/// decision 6) and shows cabinets as folders, and taking those over would surprise people
+/// (docs/M5.md §5.12). Explorer's menu still offers BeeZip's items for them.
+const WINDOWS_OWNS: &[&str] = &["cab", "iso", "vhd", "vhdx"];
 
 pub fn run(debug: bool, version: Option<&str>, sign_dev: bool) -> anyhow::Result<()> {
     let root = workspace_root();
@@ -689,11 +689,13 @@ mod tests {
             "zip", "7z", "rar", "tar", "gz", "tgz", "bz2", "tbz2", "xz", "txz", "zst", "tzst",
             "lz", "tlz", "lzma", "lz4", "br", "sz", "cbz", "cb7", "cbr", "001", "cpio", "ar",
             "deb", "udeb", "rpm", "lzh", "lha", "z", "taz", "lzo", "tzo", "arj", "ace", "cba",
-            "zoo", "arc", "pkg", "mpkg", "xar",
+            "zoo", "arc", "pkg", "mpkg", "xar", "vmdk", "qcow2", "vdi",
         ] {
             assert!(exts.contains(&want), "{want} is missing from {exts:?}");
         }
-        for not in ["docx", "jar", "epub", "r00", "cab", "iso", "a", "lib"] {
+        for not in [
+            "docx", "jar", "epub", "r00", "cab", "iso", "a", "lib", "vhd", "vhdx", "img", "msi",
+        ] {
             assert!(!exts.contains(&not), "{not} shouldn't be associated");
         }
         assert_eq!(list[0]["name"], format!("BeeZip.{}", exts[0]));

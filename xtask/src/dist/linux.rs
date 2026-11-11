@@ -39,8 +39,12 @@ use super::{
 };
 
 /// Extensions Linux desktops open themselves: package installers take `.deb`, `.rpm` and
-/// `.snap` (Ubuntu's App Center installs a `.snap` it's given), the disk image mounter `.iso`.
-pub const SYSTEM_OWNS: &[&str] = &["deb", "udeb", "rpm", "snap", "iso"];
+/// `.snap` (Ubuntu's App Center installs a `.snap` it's given), the disk image mounter `.iso`,
+/// and the virtual machine apps (GNOME Boxes, virt-manager) the virtual disks BeeZip reads from
+/// M8 (docs/M8.md §16).
+pub const SYSTEM_OWNS: &[&str] = &[
+    "deb", "udeb", "rpm", "snap", "iso", "vhd", "vhdx", "vmdk", "qcow2", "qcow", "vdi",
+];
 
 /// Associated on Windows and macOS, but not here, for want of a MIME type: `.001` is the first
 /// part of anything split, and the desktop types such a file by its content instead, so a

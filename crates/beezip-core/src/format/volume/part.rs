@@ -9,12 +9,15 @@
 //!   warning.
 //! - **MBR:** the four primary entries, then the extended partition's chain of EBRs. Each link
 //!   must go forward on the disk, as mbrman requires, so a chain can't loop; it stops at
-//!   [`MAX_LOGICAL`] logical partitions. The extended partition itself isn't listed.
+//!   [`MAX_LOGICAL`] logical partitions. The extended partition itself isn't listed. Its sectors
+//!   are the device's: 4096 bytes in a virtual disk of 4 KiB sectors, else 512 (docs/M8.md §3.8).
 //! - **Names** are as 7-Zip names the partitions, without the extension: the index among those
 //!   listed, padded to the widest, then GPT's partition name (`0.data`). Logical partitions follow
 //!   the primary ones in that numbering, as 7-Zip numbers them.
 //! - A partition that starts past the image's end is left out with a warning; one that ends past
 //!   it is read with zeros there, with a warning ([`super::DiskReader`]).
+
+use fstool::block::BlockDevice;
 
 use super::Device;
 use crate::{Ctx, Error, Result, backend::External};
@@ -246,13 +249,13 @@ fn is_extended(t: u8) -> bool {
 
 /// An MBR table: the primary entries, then the extended partition's logical ones.
 fn mbr(dev: &mut Device, cx: &mut dyn Ctx) -> Result<Table> {
-    const SECTOR: u64 = 512;
+    let sector = if dev.block_size() == 4096 { 4096 } else { 512 };
     let mut s = [0u8; 512];
     dev.read_exact_at(0, &mut s)?;
     if le16(&s, 510) != 0xAA55 {
         return Err(Error::corrupt("the disk has no partition table"));
     }
-    let sectors = dev.real_len() / SECTOR;
+    let sectors = dev.real_len() / sector;
     let mut found = Vec::new();
     let mut extended = None;
     let mut protective = false;
@@ -272,7 +275,7 @@ fn mbr(dev: &mut Device, cx: &mut dyn Ctx) -> Result<Table> {
         }
     }
     if let Some((ext_start, ext_count)) = extended {
-        logical(dev, ext_start, ext_count, &mut found, cx);
+        logical(dev, sector, ext_start, ext_count, &mut found, cx);
     }
     if found.is_empty() && protective {
         return Err(Error::corrupt(
@@ -286,12 +289,12 @@ fn mbr(dev: &mut Device, cx: &mut dyn Ctx) -> Result<Table> {
                 "an MBR partition at sector {start} isn't on the disk; it's left out"
             ));
         } else {
-            kept.push((name, start * SECTOR, count * SECTOR));
+            kept.push((name, start * sector, count * sector));
         }
     }
     Ok(Table {
         scheme: External::Mbr,
-        sector: SECTOR,
+        sector,
         partitions: named(kept),
     })
 }
@@ -301,6 +304,7 @@ fn mbr(dev: &mut Device, cx: &mut dyn Ctx) -> Result<Table> {
 /// Links must go forward and stay inside the extended partition.
 fn logical(
     dev: &mut Device,
+    sector: u64,
     ext_start: u64,
     ext_count: u64,
     found: &mut Vec<(String, u64, u64)>,
@@ -310,7 +314,11 @@ fn logical(
     let mut ebr = ext_start;
     for _ in 0..MAX_LOGICAL {
         let mut s = [0u8; 512];
-        if dev.read_exact_at(ebr * 512, &mut s).is_err() || le16(&s, 510) != 0xAA55 {
+        if dev
+            .read_exact_at(ebr.saturating_mul(sector), &mut s)
+            .is_err()
+            || le16(&s, 510) != 0xAA55
+        {
             cx.warn(format!(
                 "the extended partition's chain ends at sector {ebr}, which isn't an EBR"
             ));
