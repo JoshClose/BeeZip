@@ -250,3 +250,17 @@ path = "fuzz_targets/vdisk.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "xpress"
+path = "fuzz_targets/xpress.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "wof"
+path = "fuzz_targets/wof.rs"
+test = false
+doc = false
+bench = false
