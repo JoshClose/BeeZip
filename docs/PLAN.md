@@ -86,6 +86,7 @@ tests/fixtures/               # reference archives + manifest.json (entries + ha
   - `finish()`.
 - **`Backend`** groups formats: `Native`, `SevenZipCli` and `Libarchive`. The registry picks a backend for each format and operation using capabilities and priority.
   - The 7-Zip backend (M6) is one `ArchiveReader` for the formats in docs/M6.md §3.2. It reads `7z l -slt` and streams `7z x -so` into FsSink; only NSIS installers go through a staging folder. It needs 7-Zip 25.01 or newer.
+  - From M7, BeeZip reads partitioned disks, FAT, NTFS, ext2/3/4, bare HFS+ and APFS volumes and MSI installers itself (docs/M7.md); 7-Zip reads only what those readers don't support, when it's installed (docs/M7.md §2).
 - **No serialization in core:** core doesn't depend on serde, schemars or ts-rs. `beezip-commands` owns every wire type and converts, so core types can change without changing the API the front ends see.
 - **`Source`** is one of:
   - a file (Read+Seek);
@@ -265,7 +266,7 @@ Crate versions were checked on 2026-11-01. Churny crates are pinned exactly behi
 | 7z: LZMA/2, PPMd, BCJ*, AES-256, solid | ✓ | ✓ | `sevenz-rust2` `=0.25.0` (from M6) + our `VolumeSet` for `.7z.001`. It reads everything listed plus Deflate, BZip2, LZ4, Brotli and ARM64, but not zstd. It writes LZMA2, LZMA, PPMd, BZip2, Deflate and Copy, with encrypted headers on by default when there is a password and solid blocks capped at 1 GiB. BeeZip checks decoder memory itself (the crate's own limit, new in 0.25, isn't used), and checks entry CRCs itself, so a bad entry in a solid block fails only that entry (docs/M6.md §1) | M3 |
 | RAR 1.5–7 incl. multipart and passwords | ✓ | ✗ | UnRAR through `unrar_sys` in a new `beezip-unrar` crate, not the `unrar` crate, which can only buffer whole entries. BeeZip declares UnRAR's packed structs itself, links advapi32, and takes one lock for every call into UnRAR (cargo feature `rar`, on by default; UnRAR license notice shipped). `rars` (pure Rust) stays the tracked alternative. RAR creation is never offered | M3 |
 | Split files (.001…) | ✓ | ✓ | in-house `VolumeSet` reader/writer | M3 |
-| CAB | ✓ | ✓ (none, MSZIP) | in-house; LZX read through `lzxd` 0.2.7; cabinet sets read (docs/M5.md §5.5) | M5 |
+| CAB | ✓ | ✓ (none, MSZIP) | in-house; cabinet sets read (docs/M5.md §5.5). LZX was read through `lzxd` 0.2.7 until M7, which replaced it with BeeZip's own decoder (docs/M7.md §8.4) | M5 |
 | ISO 9660 / Joliet / Rock Ridge, UDF | ✓ | ✓ (ISO 9660 level 3 + Joliet + Rock Ridge) | `hadris-iso` and `hadris-udf` 3.0, patched (docs/M5.md §5.9) | M5 |
 | cpio | ✓ | ✓ (newc) | in-house: newc, crc, odc, binary, RPM's large files; also under every tar codec | M5 |
 | ar | ✓ | ✓ (GNU) | in-house | M5 |
@@ -277,7 +278,9 @@ Crate versions were checked on 2026-11-01. Churny crates are pinned exactly behi
 | squashfs | ✓ | ✓ | in-house reader; `backhand` 0.25.5 writer with BeeZip's codecs | M5 |
 | DMG (UDIF) | ✓ (HFS+, HFSX, APFS) | ✓ (HFS+, UDZO) | in-house UDIF; `fstool` 0.5.2 for the volumes | M5 |
 | ARJ, ACE, ZOO, ARC | ✓ | ✗ | in-house, from unarc-rs's ARJ, ACE and ZOO modules (MIT) and acefile (BSD-2); ARC BeeZip's own. HA, UC2, JAR, HYP and SQZ aren't read (license; docs/M6.md §4) | M6 |
-| WIM/ESD, CHM, MSI, NSIS, VHD(X), VMDK, QCOW2, VDI, MBR/GPT disks, FAT, NTFS, ext2/3/4, HFS+, APFS, CramFS | ✓ | ✗ | `SevenZipCli` backend: finds an installed 7-Zip 25.01 or newer (configurable path), parses `7z l -slt` and streams `7z x -so` into `FsSink`; staging only for NSIS. MSI names are 7-Zip's cab keys (docs/M6.md §3) | M6 |
+| WIM/ESD, CHM, NSIS, VHD(X), VMDK, QCOW2, VDI, CramFS; MSI patches, transforms and merge modules (`.msp`, `.mst`, `.msm`) | ✓ | ✗ | `SevenZipCli` backend: finds an installed 7-Zip 25.01 or newer (configurable path), parses `7z l -slt` and streams `7z x -so` into `FsSink`; staging only for NSIS (docs/M6.md §3). Until M7 it also read the disks, file systems and MSI below | M6 |
+| MBR/GPT disks, FAT12/16/32, NTFS, ext2/3/4, bare HFS+/HFSX/APFS | ✓ | ✗ | in-house partition reader (GPT with 512- or 4096-byte sectors, MBR with its EBR chain) and FAT reader; `fstool` =0.5.2 (features `ext`, `ntfs`) for ext and NTFS behind BeeZip's own checks, folder walks, names, times and links; HFS+/APFS as for DMG. A volume using something BeeZip doesn't support goes to 7-Zip when it's installed. Files a volume can't read (EFS, WOF, deduplicated) are skipped and reported when extracting (docs/M7.md §2–§7) | M7 |
+| MSI | ✓ | ✗ | in-house tables on `cfb` =0.16.0, listed by the paths they install to, files from BeeZip's CAB reader (docs/M7.md §8) | M7 |
 | XAR/pkg | ✓ | ✗ | in-house reader; pkg listed expanded, as `pkgutil --expand-full`; quick-xml (docs/M6.md §5) | M6 |
 | libarchive (everything it reads or writes) | ✓ | some | `libarchive2` behind cargo feature `libarchive`, **off** by default (needs vcpkg/CMake on MSVC) | optional |
 
@@ -329,6 +332,14 @@ After approval I implement **M0 + M1** and then stop for your review before goin
   - Generated notices, a signing pipeline for a production certificate, NSIS installer fixes, `tauri-plugin-updater`, draft releases, a winget manifest (`CloseConsulting.BeeZip`), Linux and macOS bundles on CI.
   - The early-launch fix, a tauri-driver E2E test, and drag-out to Explorer as a stretch goal.
   - The first public release comes after the look-and-feel pass.
+- **M7 — Native disk images and MSI.** Detailed plan: [`docs/M7.md`](M7.md). Ships in 0.2.0.
+  - BeeZip's own readers for GPT and MBR disks, FAT, NTFS, ext2/3/4, bare HFS+ and APFS volumes, and MSI installers.
+  - Files a volume can't read (EFS, WOF, deduplicated) are skipped and reported on extraction (after M7, PR #33).
+- **M8 — Virtual disks, Windows compression, WIM and installer speed.** Detailed plan: [`docs/M8.md`](M8.md), approved 2026-11-10. Ships in 0.3.0, with two 0.2.0 fixes (no 0.2.1).
+  - VHD, VHDX, VMDK, QCOW2 and VDI read by BeeZip, so the M7 readers run inside them.
+  - WOF-compressed NTFS files decompressed (XPRESS, LZX).
+  - WIM and ESD read by BeeZip (XPRESS, LZX; LZMS through Windows' own decoder on Windows, 7-Zip elsewhere).
+  - Faster CAB and MSI extraction, and MSI cabinets that continue from one embedded cabinet into the next.
 
 ---
 

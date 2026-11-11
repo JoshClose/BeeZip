@@ -300,6 +300,25 @@ files under `target/` exist only on the machine that found the bug. The mileston
   - *Workaround:* none; the fixture's record names that file `cjk`, and the test packages with
     non-ASCII names are built by the `msi` crate in `tests/msi.rs`.
 
+### qemu-img 8.2.2 (Ubuntu 24.04), which makes the virtual-disk fixtures
+
+Seen while planning M8 (docs/M8.md §15); repros in `target/m8-spikes/vmdk-qcow-vdi/repro/` and
+`target/m8-spikes/vhd/repro/` (images named under `vhd/images/` were deleted after planning;
+`vhd/scripts/` remakes them).
+- **A VMDK descriptor's ZERO extent is dropped,** so the disk comes out 16 KiB short and
+  everything after it moves up (`repro/qemu-zero-extent/`).
+- **A backing-file loop never finishes;** its memory grows (1.5 GB after 5.7 minutes,
+  `repro/qemu-backing-loop/`).
+- **A `json:` backing name is followed to any file** (`repro/qemu-json-backing/` reads
+  `/etc/passwd`).
+- **A QCOW2 `data_file` is opened relative to the working folder,** not the image's.
+- **A bare hosted sparse VMDK extent can't be opened alone** ("Invalid argument").
+- **A VHDX of 4 KiB logical sectors can't be opened** ("Operation not supported").
+- **An active VHDX log with no valid sequence is read as clean**
+  (`target/m8-spikes/vhd/images/log/dirty-noseq.vhdx`).
+- *Workaround:* none needed; the fixtures that need these are crafted from the specifications
+  instead (`make-vdisk.sh`, M8 §9), and their expected data isn't taken from qemu-img.
+
 ## Programs BeeZip runs or targets
 
 ### 7-Zip 26.00
@@ -325,6 +344,36 @@ CI's Windows runner shows which 7-Zip it has; BeeZip needs 25.01 or newer.
   - a VHD footer's UTC time is shifted by the local offset, even with `-slmu`;
   - a 4 KiB-sector GPT disk is read as an MBR disk (BeeZip reads such disks itself since M7);
   - `7z t tests/fixtures/malicious/bomb.dmg` runs for minutes on a 1.3 KB file.
+- Seen while planning M8 (docs/M8.md §15), not worked around since BeeZip reads these itself
+  from M8; repros under `target/m8-spikes/` (the spikes' samples and images were deleted after
+  planning: `target/m8-spikes/samples/README.md`, `vm/run.ps1` and each spike's `scripts/` remake
+  them):
+  - **a QCOW2 with extended L2 entries is read as if its entries were 8 bytes:** with compressed
+    clusters 7 of 11 clusters come out wrong and `7z t` says "Everything is Ok"
+    (`vmdk-qcow-vdi/repro/7zip-el2-compressed/`; `7z x -tqcow -so q-el2-deflate.qcow2` against
+    `raw.img`);
+  - a VMDK descriptor with a ZERO extent gives "Data Error" (`vmdk-qcow-vdi/repro/qemu-zero-extent/`);
+  - the qemu-img streamOptimized VMDK above can't be opened because qemu writes the grain
+    directory at the start with no footer, where VMware writes it at the end
+    (`vmdk-qcow-vdi/repro/7zip-qemu-stream/`);
+  - **an active VHDX log isn't replayed:** it reports "non-empty LOG was not replayed", reads the
+    stale disk and doesn't open what's inside (`samples/vhdx-dirty/dirty.vhdx`, made by Windows);
+  - a VHDX parent is found only by its `relative_path`, never with `..\`, by its absolute path or
+    beside the child (`vhd/images/ms/kids/fat-mod1.avhdx`); a VHD's parent is tried by its W2ku
+    absolute path too, which probably opens a UNC path a crafted VHD names (not verified);
+  - no VMDK, QCOW2 or VDI child or backing file is followed, zstd QCOW2 clusters and compressed
+    QCOW version 1 are "Unsupported method", a QCOW2 data file is "Unexpected end of archive", and
+    VDI blocks other than 1 MiB aren't read;
+  - **a file Windows compressed with WOF extracts as zeros of its full size,** with the
+    compressed data beside it as `file:WofCompressedData`, and `7z t` says "Everything is Ok"
+    (`wof/repro/7zip-wof-zeros.ntfs`); a WOF file inside a WIM fails "Incorrect reparse stream";
+  - DISM's split WIM (`samples/dism/split.swm`) reports "Unexpected end of archive", so
+    `beezip test` calls it Corrupt today; wimlib's warns "There are data after the end of
+    archive";
+  - Microsoft's boot.wim warns "Some files have incorrect reference count";
+  - an LZMS WIM is decoded on one thread;
+  - an MSI whose cabinet folder continues into a second embedded cabinet lists only its streams
+    (`cab/span/span.msi`).
 
 ### Windows 11 (build 26300)
 
@@ -334,6 +383,24 @@ CI's Windows runner shows which 7-Zip it has; BeeZip needs 25.01 or newer.
   - *Check:* with Windows 11's menu registered, right-click a .zip and hover BeeZip: there should
     be a line between "Test archive" and "Add to …".
   - *Workaround:* none possible.
+- Seen while planning M8 (docs/M8.md §15), for anyone making test disks:
+  - **`Get-VHD` and `Test-VHD` replay an active VHDX log in place,** writing the file. Never run
+    them on a file that mustn't change.
+  - Windows replays a log whose FlushedFileOffset is past the file's end (MS-VHDX says that's
+    damage).
+  - **`Convert-VHD`, flattening a differencing VHD,** copies a child's block whole where the
+    parent hasn't allocated it, ignoring the child's sector bitmap, so absent sectors come out as
+    the child's stale bytes (`target/m8-spikes/vhd/scripts/bitmap-probe.py`). Hyper-V zero-fills
+    new blocks, so only crafted files show it.
+  - `New-VHD` refuses `.avhdx` names, for a new disk and as a parent; `Convert-VHD` can't make a
+    differencing disk.
+  - Hyper-V's VHD children store a Parent Time Stamp of 0 and the absolute path in Parent Unicode
+    Name.
+  - The Compression API's LZMS and XPRESS decoders sometimes decode damaged input "successfully"
+    to wrong bytes (as their documentation warns); one LZMS decoder handle used by two threads at
+    once crashes. BeeZip checks WIM's SHA-1s and keeps one decoder per worker (M8 §5.3).
+  - MS-XCA's decoder pseudocode lacks the 32-bit match length its encoder pseudocode and
+    Windows' compressor write.
 
 ## Fixed upstream
 
@@ -374,6 +441,36 @@ time. msi stays a dev-dependency for building test packages:
   maps to UTF-8, so it can't write a code page 0 package (the test writes 1252 and zeroes the
   header through cfb);
 - its file needs read and write access: `File::create` gives "Access is denied".
+
+For M8's virtual disks, WOF and WIM (docs/M8.md §15, with repros in its spikes under
+`target/m8-spikes/`):
+- **vhdx-core 0.4.1:** replays a VHDX log wrong with no error (applies CRC-valid entries from
+  offset 0 to the first gap; no sequence search), and has no parent locating or identity check
+  (`vhd/repro/vhdx-core-log-not-replayed.vhdx`).
+- **virtdisk 0.3.1:** a lifetime budget of 16 Mi reads that can't be raised stops it 5.7 GB into a
+  real Windows disk; refuses qemu's VDIs (0x180-byte header) and streamOptimized VMDK.
+- **rust-img-vhdx 0.6.1:** `VhdxReader::open`, documented read-only, opens the file read-write and
+  replays the log into it (`vhd/repro/rust-img-vhdx-writes.vhdx`). **rust-img-vhd 0.6.1** fails
+  every Windows-written differencing VHD.
+- **vhdx-rs 0.2.0:** wrong data from a dirty log. **vhd 0.1.1, vhd-core 0.1.4:** read the whole
+  file into memory. **vhdx 0.1.0:** replays by writing the file, panics.
+- **rust-img-vmdk 0.5.1:** sizes a grain buffer from the header, so a 267 KB VMDK asks for 1 GiB
+  (`reader.rs:808`, `vmdk-qcow-vdi/repro/img-vmdk-grain-alloc/`). **rust-img-qcow2 0.6.1:** a raw
+  or VMDK backing file fails "bad magic". Both, and **fstool 0.5.2's `qcow2`**, open an absolute or
+  UNC backing path as written; fstool also fails a raw backing file shorter than the disk.
+- **qcow 1.2.0:** a child's unallocated clusters read as zeros instead of the backing file's
+  (`reader.rs:216`). **vdi 0.2.0:** allocates `blocks_in_image * 4` unchecked, divides by a block
+  size of 0.
+- **xpress-huffman 0.1.3:** short output with no error on 29 % of valid Windows streams.
+  **compcol 0.8.0:** fails every XPRESS stream with a 32-bit match length.
+  **keramics-compression 0.0.1:** short output with no error on streams Windows decodes whole.
+- **wim-parser 0.1.2:** allocates the XML from the header's size unchecked;
+  `default-features = false` doesn't build. **geezipx-core 0.7.4:** panics on Microsoft's
+  boot.wim ("capacity overflow", `resource.rs:124`), and overflows its stack on a looping folder.
+- Rejected without running, on licence or provenance: vmdk-core 0.8.4 (cross-checked against
+  qemu's and libvmdk's code), calf 0.3.0, wim/wim-format/wim-types (LGPL/GPL), ms-compress 0.2.1
+  and newtua-mscompress 0.1.0 (LGPL, from wimlib), and the unpublished LZMS decoders listed in
+  `target/m8-spikes/lzms/REPORT.md`.
 
 ## Notes
 
