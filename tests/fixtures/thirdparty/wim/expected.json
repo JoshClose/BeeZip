@@ -513,6 +513,7 @@
     "tree"
    ],
    "method": "LZX",
+   "lzms": true,
    "solid": 1
   },
   {
@@ -521,6 +522,7 @@
     "tree"
    ],
    "method": "XPRESS",
+   "lzms": true,
    "solid": 1
   },
   {
@@ -530,6 +532,7 @@
     "extra"
    ],
    "method": "LZX",
+   "lzms": true,
    "solid": 2
   },
   {

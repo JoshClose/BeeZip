@@ -25,6 +25,8 @@
 #   multi-solid.wim       two images, the tree and `extra`, each appended as a solid resource of
 #                         its own: LZX, then XPRESS (their data laid end to end in table order;
 #                         extra/readme.txt is the tree's readme.txt, in the first)
+#                         These three are Windows only too: with --solid and no --compress,
+#                         wimlib compresses the images' metadata with LZMS.
 #   multi-solid.esd       the same in LZMS (Windows only)
 #   multi.wim             three images, LZX: the tree, its sub folder, an empty folder
 #   empty-image.wim       one image of an empty folder
@@ -213,9 +215,11 @@ fixtures = [
     {'file': 'lzx-64k.wim', 'images': ['tree'], 'method': 'LZX'},
     {'file': 'lzms.wim', 'images': ['tree'], 'method': 'LZMS', 'lzms': True},
     {'file': 'solid-lzms.esd', 'images': ['tree'], 'method': 'LZMS', 'lzms': True, 'solid': 1},
-    {'file': 'solid-lzx.wim', 'images': ['tree'], 'method': 'LZX', 'solid': 1},
-    {'file': 'solid-xpress.wim', 'images': ['tree'], 'method': 'XPRESS', 'solid': 1},
-    {'file': 'multi-solid.wim', 'images': ['tree', 'extra'], 'method': 'LZX', 'solid': 2},
+    {'file': 'solid-lzx.wim', 'images': ['tree'], 'method': 'LZX', 'lzms': True, 'solid': 1},
+    {'file': 'solid-xpress.wim', 'images': ['tree'], 'method': 'XPRESS', 'lzms': True,
+     'solid': 1},
+    {'file': 'multi-solid.wim', 'images': ['tree', 'extra'], 'method': 'LZX', 'lzms': True,
+     'solid': 2},
     {'file': 'multi-solid.esd', 'images': ['tree', 'extra'], 'method': 'LZMS', 'lzms': True,
      'solid': 2},
     {'file': 'multi.wim', 'images': ['tree', 'sub', 'empty'], 'method': 'LZX'},
