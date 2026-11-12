@@ -271,3 +271,10 @@ path = "fuzz_targets/wim.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "chm"
+path = "fuzz_targets/chm.rs"
+test = false
+doc = false
+bench = false

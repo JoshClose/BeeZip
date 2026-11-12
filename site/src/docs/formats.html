@@ -51,8 +51,17 @@
   <li><strong>Large images extract in parallel:</strong> chunks decode on every core, as <code>[extract] threads</code> allows.</li>
 </ul>
 
+<h2 id="chm">CHM help files</h2>
+<p>BeeZip reads compiled HTML Help files (<code>.chm</code>) itself, on every platform: it lists, tests and extracts them, and previews a page without decoding the rest. Installing BeeZip leaves <code>.chm</code> with Windows' help viewer, so a double-click still shows the help; BeeZip's items are in its right-click menu.</p>
+<ul>
+  <li><strong>The listing</strong> is 7-Zip's: the help's pages, images and folders, and its own files (<code>#SYSTEM</code>, <code>$OBJINST</code>…). Info gives its title, language and compiler.</li>
+  <li><strong>A CHM stores no checksums,</strong> so testing one shows that every file can be read, not that it's intact.</li>
+  <li><strong>A file cut short</strong> still lists whole, and every file before the cut comes out; the rest are reported as cut short.</li>
+  <li><strong>What BeeZip doesn't read itself</strong> (a help file compressed with something other than LZX, say) goes to 7-Zip when it's installed, and Info says so.</li>
+</ul>
+
 <h2 id="through-7-zip">Formats read through 7-Zip</h2>
-<p>With <a href="https://7-zip.org">7-Zip</a> 25.01 or newer installed, BeeZip also lists, tests and extracts the formats marked "Through 7-Zip" above: CHM files, NSIS installers and CramFS images, and on Linux and macOS ESD images and WIMs compressed with LZMS.</p>
+<p>With <a href="https://7-zip.org">7-Zip</a> 25.01 or newer installed, BeeZip also lists, tests and extracts the formats marked "Through 7-Zip" above: NSIS installers and CramFS images, and on Linux and macOS ESD images and WIMs compressed with LZMS.</p>
 <ul>
   <li><strong>7-Zip only reads:</strong> every file streams from it through BeeZip's own extraction, with the same safety rules as every other format.</li>
   <li><strong>An MSI patch or merge module</strong> shows its files under the installer's internal names, as 7-Zip does.</li>

@@ -14,13 +14,15 @@ use beezip_core::{
     SkipReason, detect_path, open, ops,
 };
 
-// M6 PR 4 and M7 (docs/M6.md §10, docs/M7.md §10): each format's cases in a file of their own.
+// M6 PR 4, M7 and on (docs/M6.md §10, docs/M7.md §10): each format's cases in a file of their own.
 #[path = "malicious/ace.rs"]
 mod ace;
 #[path = "malicious/arc.rs"]
 mod arc;
 #[path = "malicious/arj.rs"]
 mod arj;
+#[path = "malicious/chm.rs"]
+mod chm;
 #[path = "malicious/ext.rs"]
 mod ext;
 #[path = "malicious/fat.rs"]

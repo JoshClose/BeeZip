@@ -12977,6 +12977,77 @@
       "native": true
     },
     {
+      "file": "7zip/chmcmd.chm",
+      "producer": "chmcmd 3.2.2 (Free Pascal, Ubuntu 24.04 in Docker)",
+      "command": "chmcmd fixture.hhp (index.htm, pages/a.htm, pages/café.htm; time stamps zeroed afterwards)",
+      "chain": "chm",
+      "levels": [
+        "chm"
+      ],
+      "password": null,
+      "utc_mtimes": false,
+      "hardlinks": 0,
+      "symlinks": 0,
+      "entries": [
+        {
+          "path": "#ITBITS",
+          "kind": "file",
+          "size": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "path": "_#_README_#_",
+          "kind": "file",
+          "size": 136,
+          "sha256": "febc8fc87eb016f5a57f483e5ac49c07cdfd9080dba42f6f3bb2c909f8857c26"
+        },
+        {
+          "path": "#SYSTEM",
+          "kind": "file",
+          "size": 4219,
+          "sha256": "b83c69ae00f35543a3c20485b12032dc393c811eafa35c0a9606fe709f884830"
+        },
+        {
+          "path": "$OBJINST",
+          "kind": "file",
+          "size": 2751,
+          "sha256": "6715341a64707a4102f3b4c56a3bb3be7955740e6c8ea99ba523e000a5e85faf"
+        },
+        {
+          "path": "index.htm",
+          "kind": "file",
+          "size": 88,
+          "sha256": "54514cacde7c291b3312bf578d7f7afd7cc2acfbc8cdc891bb7294fe626220f8"
+        },
+        {
+          "path": "pages/a.htm",
+          "kind": "file",
+          "size": 33,
+          "sha256": "16c98cb76663dc02ef4200bba7e8829662588bc80d439b30033cfd4a3e22b303"
+        },
+        {
+          "path": "pages/café.htm",
+          "kind": "file",
+          "size": 32,
+          "sha256": "e7235a006714b7aeac033280570181135c3830c3f0105b316fe0b31dc9803313"
+        },
+        {
+          "path": "#IDXHDR",
+          "kind": "file",
+          "size": 4096,
+          "sha256": "6b64d0dbcc3123994936547b8653dcac337507c106168c5355b6d06c23c7ce8a"
+        },
+        {
+          "path": "#STRINGS",
+          "kind": "file",
+          "size": 1,
+          "sha256": "6e340b9cffb37a989ca544e6bb780a2c78901d3fb33738768511a30617afa01d"
+        }
+      ],
+      "note": "Entries are what BeeZip's own reader lists (docs/M7.md), derived by native-records.py from the 7-Zip record of the same file: the same bytes, as `7z x` extracts them. BeeZip reads CHM help files itself since M9 (docs/M9.md). The same files as 7-Zip lists, CHM's own (#SYSTEM, $OBJINST…) among them, and the folder pages, which 7-Zip lists as a 0-byte entry, as a folder.",
+      "native": true
+    },
+    {
       "file": "arj/m0.arj",
       "producer": "ARJ 3.10.22 (Debian 12's arj 3.10.22-26, in Docker)",
       "command": "arj a -r -a1 -j$ -y -m0 m0.arj * (in the tree, under a frozen clock)",

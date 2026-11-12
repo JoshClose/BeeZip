@@ -16,6 +16,7 @@ use anyhow::{Context, bail};
 mod ace;
 mod arc;
 mod arj;
+mod chm;
 mod xar;
 mod zoo;
 
@@ -249,6 +250,8 @@ fn corpus() -> anyhow::Result<Vec<(&'static str, Vec<u8>)>> {
     files.extend(zoo::corpus()?);
     files.extend(arc::corpus()?);
     files.extend(xar::corpus()?);
+    // M9: CHM (docs/M9.md §8).
+    files.extend(chm::corpus()?);
     Ok(files)
 }
 

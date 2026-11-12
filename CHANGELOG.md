@@ -7,10 +7,26 @@ Write a new section as `## X.Y.Z`, with `###` groups and `- ` items, describing 
 using BeeZip will notice. Leave the date out: the Releases page dates each version by its
 `vX.Y.Z` tag.
 
-## 0.3.1
+## 0.4.0
+
+### CHM help files without 7-Zip
+
+- **BeeZip reads CHM help files itself,** on every platform: listed as 7-Zip lists them,
+  checked file for file against 7-Zip on 81 help files from Windows, Office, Visual Studio and
+  others. Previewing a page decodes only what it needs, and a help file cut short gives every
+  file before the cut.
+- **A double-click on a `.chm` still opens the help:** installing BeeZip leaves it with the
+  help viewer, and BeeZip's items are in its right-click menu.
+- **7-Zip is now needed only for NSIS installers, CramFS images and MSI patches,** and for the
+  few files of other formats BeeZip doesn't read itself.
 
 ### Fixes
 
+- **Settings' 7-Zip section** no longer says WIM images and virtual disks need 7-Zip, which
+  hasn't been so since 0.3.0.
+- **"Can't be edited" names the right reader:** for an MSI installer, a disk or virtual disk
+  image or a WIM image, it said BeeZip reads the file through 7-Zip, though BeeZip reads them
+  itself.
 - **Settings' compression levels say what each one is for:** zstd's covers `.zst` and
   `.tar.zst` files, and zstd in zip and SquashFS archives. Where a format's own default differs,
   the row says so (SquashFS's zstd is 15); the page showed 3 for all of them.

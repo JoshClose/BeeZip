@@ -1422,6 +1422,29 @@ fn refusals_are_known_before_an_edit_runs() {
     assert_eq!(found.as_deref(), Some("x.zip is read-only"));
 }
 
+/// A format BeeZip reads itself isn't said to be read through 7-Zip (docs/M9.md §15): the
+/// CHM help file, and the WIM image, since M8.
+#[test]
+fn formats_beezip_reads_itself_are_refused_as_its_own() {
+    for (name, kind) in [
+        ("chm/halibut.chm", "CHM help file"),
+        ("wim/xpress.wim", "WIM image"),
+    ] {
+        let file = name.rsplit('/').next().unwrap();
+        assert_eq!(
+            refusal(&thirdparty(name)).as_deref(),
+            Some(
+                format!(
+                    "BeeZip reads {file} ({kind}) but doesn't change it. Convert it \
+                     (`beezip convert`), or extract it."
+                )
+                .as_str()
+            ),
+            "{name}"
+        );
+    }
+}
+
 #[test]
 fn a_zip_with_two_entries_of_one_name_is_refused() {
     let dir = tempfile::tempdir().unwrap();
