@@ -7,6 +7,17 @@ Write a new section as `## X.Y.Z`, with `###` groups and `- ` items, describing 
 using BeeZip will notice. Leave the date out: the Releases page dates each version by its
 `vX.Y.Z` tag.
 
+## 0.3.1
+
+### Fixes
+
+- **Settings' compression levels say what each one is for:** zstd's covers `.zst` and
+  `.tar.zst` files, and zstd in zip and SquashFS archives. Where a format's own default differs,
+  the row says so (SquashFS's zstd is 15); the page showed 3 for all of them.
+- **A default level can't be one a format refuses.** The deflate and gzip sliders went down to
+  0, which zip's and 7z's deflate and SquashFS's gzip don't take: with deflate at 0, every new
+  zip failed. Both start at 1 now, and `beezip settings set` refuses such a level too.
+
 ## 0.3.0
 
 ### Virtual disks without 7-Zip

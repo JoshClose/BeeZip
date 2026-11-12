@@ -212,6 +212,46 @@ pub struct FormatsListOutput {
     pub seven_zip: SevenZipStatus,
 }
 
+/// The methods a format writes new archives with, and the levels each takes.
+fn methods(f: FormatId) -> Vec<(&'static str, Option<beezip_core::Levels>)> {
+    match f {
+        FormatId::Zip => ZipMethod::ALL
+            .into_iter()
+            .map(|m| (m.name(), m.levels()))
+            .collect(),
+        FormatId::SevenZ => SevenZMethod::ALL
+            .into_iter()
+            .map(|m| (m.name(), m.levels()))
+            .collect(),
+        FormatId::Cab => CabMethod::ALL
+            .into_iter()
+            .map(|m| (m.name(), None))
+            .collect(),
+        FormatId::Squashfs => SquashfsMethod::ALL
+            .into_iter()
+            .map(|m| (m.name(), m.levels()))
+            .collect(),
+        _ => Vec::new(),
+    }
+}
+
+/// Everything `[levels] NAME` sets the default level of: the codec of that name (`zstd`) and
+/// each format's method of it (`squashfs zstd`), with the levels each takes. They don't all
+/// take the same ones: zip's deflate starts at 1 where raw deflate starts at 0.
+pub fn level_uses(name: &str) -> Vec<(String, beezip_core::Levels)> {
+    let codec = CodecId::ALL
+        .into_iter()
+        .filter(|c| c.name() == name)
+        .filter_map(|c| Some((name.to_owned(), c.codec().levels()?)));
+    let methods = FormatId::ALL.into_iter().flat_map(|f| {
+        methods(f)
+            .into_iter()
+            .filter(|(m, _)| *m == name)
+            .filter_map(move |(m, l)| Some((format!("{} {m}", f.name()), l?)))
+    });
+    codec.chain(methods).collect()
+}
+
 pub struct FormatsList;
 
 impl Command for FormatsList {
@@ -230,53 +270,35 @@ impl Command for FormatsList {
         let seven_zip = SevenZipStatus::find(&crate::commands::util::seven_zip(cx));
         let formats = FormatId::ALL
             .into_iter()
-            .map(|f| {
-                let method = |id: &str, levels: Option<beezip_core::Levels>| MethodInfo {
-                    id: id.into(),
-                    levels: levels.map(Into::into),
-                };
-                FormatInfo {
-                    id: f.name().into(),
-                    name: f.display_name().into(),
-                    extensions: f
-                        .format()
-                        .extensions()
-                        .iter()
-                        .map(|e| (*e).into())
-                        .collect(),
-                    caps: caps_for(f, &[]).into(),
-                    methods: match f {
-                        FormatId::Zip => ZipMethod::ALL
-                            .into_iter()
-                            .map(|m| method(m.name(), m.levels()))
-                            .collect(),
-                        FormatId::SevenZ => SevenZMethod::ALL
-                            .into_iter()
-                            .map(|m| method(m.name(), m.levels()))
-                            .collect(),
-                        FormatId::Cab => CabMethod::ALL
-                            .into_iter()
-                            .map(|m| method(m.name(), None))
-                            .collect(),
-                        FormatId::Squashfs => SquashfsMethod::ALL
-                            .into_iter()
-                            .map(|m| method(m.name(), m.levels()))
-                            .collect(),
-                        _ => Vec::new(),
-                    },
-                    encryption: match f {
-                        FormatId::Zip => vec!["aes256".into(), "zipcrypto".into()],
-                        FormatId::SevenZ => vec!["aes256".into()],
-                        _ => Vec::new(),
-                    },
-                    backend: f
-                        .external()
-                        .filter(|k| !k.native())
-                        .map(|_| "7-zip".to_owned()),
-                    available: f.external().is_none_or(beezip_core::External::native)
-                        || seven_zip.name.is_some(),
-                    menu: f.external().is_none_or(beezip_core::External::in_menu),
-                }
+            .map(|f| FormatInfo {
+                id: f.name().into(),
+                name: f.display_name().into(),
+                extensions: f
+                    .format()
+                    .extensions()
+                    .iter()
+                    .map(|e| (*e).into())
+                    .collect(),
+                caps: caps_for(f, &[]).into(),
+                methods: methods(f)
+                    .into_iter()
+                    .map(|(id, levels)| MethodInfo {
+                        id: id.into(),
+                        levels: levels.map(Into::into),
+                    })
+                    .collect(),
+                encryption: match f {
+                    FormatId::Zip => vec!["aes256".into(), "zipcrypto".into()],
+                    FormatId::SevenZ => vec!["aes256".into()],
+                    _ => Vec::new(),
+                },
+                backend: f
+                    .external()
+                    .filter(|k| !k.native())
+                    .map(|_| "7-zip".to_owned()),
+                available: f.external().is_none_or(beezip_core::External::native)
+                    || seven_zip.name.is_some(),
+                menu: f.external().is_none_or(beezip_core::External::in_menu),
             })
             .collect();
         let codecs = CodecId::ALL

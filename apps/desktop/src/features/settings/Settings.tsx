@@ -40,12 +40,62 @@ function motw(platform: string): { hint: string; options: { id: MarkOfTheWeb; la
   };
 }
 
-/** Every codec and method with levels, by the name `[levels]` takes. */
-export function levelTargets(f: FormatsListOutput): { name: string; range: LevelRange }[] {
-  const all = new Map<string, LevelRange>();
-  for (const c of f.codecs) if (c.levels) all.set(c.id, c.levels);
-  for (const format of f.formats) for (const m of format.methods) if (m.levels && !all.has(m.id)) all.set(m.id, m.levels);
-  return [...all].map(([name, range]) => ({ name, range })).sort((a, b) => a.name.localeCompare(b.name));
+/** A name `[levels]` takes, and everything it sets the level of. */
+export type LevelTarget = {
+  name: string;
+  /** The levels everything it applies to takes: zip's deflate starts at 1, raw deflate at 0. */
+  range: { min: number; max: number };
+  /** Its own default: the codec's, else the first format's. */
+  own: number;
+  /** "For .zst, .tar.zst and .cpio.zst files, and zip and SquashFS archives." */
+  applies: string;
+  /** The formats whose own default isn't `own`: "SquashFS's default is 15." */
+  others: string | null;
+};
+
+/** How the levels name a format that has methods. */
+const ARCHIVE_NAMES: Record<string, string> = { zip: "zip", "7z": "7z", squashfs: "SquashFS" };
+
+/** "a", "a and b", "a, b and c". */
+function list(items: string[]): string {
+  return items.length < 2 ? (items[0] ?? "") : `${items.slice(0, -1).join(", ")} and ${items[items.length - 1]}`;
+}
+
+/** Every codec and method with levels, once by the name `[levels]` takes, with what it applies to. */
+export function levelTargets(f: FormatsListOutput): LevelTarget[] {
+  type Uses = { codec?: { files: string[]; name: string; levels: LevelRange }; archives: { name: string; levels: LevelRange }[] };
+  const all = new Map<string, Uses>();
+  const uses = (name: string) => all.get(name) ?? all.set(name, { archives: [] }).get(name)!;
+  for (const c of f.codecs) {
+    if (!c.levels) continue;
+    // A codec's own files (`.zst`), and the tars and cpios it compresses (`.tar.zst`).
+    const ext = c.extensions[0];
+    const files = ext ? [ext, ...["tar", "cpio"].filter((a) => f.create.includes(`${a}${ext}`)).map((a) => `.${a}${ext}`)] : [];
+    uses(c.id).codec = { files, name: c.name, levels: c.levels };
+  }
+  for (const format of f.formats) {
+    for (const m of format.methods) if (m.levels) uses(m.id).archives.push({ name: ARCHIVE_NAMES[format.id] ?? format.name, levels: m.levels });
+  }
+  return [...all]
+    .map(([name, { codec, archives }]) => {
+      const ranges = [...(codec ? [codec.levels] : []), ...archives.map((a) => a.levels)];
+      const own = codec?.levels.default ?? archives[0].levels.default;
+      const parts = [
+        ...(codec ? [codec.files.length > 0 ? `${list(codec.files)} files` : `${codec.name} streams`] : []),
+        ...(archives.length > 0 ? [`${list(archives.map((a) => a.name))} archives`] : []),
+      ];
+      const others = archives
+        .filter((a) => a.levels.default !== own)
+        .map((a, i) => `${a.name}'s ${i === 0 ? "default " : ""}is ${a.levels.default}`);
+      return {
+        name,
+        range: { min: Math.max(...ranges.map((r) => r.min)), max: Math.min(...ranges.map((r) => r.max)) },
+        own,
+        applies: `For ${parts.join(", and ")}.`,
+        others: others.length > 0 ? `${others.join("; ")}.` : null,
+      };
+    })
+    .sort((a, b) => a.name.localeCompare(b.name));
 }
 
 function without(errors: Record<string, string>, key: string): Record<string, string> {
@@ -198,24 +248,28 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
                 onCommit={(v) => save("stream.codec", v)}
               />
             </Setting>
-            {levels.length > 0 && (
-              <div className="flex flex-col gap-1.5">
-                <p className="text-[12px] text-muted">
-                  Default levels, for archives and files that don't name one. Each codec and method keeps its own until you set one.
-                </p>
-                {levels.map((l) => (
-                  <LevelSetting
-                    key={l.name}
-                    name={l.name}
-                    range={l.range}
-                    value={s.levels[l.name]}
-                    error={errors[`levels.${l.name}`]}
-                    onCommit={(v) => save(`levels.${l.name}`, v)}
-                  />
-                ))}
-              </div>
-            )}
           </Section>
+
+          {levels.length > 0 && (
+            <Section
+              title="Compression levels"
+              description={`The level BeeZip compresses at when you don't choose one, as from ${platform === "windows" ? "Explorer's menu or " : ""}the command line. New archive and Add files start at it too. Lower is faster; higher makes smaller files. Until you move a slider, each format keeps its own default.`}
+            >
+              {levels.map((l) => (
+                <LevelSetting
+                  key={l.name}
+                  name={l.name}
+                  range={l.range}
+                  own={l.own}
+                  applies={l.applies}
+                  others={l.others}
+                  value={s.levels[l.name]}
+                  error={errors[`levels.${l.name}`]}
+                  onCommit={(v) => save(`levels.${l.name}`, v)}
+                />
+              ))}
+            </Section>
+          )}
 
           <Section title="Limits" description="What stops zip bombs and runaway archives. Empty puts a limit back to its default.">
             <Setting label="Expansion" htmlFor="limits-ratio" hint="The most an archive may grow: unpacked size over packed size." error={errors["limits.max_ratio"]}>

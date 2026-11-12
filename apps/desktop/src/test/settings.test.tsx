@@ -49,13 +49,42 @@ const got = (patch: Partial<SettingsGetOutput> = {}): SettingsGetOutput => ({
   ...patch,
 });
 
+const levels = (min: number, max: number, d: number) => ({ min, max, default: d });
+// As formats.list gives them: the same name can take other levels, or default to another, in
+// another format.
 const formats = {
-  formats: [{ id: "zip", name: "ZIP", extensions: [".zip"], caps: {}, methods: [{ id: "deflate", levels: { min: 0, max: 9, default: 6 } }], encryption: [] }],
+  formats: [
+    {
+      id: "zip",
+      name: "ZIP",
+      extensions: [".zip"],
+      caps: {},
+      methods: [
+        { id: "store", levels: null },
+        { id: "deflate", levels: levels(1, 9, 6) },
+        { id: "zstd", levels: levels(1, 22, 3) },
+      ],
+      encryption: [],
+    },
+    {
+      id: "squashfs",
+      name: "squashfs image",
+      extensions: [".squashfs"],
+      caps: {},
+      methods: [
+        { id: "gzip", levels: levels(1, 9, 9) },
+        { id: "zstd", levels: levels(1, 22, 15) },
+      ],
+      encryption: [],
+    },
+  ],
   codecs: [
-    { id: "zstd", name: "Zstandard", extensions: [".zst"], levels: { min: 1, max: 22, default: 3 }, threads: true, detected: true },
+    { id: "gzip", name: "gzip", extensions: [".gz", ".tgz"], levels: levels(0, 9, 6), threads: true, detected: true },
+    { id: "deflate", name: "raw deflate", extensions: [], levels: levels(0, 9, 6), threads: true, detected: false },
+    { id: "zstd", name: "Zstandard", extensions: [".zst"], levels: levels(1, 22, 3), threads: true, detected: true },
     { id: "snappy", name: "Snappy", extensions: [".sz"], levels: null, threads: false, detected: true },
   ],
-  create: ["zip"],
+  create: ["zip", "tar.gz", "cpio.gz", "tar.zst", "squashfs"],
 } as unknown as FormatsListOutput;
 
 describe("the settings page", () => {
@@ -73,7 +102,7 @@ describe("the settings page", () => {
     expect(screen.getByText(/BeeZip\\config\.toml/)).toBeInTheDocument();
     expect(await screen.findByLabelText("zstd")).toHaveValue("19");
     expect(screen.getByLabelText("deflate")).toHaveValue("6");
-    expect(screen.getByText("6, its own")).toBeInTheDocument();
+    expect(screen.getAllByText("6 (default)")).toHaveLength(2);
     expect(screen.getByRole("radio", { name: "System" })).toHaveAttribute("aria-checked", "true");
   });
 
@@ -198,8 +227,46 @@ describe("the settings page", () => {
     expect(screen.getByText(/unknown key `x` ignored/)).toBeInTheDocument();
   });
 
-  it("lists every codec and method with levels once", () => {
-    expect(levelTargets(formats).map((l) => l.name)).toEqual(["deflate", "zstd"]);
+  it("lists every codec and method with levels once, with what it applies to", () => {
+    expect(levelTargets(formats)).toEqual([
+      // Raw deflate takes 0, but zip's deflate doesn't, so the slider starts at 1.
+      { name: "deflate", range: { min: 1, max: 9 }, own: 6, applies: "For raw deflate streams, and zip archives.", others: null },
+      {
+        name: "gzip",
+        range: { min: 1, max: 9 },
+        own: 6,
+        applies: "For .gz, .tar.gz and .cpio.gz files, and SquashFS archives.",
+        others: "SquashFS's default is 9.",
+      },
+      {
+        name: "zstd",
+        range: { min: 1, max: 22 },
+        own: 3,
+        applies: "For .zst and .tar.zst files, and zip and SquashFS archives.",
+        others: "SquashFS's default is 15.",
+      },
+    ]);
+  });
+
+  it("says what each level applies to, and which formats default to another", async () => {
+    fake.handlers.set("settings.set", () => ({ ...got(), settings: { ...settings, levels: {} }, changed: ["levels.zstd"] }));
+    const user = userEvent.setup();
+    render(<SettingsDialog onClose={() => {}} />);
+    expect(await screen.findByRole("heading", { name: "Compression levels" })).toBeInTheDocument();
+    expect(screen.getByText(/when you don't choose one/)).toBeInTheDocument();
+
+    const gzip = screen.getByLabelText("gzip");
+    expect(gzip).toHaveAttribute("min", "1");
+    expect(gzip).toHaveAccessibleDescription("For .gz, .tar.gz and .cpio.gz files, and SquashFS archives. SquashFS's default is 9.");
+    expect(screen.getByLabelText("deflate")).toHaveAttribute("min", "1");
+
+    // A level that's set applies everywhere, so the other defaults aren't shown.
+    const zstd = screen.getByLabelText("zstd");
+    expect(zstd).toHaveAccessibleDescription("For .zst and .tar.zst files, and zip and SquashFS archives.");
+    await user.click(screen.getByRole("button", { name: "Put zstd back to its default" }));
+    await waitFor(() => expect(fake.calls).toContainEqual({ name: "settings.set", args: { set: { "levels.zstd": null } } }));
+    expect(zstd).toHaveValue("3");
+    expect(zstd).toHaveAccessibleDescription("For .zst and .tar.zst files, and zip and SquashFS archives. SquashFS's default is 15.");
   });
 
   describe("off Windows (docs/M6.md §8.3)", () => {
