@@ -216,7 +216,15 @@ pre {
   font-size: 1.2rem;
 }
 
-.button .sub {
+/* Narrow phones: less to each side, so "Download for Windows" fits in 288 px. */
+@media (max-width: 400px) {
+  .button.big {
+    --edge: 16px;
+    padding: 18px calc(var(--edge) + 16px);
+  }
+}
+
+.button .release-line {
   display: block;
   font-weight: 450;
   font-size: 0.82rem;
@@ -1115,9 +1123,10 @@ pre {
   color: var(--ink);
 }
 
+/* Top and bottom only: on a page (`page prose`), the sides are .page's gutter. */
 .prose {
   min-width: 0;
-  padding: 32px 0 80px;
+  padding-block: 32px 80px;
 }
 
 .prose > * {
@@ -1426,6 +1435,14 @@ pre.usage {
 .download-head .comb-lifted {
   width: clamp(88px, 12vw, 150px);
   height: auto;
+}
+
+/* On a phone the mark goes above the heading, so the button has the width. */
+@media (max-width: 560px) {
+  .download-head {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 16px;
+  }
 }
 
 .download-head .lede {
