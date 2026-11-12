@@ -90,10 +90,13 @@ impl Os {
     }
 }
 
-/// Zip-based document formats BeeZip reads but leaves to their own apps.
+/// Document formats BeeZip reads but leaves to their own apps: zip-based ones, and CHM help files.
 const DOCUMENTS: &[&str] = &[
     "jar", "war", "apk", "aab", "ipa", "xpi", "vsix", "nupkg", "whl", "docx", "xlsx", "pptx",
     "odt", "ods", "odp", "epub", "appx", "msix",
+    // A help file opens in the system's help viewer: HTML Help on Windows, a CHM viewer
+    // elsewhere. BeeZip reads it itself since M9, but leaves it to them (docs/M9.md §7).
+    "chm",
 ];
 
 /// Extensions that only name a later part of a set; the first part is what people open.
@@ -697,6 +700,7 @@ mod tests {
         }
         for not in [
             "docx", "jar", "epub", "r00", "cab", "iso", "a", "lib", "vhd", "vhdx", "img", "msi",
+            "chm",
         ] {
             assert!(!exts.contains(&not), "{not} shouldn't be associated");
         }

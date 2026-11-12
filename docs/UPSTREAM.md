@@ -319,6 +319,18 @@ Seen while planning M8 (docs/M8.md §15); repros in `target/m8-spikes/vmdk-qcow-
 - *Workaround:* none needed; the fixtures that need these are crafted from the specifications
   instead (`make-vdisk.sh`, M8 §9), and their expected data isn't taken from qemu-img.
 
+### chmcmd 3.2.2 (Free Pascal, Ubuntu 24.04), which makes the CHM fixtures
+
+Seen while planning M9 (docs/M9.md §14), in `target/m9-spikes/chm/big/big.chm` (Rust's `std`
+docs; `big/make.sh` remakes it).
+- **A multi-chunk directory names the wrong first listing chunk.** The ITSP header says the first
+  PMGL chunk is 1, but chunk 0 is a PMGL chunk too (its next is 1), holding 108 entries. A reader
+  that starts where the header says loses them (98 files); 7-Zip reads every chunk.
+  - *Check:* the multi-chunk chmcmd fixture (M9 §8): the ITSP header's field at 0x20 against the
+    lowest PMGL chunk.
+  - *Workaround (keep):* the CHM reader reads every chunk and takes every PMGL one, whatever the
+    header says (M9 decision 3).
+
 ## Programs BeeZip runs or targets
 
 ### 7-Zip 26.00

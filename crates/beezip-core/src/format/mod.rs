@@ -9,6 +9,7 @@ pub mod ar;
 pub mod arc;
 pub mod arj;
 pub mod cab;
+pub mod chm;
 pub mod cpio;
 pub mod deb;
 pub mod dmg;

@@ -278,7 +278,8 @@ Crate versions were checked on 2026-11-01. Churny crates are pinned exactly behi
 | squashfs | ✓ | ✓ | in-house reader; `backhand` 0.25.5 writer with BeeZip's codecs | M5 |
 | DMG (UDIF) | ✓ (HFS+, HFSX, APFS) | ✓ (HFS+, UDZO) | in-house UDIF; `fstool` 0.5.2 for the volumes | M5 |
 | ARJ, ACE, ZOO, ARC | ✓ | ✗ | in-house, from unarc-rs's ARJ, ACE and ZOO modules (MIT) and acefile (BSD-2); ARC BeeZip's own. HA, UC2, JAR, HYP and SQZ aren't read (license; docs/M6.md §4) | M6 |
-| CHM, NSIS, CramFS; MSI patches, transforms and merge modules (`.msp`, `.mst`, `.msm`) | ✓ | ✗ | `SevenZipCli` backend: finds an installed 7-Zip 25.01 or newer (configurable path), parses `7z l -slt` and streams `7z x -so` into `FsSink`; staging only for NSIS (docs/M6.md §3). Until M7 it also read the disks, file systems and MSI below, and until M8 the virtual disks and WIM | M6 |
+| NSIS, CramFS; MSI patches, transforms and merge modules (`.msp`, `.mst`, `.msm`) | ✓ | ✗ | `SevenZipCli` backend: finds an installed 7-Zip 25.01 or newer (configurable path), parses `7z l -slt` and streams `7z x -so` into `FsSink`; staging only for NSIS (docs/M6.md §3). Until M7 it also read the disks, file systems and MSI below, until M8 the virtual disks and WIM, and until M9 CHM | M6 |
+| CHM | ✓ | ✗ | in-house reader (docs/M9.md): the ITSF/ITSP directory, every listing chunk read; section 1 decoded by BeeZip's LZX decoder a 32 KiB frame at a time from the reset table, the last frame whole; a CHM using something else goes to 7-Zip | M9 |
 | WIM, ESD, SWM | ✓ | ✗ | in-house reader (docs/M8.md §5): 1.13 and ESD 0.14, none/XPRESS/LZX/LZMS, solid resources, split sets, every blob's SHA-1, chunks decoded on `[extract] threads` workers; LZMS through Windows' Compression API (cabinet.dll from System32) on Windows, 7-Zip elsewhere | M8 |
 | VHD, VHDX, VMDK, QCOW2, VDI | ✓ | ✗ | in-house readers (docs/M8.md §3): fixed, dynamic and differencing VHD/VHDX with a VHDX's log replayed in memory; VMDK hosted, split, flat, stream-optimized and child disks; QCOW2 v2/v3 with deflate/zstd clusters, extended L2, backing and data files; VDI with its snapshots. Parents found by BeeZip's rules, never over the network. M7's partition and file-system readers run inside them. What they refuse goes to 7-Zip when it's installed | M8 |
 | MBR/GPT disks, FAT12/16/32, NTFS, ext2/3/4, bare HFS+/HFSX/APFS | ✓ | ✗ | in-house partition reader (GPT with 512- or 4096-byte sectors, MBR with its EBR chain) and FAT reader; `fstool` =0.5.2 (features `ext`, `ntfs`) for ext and NTFS behind BeeZip's own checks, folder walks, names, times and links; HFS+/APFS as for DMG. A volume using something BeeZip doesn't support goes to 7-Zip when it's installed. Files Windows compressed with WOF (XPRESS4K/8K/16K, LZX) decode through BeeZip's own XPRESS decoder and `format/lzx.rs` (docs/M8.md §4); files a volume can't read (EFS, deduplicated, WIMBoot) are skipped and reported when extracting (docs/M7.md §2–§7) | M7 |
@@ -342,6 +343,9 @@ After approval I implement **M0 + M1** and then stop for your review before goin
   - WOF-compressed NTFS files decompressed (XPRESS, LZX).
   - WIM and ESD read by BeeZip (XPRESS, LZX; LZMS through Windows' own decoder on Windows, 7-Zip elsewhere).
   - Faster CAB and MSI extraction, and MSI cabinets that continue from one embedded cabinet into the next.
+- **M9 — CHM.** Detailed plan: [`docs/M9.md`](M9.md), approved 2026-11-11. Ships in 0.4.0.
+  - CHM help files read by BeeZip on its own LZX decoder, so 7-Zip is left with NSIS, CramFS and MSI patches.
+  - `.chm` stays with the system's help viewer; Explorer's menu keeps BeeZip's items on it.
 
 ---
 

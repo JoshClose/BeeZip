@@ -1,8 +1,9 @@
 """The records of what BeeZip's own readers list from the 7-Zip backend's images (docs/M7.md §10).
 
 Since M7 BeeZip reads FAT, NTFS, ext, HFS+, APFS, GPT and MBR disks and MSI installers itself,
-and since M8 WIM images (docs/M8.md §5; an LZMS one only on Windows, so wimlib-solid.esd has no
-native record here: tests/wim.rs reads wimlib's LZMS images natively on Windows).
+since M8 WIM images (docs/M8.md §5; an LZMS one only on Windows, so wimlib-solid.esd has no
+native record here: tests/wim.rs reads wimlib's LZMS images natively on Windows), and since M9
+CHM help files (docs/M9.md).
 make-7z.sh records what 7-Zip lists from its images (`"backend": "7-zip"`), and the fixture test
 reads those through 7-Zip. This script derives, from each of those records, what BeeZip's own
 reader must list from the same image (`"native": true`): the same files with the same bytes, as
@@ -152,6 +153,12 @@ records.append(native(f, ['wim'], files(by_file[f]), 1, 3,
                       'Two images, the folders 1/ and 2/ as 7-Zip names them, without its '
                       "`[1].xml`. hard-readme.txt and readme.txt are one hard link group: the "
                       'second name in the image (readme.txt) is a hard link.'))
+
+f = '7zip/chmcmd.chm'
+records.append(native(f, ['chm'], files(by_file[f]), 0, 0,
+                      'BeeZip reads CHM help files itself since M9 (docs/M9.md). The same files '
+                      "as 7-Zip lists, CHM's own (#SYSTEM, $OBJINST…) among them, and the folder "
+                      'pages, which 7-Zip lists as a 0-byte entry, as a folder.'))
 
 mine = lambda r: r.get('native') is True
 rest = [r for r in old if not mine(r)]

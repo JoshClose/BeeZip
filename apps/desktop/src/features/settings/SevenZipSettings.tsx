@@ -71,7 +71,7 @@ export function SevenZipSettings({
   return (
     <Section
       title="7-Zip"
-      description="BeeZip opens WIM images, NSIS installers, CHM files, CramFS and virtual disks (VHD, VHDX, VMDK, QCOW2, VDI) through an installed 7-Zip, and MSI patches and the few volumes it doesn't read itself."
+      description="BeeZip opens NSIS installers and CramFS images through an installed 7-Zip, and MSI patches and the few volumes it doesn't read itself."
     >
       <div className="flex items-start gap-3">
         <p role="status" className="selectable min-w-0 flex-1 text-[12px]">
