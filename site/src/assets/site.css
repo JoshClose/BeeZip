@@ -79,6 +79,12 @@ svg {
   max-width: 100%;
 }
 
+/* comb-lifted's dark cell rises past the top of the mark as it lifts (the download page, the
+   home page's job window): let it show there rather than be cut flat. */
+svg.comb-lifted {
+  overflow: visible;
+}
+
 a {
   color: var(--amber);
   text-decoration-thickness: 1px;
