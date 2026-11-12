@@ -69,11 +69,25 @@ fn chm_claims_fail_their_files_only() {
             "{name}: {:?}",
             report.errors
         );
-        let (_, inside) = extract(name, FsOptions::default());
-        assert!(
-            inside.iter().all(|p| p == "#SYSTEM" || p == "index.htm"),
-            "{name}: {inside:?}"
-        );
+        // Extraction stops at the first damaged file, on one worker and on four. A small file
+        // written before it may be left or not: on four, one still queued behind the reader is
+        // dropped with the sink (docs/M9.md §15), so the two aren't compared, as `extract` does.
+        for threads in [1, 4] {
+            let opts = OpenOptions {
+                threads,
+                ..OpenOptions::default()
+            };
+            let (r, inside) = extract_with(name, FsOptions::default(), &opts);
+            assert_eq!(
+                r.err().map(|e| e.kind),
+                Some(ErrorKind::Corrupt),
+                "{name} on {threads}"
+            );
+            assert!(
+                inside.iter().all(|p| p == "#SYSTEM" || p == "index.htm"),
+                "{name} on {threads}: {inside:?}"
+            );
+        }
         assert!(t.elapsed() < Duration::from_secs(2), "{name}");
     }
 }
