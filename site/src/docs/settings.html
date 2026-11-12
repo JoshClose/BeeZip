@@ -55,7 +55,8 @@ beezip settings set --reset limits.max_ratio               # back to the default
 </table></div>
 
 <h2 id="levels">Compression levels</h2>
-<p><code>levels</code> holds a default level for any compressor or method: a compressor such as <code>zstd</code>, <code>xz</code> or <code>gzip</code>, a zip method such as <code>deflate</code>, or a 7z method such as <code>lzma2</code>. Each one you leave out uses its own default; <code>beezip formats</code> lists every range and default.</p>
+<p><code>levels</code> holds the level BeeZip compresses at when a job doesn't choose one: Explorer's menu, a command without <code>--level</code>, and the slider New archive and Add files start at. Each name is a compressor such as <code>zstd</code>, <code>xz</code> or <code>gzip</code>, or a method such as zip's <code>deflate</code> or 7z's <code>lzma2</code>, and covers everything that compresses with it: <code>zstd = 19</code> is for <code>.zst</code> and <code>.tar.zst</code> files, and for zstd in zip and SquashFS archives.</p>
+<p>A level has to suit all of them, so some ranges are narrower than one format's: zip's and 7z's deflate start at 1 where raw deflate starts at 0, so <code>deflate = 0</code> is refused. A name you leave out keeps each format's own default, and those can differ: SquashFS's zstd defaults to 15, the others' to 3. <code>beezip formats</code> lists every range and default.</p>
 <pre><code>[levels]
 zstd = 19
 deflate = 9

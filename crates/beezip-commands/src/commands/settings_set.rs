@@ -22,7 +22,7 @@ use ts_rs::TS;
 
 use crate::{
     Access, CliSpec, CmdError, Command, Effect, ErrorCode, JobCtx, Surfaces,
-    commands::{settings_get::SettingsGetOutput, util},
+    commands::{formats_list, settings_get::SettingsGetOutput, util},
     config::{self, Config, MAP_SECTIONS},
     wire::{CodecName, MethodName},
 };
@@ -143,6 +143,11 @@ fn edits(input: SettingsSetInput) -> Result<Vec<Edit>, CmdError> {
     let mut out = Vec::new();
     for (key, value) in input.set.unwrap_or_default() {
         check_key(&key, &known)?;
+        if let Some(name) = key.strip_prefix("levels.")
+            && let Some(level) = value.as_i64()
+        {
+            check_level(&key, name, level)?;
+        }
         let value = match value {
             Value::Null => None,
             v => Some(to_toml(&v).map_err(|e| {
@@ -166,6 +171,22 @@ fn level_names() -> BTreeSet<String> {
             .filter_map(|v| v.to_possible_value().map(|p| p.get_name().to_owned()))
     }
     names::<CodecName>().chain(names::<MethodName>()).collect()
+}
+
+/// A default level must suit everything it applies to, so `levels.deflate = 0` is refused:
+/// raw deflate takes 0, but zip's deflate would then fail every new zip.
+fn check_level(key: &str, name: &str, level: i64) -> Result<(), CmdError> {
+    let Some((place, l)) = formats_list::level_uses(name)
+        .into_iter()
+        .find(|(_, l)| level < i64::from(l.min) || level > i64::from(l.max))
+    else {
+        return Ok(());
+    };
+    Err(CmdError::invalid_args(format!(
+        "`{key}` can't be {level}: {place} takes {}–{}. Nothing was written.",
+        l.min, l.max
+    ))
+    .with_details(serde_json::json!({ "key": key })))
 }
 
 fn check_key(key: &str, known: &[String]) -> Result<(), CmdError> {
@@ -636,6 +657,66 @@ theme = \"dark\"
         let err = set(&engine, json!({ "set": { "desktop.theme": "purple" } })).unwrap_err();
         assert_eq!(err.code, ErrorCode::InvalidArgs);
         assert_eq!(std::fs::read_to_string(&path).unwrap(), COMMENTED);
+    }
+
+    #[test]
+    fn a_level_must_suit_everything_it_applies_to() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        std::fs::write(&path, COMMENTED).unwrap();
+        let engine = engine(&path);
+
+        // Raw deflate takes 0, but zip's deflate starts at 1.
+        let err = set(&engine, json!({ "set": { "levels.deflate": 0 } })).unwrap_err();
+        assert_eq!(err.code, ErrorCode::InvalidArgs);
+        assert_eq!(
+            err.message,
+            "`levels.deflate` can't be 0: zip deflate takes 1–9. Nothing was written."
+        );
+        assert_eq!(err.details.as_ref().unwrap()["key"], "levels.deflate");
+        let err = set(&engine, json!({ "set": { "levels.zstd": 23 } })).unwrap_err();
+        assert_eq!(
+            err.message,
+            "`levels.zstd` can't be 23: zstd takes 1–22. Nothing was written."
+        );
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), COMMENTED);
+
+        let out = set(
+            &engine,
+            json!({ "set": { "levels.deflate": 1, "levels.zstd": 22 } }),
+        )
+        .unwrap();
+        assert_eq!(out.current.settings.levels["deflate"], 1);
+        assert_eq!(out.current.settings.levels["zstd"], 22);
+    }
+
+    #[test]
+    fn level_uses_name_every_format_a_level_applies_to() {
+        let uses = |name: &str| -> Vec<(String, i32, i32, i32)> {
+            formats_list::level_uses(name)
+                .into_iter()
+                .map(|(place, l)| (place, l.min, l.max, l.default))
+                .collect()
+        };
+        let own = |place: &str, min, max, default| (place.to_owned(), min, max, default);
+        assert_eq!(
+            uses("zstd"),
+            [
+                own("zstd", 1, 22, 3),
+                own("zip zstd", 1, 22, 3),
+                own("squashfs zstd", 1, 22, 15)
+            ]
+        );
+        assert_eq!(
+            uses("deflate"),
+            [
+                own("deflate", 0, 9, 6),
+                own("zip deflate", 1, 9, 6),
+                own("7z deflate", 1, 9, 6)
+            ]
+        );
+        assert_eq!(uses("lzma2"), [own("7z lzma2", 0, 9, 5)]);
+        assert!(uses("store").is_empty() && uses("nope").is_empty());
     }
 
     #[test]

@@ -5,7 +5,6 @@ import { type ReactNode, useEffect, useRef, useState } from "react";
 import { Button } from "../../components/ui/button";
 import { Checkbox } from "../../components/ui/checkbox";
 import { Field, Input, Select, Textarea } from "../../components/ui/input";
-import type { LevelRange } from "../../gen/commands";
 import { cn } from "../../lib/cn";
 
 /** How long text waits after the last keystroke before it saves. */
@@ -259,16 +258,27 @@ export function Segmented<T extends string>({
   );
 }
 
-/** A codec's or method's default level: the slider, or its own default until one is set. */
+/**
+ * A `[levels]` name's level: a slider, dimmed at its own default until one is set, with what
+ * it applies to underneath.
+ */
 export function LevelSetting({
   name,
   range,
+  own,
+  applies,
+  others,
   value,
   error,
   onCommit,
 }: {
   name: string;
-  range: LevelRange;
+  /** The levels everything it applies to takes. */
+  range: { min: number; max: number };
+  own: number;
+  applies: string;
+  /** The formats whose own default differs, shown while none is set. */
+  others: string | null;
   value: number | undefined;
   error?: string;
   onCommit: (value: number | null) => void;
@@ -280,18 +290,19 @@ export function LevelSetting({
   }, [value]);
   const id = `level-${name}`;
   return (
-    <div className="grid grid-cols-[9rem_1fr] items-center gap-x-3">
-      <label htmlFor={id} className="text-muted">
+    <div className="grid grid-cols-[9rem_1fr] items-start gap-x-3">
+      <label htmlFor={id} className="leading-7 text-muted">
         {name}
       </label>
       <div className="flex flex-col gap-0.5">
-        <div className="flex items-center gap-3">
+        <div className="flex h-7 items-center gap-3">
           <input
             id={id}
             type="range"
             min={range.min}
             max={range.max}
-            value={shown ?? range.default}
+            value={shown ?? own}
+            aria-describedby={`${id}-applies`}
             onChange={(e) => {
               setShown(Number(e.target.value));
               schedule(Number(e.target.value));
@@ -300,13 +311,13 @@ export function LevelSetting({
             onKeyUp={flush}
             className={cn("w-48 accent-[var(--amber)]", shown === undefined && "opacity-60")}
           />
-          <span className="tabular w-16 text-[12px]">{shown === undefined ? `${range.default}, its own` : shown}</span>
+          <span className={cn("tabular w-20 text-[12px]", shown === undefined && "text-muted")}>{shown === undefined ? `${own} (default)` : shown}</span>
           {shown !== undefined && (
             <Button
               size="sm"
               variant="ghost"
-              aria-label={`Use ${name}'s own default`}
-              title={`Back to ${name}'s own default, ${range.default}`}
+              aria-label={`Put ${name} back to its default`}
+              title={others ? "Back to the defaults" : `Back to the default, ${own}`}
               onClick={() => {
                 setShown(undefined);
                 onCommit(null);
@@ -316,6 +327,10 @@ export function LevelSetting({
             </Button>
           )}
         </div>
+        <p id={`${id}-applies`} className="text-[12px] text-muted">
+          {applies}
+          {shown === undefined && others && ` ${others}`}
+        </p>
         {error && (
           <p role="alert" className="selectable text-[12px] text-danger">
             {error}
