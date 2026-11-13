@@ -98,7 +98,7 @@ const MTIME: u64 = 1_767_225_600;
 #[test]
 fn every_fixture_reads_correctly() {
     let all = manifest();
-    assert_eq!(all.len(), 325, "the manifest lists every fixture");
+    assert_eq!(all.len(), 335, "the manifest lists every fixture");
     let mut failures = Vec::new();
     for fx in &all {
         let file = fx["file"].as_str().unwrap();
@@ -226,8 +226,9 @@ fn check(fx: &Value) -> Result<(), String> {
             }
             ("file", EntryKind::File) => {
                 // 7-Zip lists an NSIS installer's sizes from its script, as estimates (the
-                // record has what `7z x` writes).
-                if e.size != want["size"].as_u64() && chain != "nsis" {
+                // record has what `7z x` writes); BeeZip's own are exact (docs/M10.md §4.1).
+                if e.size != want["size"].as_u64() && !(chain == "nsis" && fx["backend"] == "7-zip")
+                {
                     return Err(format!("`{p}` has size {:?}", e.size));
                 }
                 // The time 7-Zip lists, in UTC (`-slmu`).

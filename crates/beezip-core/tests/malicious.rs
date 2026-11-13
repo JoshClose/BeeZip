@@ -31,6 +31,8 @@ mod ext;
 mod fat;
 #[path = "malicious/msi.rs"]
 mod msi;
+#[path = "malicious/nsis.rs"]
+mod nsis;
 #[path = "malicious/ntfs.rs"]
 mod ntfs;
 #[path = "malicious/vdisk.rs"]

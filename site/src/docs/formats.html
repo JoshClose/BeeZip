@@ -70,8 +70,18 @@
   <li><strong>7-Zip's own LZMA variant</strong>, which Linux doesn't read, goes to 7-Zip when it's installed, and Info says so.</li>
 </ul>
 
-<h2 id="through-7-zip">Formats read through 7-Zip</h2>
-<p>With <a href="https://7-zip.org">7-Zip</a> 25.01 or newer installed, BeeZip also lists, tests and extracts the formats marked "Through 7-Zip" above: NSIS installers, and on Linux and macOS ESD images and WIMs compressed with LZMS.</p>
+<h2 id="nsis">NSIS installers</h2>
+<p>BeeZip reads NSIS installers itself, on every platform: from NSIS 2, Jim Park's Unicode NSIS and NSIS 3, 32- and 64-bit, solid or not, in zlib, bzip2 or LZMA. It lists, tests and extracts them, and never changes them.</p>
+<ul>
+  <li><strong>The listing</strong> is 7-Zip's: files under <code>$INSTDIR</code> at the top, and those for other folders under the folder's name (<code>$PLUGINSDIR/nsExec.dll</code>, <code>$SYSDIR/…</code>). The uninstaller is listed as the installer writes it, even where 7-Zip leaves it out.</li>
+  <li><strong>Sizes are exact.</strong> A solid installer is decoded once as it opens to find them, about as long as testing it with 7-Zip takes.</li>
+  <li><strong>Testing checks the installer's CRC,</strong> and that every file decodes. An installer built with <code>CRCCheck off</code> has none to check.</li>
+  <li><strong>An installer cut short</strong> still lists whole, and every file before the cut comes out; the rest are reported as cut short.</li>
+  <li><strong>NSIS forks</strong> with first headers of their own (NSISBI's large installers, say) aren't recognised, by BeeZip or 7-Zip.</li>
+</ul>
+
+<h2 id="through-7-zip">What goes through 7-Zip</h2>
+<p>With <a href="https://7-zip.org">7-Zip</a> 25.01 or newer installed, BeeZip also lists, tests and extracts MSI patches, transforms and merge modules, ESD images and WIMs compressed with LZMS on Linux and macOS, and the few files of other formats that use something BeeZip doesn't read itself.</p>
 <ul>
   <li><strong>7-Zip only reads:</strong> every file streams from it through BeeZip's own extraction, with the same safety rules as every other format.</li>
   <li><strong>An MSI patch or merge module</strong> shows its files under the installer's internal names, as 7-Zip does.</li>

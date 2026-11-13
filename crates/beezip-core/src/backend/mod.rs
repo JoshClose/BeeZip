@@ -183,15 +183,16 @@ impl External {
     }
 
     /// BeeZip reads it with its own code (docs/M7.md to docs/M10.md): the file systems,
-    /// partitioned disks, virtual disks, MSI installers, WIM images, CHM help files and CramFS
-    /// images. 7-Zip still reads what those readers don't support, when it's installed (an MSI
-    /// patch, an NTFS volume of clusters over 64 KiB, a QCOW version 1, an ESD on Linux, 7-Zip's
-    /// own CramFS variant); the rest are 7-Zip's alone.
+    /// partitioned disks, virtual disks, MSI and NSIS installers, WIM images, CHM help files and
+    /// CramFS images. 7-Zip still reads what those readers don't support, when it's installed (an
+    /// MSI patch, an NTFS volume of clusters over 64 KiB, a QCOW version 1, an ESD on Linux,
+    /// 7-Zip's own CramFS variant).
     pub const fn native(self) -> bool {
         matches!(
             self,
             Self::Wim
                 | Self::Chm
+                | Self::Nsis
                 | Self::Msi
                 | Self::Vhd
                 | Self::Vhdx

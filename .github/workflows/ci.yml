@@ -91,7 +91,7 @@ jobs:
         run: cargo install --locked tauri-driver --version 2.1.0
       - name: End to end through WebDriver, an archive opened by a second launch right away (docs/M6.md §8.1, §10)
         run: pwsh -NoProfile -File .github/scripts/e2e.ps1
-      - name: BeeZip's own installer, read through 7-Zip as an NSIS installer (docs/M6.md §10)
+      - name: BeeZip's own installer, read as an NSIS installer and compared with 7-Zip (docs/M10.md §7)
         run: bash .github/scripts/nsis-setup.sh
       - name: Keep the installer
         uses: actions/upload-artifact@v7

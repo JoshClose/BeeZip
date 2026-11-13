@@ -18,7 +18,7 @@ use crate::{
     format::{
         ArchiveReader, FormatId, ace::AceReader, ar::ArReader, arc::ArcReader, arj::ArjReader,
         cab::CabReader, chm, cpio::CpioReader, cramfs, deb::DebReader, dmg::DmgReader,
-        iso::IsoReader, lzh::LzhReader, msi, pkg::PkgReader, rar::RarReader, rpm::RpmReader,
+        iso::IsoReader, lzh::LzhReader, msi, nsis, pkg::PkgReader, rar::RarReader, rpm::RpmReader,
         sevenz::SevenZReader, squashfs::SquashfsReader, stream::StreamReader, tar::TarReader,
         volume::DiskReader, wim, xar::XarReader, zip::ZipReader, zoo::ZooReader,
     },
@@ -337,8 +337,9 @@ pub struct Opened {
     pub size: u64,
 }
 
-/// A disk, file system, installer, WIM image, CHM help file or CramFS image through BeeZip's own
-/// reader (docs/M7.md §2, docs/M8.md §2, docs/M9.md §2, docs/M10.md §2). One that uses
+/// A disk, file system, installer, WIM image, CHM help file, CramFS image or NSIS installer
+/// through BeeZip's own reader (docs/M7.md §2, docs/M8.md §2, docs/M9.md §2, docs/M10.md §2).
+/// One that uses
 /// something the reader doesn't support goes to 7-Zip, with a note in Info; one that's damaged
 /// doesn't. Without 7-Zip, the error is 7-Zip's `BackendUnavailable`, which offers to install
 /// it, saying what BeeZip couldn't read.
@@ -353,6 +354,7 @@ fn native(
         External::Wim => wim::open(source.clone(), cx),
         External::Chm => chm::open(source.clone(), cx),
         External::Cramfs => cramfs::open(source.clone(), cx),
+        External::Nsis => nsis::open(source.clone(), cx),
         _ => DiskReader::open(source.clone(), kind, cx).map(|r| Box::new(r) as Box<_>),
     };
     let Err(e) = opened else {
