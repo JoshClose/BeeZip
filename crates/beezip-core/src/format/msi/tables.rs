@@ -16,7 +16,7 @@
 //!   string reference. Its rows are counted from its length. Cells are read where they lie, so a
 //!   table takes the memory of its stream.
 //! - **The summary information** gives the word count: short or long source names, and whether
-//!   files are compressed by default.
+//!   files are compressed by default; and the text Info shows ([`summary`]).
 //!
 //! A null cell in the catalog is skipped, and nothing here can panic on what it reads (the msi
 //! crate's eight panics were all on such cells).
@@ -324,6 +324,8 @@ const TABLES: &[&str] = &[
     "Icon",
     "Property",
     "ModuleSignature",
+    // A patch's own: its display name and the like (docs/M11.md §4.2).
+    "MsiPatchMetadata",
 ];
 
 impl Db {
@@ -508,31 +510,95 @@ impl Db {
 /// the stream or the property isn't there or can't be read.
 pub fn word_count(file: &Arc<Mutex<Compound>>, file_len: u64) -> Option<i32> {
     let s = read_stream(file, SUMMARY, false, MAX_SUMMARY, file_len).ok()??;
-    let le32 = |at: usize| -> Option<u32> {
-        let b = s.get(at..at.checked_add(4)?)?;
-        Some(u32::from_le_bytes([b[0], b[1], b[2], b[3]]))
-    };
-    // The header: byte order, version, system, CLSID, then the sets: FMTID and offset.
-    if s.get(..2)? != [0xFE, 0xFF] || le32(24)? == 0 {
-        return None;
-    }
-    let section = usize::try_from(le32(28 + 16)?).ok()?;
-    let count = le32(section.checked_add(4)?)?;
-    for i in 0..count.min(4096) as usize {
-        let at = section.checked_add(8)?.checked_add(i.checked_mul(8)?)?;
-        let (pid, off) = (le32(at)?, le32(at + 4)?);
-        if pid != PID_WORDCOUNT {
-            continue;
+    let mut found = None;
+    for_each_property(&s, |pid, ty, value| {
+        if pid == PID_WORDCOUNT {
+            found = match ty {
+                // VT_I4, and VT_I2 from some writers.
+                3 => le32(value, 0).map(|v| v as i32),
+                2 => le32(value, 0).map(|v| i32::from(v as u16 as i16)),
+                _ => None,
+            };
         }
-        let prop = section.checked_add(usize::try_from(off).ok()?)?;
-        return match le32(prop)? {
-            // VT_I4, and VT_I2 from some writers.
-            3 => Some(le32(prop + 4)? as i32),
-            2 => Some(i32::from(le32(prop + 4)? as u16 as i16)),
-            _ => None,
-        };
-    }
-    None
+    });
+    found
+}
+
+/// The summary information's text properties, named as Windows Installer names them and read
+/// in the summary's own code page (its property 1); times and counts are left out. Empty when
+/// the stream can't be read.
+pub fn summary(
+    file: &Arc<Mutex<Compound>>,
+    file_len: u64,
+    names: NameDecoding,
+) -> Vec<(String, String)> {
+    let Ok(Some(s)) = read_stream(file, SUMMARY, false, MAX_SUMMARY, file_len) else {
+        return Vec::new();
+    };
+    let mut codepage = 0u32;
+    let mut texts: Vec<(u32, &[u8])> = Vec::new();
+    for_each_property(&s, |pid, ty, value| match ty {
+        // VT_I2: the code page.
+        2 if pid == 1 => codepage = le32(value, 0).map_or(0, |v| v & 0xFFFF),
+        // VT_LPSTR: a length, then the bytes, ending at a NUL.
+        30 => {
+            let Some(len) = le32(value, 0).and_then(|l| usize::try_from(l).ok()) else {
+                return;
+            };
+            let Some(bytes) = value.get(4..4 + len.min(64 * 1024)) else {
+                return;
+            };
+            let end = bytes.iter().position(|&b| b == 0).unwrap_or(bytes.len());
+            texts.push((pid, &bytes[..end]));
+        }
+        _ => {}
+    });
+    texts
+        .into_iter()
+        .filter_map(|(pid, b)| {
+            let name = match pid {
+                2 => "Title",
+                3 => "Subject",
+                4 => "Author",
+                5 => "Keywords",
+                6 => "Comments",
+                7 => "Template",
+                8 => "Last saved by",
+                9 => "Revision",
+                18 => "Application",
+                _ => return None,
+            };
+            let v = names.decode_in(b, codepage);
+            (!v.is_empty()).then(|| (name.to_owned(), v))
+        })
+        .collect()
+}
+
+fn le32(s: &[u8], at: usize) -> Option<u32> {
+    let b = s.get(at..at.checked_add(4)?)?;
+    Some(u32::from_le_bytes([b[0], b[1], b[2], b[3]]))
+}
+
+/// Calls `f` with each property of the summary's first set: its id, its type and the bytes
+/// from its value to the stream's end. Stops quietly at anything out of place.
+fn for_each_property<'s>(s: &'s [u8], mut f: impl FnMut(u32, u32, &'s [u8])) {
+    let mut walk = || -> Option<()> {
+        // The header: byte order, version, system, CLSID, then the sets: FMTID and offset.
+        if s.get(..2)? != [0xFE, 0xFF] || le32(s, 24)? == 0 {
+            return None;
+        }
+        let section = usize::try_from(le32(s, 28 + 16)?).ok()?;
+        let count = le32(s, section.checked_add(4)?)?;
+        for i in 0..count.min(4096) as usize {
+            let at = section.checked_add(8)?.checked_add(i.checked_mul(8)?)?;
+            let (pid, off) = (le32(s, at)?, le32(s, at.checked_add(4)?)?);
+            let prop = section.checked_add(usize::try_from(off).ok()?)?;
+            let ty = le32(s, prop)?;
+            f(pid, ty, s.get(prop.checked_add(4)?..)?);
+        }
+        Some(())
+    };
+    let _ = walk();
 }
 
 #[cfg(test)]

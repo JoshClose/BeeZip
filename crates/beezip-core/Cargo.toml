@@ -69,6 +69,7 @@ libc.workspace = true
 
 [dev-dependencies]
 msi.workspace = true
+uuid.workspace = true
 proptest.workspace = true
 serde_json.workspace = true
 

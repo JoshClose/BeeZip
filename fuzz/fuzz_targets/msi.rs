@@ -1,6 +1,8 @@
 //! Opens the input as a Windows Installer package: the compound file (cfb), the string pool
 //! and catalog, the tables, the folders' layout and its caps, the embedded cabinets, then every
 //! entry. Nothing is beside the scratch file, so external cabinets and source files are missing.
+//! A merge module goes the same way; a patch, transform or other compound file is listed as its
+//! storages and streams (docs/M11.md §4.2).
 
 #![no_main]
 

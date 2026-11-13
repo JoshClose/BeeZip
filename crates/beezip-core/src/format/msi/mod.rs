@@ -2,8 +2,12 @@
 //!
 //! - **The package** is a Compound File (cfb) holding the installer's database: its tables
 //!   ([`tables`]) and the cabinets its files are packed in. A patch (`.msp`) or transform
-//!   (`.mst`), by the root CLSID, and a merge module (`.msm`), by its ModuleSignature table, are
-//!   `UnsupportedOperation`, for 7-Zip to read when it's installed.
+//!   (`.mst`), by the root CLSID, or a compound file of another kind is listed as its storages
+//!   and streams ([`compound`], docs/M11.md §4.2).
+//! - **A merge module** (`.msm`), by its ModuleSignature table, is a package with no Media table:
+//!   all its files are in one embedded cabinet, `MergeModule.CABinet`, which is read as one Media
+//!   row covering every file (docs/M11.md §4.1). Its folders hang under TARGETDIR, which the merge
+//!   replaces by the product's folder, so its files there are listed at the top.
 //! - **The listing** has each file where the installer puts it, under its Windows Installer
 //!   folder property ([`names`]): `ProgramFiles64Folder/RustDesk/RustDesk.exe`. The folders
 //!   holding files come first, parents before children, then the files in the order their data
@@ -21,6 +25,7 @@
 //! - **Extracting** decodes each cabinet once, in the order of its folders, as a `.cab` is;
 //!   `open_entry` decodes a file's folder from its start.
 
+mod compound;
 mod names;
 mod tables;
 
@@ -75,10 +80,38 @@ fn bad(message: impl std::fmt::Display) -> Error {
     Error::corrupt(format!("msi: {message}"))
 }
 
-/// Opens a Windows Installer package. Patches, transforms and merge modules are
-/// `UnsupportedOperation`, for 7-Zip to read when it's installed.
+/// The stream a merge module's files are in.
+const MODULE_CABINET: &str = "MergeModule.CABinet";
+
+/// Opens a Windows Installer file: a package or merge module through [`MsiReader`], a patch,
+/// transform or compound file of another kind as its storages and streams.
 pub fn open(source: Source, cx: &mut dyn Ctx) -> Result<Box<dyn ArchiveReader>> {
-    Ok(Box::new(MsiReader::open(source, cx)?))
+    let (comp, file_len, spool) = open_compound(&source, cx)?;
+    let clsid = comp.root_entry().clsid().to_string();
+    Ok(match clsid.as_str() {
+        CLSID_PACKAGE | CLSID_NONE => Box::new(MsiReader::new(source, comp, file_len, spool, cx)?),
+        _ => Box::new(compound::CompoundReader::new(
+            source, comp, file_len, spool, &clsid, cx,
+        )?),
+    })
+}
+
+/// The compound file, opened (spooled to a temporary file first when it's in a codec, since
+/// it's read at offsets), with its length.
+fn open_compound(source: &Source, cx: &mut dyn Ctx) -> Result<(Compound, u64, Option<Partial>)> {
+    let (input, spool) = if source.codecs.is_empty() {
+        (source.input()?, None)
+    } else {
+        let mut tmp = Partial::create_temp("beezip-spool.msi")?;
+        let mut stream = source.guard(source.open_stream()?);
+        copy(&mut stream, tmp.file_mut(), cx)?;
+        tmp.close();
+        (Input::file(tmp.reopen()?)?, Some(tmp))
+    };
+    let file_len = input.len();
+    let comp = cfb::CompoundFile::open(input)
+        .map_err(|e| bad(format!("the package's compound file can't be read ({e})")))?;
+    Ok((comp, file_len, spool))
 }
 
 /// What a file's data is held to.
@@ -153,49 +186,22 @@ pub struct MsiReader {
     total: u64,
     /// Keeps a package spooled out of a codec alive.
     _spool: Option<Partial>,
+    /// A merge module: its files are all in [`MODULE_CABINET`].
+    module: bool,
 }
 
 impl MsiReader {
-    pub fn open(source: Source, cx: &mut dyn Ctx) -> Result<Self> {
-        let (input, spool) = if source.codecs.is_empty() {
-            (source.input()?, None)
-        } else {
-            // The compound file is read at offsets: spool the decoded stream.
-            let mut tmp = Partial::create_temp("beezip-spool.msi")?;
-            let mut stream = source.guard(source.open_stream()?);
-            copy(&mut stream, tmp.file_mut(), cx)?;
-            tmp.close();
-            (Input::file(tmp.reopen()?)?, Some(tmp))
-        };
-        let file_len = input.len();
-        let comp = cfb::CompoundFile::open(input)
-            .map_err(|e| bad(format!("the package's compound file can't be read ({e})")))?;
-        let clsid = comp.root_entry().clsid().to_string();
-        match clsid.as_str() {
-            CLSID_PACKAGE | CLSID_NONE => {}
-            CLSID_PATCH => {
-                return Err(Error::unsupported(
-                    "it's an installer patch (.msp), which BeeZip doesn't read itself",
-                ));
-            }
-            CLSID_TRANSFORM => {
-                return Err(Error::unsupported(
-                    "it's an installer transform (.mst), which BeeZip doesn't read itself",
-                ));
-            }
-            _ => {
-                return Err(Error::unsupported(format!(
-                    "it's a compound file of another kind ({{{clsid}}}), not an installer"
-                )));
-            }
-        }
+    /// Reads the package or merge module `comp`.
+    fn new(
+        source: Source,
+        comp: Compound,
+        file_len: u64,
+        spool: Option<Partial>,
+        cx: &mut dyn Ctx,
+    ) -> Result<Self> {
         let file = Arc::new(Mutex::new(comp));
         let db = Db::open(Arc::clone(&file), file_len, source.names)?;
-        if db.has("ModuleSignature") {
-            return Err(Error::unsupported(
-                "it's a merge module (.msm), which BeeZip doesn't read itself",
-            ));
-        }
+        let module = db.has("ModuleSignature");
         let mut r = Self {
             source,
             file,
@@ -206,14 +212,20 @@ impl MsiReader {
             methods: Vec::new(),
             solid_blocks: 0,
             properties: Vec::new(),
-            notes: vec![
+            notes: vec![if module {
+                "Files are listed where the merge module puts them, under Windows Installer's \
+                 folder names (SystemFolder…); those at the top go where the product merges it. \
+                 Its custom actions are under [Binary]."
+                    .to_owned()
+            } else {
                 "Files are listed where the installer puts them, under Windows Installer's \
                  folder names (ProgramFiles64Folder…); its custom actions and icons are under \
                  [Binary] and [Icon]."
-                    .to_owned(),
-            ],
+                    .to_owned()
+            }],
             total: 0,
             _spool: spool,
+            module,
         };
         r.load(&db, cx)?;
         Ok(r)
@@ -266,7 +278,10 @@ impl MsiReader {
             self.items.push(item);
         }
 
-        // What Info shows: a damaged Property table only leaves it out.
+        // What Info shows: a damaged Property or ModuleSignature table only leaves it out.
+        if self.module {
+            self.module_properties(db);
+        }
         let props = db.table("Property").unwrap_or_default();
         let (c_name, c_value) = (props.col("Property"), props.col("Value"));
         for want in ["ProductName", "ProductVersion", "Manufacturer"] {
@@ -275,7 +290,7 @@ impl MsiReader {
                 .and_then(|r| db.text(&props, r, c_value))
             {
                 self.properties.push(LevelProperty {
-                    level: "msi".to_owned(),
+                    level: self.level().to_owned(),
                     name: want.to_owned(),
                     value,
                 });
@@ -293,7 +308,44 @@ impl MsiReader {
         Ok(())
     }
 
-    /// The Media table in its order, each row's cabinet opened.
+    /// Info's level for the database: `msm` for a merge module.
+    fn level(&self) -> &'static str {
+        if self.module { "msm" } else { "msi" }
+    }
+
+    /// A merge module's ID, version and language, and its summary's subject and author.
+    fn module_properties(&mut self, db: &Db) {
+        let level = self.level();
+        let mut found: Vec<(String, String)> = Vec::new();
+        let t = db.table("ModuleSignature").unwrap_or_default();
+        if t.rows > 0 {
+            let (c_id, c_lang, c_ver) = (t.col("ModuleID"), t.col("Language"), t.col("Version"));
+            if let Some(id) = db.text(&t, 0, c_id) {
+                found.push(("Module".to_owned(), id));
+            }
+            if let Some(v) = db.text(&t, 0, c_ver) {
+                found.push(("Version".to_owned(), v));
+            }
+            if let Some(l) = t.int(0, c_lang) {
+                found.push(("Language".to_owned(), l.to_string()));
+            }
+        }
+        for (name, value) in tables::summary(&self.file, self.file_len, self.source.names) {
+            if name == "Subject" || name == "Author" {
+                found.push((name, value));
+            }
+        }
+        for (name, value) in found.into_iter().filter(|(_, v)| !v.is_empty()) {
+            self.properties.push(LevelProperty {
+                level: level.to_owned(),
+                name,
+                value,
+            });
+        }
+    }
+
+    /// The Media table in its order, each row's cabinet opened. A merge module has none: its
+    /// one cabinet, [`MODULE_CABINET`], holds every file.
     fn media(&mut self, db: &Db, cx: &mut dyn Ctx) -> Result<Vec<Media>> {
         let t = db.table("Media")?;
         let (c_disk, c_last, c_cab) = (t.col("DiskId"), t.col("LastSequence"), t.col("Cabinet"));
@@ -305,6 +357,14 @@ impl MsiReader {
                 cab: None,
             })
             .collect();
+        if self.module && media.is_empty() {
+            media.push(Media {
+                last: i32::MAX,
+                disk: 1,
+                cabinet: Some(format!("#{MODULE_CABINET}")),
+                cab: None,
+            });
+        }
         media.sort_by_key(|m| (m.last, m.disk));
         // The embedded cabinets the table names: what a set may continue into.
         let embedded: Vec<String> = media
@@ -367,9 +427,11 @@ impl MsiReader {
         let msi = self.source.file_name();
         if let Some(stream) = name.strip_prefix('#') {
             let Some(first) = embedded_cab(&self.file, self.file_len, &msi, stream) else {
-                return Err(bad(format!(
-                    "the cabinet `{stream}` the Media table names isn't in the package"
-                )));
+                return Err(bad(if self.module && stream == MODULE_CABINET {
+                    format!("the merge module's cabinet, `{stream}`, isn't in it")
+                } else {
+                    format!("the cabinet `{stream}` the Media table names isn't in the package")
+                }));
             };
             // A set continues into another cabinet the Media table names, by its name.
             let (file, limit, names) = (Arc::clone(&self.file), self.file_len, embedded.to_vec());
@@ -546,7 +608,8 @@ impl MsiReader {
                 .copied()
                 .filter(|h| !(size == 0 && *h == [0; 16]));
             let check = Check { size, md5 };
-            let compressed = if attrs & ATTR_COMPRESSED != 0 {
+            // A merge module's files are all in its cabinet, whatever they say.
+            let compressed = if self.module || attrs & ATTR_COMPRESSED != 0 {
                 true
             } else if attrs & ATTR_NONCOMPRESSED != 0 {
                 false
@@ -1191,7 +1254,7 @@ impl ArchiveReader for MsiReader {
     }
 
     fn info(&mut self, _: &mut dyn Ctx) -> Result<ArchiveInfo> {
-        let mut levels = vec!["msi".to_owned()];
+        let mut levels = vec![self.level().to_owned()];
         if !self.cabs.is_empty() {
             levels.push("cab".to_owned());
         }

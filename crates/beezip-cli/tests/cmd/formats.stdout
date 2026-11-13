@@ -22,7 +22,7 @@ Archive formats
   stream   compressed file           yes   yes     -      -        -       
   wim      WIM image                 yes   yes     -      -        yes     .wim .esd .swm
   chm      CHM help file             yes   yes     -      -        yes     .chm
-  msi      Windows Installer package yes   yes     -      -        yes     .msi .msp .msm
+  msi      Windows Installer package yes   yes     -      -        yes     .msi .msp .msm .mst
   nsis     NSIS installer            yes   yes     -      -        -       (an installer program)
   vhdx     VHDX disk image           yes   yes     -      -        yes     .vhdx
   vhd      VHD disk image            yes   yes     -      -        yes     .vhd
@@ -42,7 +42,7 @@ Archive formats
   cab methods: store, mszip
   squashfs methods: gzip (1-9, 9), xz (0-9, 6), zstd (1-22, 15), lz4, lzo
 
-7-Zip 25.01 or newer, for MSI patches and what BeeZip doesn't read itself: turned off in Settings
+7-Zip 25.01 or newer, for what BeeZip doesn't read itself: turned off in Settings
 
 Codecs
   ID       NAME               LEVELS       THREADS  EXTENSIONS

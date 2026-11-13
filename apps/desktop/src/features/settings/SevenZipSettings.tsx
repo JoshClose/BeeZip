@@ -71,7 +71,7 @@ export function SevenZipSettings({
   return (
     <Section
       title="7-Zip"
-      description="BeeZip opens MSI patches, transforms and merge modules through an installed 7-Zip, and the few files of other formats it doesn't read itself."
+      description="BeeZip opens ESD images on Linux and macOS through an installed 7-Zip, and the few files of other formats it doesn't read itself."
     >
       <div className="flex items-start gap-3">
         <p role="status" className="selectable min-w-0 flex-1 text-[12px]">

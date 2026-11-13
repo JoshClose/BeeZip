@@ -362,15 +362,15 @@ impl Command for FormatsList {
                 .collect();
             s.push_str(&format!("  {} methods: {}\n", f.id, methods.join(", ")));
         }
-        // 7-Zip reads MSI patches and what BeeZip's own readers don't (docs/M10.md §6).
+        // 7-Zip reads what BeeZip's own readers don't (docs/M10.md §6, docs/M11.md).
         let z = &out.seven_zip;
         s.push_str(&match (&z.name, &z.path, &z.problem) {
             (Some(name), Some(path), _) => format!(
-                "\n7-Zip, for MSI patches and what BeeZip doesn't read itself: {name} ({})\n",
+                "\n7-Zip, for what BeeZip doesn't read itself: {name} ({})\n",
                 path.display()
             ),
             (_, _, problem) => format!(
-                "\n7-Zip {} or newer, for MSI patches and what BeeZip doesn't read itself: {}\n",
+                "\n7-Zip {} or newer, for what BeeZip doesn't read itself: {}\n",
                 z.min_version,
                 problem.as_deref().unwrap_or("not found")
             ),

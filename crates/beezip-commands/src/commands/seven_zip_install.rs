@@ -18,8 +18,8 @@ use crate::{
     winget::{self, Line, Outcome, Verb, Watch},
 };
 
-/// Install 7-Zip with winget, or update one older than 25.01, so BeeZip can open MSI
-/// patches, transforms and merge modules. winget downloads 7-Zip's own
+/// Install 7-Zip with winget, or update one older than 25.01, so BeeZip can open the few
+/// files it doesn't read itself. winget downloads 7-Zip's own
 /// installer and checks its hash; the installer asks for administrator rights. Windows only:
 /// elsewhere, get 7-Zip 25.01 or newer (on Linux and macOS, 7-Zip's own `7zz`) from
 /// https://7-zip.org/download.html.

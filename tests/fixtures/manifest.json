@@ -19052,6 +19052,509 @@
           "mtime": "2026-01-01T00:00:00.000000000Z"
         }
       ]
+    },
+    {
+      "file": "msi/module.msm",
+      "producer": "Windows Installer (msi.dll) and makecab.exe, Windows 11",
+      "command": "make-msi-extras.ps1: a merge module through msi.dll's COM API, MergeModule.CABinet by makecab (MSZIP)",
+      "chain": "msi",
+      "native": true,
+      "password": null,
+      "utc_mtimes": false,
+      "hardlinks": 0,
+      "symlinks": 0,
+      "levels": [
+        "msm",
+        "cab"
+      ],
+      "note": "BeeZip's own reader (docs/M11.md §4.1): each file where the module puts it, with the bytes it was made from (make-msi-extras.ps1). 7-Zip lists the module's streams instead, and its cabinet's files by their keys.",
+      "entries": [
+        {
+          "path": "readme.txt",
+          "kind": "file",
+          "size": 26,
+          "sha256": "09d935d5fdbe11ecb6e277323d17db6538f3b2ebbcc69cef20405165d2cc796d"
+        },
+        {
+          "path": "empty.txt",
+          "kind": "file",
+          "size": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "path": "Documentation/guide.txt",
+          "kind": "file",
+          "size": 2400,
+          "sha256": "77c5f031e104c7190ffa2325aa732bc547f989b562486a734dc08a9b402f2797"
+        },
+        {
+          "path": "Documentation/café.txt",
+          "kind": "file",
+          "size": 13,
+          "sha256": "77686bb9e80b21aed9a643570bfb1984042df999a591984bfe4ddab1a3e27232"
+        },
+        {
+          "path": "Documentation/dup.txt",
+          "kind": "file",
+          "size": 16,
+          "sha256": "a0726481d6d6817592949a49e09bd3ea1e74011cbc8935f07fd00c12d5a3e528"
+        },
+        {
+          "path": "Documentation/dup.dup2.txt.8D5E0F2A_1B2C_4D3E_9F40_112233445566.txt",
+          "kind": "file",
+          "size": 17,
+          "sha256": "5db8ddabf0cbc05af016cd6760ab9d96a5f0cf20d2409a91f92b2c9f7b8d989c"
+        },
+        {
+          "path": "ProgramFiles64Folder/BeeZip Module/tool.dll",
+          "kind": "file",
+          "size": 16000,
+          "sha256": "85cd44769d04c7b792bcc17062333467f3220d51cde809564f22ab6b6bc33a60"
+        },
+        {
+          "path": "CommonFilesFolder/Shared/shared.dat",
+          "kind": "file",
+          "size": 2100,
+          "sha256": "d72f0857c0bbdc36cc3449d448ef46bcb22669b576b3d6eb499f8d143464d9a6"
+        },
+        {
+          "path": "SystemFolder/sys.dll",
+          "kind": "file",
+          "size": 3500,
+          "sha256": "cbe9d542ad77ce95656e910d0849c2a2b8ed7c4443bae87b5dac288421e561cd"
+        },
+        {
+          "path": "[Binary]/CustomAction.8D5E0F2A_1B2C_4D3E_9F40_112233445566",
+          "kind": "file",
+          "size": 202,
+          "sha256": "1cf090fac725b5c7198eba435c0102b7aa8aa81315210a238b398688b8842b9e"
+        }
+      ]
+    },
+    {
+      "file": "msi/module-lzx.msm",
+      "producer": "Windows Installer (msi.dll) and makecab.exe, Windows 11",
+      "command": "make-msi-extras.ps1: a merge module through msi.dll's COM API, MergeModule.CABinet by makecab (LZX:21)",
+      "chain": "msi",
+      "native": true,
+      "password": null,
+      "utc_mtimes": false,
+      "hardlinks": 0,
+      "symlinks": 0,
+      "levels": [
+        "msm",
+        "cab"
+      ],
+      "note": "BeeZip's own reader (docs/M11.md §4.1): each file where the module puts it, with the bytes it was made from (make-msi-extras.ps1). 7-Zip lists the module's streams instead, and its cabinet's files by their keys.",
+      "entries": [
+        {
+          "path": "readme.txt",
+          "kind": "file",
+          "size": 26,
+          "sha256": "09d935d5fdbe11ecb6e277323d17db6538f3b2ebbcc69cef20405165d2cc796d"
+        },
+        {
+          "path": "empty.txt",
+          "kind": "file",
+          "size": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "path": "Documentation/guide.txt",
+          "kind": "file",
+          "size": 2400,
+          "sha256": "77c5f031e104c7190ffa2325aa732bc547f989b562486a734dc08a9b402f2797"
+        },
+        {
+          "path": "Documentation/café.txt",
+          "kind": "file",
+          "size": 13,
+          "sha256": "77686bb9e80b21aed9a643570bfb1984042df999a591984bfe4ddab1a3e27232"
+        },
+        {
+          "path": "Documentation/dup.txt",
+          "kind": "file",
+          "size": 16,
+          "sha256": "a0726481d6d6817592949a49e09bd3ea1e74011cbc8935f07fd00c12d5a3e528"
+        },
+        {
+          "path": "Documentation/dup.dup2.txt.8D5E0F2A_1B2C_4D3E_9F40_112233445566.txt",
+          "kind": "file",
+          "size": 17,
+          "sha256": "5db8ddabf0cbc05af016cd6760ab9d96a5f0cf20d2409a91f92b2c9f7b8d989c"
+        },
+        {
+          "path": "ProgramFiles64Folder/BeeZip Module/tool.dll",
+          "kind": "file",
+          "size": 16000,
+          "sha256": "85cd44769d04c7b792bcc17062333467f3220d51cde809564f22ab6b6bc33a60"
+        },
+        {
+          "path": "CommonFilesFolder/Shared/shared.dat",
+          "kind": "file",
+          "size": 2100,
+          "sha256": "d72f0857c0bbdc36cc3449d448ef46bcb22669b576b3d6eb499f8d143464d9a6"
+        },
+        {
+          "path": "SystemFolder/sys.dll",
+          "kind": "file",
+          "size": 3500,
+          "sha256": "cbe9d542ad77ce95656e910d0849c2a2b8ed7c4443bae87b5dac288421e561cd"
+        },
+        {
+          "path": "[Binary]/CustomAction.8D5E0F2A_1B2C_4D3E_9F40_112233445566",
+          "kind": "file",
+          "size": 202,
+          "sha256": "1cf090fac725b5c7198eba435c0102b7aa8aa81315210a238b398688b8842b9e"
+        }
+      ]
+    },
+    {
+      "file": "msi/patch.msp",
+      "producer": "MsiMsp.exe (patchwiz.dll, Windows SDK 10.0.26100) from wixl 0.103 builds",
+      "command": "make-msi-extras.ps1: MsiMsp.exe -s fixture.pcp -p patch.msp",
+      "chain": "msi",
+      "native": true,
+      "password": null,
+      "utc_mtimes": false,
+      "hardlinks": 0,
+      "symlinks": 0,
+      "levels": [
+        "msp"
+      ],
+      "note": "BeeZip's own reader (docs/M11.md §4.2): the compound file's storages and streams, as 7-Zip 26.00 extracts them (`7z x`) under its names, with `.cab` added to the cabinet's.",
+      "entries": [
+        {
+          "path": "#TgToUp",
+          "kind": "folder"
+        },
+        {
+          "path": "TgToUp",
+          "kind": "folder"
+        },
+        {
+          "path": "!_Columns",
+          "kind": "file",
+          "size": 56,
+          "sha256": "0881d8b5eb3938740bc834a24267f90a494698460cef6f2f9bb756e555097b1c"
+        },
+        {
+          "path": "!_StringData",
+          "kind": "file",
+          "size": 369,
+          "sha256": "0709b808c5e0b01c043686b0dac01a3cec36fe2e9a07a96bd68e877971f081a0"
+        },
+        {
+          "path": "!_StringPool",
+          "kind": "file",
+          "size": 152,
+          "sha256": "ac553af8a6f8134d52479cf4188cb90785315540818ce39d30ea7ad7bee19a85"
+        },
+        {
+          "path": "!_Tables",
+          "kind": "file",
+          "size": 4,
+          "sha256": "763506f06167629931853a5277bbc61f4e7d9c241cefc3513d8aa8f3482942ec"
+        },
+        {
+          "path": "!MsiPatchMetadata",
+          "kind": "file",
+          "size": 48,
+          "sha256": "dbad499008d79cd4624e6aca8adf5c331e0e1b99dbe54643b1cc75b9009f0b16"
+        },
+        {
+          "path": "!MsiPatchSequence",
+          "kind": "file",
+          "size": 8,
+          "sha256": "a4746a39b24834f6772152a76d9714ced348fb154461431a3571cbc1407234bb"
+        },
+        {
+          "path": "[5]SummaryInformation",
+          "kind": "file",
+          "size": 220,
+          "sha256": "900e39299a518106591846db5b765d3438a8ca1d88915de9d7ea04196eb8bf26"
+        },
+        {
+          "path": "#TgToUp/!_Columns",
+          "kind": "file",
+          "size": 100,
+          "sha256": "14c775a862e3a0acbfede164be21eb924695b1df443feba4c387441e8e6e960d"
+        },
+        {
+          "path": "#TgToUp/!_StringData",
+          "kind": "file",
+          "size": 406,
+          "sha256": "7eb3a1ba7d21a1676abcd4d911ab40ae6d6a1ea2f4f99057f46be3177388101d"
+        },
+        {
+          "path": "#TgToUp/!_StringPool",
+          "kind": "file",
+          "size": 104,
+          "sha256": "12e955249f81610b74ce87162bc027572cc03b7e8d112e3f1e551efcc93d70e1"
+        },
+        {
+          "path": "#TgToUp/!_Tables",
+          "kind": "file",
+          "size": 12,
+          "sha256": "1bad583eb16ceba5d28c508222eca1eb60254ba16cf8f0aa258cac24b97478ce"
+        },
+        {
+          "path": "#TgToUp/!AdminExecuteSequence",
+          "kind": "file",
+          "size": 8,
+          "sha256": "3ba271764429f8cefbaa72e949b1e1e077fe9c5adbbc1ef8fd7571296d964f18"
+        },
+        {
+          "path": "#TgToUp/!File",
+          "kind": "file",
+          "size": 20,
+          "sha256": "85f8e4281fa4d44e2444c5cf538c6a7a47f1ea0899bd262e7cfd24e630c0a6ba"
+        },
+        {
+          "path": "#TgToUp/!InstallExecuteSequence",
+          "kind": "file",
+          "size": 8,
+          "sha256": "3ba271764429f8cefbaa72e949b1e1e077fe9c5adbbc1ef8fd7571296d964f18"
+        },
+        {
+          "path": "#TgToUp/!Media",
+          "kind": "file",
+          "size": 16,
+          "sha256": "53c18a1cac10e245255922c44aaf41d8741000c9d4c814dacaea4b00c88c324d"
+        },
+        {
+          "path": "#TgToUp/!Patch",
+          "kind": "file",
+          "size": 16,
+          "sha256": "1a5169038a54675a89fcb34b78b76c870c5fb6ef5565b59e8e2fd2ed128a8e36"
+        },
+        {
+          "path": "#TgToUp/!PatchPackage",
+          "kind": "file",
+          "size": 6,
+          "sha256": "4cf2727e5a479ad678a58f3e27ff6c486596ae1528f65f36dca21b129faf4714"
+        },
+        {
+          "path": "#TgToUp/!Property",
+          "kind": "file",
+          "size": 18,
+          "sha256": "4d15215e0deeff9e1ce503d4febc98c682e34d634e82e2f1a45fa30843e0b88a"
+        },
+        {
+          "path": "#TgToUp/[5]SummaryInformation",
+          "kind": "file",
+          "size": 400,
+          "sha256": "64c64c6f744d44b5c7afa5be26213bc415b9899ffbbed40283c8fac2a12e0070"
+        },
+        {
+          "path": "#TgToUp/Patch.c.txt.101",
+          "kind": "file",
+          "size": 35,
+          "sha256": "1a032231afb66af65162d29c6b0b83c9517cce3353e42a5da0b6fe43330eabde"
+        },
+        {
+          "path": "PCW_CAB_Fixture.cab",
+          "kind": "file",
+          "size": 984,
+          "sha256": "5bbccdf24a5c0126727ad766c724981cf521f2e0fb26ffb4fe307d45cb7c7537"
+        },
+        {
+          "path": "TgToUp/!_StringData",
+          "kind": "file",
+          "size": 91,
+          "sha256": "47b56d501e5e47c8c841e6eee239aafb0a88c38d77255097824c3659f8f9df55"
+        },
+        {
+          "path": "TgToUp/!_StringPool",
+          "kind": "file",
+          "size": 40,
+          "sha256": "2f548b612405e913f410f83deb82d0212453106001b9533fbda78d6081d5d3c6"
+        },
+        {
+          "path": "TgToUp/!Component",
+          "kind": "file",
+          "size": 14,
+          "sha256": "0c386f29be4c1aa41c910c3dff8b5918dae50f977b5c8f78811cb5f390367fbf"
+        },
+        {
+          "path": "TgToUp/!FeatureComponents",
+          "kind": "file",
+          "size": 6,
+          "sha256": "d8368550cda7e1000f423a0a104240daa300c92412ccea6f949cdbf7b5b08f9e"
+        },
+        {
+          "path": "TgToUp/!File",
+          "kind": "file",
+          "size": 38,
+          "sha256": "d6addaaeeee980af7b30e95d83f94fb22d8d41cdb1412d6724f2ddf799edc23c"
+        },
+        {
+          "path": "TgToUp/!Media",
+          "kind": "file",
+          "size": 8,
+          "sha256": "4f47e5785c8e0babe12b8fcba7ecdb0a58558d2cd31659043c3e66c38e50a8de"
+        },
+        {
+          "path": "TgToUp/!MsiFileHash",
+          "kind": "file",
+          "size": 62,
+          "sha256": "8fc3144733ddc8eb40d0dc9238acb44c822645873c83c9ca0f01cfd5719f251b"
+        },
+        {
+          "path": "TgToUp/!Property",
+          "kind": "file",
+          "size": 6,
+          "sha256": "b05e22d0bf65865355fe19d3d219134fa5b9b898f5caa8a4ec0a102c9d25e953"
+        },
+        {
+          "path": "TgToUp/[5]SummaryInformation",
+          "kind": "file",
+          "size": 616,
+          "sha256": "5ff5e0b45e71d1f30732811696634c530895f4c624a49c2b3df4e052e60a6440"
+        }
+      ]
+    },
+    {
+      "file": "msi/v1-to-v2.mst",
+      "producer": "MsiTran.exe (Windows SDK 10.0.26100) from wixl 0.103 builds",
+      "command": "MsiTran.exe -g c1.msi c2.msi v1-to-v2.mst",
+      "chain": "msi",
+      "native": true,
+      "password": null,
+      "utc_mtimes": false,
+      "hardlinks": 0,
+      "symlinks": 0,
+      "levels": [
+        "mst"
+      ],
+      "note": "BeeZip's own reader (docs/M11.md §4.2): the compound file's storages and streams, as 7-Zip 26.00 extracts them (`7z x`) under its names, with `.cab` added to the cabinet's.",
+      "entries": [
+        {
+          "path": "!_StringData",
+          "kind": "file",
+          "size": 91,
+          "sha256": "47b56d501e5e47c8c841e6eee239aafb0a88c38d77255097824c3659f8f9df55"
+        },
+        {
+          "path": "!_StringPool",
+          "kind": "file",
+          "size": 40,
+          "sha256": "2f548b612405e913f410f83deb82d0212453106001b9533fbda78d6081d5d3c6"
+        },
+        {
+          "path": "!Component",
+          "kind": "file",
+          "size": 14,
+          "sha256": "0c386f29be4c1aa41c910c3dff8b5918dae50f977b5c8f78811cb5f390367fbf"
+        },
+        {
+          "path": "!FeatureComponents",
+          "kind": "file",
+          "size": 6,
+          "sha256": "d8368550cda7e1000f423a0a104240daa300c92412ccea6f949cdbf7b5b08f9e"
+        },
+        {
+          "path": "!File",
+          "kind": "file",
+          "size": 38,
+          "sha256": "d6addaaeeee980af7b30e95d83f94fb22d8d41cdb1412d6724f2ddf799edc23c"
+        },
+        {
+          "path": "!Media",
+          "kind": "file",
+          "size": 8,
+          "sha256": "4f47e5785c8e0babe12b8fcba7ecdb0a58558d2cd31659043c3e66c38e50a8de"
+        },
+        {
+          "path": "!MsiFileHash",
+          "kind": "file",
+          "size": 62,
+          "sha256": "8fc3144733ddc8eb40d0dc9238acb44c822645873c83c9ca0f01cfd5719f251b"
+        },
+        {
+          "path": "!Property",
+          "kind": "file",
+          "size": 6,
+          "sha256": "b05e22d0bf65865355fe19d3d219134fa5b9b898f5caa8a4ec0a102c9d25e953"
+        },
+        {
+          "path": "[5]SummaryInformation",
+          "kind": "file",
+          "size": 616,
+          "sha256": "58b09846d6d15e03394948b779b31a1ccefdefe6cac0d55212ca60c3e1f5a47a"
+        }
+      ]
+    },
+    {
+      "file": "msi/v2-to-v1.mst",
+      "producer": "Windows Installer (msi.dll) from wixl 0.103 builds",
+      "command": "make-msi-extras.ps1: GenerateTransform and CreateTransformSummaryInfo, c1.msi against c2.msi",
+      "chain": "msi",
+      "native": true,
+      "password": null,
+      "utc_mtimes": false,
+      "hardlinks": 0,
+      "symlinks": 0,
+      "levels": [
+        "mst"
+      ],
+      "note": "BeeZip's own reader (docs/M11.md §4.2): the compound file's storages and streams, as 7-Zip 26.00 extracts them (`7z x`) under its names, with `.cab` added to the cabinet's.",
+      "entries": [
+        {
+          "path": "!_StringData",
+          "kind": "file",
+          "size": 43,
+          "sha256": "4582e958c1801939403e87f9611ec590a08ab9fee6fcde2e44c991bcacebbcbc"
+        },
+        {
+          "path": "!_StringPool",
+          "kind": "file",
+          "size": 32,
+          "sha256": "9ea84cd7c665c7287f19cdbabb10f9be66e733fbdf969921f3073949d3ad3572"
+        },
+        {
+          "path": "!Component",
+          "kind": "file",
+          "size": 4,
+          "sha256": "72034de8a594b12de51205feba7ade26899d8425e81eac7f8c296bf974a51c60"
+        },
+        {
+          "path": "!FeatureComponents",
+          "kind": "file",
+          "size": 6,
+          "sha256": "2a28fd2343a5d14da03ba37ac840cbb0ae87ea4c491a579c07498896f1e46676"
+        },
+        {
+          "path": "!File",
+          "kind": "file",
+          "size": 20,
+          "sha256": "04491b373dd6b52f3ff4406017f47718ca6aaea7942fd1d4c8201a1acf22c07f"
+        },
+        {
+          "path": "!Media",
+          "kind": "file",
+          "size": 8,
+          "sha256": "86a3072f285d321e76161614171395673431169c7419bb8fea7df2b458ebe97d"
+        },
+        {
+          "path": "!MsiFileHash",
+          "kind": "file",
+          "size": 44,
+          "sha256": "60111dfd08358aee974bb800fe9e1f17d75ec06c7ec880bf1d4ea8a2edee2626"
+        },
+        {
+          "path": "!Property",
+          "kind": "file",
+          "size": 6,
+          "sha256": "b05e22d0bf65865355fe19d3d219134fa5b9b898f5caa8a4ec0a102c9d25e953"
+        },
+        {
+          "path": "[5]SummaryInformation",
+          "kind": "file",
+          "size": 616,
+          "sha256": "d1c818225b9e28872ece38b6bb8f0cfbcb8b88e604798a7a4ae54bd39ad893ff"
+        }
+      ]
     }
   ]
 }
