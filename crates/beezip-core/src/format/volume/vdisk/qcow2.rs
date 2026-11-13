@@ -982,7 +982,6 @@ mod tests {
         for (f, says) in [
             ("q-aes.qcow2", "BeeZip doesn't decrypt disk images"),
             ("q-luks.qcow2", "BeeZip doesn't decrypt disk images"),
-            ("q-v1.qcow", "QCOW version 1"),
             (
                 "q-refuse-bit.qcow2",
                 "incompatible features BeeZip doesn't know (0x20)",

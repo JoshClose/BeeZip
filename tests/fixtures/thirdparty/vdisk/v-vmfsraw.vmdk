@@ -1,0 +1,8 @@
+# Disk DescriptorFile
+version=1
+CID=6d7a0061
+parentCID=ffffffff
+createType="vmfsRaw"
+
+# Extent description
+RW 512 VMFSRAW "v-vmfsraw-raw.img"

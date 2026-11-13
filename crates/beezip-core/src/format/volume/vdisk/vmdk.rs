@@ -5,16 +5,21 @@
 //!   twoGbMaxExtentSparse's pieces, zeroed-grain entries); stream-optimized ones, whose grains are
 //!   deflate behind markers, VMware's (the grain directory in a footer) and qemu-img's (at the
 //!   start, no footer); FLAT and VMFS extents (monolithicFlat, twoGbMaxExtentFlat, a `vmfs`
-//!   descriptor with its `-flat.vmdk`); ZERO and NOACCESS extents, which read as zeros; a bare
+//!   descriptor with its `-flat.vmdk`), and ESXi's VMFSRAW read as FLAT, as 7-Zip reads it
+//!   (docs/M11.md §6.1); ZERO and NOACCESS extents, which read as zeros; a bare
 //!   sparse extent opened alone; child disks, whose parent (`parentFileNameHint`) must have the
 //!   CID the child records as `parentCID`.
 //! - **Descriptors** are UTF-8, or Latin-1 when they declare a `windows-125x` or ISO-8859
 //!   encoding. A line that isn't either is skipped, unless it's one BeeZip needs (an extent, the
 //!   CIDs, the parent's name): then it's `Corrupt`.
+//! - **Grains** of up to 1 GiB, as 7-Zip reads them (VMware and qemu-img write 64 KiB): a
+//!   stored grain is read where it is; a compressed one, decoded whole, must fit `decoder_memory`
+//!   (`LimitExceeded`), and a grain whose compressed bytes couldn't hold it is `Corrupt` before
+//!   anything is allocated for it.
 //! - **Refused** (`UnsupportedOperation`): ESXi's vmfsSparse (`COWD`) and seSparse extents, raw
-//!   device maps, grains compressed without markers or other than with deflate, grain tables of
-//!   other than 512 entries, grains over 1 MiB (VMware and qemu-img write 64 KiB). An extent
-//!   named by a device (`\\.\PhysicalDrive0`, `/dev/sda`) is `Unsafe` ([`Files`]).
+//!   device maps (VMFSRDM, VMFSRDMP), grains compressed without markers or other than with
+//!   deflate, grain tables of other than 512 entries. An extent named by a device
+//!   (`\\.\PhysicalDrive0`, `/dev/sda`) is `Unsafe` ([`Files`]).
 //! - **The redundant grain directory** isn't used: a damaged primary one is `Corrupt`.
 //! - **Memory:** the grain directory is read only when the file holds it (and at most
 //!   [`MAX_GD`]); grain tables (2 KiB) and decoded grains are cached a few at a time.
@@ -28,8 +33,12 @@ use crate::{Error, ErrorKind, Result, backend::External};
 const MAX_DESCRIPTOR: u64 = 1 << 20;
 /// The largest grain directory read: 64 MiB maps 512 TiB of 64 KiB grains.
 const MAX_GD: u64 = 64 << 20;
-/// The largest grain read: VMware and qemu-img write 64 KiB.
-const MAX_GRAIN: u64 = 1 << 20;
+/// The largest grain read: VMware and qemu-img write 64 KiB; 7-Zip reads them up to 1 GiB.
+const MAX_GRAIN: u64 = 1 << 30;
+/// What the decoded grains kept may take together (at least one grain).
+const GRAIN_BYTES: u64 = 16 << 20;
+/// Deflate's most: a stream decodes to at most about 1,032 times its length.
+const DEFLATE_RATIO: u64 = 1032;
 /// Entries in a grain table, as every VMware disk has them.
 const GTES: u64 = 512;
 /// Grain tables kept in memory, 2 KiB each.
@@ -106,8 +115,9 @@ enum Grain {
 }
 
 impl Sparse {
-    /// The extent in `file` (`name`), and its header (for its embedded descriptor).
-    fn open(mut file: Handle, name: &str) -> Result<(Self, Header)> {
+    /// The extent in `file` (`name`), and its header (for its embedded descriptor); a
+    /// compressed grain may take `memory` bytes decoded.
+    fn open(mut file: Handle, name: &str, memory: u64) -> Result<(Self, Header)> {
         let mut b = [0u8; 512];
         file.read_exact_at(0, &mut b, &format!("vmdk: {name}'s header"))?;
         let mut h = header(&b)
@@ -174,6 +184,12 @@ impl Sparse {
                 "vmdk: {name} has grains of {grain} bytes; BeeZip reads them up to {MAX_GRAIN}"
             )));
         }
+        if compressed && grain > memory {
+            return Err(Error::limit(format!(
+                "vmdk: {name}'s compressed grains of {grain} bytes need more memory than \
+                 `decoder_memory` allows ({memory})"
+            )));
+        }
         if u64::from(h.gtes) != GTES {
             return Err(Error::unsupported(format!(
                 "vmdk: {name} has grain tables of {} entries; BeeZip reads VMware's {GTES}",
@@ -221,7 +237,11 @@ impl Sparse {
                 version: h.version,
                 unclean: h.unclean,
                 tables: Cache::new(GT_CACHE),
-                grains: Cache::new(GRAIN_CACHE),
+                grains: Cache::new(
+                    usize::try_from(GRAIN_BYTES / grain)
+                        .unwrap_or(GRAIN_CACHE)
+                        .clamp(1, GRAIN_CACHE),
+                ),
                 dec: Decoders::default(),
                 src: Vec::new(),
             },
@@ -330,22 +350,24 @@ impl Sparse {
                     g * (self.grain / 512)
                 )));
             }
-            if size == 0 || size > 2 * self.grain + 512 {
+            // The last grain may reach past the extent's end: only its bytes in it are kept.
+            let full = n(self.grain.min(self.len - g * self.grain));
+            if size == 0
+                || size > 2 * self.grain + 512
+                || key * 512 + 12 + size > self.file.len
+                || (full as u64) > size.saturating_mul(DEFLATE_RATIO) + 1024
+            {
                 return Err(Error::corrupt(format!(
-                    "{what}: a compressed grain of {size} bytes"
+                    "{what}: a compressed grain of {size} bytes, for {full}"
                 )));
             }
             self.src.resize(n(size), 0);
             self.file
                 .read_exact_at(key * 512 + 12, &mut self.src, &what)?;
-            // The last grain may reach past the extent's end: only its bytes in it are kept.
-            let full = n(self.grain.min(self.len - g * self.grain));
             let (src, dec) = (&self.src, &mut self.dec);
-            self.grains.fill(key, n(self.grain), |out| {
-                dec.inflate(src, &mut out[..full], true, &what)?;
-                out[full..].fill(0);
-                Ok(())
-            })?;
+            // Only what's in the extent is kept: a read never goes past its end.
+            self.grains
+                .fill(key, full, |out| dec.inflate(src, out, true, &what))?;
         }
         self.grains
             .get(key)
@@ -554,7 +576,7 @@ fn refused(kind: &str) -> Error {
             "vmdk: an ESXi vmfsSparse (COWD) snapshot extent; BeeZip doesn't read them".to_owned()
         }
         "SESPARSE" => "vmdk: an ESXi seSparse snapshot extent; BeeZip doesn't read them".to_owned(),
-        "VMFSRAW" | "VMFSRDM" | "VMFSRDMP" => {
+        "VMFSRDM" | "VMFSRDMP" => {
             "vmdk: a raw device map, whose data is a physical drive's".to_owned()
         }
         k => format!("vmdk: an extent of type {k}, which BeeZip doesn't read"),
@@ -639,7 +661,7 @@ impl Vmdk {
         };
         let (desc, own) = match &head {
             b"KDMV" => {
-                let (mut sp, h) = Sparse::open(file, &origin.name)?;
+                let (mut sp, h) = Sparse::open(file, &origin.name, files.memory)?;
                 let desc = descriptor(&mut sp.file, Some(&h))?;
                 (desc, Some(sp))
             }
@@ -738,8 +760,9 @@ impl Vmdk {
         let what = format!("the extent `{name}`");
         match line.kind.as_str() {
             "SPARSE" => {
+                let memory = files.memory;
                 let (sp, _) = files.find(origin, &[name], false, false, &what, |_, h, o| {
-                    Sparse::open(h, &o.name).map(Ok)
+                    Sparse::open(h, &o.name, memory).map(Ok)
                 })?;
                 if len > sp.len {
                     return Err(Error::corrupt(format!(
@@ -751,7 +774,8 @@ impl Vmdk {
                 self.note_sparse(&sp);
                 Ok(Data::Sparse(Box::new(RefCell::new(sp))))
             }
-            "FLAT" | "VMFS" => {
+            // ESXi's VMFSRAW is a flat file of the disk, as 7-Zip reads it.
+            "FLAT" | "VMFS" | "VMFSRAW" => {
                 let offset = line
                     .offset
                     .checked_mul(512)

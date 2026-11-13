@@ -87,6 +87,8 @@ struct Candidate {
 /// Opens the files one disk names (see the module's notes).
 pub struct Files {
     counter: Counter,
+    /// What a decoded grain or cluster may take: `decoder_memory` (docs/M11.md §6.1).
+    pub memory: u64,
     /// The canonical paths of the files in the chain so far.
     chain: HashSet<String>,
     opened: usize,
@@ -102,11 +104,19 @@ impl Files {
         chain.insert(canonical(&origin.path));
         Self {
             counter,
+            memory: crate::Limits::default().decoder_memory,
             chain,
             opened: 1,
             depth: 1,
             parents: Vec::new(),
         }
+    }
+
+    /// The same, holding decoded grains and clusters to `memory` bytes (`decoder_memory`).
+    #[must_use]
+    pub fn with_memory(mut self, memory: u64) -> Self {
+        self.memory = memory;
+        self
     }
 
     /// The parents found, by file name, nearest first.

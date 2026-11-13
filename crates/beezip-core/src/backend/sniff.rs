@@ -179,10 +179,11 @@ fn vhd(probe: &Probe<'_>) -> Option<Confidence> {
         .then_some(Confidence::Likely)
 }
 
-/// `conectix`, format version 1.0, a fixed, dynamic or differencing disk, and the checksum: the
-/// one's complement of the sum of the footer's other bytes.
+/// `conectix`, a fixed, dynamic or differencing disk, and the checksum: the one's complement of
+/// the sum of the footer's other bytes. The format version isn't checked: every VHD known says
+/// 1.0, and 7-Zip reads any (docs/M11.md §6.1).
 fn vhd_footer(f: &[u8]) -> bool {
-    if !f.starts_with(b"conectix") || be32(f, 12) != Some(0x0001_0000) {
+    if !f.starts_with(b"conectix") {
         return false;
     }
     let sum = f
@@ -858,6 +859,17 @@ mod tests {
         put32be(&mut footer, 64, !sum);
         short.extend(footer);
         assert_eq!(sniffs(&short), [(External::Vhd, CERTAIN)]);
+        // Another version, which 7-Zip reads too (docs/M11.md §6.1).
+        let mut v2 = vec![0u8; 4096];
+        let mut footer = vhd_footer(2);
+        put32be(&mut footer, 12, 0x0002_0000);
+        let sum = footer[..64]
+            .iter()
+            .chain(&footer[68..])
+            .fold(0u32, |s, &b| s + u32::from(b));
+        put32be(&mut footer, 64, !sum);
+        v2.extend(footer);
+        assert_eq!(sniffs(&v2), [(External::Vhd, CERTAIN)]);
         // A dynamic disk: the footer's copy, the dynamic header, the footer.
         let mut dynamic = vhd_footer(3);
         dynamic.extend(vec![0u8; 2048]);
