@@ -193,6 +193,12 @@ fn check_key(key: &str, known: &[String]) -> Result<(), CmdError> {
     if known.iter().any(|k| k == key) {
         return Ok(());
     }
+    if let Some(version) = config::obsolete(key) {
+        return Err(CmdError::invalid_args(format!(
+            "`{key}` was removed in BeeZip {version}, which reads every format itself"
+        ))
+        .with_details(serde_json::json!({ "key": key })));
+    }
     let levels = level_names();
     let (section, _) = key.rsplit_once('.').unwrap_or(("", key));
     if MAP_SECTIONS.contains(&section) {

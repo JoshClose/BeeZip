@@ -38,8 +38,8 @@ pub struct ArchiveTestOutput {
     pub entries: u64,
     /// Uncompressed bytes read.
     pub bytes: u64,
-    /// What the test couldn't check: a disk image read through 7-Zip stores no checksums of
-    /// its files' data, so its test shows only that every file can be read.
+    /// What the test couldn't check: a format that stores no checksums of its files' data (a
+    /// CHM help file, a disk image's FAT) shows only that every file can be read.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub note: Option<String>,
 }
@@ -69,7 +69,8 @@ impl Command for ArchiveTest {
             input.name_encoding,
             cx,
         )?;
-        // The 7-Zip backend tests with `7z t`; the rest read every entry.
+        // A reader with a test of its own (CHM, CramFS, NSIS, MSI) runs it; the rest read every
+        // entry.
         let report = match opened.reader.test(cx) {
             Some(report) => report?,
             None => {

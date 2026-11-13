@@ -886,7 +886,6 @@ impl ArchiveReader for ChmReader {
             locked: false,
             recovery_record: false,
             external: Some(ExternalInfo {
-                backend: None,
                 levels: vec!["chm".to_owned()],
                 properties: self.properties.clone(),
                 notes: Vec::new(),

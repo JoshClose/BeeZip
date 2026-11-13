@@ -50,15 +50,6 @@ pub fn open_options(encoding: Option<NameEncoding>, cx: &JobCtx) -> OpenOptions 
     OpenOptions::new(cx.policy().limits.clone())
         .with_names(names(encoding, cx))
         .with_threads(threads)
-        .with_seven_zip(seven_zip(cx))
-}
-
-/// The 7-Zip to run, from `[seven_zip]`; a config that can't be read finds one.
-pub fn seven_zip(cx: &JobCtx) -> beezip_core::SevenZipOptions {
-    cx.config()
-        .ok()
-        .map(|c| c.seven_zip.options())
-        .unwrap_or_default()
 }
 
 /// How names are read: in `encoding`, else in `[names] encoding`, on this system's code pages.
@@ -155,9 +146,7 @@ fn open_lent(
             home: Some((Arc::clone(cache), key)),
         });
     }
-    let opts = OpenOptions::new(limits.clone())
-        .with_names(names)
-        .with_seven_zip(seven_zip(cx));
+    let opts = OpenOptions::new(limits.clone()).with_names(names);
     let started = std::time::Instant::now();
     let opened = open(&path, &opts, cx)?;
     let opening = started.elapsed();
@@ -269,8 +258,8 @@ pub(crate) mod tests {
     #[test]
     fn the_menu_knows_every_extension_core_reads() {
         use beezip_core::{CodecId, codec::TAR_SHORTHANDS};
-        // The 7-Zip formats' `.img`, `.exe` and `.msi` are left out of the menu (docs/M6.md
-        // §3.7).
+        // The disk images' and installers' `.img`, `.exe` and `.msi` are left out of the menu
+        // (docs/M6.md §3.7).
         let formats = beezip_core::format::formats()
             .filter(|f| f.id().external().is_none_or(beezip_core::External::in_menu))
             .flat_map(|f| f.extensions().iter());

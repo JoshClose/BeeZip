@@ -1272,7 +1272,6 @@ impl ArchiveReader for MsiReader {
             locked: false,
             recovery_record: false,
             external: Some(ExternalInfo {
-                backend: None,
                 levels,
                 properties: self.properties.clone(),
                 notes: self.notes.clone(),

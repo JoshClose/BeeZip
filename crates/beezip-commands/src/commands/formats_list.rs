@@ -1,5 +1,3 @@
-use std::path::PathBuf;
-
 use beezip_core::{
     CodecId, FormatCaps, FormatId,
     format::{
@@ -91,103 +89,9 @@ pub struct FormatInfo {
     pub methods: Vec<MethodInfo>,
     /// Encryption for new archives.
     pub encryption: Vec<String>,
-    /// The program that reads it, for the formats BeeZip leaves to one: `7-zip`. `null` for
-    /// BeeZip's own, which include the disks, file systems and installers it reads since
-    /// docs/M7.md.
-    pub backend: Option<String>,
-    /// Whether it opens here: false while its backend is missing, too old or turned off.
-    pub available: bool,
-    /// Explorer's menu offers BeeZip's items on its extensions. The 7-Zip formats' `.img`,
-    /// `.exe` and `.msi` are left out (docs/M6.md §3.7).
+    /// Explorer's menu offers BeeZip's items on its extensions. The disk images' and
+    /// installers' `.img`, `.exe` and `.msi` are left out (docs/M6.md §3.7).
     pub menu: bool,
-}
-
-/// The 7-Zip that reads the formats BeeZip leaves to it (docs/M6.md §3.1), as found under the
-/// settings.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
-pub struct SevenZipStatus {
-    /// "7-Zip 26.00"; `null` when there's none to run.
-    pub name: Option<String>,
-    pub path: Option<PathBuf>,
-    /// Where it was found: `settings`, `registry`, `PATH` or `Program Files`.
-    pub found_in: Option<String>,
-    /// Why there's none to run: not found, too old, turned off.
-    pub problem: Option<String>,
-    /// The oldest version BeeZip runs: `25.01`.
-    pub min_version: String,
-    /// What would give BeeZip a 7-Zip to run: `install` or `update` it with winget
-    /// (`seven_zip.install`), or `download` it from 7-zip.org where there's no winget. `null`
-    /// when there's one to run, when it's turned off, or when the trouble is the path in the
-    /// settings, which installing wouldn't change.
-    pub fix: Option<SevenZipFix>,
-}
-
-/// How to get a 7-Zip BeeZip can run.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
-#[serde(rename_all = "lowercase")]
-pub enum SevenZipFix {
-    /// None is installed: `winget install`.
-    Install,
-    /// The one installed is older than 25.01: `winget upgrade`.
-    Update,
-    /// No winget (or not Windows): 7-zip.org's download page.
-    Download,
-}
-
-impl SevenZipFix {
-    /// The fix for `found`, under `opts`, with or without winget.
-    pub fn choose(
-        opts: &beezip_core::SevenZipOptions,
-        found: &Result<beezip_core::backend::SevenZip, beezip_core::backend::find::Missing>,
-        winget: bool,
-    ) -> Option<Self> {
-        use beezip_core::backend::find::Missing;
-        let Err(missing) = found else { return None };
-        if !opts.enabled || opts.path.is_some() {
-            return None;
-        }
-        Some(match missing {
-            _ if !winget => Self::Download,
-            Missing::TooOld(_) => Self::Update,
-            _ => Self::Install,
-        })
-    }
-}
-
-impl SevenZipStatus {
-    /// What `find` says under `opts`.
-    pub fn find(opts: &beezip_core::SevenZipOptions) -> Self {
-        let found = beezip_core::backend::find(opts);
-        let fix = SevenZipFix::choose(opts, &found, crate::winget::find().is_some());
-        Self::from_found(found, fix)
-    }
-
-    /// The status for what `find` returned.
-    pub fn from_found(
-        found: Result<beezip_core::backend::SevenZip, beezip_core::backend::find::Missing>,
-        fix: Option<SevenZipFix>,
-    ) -> Self {
-        let (major, minor) = beezip_core::backend::MIN_VERSION;
-        let min_version = format!("{major}.{minor:02}");
-        match found {
-            Ok(z) => Self {
-                name: Some(z.name),
-                path: Some(z.exe),
-                found_in: Some(z.found_in.to_owned()),
-                problem: None,
-                min_version,
-                fix: None,
-            },
-            Err(m) => Self {
-                name: None,
-                path: None,
-                found_in: None,
-                problem: Some(m.reason()),
-                min_version,
-                fix,
-            },
-        }
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
@@ -208,8 +112,6 @@ pub struct FormatsListOutput {
     pub codecs: Vec<CodecInfo>,
     /// The `--format` names `archive.create` accepts: `zip`, `tar`, `tar.gz`…
     pub create: Vec<String>,
-    /// The 7-Zip found, which the formats with `backend: "7-zip"` need.
-    pub seven_zip: SevenZipStatus,
 }
 
 /// The methods a format writes new archives with, and the levels each takes.
@@ -266,8 +168,7 @@ impl Command for FormatsList {
     type Input = FormatsListInput;
     type Output = FormatsListOutput;
 
-    fn run(_: FormatsListInput, cx: &mut JobCtx) -> Result<FormatsListOutput, CmdError> {
-        let seven_zip = SevenZipStatus::find(&crate::commands::util::seven_zip(cx));
+    fn run(_: FormatsListInput, _: &mut JobCtx) -> Result<FormatsListOutput, CmdError> {
         let formats = FormatId::ALL
             .into_iter()
             .map(|f| FormatInfo {
@@ -292,12 +193,6 @@ impl Command for FormatsList {
                     FormatId::SevenZ => vec!["aes256".into()],
                     _ => Vec::new(),
                 },
-                backend: f
-                    .external()
-                    .filter(|k| !k.native())
-                    .map(|_| "7-zip".to_owned()),
-                available: f.external().is_none_or(beezip_core::External::native)
-                    || seven_zip.name.is_some(),
                 menu: f.external().is_none_or(beezip_core::External::in_menu),
             })
             .collect();
@@ -319,7 +214,6 @@ impl Command for FormatsList {
             formats,
             codecs,
             create: ArchiveKind::all().map(ArchiveKind::name).collect(),
-            seven_zip,
         })
     }
 
@@ -338,7 +232,7 @@ impl Command for FormatsList {
                 f.extensions.join(" ")
             }
         };
-        for f in out.formats.iter().filter(|f| f.backend.is_none()) {
+        for f in &out.formats {
             s.push_str(&format!(
                 "  {:<8} {:<25} {:<5} {:<7} {:<6} {:<8} {:<6}  {}\n",
                 f.id,
@@ -361,22 +255,6 @@ impl Command for FormatsList {
                 })
                 .collect();
             s.push_str(&format!("  {} methods: {}\n", f.id, methods.join(", ")));
-        }
-        // 7-Zip reads what BeeZip's own readers don't (docs/M10.md §6, docs/M11.md).
-        let z = &out.seven_zip;
-        s.push_str(&match (&z.name, &z.path, &z.problem) {
-            (Some(name), Some(path), _) => format!(
-                "\n7-Zip, for what BeeZip doesn't read itself: {name} ({})\n",
-                path.display()
-            ),
-            (_, _, problem) => format!(
-                "\n7-Zip {} or newer, for what BeeZip doesn't read itself: {}\n",
-                z.min_version,
-                problem.as_deref().unwrap_or("not found")
-            ),
-        });
-        for f in out.formats.iter().filter(|f| f.backend.is_some()) {
-            s.push_str(&format!("  {:<8} {:<26} {}\n", f.id, f.name, exts(f)));
         }
         s.push_str("\nCodecs\n");
         s.push_str(&format!(
@@ -417,58 +295,5 @@ mod tests {
             &[],
             serde_json::json!({}),
         );
-    }
-
-    /// Install or update with winget, the download page without it, and nothing when the
-    /// trouble is a setting.
-    #[test]
-    fn the_fix_for_each_kind_of_missing() {
-        use beezip_core::{
-            SevenZipOptions,
-            backend::{SevenZip, find::Missing},
-        };
-        let old = SevenZip {
-            exe: PathBuf::from("7z.exe"),
-            name: "7-Zip 23.01".into(),
-            version: Some((23, 1)),
-            found_in: "registry",
-        };
-        let none = Missing::NotFound { configured: None };
-        let unusable = Missing::Unusable {
-            exe: PathBuf::from("7z.exe"),
-            why: "it printed no banner".into(),
-        };
-        let opts = SevenZipOptions::default();
-        let fix =
-            |found: Result<SevenZip, Missing>, winget| SevenZipFix::choose(&opts, &found, winget);
-        assert_eq!(fix(Ok(old.clone()), true), None);
-        assert_eq!(fix(Err(none.clone()), true), Some(SevenZipFix::Install));
-        assert_eq!(fix(Err(unusable), true), Some(SevenZipFix::Install));
-        assert_eq!(
-            fix(Err(Missing::TooOld(old.clone())), true),
-            Some(SevenZipFix::Update)
-        );
-        assert_eq!(fix(Err(none.clone()), false), Some(SevenZipFix::Download));
-        assert_eq!(
-            fix(Err(Missing::TooOld(old)), false),
-            Some(SevenZipFix::Download)
-        );
-
-        let off = SevenZipOptions {
-            enabled: false,
-            ..SevenZipOptions::default()
-        };
-        assert_eq!(
-            SevenZipFix::choose(&off, &Err(Missing::Disabled), true),
-            None
-        );
-        let set = SevenZipOptions {
-            path: Some(PathBuf::from("Z:/nowhere/7z.exe")),
-            ..SevenZipOptions::default()
-        };
-        let there = Err(Missing::NotFound {
-            configured: set.path.clone(),
-        });
-        assert_eq!(SevenZipFix::choose(&set, &there, true), None);
     }
 }

@@ -15,7 +15,6 @@ mod job;
 pub mod policy;
 mod registry;
 pub mod shell;
-pub mod winget;
 pub mod wire;
 
 use std::sync::OnceLock;
