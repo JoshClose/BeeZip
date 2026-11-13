@@ -1,9 +1,10 @@
 //! NTFS (docs/M7.md §6): fstool's ntfs module behind BeeZip's checks, with BeeZip's own folder
 //! walk, records, times, links and reparse points around it.
 //!
-//! - **Before fstool opens the volume**, BeeZip checks the boot sector. Clusters over 64 KiB, or
-//!   written in NTFS's negative form (which fstool doesn't read), are `UnsupportedOperation`, so
-//!   that 7-Zip can read the volume instead. It checks `$MFT`'s first record too, which fstool
+//! - **Before fstool opens the volume**, BeeZip checks the boot sector. Clusters of up to 2 MiB
+//!   read, in either form: Windows writes those over 64 KiB in NTFS's negative form, 2^(256 - n)
+//!   sectors, which BeeZip's copy of fstool reads (docs/M11.md §6.3). It checks `$MFT`'s first
+//!   record too, which fstool
 //!   reads to find `$MFT` itself: when its data has no runs and its attribute list names another
 //!   record, fstool recurses until its stack overflows, which aborts the process (fstool 0.5.2,
 //!   `mod.rs:281` and `:390`). The records that list holds for `$MFT`'s data are checked as well.
@@ -77,8 +78,8 @@ use crate::{
 
 /// The deepest folder listed, as for a DMG's volume.
 pub const MAX_DEPTH: usize = 256;
-/// The largest cluster read; larger ones go to 7-Zip.
-pub const MAX_CLUSTER: u64 = 64 * 1024;
+/// The largest cluster read: Windows writes up to 2 MiB (`format /A:2M`), as fstool allows.
+pub const MAX_CLUSTER: u64 = 2 << 20;
 /// The largest attribute list read: tens of thousands of extension records.
 pub const MAX_ATTR_LIST: u64 = 1 << 20;
 /// The most bytes one file's records may take together.
@@ -189,31 +190,26 @@ fn geometry(dev: &mut Device) -> Result<Geometry> {
         return Err(bad(format!("the boot sector says sectors are {bps} bytes")));
     }
     let spc = b[13];
-    if spc > 0x80 {
+    let cluster = if spc > 0x80 {
         // 2^(256 - spc) sectors: how NTFS writes clusters of 128 KiB and more.
-        let shift = 256 - u32::from(spc);
-        let kib = 1u128
-            .checked_shl(shift)
-            .and_then(|s| s.checked_mul(u128::from(bps)))
-            .map(|b| b / 1024);
-        return Err(Error::unsupported(match kib {
-            Some(k) if k > 64 => format!(
-                "ntfs: the volume's clusters are {k} KiB; BeeZip reads NTFS clusters up to 64 KiB"
-            ),
-            _ => "ntfs: the volume's cluster size is written in NTFS's negative form, which \
-                  BeeZip doesn't read"
-                .to_owned(),
-        }));
-    }
-    if spc == 0 || !spc.is_power_of_two() {
-        return Err(bad(format!(
-            "the boot sector says clusters are {spc} sectors"
-        )));
-    }
-    let cluster = u64::from(bps) * u64::from(spc);
+        1u64.checked_shl(256 - u32::from(spc))
+            .and_then(|n| n.checked_mul(u64::from(bps)))
+            .ok_or_else(|| {
+                bad(format!(
+                    "the boot sector's cluster size ({spc:#x}) isn't one"
+                ))
+            })?
+    } else {
+        if spc == 0 || !spc.is_power_of_two() {
+            return Err(bad(format!(
+                "the boot sector says clusters are {spc} sectors"
+            )));
+        }
+        u64::from(bps) * u64::from(spc)
+    };
     if cluster > MAX_CLUSTER {
         return Err(Error::unsupported(format!(
-            "ntfs: the volume's clusters are {} KiB; BeeZip reads NTFS clusters up to 64 KiB",
+            "ntfs: the volume's clusters are {} KiB; NTFS's are at most 2 MiB",
             cluster / 1024
         )));
     }
