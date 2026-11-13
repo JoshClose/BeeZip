@@ -498,27 +498,6 @@ fn an_lzop_bomb_is_corrupt() {
     assert!(inside.is_empty());
 }
 
-/// The 7-Zip backend's corpus (docs/M6.md §10) needs 7-Zip; it's skipped without one, unless
-/// `BEEZIP_REQUIRE_7Z` or `BEEZIP_REQUIRE_7Z_BACKEND` is 1 (CI).
-fn seven_zip_here() -> bool {
-    let required = ["BEEZIP_REQUIRE_7Z", "BEEZIP_REQUIRE_7Z_BACKEND"]
-        .iter()
-        .any(|v| std::env::var(v).as_deref() == Ok("1"));
-    match beezip_core::backend::find(&beezip_core::SevenZipOptions::default()) {
-        Ok(_) => true,
-        Err(m) if required => panic!("the 7-Zip corpus needs 7-Zip: {}", m.reason()),
-        Err(_) => false,
-    }
-}
-
-/// The disks and file systems through 7-Zip, as before M7 (docs/M7.md §10).
-fn through_7zip() -> OpenOptions {
-    OpenOptions {
-        native: false,
-        ..OpenOptions::default()
-    }
-}
-
 /// Names and links BeeZip's own ext reader lists from an ext4 image, as stored, are made safe by
 /// FsSink's own rules: nothing climbs out (`..\..\escape.txt` keeps its `\`, which FsSink takes
 /// as traversal, on every system), reserved and odd names are renamed, `trail.` and `trail `
@@ -589,73 +568,6 @@ fn a_hostile_ext4_image_is_made_safe_by_fs_sink() {
     }
 }
 
-/// The same image as 7-Zip lists it (M6): its names are 7-Zip's, which on Windows turns `\` into
-/// `_`.
-#[test]
-fn a_hostile_ext4_image_listed_by_7zip_is_made_safe_by_fs_sink() {
-    use beezip_core::OverwritePolicy;
-    if !seven_zip_here() {
-        return;
-    }
-    let rename = || FsOptions {
-        overwrite: OverwritePolicy::Rename,
-        ..FsOptions::default()
-    };
-    let (r, inside) = extract_with("ext4-hostile.img", rename(), &through_7zip());
-    let r = r.unwrap();
-    assert!(r.is_unsafe(), "links are off: {r:?}");
-    let skipped = |reason| r.skipped.iter().filter(|s| s.reason == reason).count();
-    assert_eq!(skipped(SkipReason::LinksDisabled), 6, "{r:?}");
-    assert_eq!(
-        skipped(SkipReason::Unsupported),
-        2,
-        "the FIFO and the device: {r:?}"
-    );
-    // 7-Zip on Linux keeps the `\` in `..\..\escape.txt`, which FsSink takes as traversal;
-    // on Windows it lists `_`. The names below are Windows' 7-Zip's.
-    if !cfg!(windows) {
-        return;
-    }
-    for want in [
-        "safe.txt",
-        "dir/inside.txt",
-        "drive.txt",
-        "___/escape.txt",
-        "_CON",
-        "_aux.txt",
-        "ads_stream.txt",
-        "cr_name.txt",
-        "trail_",
-        "trail_ (1)",
-    ] {
-        assert!(inside.contains(&want.to_owned()), "{want}: {inside:?}");
-    }
-    // `...` would be `___`, which `.. ` already is, as a folder.
-    assert_eq!(skipped(SkipReason::Blocked), 1, "{r:?}");
-
-    // Links on: the five that lead out are refused, the one to `dir` is made.
-    let (r, inside) = extract_with(
-        "ext4-hostile.img",
-        FsOptions {
-            links: true,
-            ..rename()
-        },
-        &through_7zip(),
-    );
-    let r = r.unwrap();
-    assert_eq!(
-        r.skipped
-            .iter()
-            .filter(|s| s.reason == SkipReason::LinkOutside)
-            .count(),
-        5,
-        "{r:?}"
-    );
-    if r.links > 0 {
-        assert!(inside.contains(&"link-dir".to_owned()), "{inside:?}");
-    }
-}
-
 /// A WIM's symlinks, stored as reparse points, that lead out: refused with links on. BeeZip
 /// reads the WIM itself (docs/M8.md §5); the targets weren't fixed at capture (`--norpfix`), so
 /// they're as stored: `../../outside.txt`, `/??/C:/etc/passwd`, `../..` and `dir`.
@@ -692,30 +604,6 @@ fn a_file_that_claims_100_gb_from_2_kib_hits_the_limit() {
         &corpus("ext4-sparse-100g.img"),
         &Selection::all(),
         &OpenOptions::default(),
-        &mut SimpleCtx::new(),
-    )
-    .unwrap_err();
-    assert_eq!(err.kind, ErrorKind::LimitExceeded);
-}
-
-/// The same image through 7-Zip, whose listing claims 100 GB in 256 KiB: refused before 7-Zip
-/// starts, by extracting and by testing alike, and nothing is written.
-#[test]
-fn a_listing_that_claims_100_gb_hits_the_limit() {
-    if !seven_zip_here() {
-        return;
-    }
-    let (r, inside) = extract_with(
-        "ext4-sparse-100g.img",
-        FsOptions::default(),
-        &through_7zip(),
-    );
-    assert_eq!(r.unwrap_err().kind, ErrorKind::LimitExceeded);
-    assert!(inside.is_empty(), "{inside:?}");
-    let err = ops::test(
-        &corpus("ext4-sparse-100g.img"),
-        &Selection::all(),
-        &through_7zip(),
         &mut SimpleCtx::new(),
     )
     .unwrap_err();

@@ -41,10 +41,6 @@
 //! [jobs]
 //! close_when_done = true     # a job window closes itself after a clean success
 //!
-//! [seven_zip]                # the 7-Zip that reads what BeeZip doesn't (docs/M6.md §3)
-//! path = 'C:\Tools\7z.exe'   # empty or missing: found in the registry, PATH or Program Files
-//! enabled = true
-//!
 //! [desktop]
 //! theme = "system"           # system | light | dark
 //!
@@ -88,7 +84,6 @@ pub struct Config {
     pub shell: ShellConfig,
     pub jobs: JobsConfig,
     pub desktop: DesktopConfig,
-    pub seven_zip: SevenZipConfig,
     pub updates: UpdatesConfig,
 }
 
@@ -282,39 +277,6 @@ impl Default for JobsConfig {
     }
 }
 
-/// The installed 7-Zip, which reads for BeeZip what its own disk, MSI, WIM, CHM, CramFS and
-/// NSIS readers don't support (docs/M6.md §3, docs/M7.md to docs/M11.md): an ext volume over
-/// 16 TiB, for one.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
-#[serde(default)]
-pub struct SevenZipConfig {
-    /// The 7-Zip console program to run (`7z.exe`, 25.01 or newer). Empty: BeeZip finds one in
-    /// the registry, on PATH or in Program Files.
-    pub path: Option<PathBuf>,
-    /// Read those formats through 7-Zip. Off, they are still recognised, and opening one says
-    /// that 7-Zip is turned off.
-    pub enabled: bool,
-}
-
-impl Default for SevenZipConfig {
-    fn default() -> Self {
-        Self {
-            path: None,
-            enabled: true,
-        }
-    }
-}
-
-impl SevenZipConfig {
-    /// As core takes it: an empty path means "find one".
-    pub fn options(&self) -> beezip_core::SevenZipOptions {
-        beezip_core::SevenZipOptions {
-            path: self.path.clone().filter(|p| !p.as_os_str().is_empty()),
-            enabled: self.enabled,
-        }
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema, TS)]
 #[serde(default)]
 pub struct DesktopConfig {
@@ -398,6 +360,20 @@ impl Config {
 /// Sections that are maps rather than fixed keys: `[levels]` takes any codec or method name.
 pub const MAP_SECTIONS: &[&str] = &["levels"];
 
+/// Sections BeeZip no longer reads, with the version that removed them. An old file's are
+/// ignored without a warning, and setting one says it's gone (docs/M11.md §7): `[seven_zip]`,
+/// the 7-Zip BeeZip ran before 0.6.0.
+pub const OBSOLETE_SECTIONS: &[(&str, &str)] = &[("seven_zip", "0.6.0")];
+
+/// The version that removed `key`'s section, if it's in [`OBSOLETE_SECTIONS`].
+pub fn obsolete(key: &str) -> Option<&'static str> {
+    let section = key.split('.').next().unwrap_or(key);
+    OBSOLETE_SECTIONS
+        .iter()
+        .find(|(s, _)| *s == section)
+        .map(|(_, v)| *v)
+}
+
 /// Every setting by dotted key (`extract.overwrite`, `shell.items.test`, `levels.zstd`), with
 /// its value as JSON. `None` values (`limits.max_total_bytes` unset) are JSON null.
 pub fn flatten(config: &Config) -> BTreeMap<String, Value> {
@@ -438,7 +414,10 @@ fn unknown_keys(table: &toml::Table) -> Vec<String> {
 fn walk_unknown(prefix: &str, table: &toml::Table, known: &[String], out: &mut Vec<String>) {
     for (key, value) in table {
         let path = format!("{prefix}{key}");
-        if MAP_SECTIONS.contains(&path.as_str()) || known.contains(&path) {
+        if MAP_SECTIONS.contains(&path.as_str())
+            || known.contains(&path)
+            || obsolete(&path).is_some()
+        {
             continue;
         }
         let section = format!("{path}.");
@@ -620,6 +599,16 @@ check = false
             w.is_empty(),
             "a wrong type is an error, not a warning: {w:?}"
         );
+    }
+
+    /// An old config's `[seven_zip]` (before 0.6.0) is ignored without a word (docs/M11.md §7).
+    #[test]
+    fn obsolete_sections_are_ignored_quietly() {
+        let (c, w) = parse("[seven_zip]\npath = 'C:\\Tools\\7z.exe'\nenabled = false\n");
+        assert!(c.is_ok());
+        assert!(w.is_empty(), "{w:?}");
+        assert_eq!(obsolete("seven_zip.path"), Some("0.6.0"));
+        assert_eq!(obsolete("extract.links"), None);
     }
 
     #[test]

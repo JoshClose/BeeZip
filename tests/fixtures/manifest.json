@@ -8253,7 +8253,7 @@
       "producer": "mke2fs 1.47.0 (e2fsprogs, Ubuntu 24.04 in Docker)",
       "command": "mke2fs -b 1024 -U <fixed> -E hash_seed=<fixed>,root_owner=0:0 -d tree -t ext4 -I 256 ext4.img 2M; debugfs sets the change times and mtime.txt's nanoseconds",
       "chain": "ext",
-      "backend": "7-zip",
+      "oracle": "7-zip",
       "levels": [
         "ext"
       ],
@@ -8369,7 +8369,7 @@
       "producer": "mke2fs 1.47.0 (e2fsprogs, Ubuntu 24.04 in Docker)",
       "command": "mke2fs -b 1024 -U <fixed> -E hash_seed=<fixed>,root_owner=0:0 -d tree -t ext2 -I 128 ext2.img 256K; debugfs sets the change times",
       "chain": "ext",
-      "backend": "7-zip",
+      "oracle": "7-zip",
       "levels": [
         "ext"
       ],
@@ -8478,7 +8478,7 @@
       "producer": "mkfs.fat 4.2 and mcopy 4.0.43 (Ubuntu 24.04 in Docker)",
       "command": "mkfs.fat --invariant -F 12 -i 6D7A6970 -C fat12.img 256; mcopy -s -p -m tree/* ::/",
       "chain": "fat",
-      "backend": "7-zip",
+      "oracle": "7-zip",
       "levels": [
         "fat"
       ],
@@ -8568,7 +8568,7 @@
       "producer": "mkfs.fat 4.2 and mcopy 4.0.43 (Ubuntu 24.04 in Docker)",
       "command": "mkfs.fat --invariant -F 32 -i 6D7A6970 -C fat32.img 1024; mcopy -s -p -m tree/* ::/",
       "chain": "fat",
-      "backend": "7-zip",
+      "oracle": "7-zip",
       "levels": [
         "fat"
       ],
@@ -8658,7 +8658,7 @@
       "producer": "mkntfs and ntfs-3g 2022.10.3 (Ubuntu 24.04 in Docker)",
       "command": "mkntfs -Q ntfs.img (1280 KiB); ntfs-3g -o streams_interface=windows; cp -a tree; symlinks through system.ntfs_reparse_data; echo > readme.txt:hidden (under a frozen libfaketime clock)",
       "chain": "ntfs",
-      "backend": "7-zip",
+      "oracle": "7-zip",
       "levels": [
         "ntfs"
       ],
@@ -8853,7 +8853,7 @@
       "producer": "mkfs.cramfs 2.39.3 (util-linux, Ubuntu 24.04 in Docker)",
       "command": "mkfs.cramfs -n BeeZipCramfs tree cramfs.img",
       "chain": "cramfs",
-      "backend": "7-zip",
+      "oracle": "7-zip",
       "levels": [
         "cramfs"
       ],
@@ -8947,7 +8947,7 @@
       "producer": "sfdisk 2.39.3 (util-linux, Ubuntu 24.04 in Docker)",
       "command": "sfdisk (dos, label-id 0x6d7a6970, start=64, type=1); fat12.img at sector 64",
       "chain": "mbr",
-      "backend": "7-zip",
+      "oracle": "7-zip",
       "levels": [
         "mbr",
         "fat"
@@ -9038,7 +9038,7 @@
       "producer": "sfdisk 2.39.3 (util-linux, Ubuntu 24.04 in Docker)",
       "command": "sfdisk (gpt, fixed label-id and uuids, start=64: \"data\" FAT12, \"linux\" ext4); fat12.img and an ext4 without a journal in them",
       "chain": "gpt",
-      "backend": "7-zip",
+      "oracle": "7-zip",
       "levels": [
         "gpt"
       ],
@@ -9068,7 +9068,7 @@
       "producer": "sfdisk 2.39.3 (util-linux, Ubuntu 24.04 in Docker)",
       "command": "sfdisk (gpt, fixed label-id and uuid, start=64: \"ntfs\"); ntfs.img in it",
       "chain": "gpt",
-      "backend": "7-zip",
+      "oracle": "7-zip",
       "levels": [
         "gpt",
         "ntfs"
@@ -9264,7 +9264,7 @@
       "producer": "qemu-img 8.2.2 (Ubuntu 24.04 in Docker)",
       "command": "qemu-img convert -f raw -O qcow2 gpt-fat-ext4.img gpt-fat-ext4.qcow2",
       "chain": "qcow2",
-      "backend": "7-zip",
+      "oracle": "7-zip",
       "levels": [
         "qcow2",
         "gpt"
@@ -9295,7 +9295,7 @@
       "producer": "qemu-img 8.2.2 (Ubuntu 24.04 in Docker)",
       "command": "qemu-img convert -f raw -O vdi gpt-fat-ext4.img gpt-fat-ext4.vdi (UUIDs fixed afterwards)",
       "chain": "vdi",
-      "backend": "7-zip",
+      "oracle": "7-zip",
       "levels": [
         "vdi",
         "gpt"
@@ -9326,7 +9326,7 @@
       "producer": "qemu-img 8.2.2 (Ubuntu 24.04 in Docker)",
       "command": "qemu-img convert -f raw -O vmdk -o subformat=monolithicSparse gpt-fat-ext4.img gpt-fat-ext4.vmdk (CID fixed afterwards)",
       "chain": "vmdk",
-      "backend": "7-zip",
+      "oracle": "7-zip",
       "levels": [
         "vmdk",
         "gpt"
@@ -9357,7 +9357,7 @@
       "producer": "qemu-img 8.2.2 (Ubuntu 24.04 in Docker)",
       "command": "qemu-img convert -f raw -O vpc -o subformat=dynamic,force_size=on mbr-fat.img mbr-fat.vhd (unique id fixed afterwards)",
       "chain": "vhd",
-      "backend": "7-zip",
+      "oracle": "7-zip",
       "levels": [
         "vhd",
         "mbr",
@@ -9449,7 +9449,7 @@
       "producer": "qemu-img 8.2.2 (Ubuntu 24.04 in Docker)",
       "command": "qemu-img convert -f raw -O vpc -o subformat=fixed,force_size=on mbr-fat.img mbr-fat-fixed.vhd (unique id fixed afterwards)",
       "chain": "vhd",
-      "backend": "7-zip",
+      "oracle": "7-zip",
       "levels": [
         "vhd",
         "mbr",
@@ -9541,7 +9541,7 @@
       "producer": "qemu-img 8.2.2 (Ubuntu 24.04 in Docker)",
       "command": "qemu-img convert -f raw -O vhdx -o block_size=1M,log_size=1M gpt-ntfs.img gpt-ntfs.vhdx (GUIDs and sequence numbers fixed, the empty log zeroed and the payload moved down from 8 MiB afterwards)",
       "chain": "vhdx",
-      "backend": "7-zip",
+      "oracle": "7-zip",
       "levels": [
         "vhdx",
         "gpt",
@@ -9738,7 +9738,7 @@
       "producer": "wimlib 1.14.4 (Ubuntu 24.04 in Docker)",
       "command": "wimcapture tree wimlib.wim BeeZip --compress=lzx; wimappend tree/sub wimlib.wim Sub (GUID fixed afterwards)",
       "chain": "wim",
-      "backend": "7-zip",
+      "oracle": "7-zip",
       "levels": [
         "wim"
       ],
@@ -9861,7 +9861,7 @@
       "producer": "wimlib 1.14.4 (Ubuntu 24.04 in Docker)",
       "command": "wimcapture tree wimlib-solid.esd BeeZip --solid (GUID fixed afterwards)",
       "chain": "wim",
-      "backend": "7-zip",
+      "oracle": "7-zip",
       "levels": [
         "wim"
       ],
@@ -9966,7 +9966,7 @@
       "producer": "7-Zip 26.00 (Windows)",
       "command": "7z a -twim tree.wim * (in the tree, written to NTFS without its symlinks, the hard link as a copy)",
       "chain": "wim",
-      "backend": "7-zip",
+      "oracle": "7-zip",
       "levels": [
         "wim"
       ],
@@ -10061,7 +10061,7 @@
       "producer": "makensis 3.09 (Ubuntu 24.04 in Docker)",
       "command": "makensis -INPUTCHARSET UTF8 lzma.nsi (SetCompressor /SOLID lzma; File for each of the tree's files, under $INSTDIR)",
       "chain": "nsis",
-      "backend": "7-zip",
+      "oracle": "7-zip",
       "levels": [
         "nsis"
       ],
@@ -10156,7 +10156,7 @@
       "producer": "makensis 3.09 (Ubuntu 24.04 in Docker)",
       "command": "makensis -INPUTCHARSET UTF8 zlib.nsi (SetCompressor zlib; File for each of the tree's files, under $INSTDIR)",
       "chain": "nsis",
-      "backend": "7-zip",
+      "oracle": "7-zip",
       "levels": [
         "nsis"
       ],
@@ -10251,7 +10251,7 @@
       "producer": "makensis 3.09 (Ubuntu 24.04 in Docker)",
       "command": "makensis -INPUTCHARSET UTF8 bzip2.nsi (SetCompressor bzip2; File for each of the tree's files, under $INSTDIR)",
       "chain": "nsis",
-      "backend": "7-zip",
+      "oracle": "7-zip",
       "levels": [
         "nsis"
       ],
@@ -10346,7 +10346,7 @@
       "producer": "chmcmd 3.2.2 (Free Pascal, Ubuntu 24.04 in Docker)",
       "command": "chmcmd fixture.hhp (index.htm, pages/a.htm, pages/café.htm; time stamps zeroed afterwards)",
       "chain": "chm",
-      "backend": "7-zip",
+      "oracle": "7-zip",
       "levels": [
         "chm"
       ],
@@ -10418,7 +10418,7 @@
       "producer": "wixl 0.103 (msitools, Ubuntu 24.04 in Docker)",
       "command": "wixl -o wixl.msi fixture.wxs (readme.txt, empty.txt, random.bin, 名前.txt; package code fixed afterwards)",
       "chain": "msi",
-      "backend": "7-zip",
+      "oracle": "7-zip",
       "levels": [
         "msi",
         "cab"
@@ -10461,7 +10461,7 @@
       "producer": "hdiutil (macOS, make-dmg.sh)",
       "command": "7z e -tdmg dmg/hfs-udro.dmg 4.hfs (the HFS+ volume, as it is in the DMG)",
       "chain": "hfs",
-      "backend": "7-zip",
+      "oracle": "7-zip",
       "levels": [
         "hfs"
       ],
@@ -10537,7 +10537,7 @@
       "producer": "hdiutil (macOS, make-dmg.sh)",
       "command": "7z e -tdmg dmg/apfs-udro.dmg 4.apfs (the APFS container, as it is in the DMG)",
       "chain": "apfs",
-      "backend": "7-zip",
+      "oracle": "7-zip",
       "levels": [
         "apfs"
       ],

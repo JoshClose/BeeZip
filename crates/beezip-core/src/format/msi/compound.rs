@@ -445,7 +445,6 @@ impl ArchiveReader for CompoundReader {
             locked: false,
             recovery_record: false,
             external: Some(ExternalInfo {
-                backend: None,
                 levels: vec![self.level.to_owned()],
                 properties: self.properties.clone(),
                 notes: self.notes.clone(),

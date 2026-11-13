@@ -5,8 +5,8 @@
 fn cli_cases() {
     trycmd::TestCases::new()
         .default_bin_name("beezip")
-        // The developer's own config must not change what the CLI prints, nor whether 7-Zip is
-        // installed: the cases run with the defaults and 7-Zip off.
+        // The developer's own config must not change what the CLI prints: the cases run with the
+        // defaults.
         .env(
             "BEEZIP_CONFIG",
             concat!(env!("CARGO_MANIFEST_DIR"), "/tests/cli-config.toml"),

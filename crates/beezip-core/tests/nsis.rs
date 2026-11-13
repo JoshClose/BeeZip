@@ -5,6 +5,9 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+#[path = "oracle/seven_zip.rs"]
+mod seven_zip;
+
 use std::{
     collections::{BTreeMap, BTreeSet},
     io::Read,
@@ -13,7 +16,7 @@ use std::{
 
 use beezip_core::{
     ArchiveReader, Ctx, Entry, EntryKind, EntrySink, ErrorKind, External, FormatId, Limits,
-    OpenOptions, Selection, SevenZipOptions, SimpleCtx, detect_path, format::nsis, source::Source,
+    OpenOptions, Selection, SimpleCtx, detect_path, format::nsis, source::Source,
 };
 use sha2::{Digest, Sha256};
 
@@ -380,8 +383,7 @@ fn real_installers_read_as_7zip_extracts_them() {
     let Some(folders) = std::env::var_os("BEEZIP_NSIS_SAMPLES") else {
         return;
     };
-    let seven = beezip_core::backend::find(&SevenZipOptions::default())
-        .expect("BEEZIP_NSIS_SAMPLES needs 7-Zip");
+    let seven = seven_zip::find().expect("BEEZIP_NSIS_SAMPLES needs 7-Zip");
     let mut paths: Vec<PathBuf> = std::env::split_paths(&folders)
         .flat_map(|f| std::fs::read_dir(f).unwrap())
         .map(|e| e.unwrap().path())

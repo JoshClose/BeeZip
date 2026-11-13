@@ -1283,7 +1283,6 @@ impl ArchiveReader for NsisReader {
             locked: false,
             recovery_record: false,
             external: Some(ExternalInfo {
-                backend: None,
                 levels: vec!["nsis".to_owned()],
                 properties: self.properties.clone(),
                 notes: Vec::new(),

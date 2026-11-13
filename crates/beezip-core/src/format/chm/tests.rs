@@ -275,7 +275,6 @@ fn info_says_what_system_says() {
     let (_d, r) = open(&chm(&s.files(), &Layout::default()));
     let info = r.unwrap().info(&mut SimpleCtx::new()).unwrap();
     let x = info.external.unwrap();
-    assert_eq!(x.backend, None);
     assert_eq!(x.levels, ["chm"]);
     let props: Vec<(String, String)> = x
         .properties

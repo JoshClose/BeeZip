@@ -30,6 +30,8 @@ using BeeZip will notice. Leave the date out: the Releases page dates each versi
   it, opening an ESD says what to install.
 - **QCOW version 1 images** (`qemu-img -O qcow`) open: plain, compressed or with a backing file.
   7-Zip reads only the uncompressed ones.
+- **Virtual disks BeeZip refused open:** a VHDX over 8 TiB in 1 MiB blocks, VHDs and VMDKs of
+  larger blocks and grains, VMDK's VMFSRAW extents (ESXi), and VirtualBox undo images.
 - **7-Zip's own CramFS variant** opens: LZMA or zlib, with blocks of 4 to 512 KiB.
 - **WIM chunks of up to 1 GiB**, which wimlib writes on request, and CHM help files and WIM
   images with layouts no tool is known to write, read as 7-Zip reads them.
@@ -39,6 +41,18 @@ using BeeZip will notice. Leave the date out: the Releases page dates each versi
   a DMG.
 - **Sealed APFS volumes read right:** macOS 11 and later's system volume, alone or in a DMG, read
   every file as zeros before.
+
+### BeeZip without 7-Zip
+
+- **BeeZip never runs 7-Zip now.** It reads every format it lists itself; what a reader doesn't
+  support (an encrypted disk image, an ext volume over 16 TiB, a WIM from Windows Longhorn's
+  betas) is refused with a message saying what, where it used to go to 7-Zip.
+- **Settings' 7-Zip section, Install 7-Zip and `beezip 7zip install` are gone.** A `[seven_zip]`
+  section left in your `config.toml` is ignored, with no warning, and setting one of its keys
+  (`beezip settings set seven_zip.path=…`) says it was removed.
+- **For scripts and MCP clients:** `formats.list` no longer has `seven_zip`, nor each format's
+  `backend` and `available`, and `archive.info` no longer has `backend`. They had been the same
+  for every format BeeZip reads itself.
 
 ## 0.5.0
 

@@ -20,6 +20,61 @@ pub fn from_unix(secs: i64, nanos: u32) -> Option<SystemTime> {
     }
 }
 
+/// `2024-05-06 07:08:09.1234567Z`, UTC, as 7-Zip's `-slt` listing writes times and the fixture
+/// records keep them (with a space for RFC 3339's `T`): no fraction or up to nine digits of one,
+/// and an optional `Z`. For the tests that compare times with those records.
+#[doc(hidden)]
+pub fn parse_utc(s: &str) -> Option<SystemTime> {
+    let b = s.trim().as_bytes();
+    if b.len() < 19
+        || b[4] != b'-'
+        || b[7] != b'-'
+        || b[10] != b' '
+        || b[13] != b':'
+        || b[16] != b':'
+    {
+        return None;
+    }
+    let num = |at: usize, len: usize| -> Option<i64> {
+        let d = b.get(at..at + len)?;
+        d.iter()
+            .all(u8::is_ascii_digit)
+            .then(|| d.iter().fold(0i64, |n, &c| n * 10 + i64::from(c - b'0')))
+    };
+    let (y, mo, d) = (num(0, 4)?, num(5, 2)?, num(8, 2)?);
+    let (h, mi, se) = (num(11, 2)?, num(14, 2)?, num(17, 2)?);
+    if !(1..=12).contains(&mo) || !(1..=31).contains(&d) || h > 23 || mi > 59 || se > 60 {
+        return None;
+    }
+    let mut rest = &b[19..];
+    let mut nanos = 0u32;
+    if let Some(frac) = rest.strip_prefix(b".") {
+        let digits = frac.iter().take_while(|c| c.is_ascii_digit()).count();
+        if digits == 0 {
+            return None;
+        }
+        for (i, &c) in frac[..digits].iter().take(9).enumerate() {
+            nanos += u32::from(c - b'0') * 10u32.pow(8 - i as u32);
+        }
+        rest = &frac[digits..];
+    }
+    if !(rest.is_empty() || rest == b"Z") {
+        return None;
+    }
+    // Days from the civil date (Howard Hinnant's algorithm).
+    let (yy, m) = if mo <= 2 {
+        (y - 1, mo + 9)
+    } else {
+        (y, mo - 3)
+    };
+    let era = yy.div_euclid(400);
+    let yoe = yy - era * 400;
+    let doy = (153 * m + 2) / 5 + d - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    let days = era * 146_097 + doe - 719_468;
+    from_unix(days * 86_400 + h * 3600 + mi * 60 + se, nanos)
+}
+
 /// Whole seconds since the Unix epoch, rounded down.
 pub fn to_unix(t: SystemTime) -> i64 {
     match t.duration_since(UNIX_EPOCH) {

@@ -1776,7 +1776,7 @@ mod tests {
                         let mtime = want["mtime"].as_str().unwrap().replacen('T', " ", 1);
                         assert_eq!(
                             e.modified,
-                            crate::backend::slt::parse_time(&mtime),
+                            crate::time::parse_utc(&mtime),
                             "{image}: {full}"
                         );
                     }

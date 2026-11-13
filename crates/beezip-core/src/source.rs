@@ -12,8 +12,8 @@ use std::{
 };
 
 use crate::{
-    CodecId, Ctx, Error, ErrorKind, Limits, Result,
-    backend::{External, SevenZipOptions, SevenZipReader},
+    CodecId, Ctx, Error, Limits, Result,
+    backend::External,
     detect::{Detection, detect_path},
     format::{
         ArchiveReader, FormatId, ace::AceReader, ar::ArReader, arc::ArcReader, arj::ArjReader,
@@ -42,11 +42,6 @@ pub struct OpenOptions {
     /// A zip with fewer files than this to extract is extracted on the job's thread: workers
     /// cost more than they save on a few files. 64; tests lower it.
     pub min_parallel_files: usize,
-    /// The 7-Zip that reads the formats BeeZip leaves to it (docs/M6.md §3.1).
-    pub seven_zip: SevenZipOptions,
-    /// Read the disks, file systems and installers with BeeZip's own readers (docs/M7.md), the
-    /// default. `false` reads them through 7-Zip, as before M7: the tests compare the two.
-    pub native: bool,
 }
 
 impl Default for OpenOptions {
@@ -57,8 +52,6 @@ impl Default for OpenOptions {
             names: NameDecoding::default(),
             threads: 1,
             min_parallel_files: 64,
-            seven_zip: SevenZipOptions::default(),
-            native: true,
         }
     }
 }
@@ -81,11 +74,6 @@ impl OpenOptions {
     /// The same, with `threads` workers for reading.
     pub fn with_threads(self, threads: u32) -> Self {
         Self { threads, ..self }
-    }
-
-    /// The same, running the 7-Zip `seven_zip` says.
-    pub fn with_seven_zip(self, seven_zip: SevenZipOptions) -> Self {
-        Self { seven_zip, ..self }
     }
 }
 
@@ -338,44 +326,17 @@ pub struct Opened {
 }
 
 /// A disk, file system, installer, WIM image, CHM help file, CramFS image or NSIS installer
-/// through BeeZip's own reader (docs/M7.md §2, docs/M8.md §2, docs/M9.md §2, docs/M10.md §2).
-/// One that uses
-/// something the reader doesn't support goes to 7-Zip, with a note in Info; one that's damaged
-/// doesn't. Without 7-Zip, the error is 7-Zip's `BackendUnavailable`, which offers to install
-/// it, saying what BeeZip couldn't read.
-fn native(
-    source: Source,
-    kind: External,
-    opts: &OpenOptions,
-    cx: &mut dyn Ctx,
-) -> Result<Box<dyn ArchiveReader>> {
-    let opened = match kind {
-        External::Msi => msi::open(source.clone(), cx),
-        External::Wim => wim::open(source.clone(), cx),
-        External::Chm => chm::open(source.clone(), cx),
-        External::Cramfs => cramfs::open(source.clone(), cx),
-        External::Nsis => nsis::open(source.clone(), cx),
-        _ => DiskReader::open(source.clone(), kind, cx).map(|r| Box::new(r) as Box<_>),
-    };
-    let Err(e) = opened else {
-        return opened;
-    };
-    if e.kind != ErrorKind::UnsupportedOperation {
-        return Err(e);
-    }
-    match SevenZipReader::open(source, kind, &opts.seven_zip, cx) {
-        Ok(r) => Ok(Box::new(r.with_fallback(format!(
-            "BeeZip can't read this one itself ({}), so 7-Zip reads it.",
-            e.message
-        )))),
-        Err(mut missing) if missing.kind == ErrorKind::BackendUnavailable => {
-            missing.message = format!(
-                "BeeZip can't read this one itself ({}). {}",
-                e.message, missing.message
-            );
-            Err(missing)
-        }
-        Err(other) => Err(other),
+/// through BeeZip's own reader (docs/M7.md §2 to docs/M10.md §2). Since M11 nothing goes to
+/// another program: what a reader doesn't support is its own `UnsupportedOperation`, saying
+/// what it is (docs/M11.md §7).
+fn external(source: Source, kind: External, cx: &mut dyn Ctx) -> Result<Box<dyn ArchiveReader>> {
+    match kind {
+        External::Msi => msi::open(source, cx),
+        External::Wim => wim::open(source, cx),
+        External::Chm => chm::open(source, cx),
+        External::Cramfs => cramfs::open(source, cx),
+        External::Nsis => nsis::open(source, cx),
+        _ => Ok(Box::new(DiskReader::open(source, kind, cx)?)),
     }
 }
 
@@ -414,12 +375,7 @@ pub fn open(path: &Path, opts: &OpenOptions, cx: &mut dyn Ctx) -> Result<Opened>
             FormatId::Arc => Box::new(ArcReader::open(source, cx)?),
             FormatId::Pkg => Box::new(PkgReader::open(source, cx)?),
             FormatId::Xar => Box::new(XarReader::open(source, cx)?),
-            FormatId::External(kind) if kind.native() && opts.native => {
-                native(source, kind, opts, cx)?
-            }
-            FormatId::External(kind) => {
-                Box::new(SevenZipReader::open(source, kind, &opts.seven_zip, cx)?)
-            }
+            FormatId::External(kind) => external(source, kind, cx)?,
         })
     })();
     let reader = opened.map_err(|e| if joined { truncated_hint(e, parts) } else { e })?;

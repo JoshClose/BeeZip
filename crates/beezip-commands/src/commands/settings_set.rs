@@ -193,6 +193,12 @@ fn check_key(key: &str, known: &[String]) -> Result<(), CmdError> {
     if known.iter().any(|k| k == key) {
         return Ok(());
     }
+    if let Some(version) = config::obsolete(key) {
+        return Err(CmdError::invalid_args(format!(
+            "`{key}` was removed in BeeZip {version}, which reads every format itself"
+        ))
+        .with_details(serde_json::json!({ "key": key })));
+    }
     let levels = level_names();
     let (section, _) = key.rsplit_once('.').unwrap_or(("", key));
     if MAP_SECTIONS.contains(&section) {
@@ -619,6 +625,14 @@ theme = \"dark\"
         let err = set(&engine, json!({ "set": { "shell.items.nope": 1 } })).unwrap_err();
         assert!(
             err.message.contains("has add-7z, add-tar-zst"),
+            "{}",
+            err.message
+        );
+        // A setting BeeZip had before 0.6.0 says so (docs/M11.md §7).
+        let err = set(&engine, json!({ "set": { "seven_zip.path": "C:/7z.exe" } })).unwrap_err();
+        assert_eq!(err.code, ErrorCode::InvalidArgs);
+        assert!(
+            err.message.contains("removed in BeeZip 0.6.0"),
             "{}",
             err.message
         );

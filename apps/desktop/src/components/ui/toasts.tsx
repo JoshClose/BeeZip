@@ -1,8 +1,6 @@
 import { X } from "lucide-react";
 import { useToasts } from "../../lib/toasts";
 import { cn } from "../../lib/cn";
-import { needsSevenZip } from "../../lib/sevenZip";
-import { SevenZipFix } from "../SevenZipFix";
 
 export function Toasts() {
   const toasts = useToasts((s) => s.toasts);
@@ -20,7 +18,6 @@ export function Toasts() {
           <div className="min-w-0 flex-1">
             <p className={cn("font-semibold", t.tone === "error" && "text-danger")}>{t.title}</p>
             {t.body && <p className="selectable break-words text-muted">{t.body}</p>}
-            {needsSevenZip(t.error) && <SevenZipFix error={t.error} className="mt-1.5" />}
           </div>
           <button className="rounded p-0.5 text-muted hover:text-ink" onClick={() => dismiss(t.id)} aria-label="Dismiss">
             <X className="size-3.5" />

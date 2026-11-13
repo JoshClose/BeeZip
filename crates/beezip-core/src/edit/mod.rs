@@ -351,15 +351,10 @@ pub fn editable(name: &str, opened: &mut Opened, cx: &mut dyn Ctx) -> Result<Arc
                  rebuild the whole image. Convert it (`beezip convert`), or extract it and create \
                  it again."
             ),
-            // Those BeeZip reads itself since M7 (docs/M7.md, docs/M8.md, docs/M9.md).
-            FormatId::External(k) if k.native() => format!(
+            // Those BeeZip reads itself since M7 (docs/M7.md to docs/M11.md).
+            FormatId::External(k) => format!(
                 "BeeZip reads {name} ({}) but doesn't change it. Convert it (`beezip convert`), \
                  or extract it.",
-                k.display_name()
-            ),
-            FormatId::External(k) => format!(
-                "BeeZip reads {name} ({}) through 7-Zip, and doesn't change what it reads that \
-                 way. Convert it (`beezip convert`), or extract it.",
                 k.display_name()
             ),
             other => format!("BeeZip doesn't edit {} archives", other.display_name()),

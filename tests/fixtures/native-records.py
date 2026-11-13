@@ -1,11 +1,12 @@
-"""The records of what BeeZip's own readers list from the 7-Zip backend's images (docs/M7.md §10).
+"""The records of what BeeZip's own readers list from make-7z.sh's images (docs/M7.md §10).
 
 Since M7 BeeZip reads FAT, NTFS, ext, HFS+, APFS, GPT and MBR disks and MSI installers itself,
 since M8 WIM images (docs/M8.md §5; an LZMS one through Windows' decoder, and since M11 through
 wimlib's library on Linux and macOS: its record says `"lzms": true`), since M9 CHM
 help files (docs/M9.md), and since M10 CramFS images and NSIS installers (docs/M10.md).
-make-7z.sh records what 7-Zip lists from its images (`"backend": "7-zip"`), and the fixture test
-reads those through 7-Zip. This script derives, from each of those records, what BeeZip's own
+make-7z.sh records what 7-Zip lists from its images (`"oracle": "7-zip"`; `"backend"` before M11,
+when the fixture test read them through 7-Zip): since M11 they're oracle data only, which the
+fixture test skips (docs/M11.md §7). This script derives, from each of those records, what BeeZip's own
 reader must list from the same image (`"native": true`): the same files with the same bytes, as
 7-Zip extracted them, under the names BeeZip gives them. Nothing here comes from BeeZip's output.
 
@@ -34,7 +35,7 @@ manifest_path = os.path.join(here, 'manifest.json')
 with open(manifest_path, encoding='utf-8') as f:
     manifest = json.load(f)
 old = manifest['fixtures']
-by_file = {r['file']: r for r in old if r.get('backend') == '7-zip'}
+by_file = {r['file']: r for r in old if r.get('oracle') == '7-zip'}
 
 NOTE = ('Entries are what BeeZip\'s own reader lists (docs/M7.md), derived by native-records.py '
         'from the 7-Zip record of the same file: the same bytes, as `7z x` extracts them. ')
@@ -60,7 +61,7 @@ def files(record, drop=(), prefix='', strip=''):
 
 def native(file, levels, entries, hardlinks, symlinks, note, utc=None):
     r = copy.deepcopy(by_file[file])
-    r.pop('backend', None)
+    r.pop('oracle', None)
     r.pop('7z_test', None)
     r['native'] = True
     r['levels'] = levels
@@ -183,7 +184,7 @@ records.append(native(f, ['cramfs'], files(by_file[f]), 0, 2,
 
 mine = lambda r: r.get('native') is True and r['file'].startswith('7zip/')
 rest = [r for r in old if not mine(r)]
-last = max(i for i, r in enumerate(rest) if r.get('backend') == '7-zip')
+last = max(i for i, r in enumerate(rest) if r.get('oracle') == '7-zip')
 manifest['fixtures'] = rest[:last + 1] + records + rest[last + 1:]
 with open(manifest_path, 'w', encoding='utf-8', newline='\n') as f:
     f.write(json.dumps(manifest, indent=2, ensure_ascii=False))

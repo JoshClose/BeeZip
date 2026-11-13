@@ -5,6 +5,9 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+#[path = "oracle/seven_zip.rs"]
+mod seven_zip;
+
 use std::{
     collections::{BTreeMap, BTreeSet},
     io::Read,
@@ -12,8 +15,8 @@ use std::{
 };
 
 use beezip_core::{
-    ArchiveReader, Ctx, Entry, EntryKind, EntrySink, ErrorKind, OpenOptions, Selection,
-    SevenZipOptions, SimpleCtx, format::cramfs, source::Source,
+    ArchiveReader, Ctx, Entry, EntryKind, EntrySink, ErrorKind, OpenOptions, Selection, SimpleCtx,
+    format::cramfs, source::Source,
 };
 use sha2::{Digest, Sha256};
 
@@ -238,8 +241,7 @@ fn real_images_read_as_7zip_extracts_them() {
     let Some(folder) = std::env::var_os("BEEZIP_CRAMFS_SAMPLES") else {
         return;
     };
-    let seven = beezip_core::backend::find(&SevenZipOptions::default())
-        .expect("BEEZIP_CRAMFS_SAMPLES needs 7-Zip");
+    let seven = seven_zip::find().expect("BEEZIP_CRAMFS_SAMPLES needs 7-Zip");
     let mut paths: Vec<PathBuf> = std::fs::read_dir(&folder)
         .unwrap()
         .map(|e| e.unwrap().path())

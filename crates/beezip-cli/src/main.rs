@@ -19,8 +19,8 @@ use std::{
 };
 
 use beezip_commands::{
-    CancelToken, CmdError, Engine, EngineOptions, ErrorCode, Interactor, McpConfig, Policy,
-    commands, config, partial, registry,
+    CancelToken, CmdError, Engine, EngineOptions, ErrorCode, Interactor, McpConfig, Policy, config,
+    partial, registry,
 };
 use beezip_mcp::{BeeZipServer, McpOptions};
 use clap::{Arg, ArgAction, ArgMatches, value_parser};
@@ -247,10 +247,7 @@ fn run(name: &str, args: Value, out: &Output) -> Result<(), CmdError> {
     if let Ok(mut current) = CURRENT.lock() {
         *current = Some(job.cancel_token());
     }
-    let output = job.join().map_err(|e| {
-        let config = engine.config();
-        commands::with_cli_hint(name, e, config.as_ref().as_ref().ok())
-    })?;
+    let output = job.join()?;
     out.result(registry().get(name), &output);
     Ok(())
 }

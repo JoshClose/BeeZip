@@ -101,7 +101,7 @@ fn walkdir(dir: &Path) -> Vec<PathBuf> {
 #[test]
 fn formats_list_has_everything() {
     let out = run("formats.list", json!({})).unwrap();
-    // BeeZip's own 20 and the 17 the 7-Zip backend reads.
+    // BeeZip's 20 archive formats and the 17 disk images, file systems and installers.
     assert_eq!(out["formats"].as_array().unwrap().len(), 37);
     assert_eq!(out["codecs"].as_array().unwrap().len(), 13);
     assert_eq!(out["create"].as_array().unwrap().len(), 31);
@@ -114,15 +114,19 @@ fn formats_list_has_everything() {
     assert_eq!(cab["methods"][1]["id"], "mszip");
     assert_eq!(cab["caps"]["create"], true);
     assert_eq!(cab["caps"]["append"], false);
-    // BeeZip reads WIM itself since M8 (docs/M8.md §5): no backend, available without 7-Zip.
+    // No format is read through another program since M11 (docs/M11.md §7): no `backend`,
+    // `available` or `seven_zip`.
     let wim = out["formats"]
         .as_array()
         .unwrap()
         .iter()
         .find(|f| f["id"] == "wim")
         .unwrap();
-    assert!(wim["backend"].is_null(), "{wim}");
-    assert_eq!(wim["available"], true);
+    assert!(
+        wim.get("backend").is_none() && wim.get("available").is_none(),
+        "{wim}"
+    );
+    assert!(out.get("seven_zip").is_none());
     let sz = &out["formats"][2];
     assert_eq!(sz["id"], "7z");
     assert_eq!(sz["methods"][0]["id"], "lzma2");

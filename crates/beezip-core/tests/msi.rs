@@ -20,6 +20,9 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+#[path = "oracle/seven_zip.rs"]
+mod seven_zip;
+
 use std::{
     collections::HashMap,
     fs,
@@ -29,7 +32,7 @@ use std::{
 
 use beezip_core::{
     CreateOptions, Entry, EntryKind, ErrorKind, External, FormatId, FsOptions, NameDecoding,
-    OpenOptions, SevenZipOptions, SimpleCtx, WriteSpec,
+    OpenOptions, SimpleCtx, WriteSpec,
     format::cab::{CabMethod, CabWriteOptions},
     open, ops,
     source::Source,
@@ -49,12 +52,9 @@ fn sha256(data: &[u8]) -> String {
         .collect()
 }
 
-/// Native reading, with 7-Zip turned off so nothing falls back to it unseen.
+/// BeeZip's own reading, which since M11 is the only one.
 fn native() -> OpenOptions {
-    OpenOptions::default().with_seven_zip(SevenZipOptions {
-        path: None,
-        enabled: false,
-    })
+    OpenOptions::default()
 }
 
 fn read_entry(r: &mut dyn beezip_core::ArchiveReader, id: usize) -> beezip_core::Result<Vec<u8>> {
@@ -144,7 +144,6 @@ fn wixl_lists_files_where_the_installer_puts_them() {
     let info = opened.reader.info(&mut cx).unwrap();
     assert_eq!(info.methods, ["MSZIP"]);
     let ext = info.external.unwrap();
-    assert_eq!(ext.backend, None);
     assert_eq!(ext.levels, ["msi", "cab"]);
     let props: Vec<(&str, &str)> = ext
         .properties
@@ -1945,9 +1944,9 @@ impl beezip_core::EntrySink for Hashes {
     }
 }
 
-/// Every installer in `BEEZIP_MSI_SAMPLES`, read natively and through 7-Zip: each file 7-Zip
-/// lists by its File key comes out of BeeZip's reader with the same bytes, under the name the
-/// File table gives it, and no file more or less.
+/// Every installer in `BEEZIP_MSI_SAMPLES`, read by BeeZip and extracted by 7-Zip (`7z x`): each
+/// file 7-Zip names by its File key comes out of BeeZip's reader with the same bytes, under the
+/// name the File table gives it, and no file more or less.
 #[test]
 #[ignore = "reads the large installers named by BEEZIP_MSI_SAMPLES"]
 fn real_installers_read_as_7zip_reads_them() {
@@ -1973,19 +1972,12 @@ fn real_installers_read_as_7zip_reads_them() {
             .unwrap();
         let native_time = t.elapsed();
 
+        // 7-Zip's extraction (`7z x`), which names an installer's files by their keys.
         let t = std::time::Instant::now();
-        let via = OpenOptions {
-            native: false,
-            ..OpenOptions::default()
-        };
-        let mut theirs = Hashes::default();
-        let mut sz = open(&msi_path, &via, &mut SimpleCtx::new()).unwrap().reader;
-        sz.extract(
-            &beezip_core::Selection::all(),
-            &mut theirs,
-            &mut SimpleCtx::new(),
-        )
-        .unwrap();
+        let seven = seven_zip::find().expect("BEEZIP_MSI_SAMPLES needs 7-Zip");
+        let out = tempfile::tempdir().unwrap();
+        seven_zip_x(&seven.exe, &msi_path, out.path());
+        let theirs = Hashes(hashed_tree(out.path()));
         let sz_time = t.elapsed();
 
         // The File table, by key: its long name.
@@ -2103,8 +2095,7 @@ fn real_patches_transforms_and_modules_read_as_7zip_extracts_them() {
         eprintln!("skipping: BEEZIP_MSI_SAMPLES isn't set");
         return;
     };
-    let seven = beezip_core::backend::find(&SevenZipOptions::default())
-        .expect("BEEZIP_MSI_SAMPLES needs 7-Zip");
+    let seven = seven_zip::find().expect("BEEZIP_MSI_SAMPLES needs 7-Zip");
     let mut samples: Vec<PathBuf> = std::env::split_paths(&folders)
         .flat_map(walkdir::WalkDir::new)
         .map(Result::unwrap)

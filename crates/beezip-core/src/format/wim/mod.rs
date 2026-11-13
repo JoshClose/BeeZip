@@ -642,7 +642,6 @@ impl ArchiveReader for WimReader {
             locked: false,
             recovery_record: false,
             external: Some(ExternalInfo {
-                backend: None,
                 levels: vec!["wim".to_owned()],
                 properties: self.properties.clone(),
                 notes: self.notes.clone(),

@@ -20,7 +20,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target: [detect, zip, tar, sevenz, rar, codecs, paths, menu, cpio, ar, rpm, cab, lzh, iso, squashfs, dmg, part, xz-scan, sevenzip-listing, arj, ace, zoo, arc, xar, fat, ext, ntfs, msi, vhd, vhdx, vdisk, xpress, wof, wim, chm, cramfs, nsis]
+        target: [detect, zip, tar, sevenz, rar, codecs, paths, menu, cpio, ar, rpm, cab, lzh, iso, squashfs, dmg, part, xz-scan, arj, ace, zoo, arc, xar, fat, ext, ntfs, msi, vhd, vhdx, vdisk, xpress, wof, wim, chm, cramfs, nsis]
     env:
       SECONDS_PER_TARGET: ${{ github.event_name == 'schedule' && '600' || '60' }}
     steps:
@@ -39,15 +39,13 @@ jobs:
       # wimlib's library, which the WIM reader loads for LZMS (docs/M11.md §6.2).
       - if: matrix.target == 'wim'
         run: sudo apt-get update -q && sudo apt-get install -y -q --no-install-recommends libwim15t64
-      # libFuzzer reads the seed directories recursively, so all of tests/fixtures seeds it, and
-      # 7-Zip's real listings and messages seed sevenzip-listing.
+      # libFuzzer reads the seed directories recursively, so all of tests/fixtures seeds it.
       # The prebuilt cargo-fuzz is a musl binary and defaults --target to its own triple, where
       # the sanitizer can't link, so the target is explicit.
       - name: Fuzz ${{ matrix.target }}
         run: >
           cargo +nightly fuzz run --target x86_64-unknown-linux-gnu ${{ matrix.target }}
           fuzz/corpus/${{ matrix.target }} tests/fixtures
-          ${{ matrix.target == 'sevenzip-listing' && 'crates/beezip-core/src/backend/testdata' || '' }}
           -- -max_total_time=$SECONDS_PER_TARGET -rss_limit_mb=2048 -timeout=60
       - if: failure()
         uses: actions/upload-artifact@v7

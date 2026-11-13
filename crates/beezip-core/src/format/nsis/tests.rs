@@ -511,7 +511,7 @@ fn info_says_how_it_was_built() {
     assert!(!info.solid);
     assert!(info.sfx);
     let x = info.external.unwrap();
-    assert_eq!((x.backend, x.levels), (None, vec!["nsis".to_owned()]));
+    assert_eq!(x.levels, ["nsis"]);
     let props: BTreeMap<String, String> = x
         .properties
         .into_iter()

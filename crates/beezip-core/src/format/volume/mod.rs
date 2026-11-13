@@ -891,7 +891,6 @@ impl ArchiveReader for DiskReader {
             locked: false,
             recovery_record: false,
             external: Some(ExternalInfo {
-                backend: None,
                 levels: self.levels.clone(),
                 properties: self.properties.clone(),
                 notes: self.notes.clone(),

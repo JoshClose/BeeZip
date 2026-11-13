@@ -52,11 +52,11 @@ The rest of the config (default levels, the overwrite policy, limits) applies to
 
 | Tool | Writes | What it does |
 |---|---|---|
-| `formats_list` | | The formats and codecs BeeZip reads and writes: zip, 7z, tar, cpio, ar, CAB, ISO, squashfs and DMG, RAR, Debian packages, RPMs, LHA, UDF, ARJ, ACE, ZOO, ARC, XAR and macOS packages (read only), tar and cpio under any codec, and bare compressed files (Unix `.Z` and lzop among them). The formats read through 7-Zip have `backend: "7-zip"` and `available`, and `seven_zip` says which 7-Zip was found, or why none. |
+| `formats_list` | | The formats and codecs BeeZip reads and writes: zip, 7z, tar, cpio, ar, CAB, ISO, squashfs and DMG, RAR, Debian packages, RPMs, LHA, UDF, ARJ, ACE, ZOO, ARC, XAR and macOS packages (read only), tar and cpio under any codec, and bare compressed files (Unix `.Z` and lzop among them). |
 | `file_detect` | | What a file is: `zstd → tar`, `gzip → cpio`, a deb, RPM or macOS package, a 7z, a RAR, zip, CAB or LHA SFX, a volume set (`a.7z.001`…, `a.part1.rar`…, `a.arj` with `a.a01`…, `a.ace` with `a.c00`…), a disk image, an installer (`msi`, `nsis`) or a help file, or not an archive. |
-| `archive_info` | | Counts, sizes, ratio, methods, encryption, solid blocks, the volumes of a split archive, and why the edit tools would refuse it (`not_editable`). For the formats read through 7-Zip, also `backend` ("7-Zip 26.00"), the `levels` it opened (`vhdx`, `gpt`, `ntfs`), their `properties` (a volume's label, a cluster size) and `notes` (an MSI's names are its internal keys). |
+| `archive_info` | | Counts, sizes, ratio, methods, encryption, solid blocks, the volumes of a split archive, and why the edit tools would refuse it (`not_editable`). For a disk image, an installer or a help file, also the `levels` it opened (`vhdx`, `gpt`, `ntfs`), their `properties` (a volume's label, a cluster size) and `notes` (where an MSI lists its files). |
 | `archive_list` | | Entries, one folder level at a time or `flat`, with `glob` filters, `kind`, and `sort` (folders first). |
-| `archive_test` | | Reads everything back and checks CRCs. The formats read through 7-Zip are tested by `7z t`; for a disk image, which stores no checksums of its files, and for a CHM help file, which BeeZip reads itself, `note` says that the test shows only that every file can be read. |
+| `archive_test` | | Reads everything back and checks CRCs. For a format that stores no checksums of its files (a disk image's FAT, a CHM help file, an MSI patch), `note` says that the test shows only that every file can be read. |
 | `entry_read` | | Part of one entry, as text, hex or base64. |
 | `archive_extract` | ✓ | All entries, or selected ones, into `dest`. |
 | `archive_create` | ✓ | A zip, 7z, tar or cpio (those two optionally compressed), ar, CAB, ISO, squashfs or DMG from files and folders (ar and CAB hold files only), optionally split into volumes (`volume_size`). A 7z with a password encrypts the names too, unless `encrypt_headers` is false. |
@@ -73,14 +73,14 @@ Each tool has an output schema, and its results come back as structured content 
 
 They read disk images and installers themselves too: the virtual disks VHD, VHDX, VMDK, QCOW2 and VDI, GPT and MBR disks, FAT, NTFS, ext2/3/4, HFS+ and APFS volumes, WIM, ESD and SWM images (ESD's LZMS through Windows' decoder, or wimlib's library on Linux and macOS), and MSI installers, patches, transforms and merge modules. A disk is opened through its levels (`vhdx > gpt > ntfs`); one with several partitions lists each it reads as a folder.
 
-**Through an installed 7-Zip** (25.01 or newer, found in the registry, on PATH or in Program Files, or set as `[seven_zip] path`), they also list, test and extract the disks and volumes that use something BeeZip doesn't read itself. 7-Zip only reads the archive: every file comes through BeeZip's own extraction, so the sandbox and the safety rules are the same. Without 7-Zip, these fail with `BackendUnavailable`, whose message says what to install. They are never changed: the edit tools refuse them, and `archive_convert` copies them into a format BeeZip writes.
+**No other program reads anything** (since 0.6.0, docs/M11.md): BeeZip's own readers read every format, and what one doesn't support (an encrypted disk image, an ext volume over 16 TiB) fails with `UnsupportedOperation`, saying what. Without wimlib's library, an ESD on Linux or macOS fails the same way, saying how to install it. These formats are never changed: the edit tools refuse them, and `archive_convert` copies them into a format BeeZip writes.
 
 ## Changing archives
 
 - **Nothing is written in place.** `archive_add`, `archive_remove` and `archive_rename` write a new archive beside the old one and swap it in, so a failed or cancelled change leaves the archive as it was. They are marked `destructiveHint`, since what they replace can't be had back, and `--read-only` hides them.
 - **Entries that stay are copied as they are,** without decoding: zip entries byte for byte, whole 7z blocks, tar, cpio and ar members. A 7z solid block that loses an entry is decoded and encoded again; a compressed tar's or cpio's stream is encoded again at the config's level. The output's `copied` and `recompressed` say how much was which.
 - **Encryption is never dropped.** Adding to an archive whose entries are encrypted needs `password` for the new files (the call fails with `PasswordRequired` otherwise), or `unencrypted: true` to add them in the clear, which the output counts. Converting an encrypted archive needs `new_password` or `decrypt`.
-- **Not changed:** split archives (`a.7z.001`…), self-extracting ones, RAR, Debian packages, RPMs, LHA, ARJ, ACE, ZOO, ARC, XAR, macOS packages, CAB, the disk images, the formats read through 7-Zip and bare compressed files fail with `UnsupportedOperation`; `archive_convert` makes a single archive of them.
+- **Not changed:** split archives (`a.7z.001`…), self-extracting ones, RAR, Debian packages, RPMs, LHA, ARJ, ACE, ZOO, ARC, XAR, macOS packages, CAB, the disk images, installers and help files, and bare compressed files fail with `UnsupportedOperation`; `archive_convert` makes a single archive of them.
 - **`dry_run: true`** reports each change (`plan`) and writes nothing.
 - **The archive must be under a root,** since it is rewritten. `archive_add`'s inputs are reads, and aren't confined.
 
@@ -113,7 +113,7 @@ They read disk images and installers themselves too: the virtual disks VHD, VHDX
   - `PasswordRequired`, `WrongPassword`;
   - `Corrupt`;
   - `OutsideSandbox`, `Conflict`, `LimitExceeded`, `Unsafe`;
-  - `BackendUnavailable` (the format needs 7-Zip, which is missing, too old or turned off);
+  - `BackendUnavailable` (only from a build without the `rar` feature, for a RAR archive; before 0.6.0, also a format that needed 7-Zip);
   - `Cancelled`, `Io`, `Internal`.
 
   `Unsafe` means the archive held entries BeeZip refused to extract, such as paths climbing out with `..`. The rest were extracted, and `details` lists both.

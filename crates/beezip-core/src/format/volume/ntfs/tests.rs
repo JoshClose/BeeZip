@@ -45,8 +45,6 @@ fn utc(t: SystemTime) -> String {
 fn native(rel: &str) -> (Opened, Vec<Entry>, Vec<String>) {
     let mut cx = SimpleCtx::new();
     let mut opened = open_path(&fixture(rel), &OpenOptions::default(), &mut cx).unwrap();
-    let info = opened.reader.info(&mut cx).unwrap();
-    assert_eq!(info.external.unwrap().backend, None, "{rel} went to 7-Zip");
     let entries = opened.reader.entries(&mut cx).unwrap().to_vec();
     (opened, entries, cx.warnings)
 }

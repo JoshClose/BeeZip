@@ -163,13 +163,6 @@ doc = false
 bench = false
 
 [[bin]]
-name = "sevenzip-listing"
-path = "fuzz_targets/sevenzip_listing.rs"
-test = false
-doc = false
-bench = false
-
-[[bin]]
 name = "arj"
 path = "fuzz_targets/arj.rs"
 test = false

@@ -1,28 +1,17 @@
-//! Formats read through another program: the installed 7-Zip (docs/M6.md §3).
-//!
-//! BeeZip's own sniffers ([`sniff`]) claim the formats, so detection names them whether or not
-//! 7-Zip is there. Opening one runs `7z l -slt` ([`slt`] parses it) and extracting streams
-//! `7z x -so` into `FsSink` ([`sevenzip`]); nothing of 7-Zip's touches the disk, except an NSIS
-//! installer's files, staged in a private folder.
+//! The disk images, file systems, installers and other formats M6 first read through 7-Zip
+//! (docs/M6.md §3), and BeeZip has read with its own readers since (docs/M7.md to docs/M11.md):
+//! [`External`] names them, and [`sniff`] claims them. Since M11 BeeZip runs no other program to
+//! read anything (docs/M11.md §7).
 
-pub mod find;
-pub mod process;
-pub mod sevenzip;
-pub mod slt;
 pub mod sniff;
-
-use std::path::PathBuf;
 
 use crate::{
     detect::{Confidence, Probe},
     format::{ArchiveFormat, FormatCaps, FormatId},
 };
 
-pub use find::{MIN_VERSION, SevenZip, find};
-pub use sevenzip::SevenZipReader;
-
-/// A format the 7-Zip backend reads. One [`FormatId::External`] carries it, so the wire names
-/// and `formats.list` grow without a variant per format (docs/M6.md §3.2).
+/// A format of disk images, file systems and installers. One [`FormatId::External`] carries it,
+/// so the wire names and `formats.list` grow without a variant per format (docs/M6.md §3.2).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum External {
     /// WIM, ESD and SWM.
@@ -95,7 +84,7 @@ impl External {
         }
     }
 
-    /// For people, and after "this" in messages ("Opening this WIM image needs 7-Zip…").
+    /// For people, and after "this" in messages.
     pub const fn display_name(self) -> &'static str {
         match self {
             Self::Wim => "WIM image",
@@ -142,36 +131,6 @@ impl External {
         }
     }
 
-    /// The `Type` 7-Zip prints for the archive's outermost level when it opens this format.
-    pub const fn seven_zip_type(self) -> &'static str {
-        match self {
-            Self::Wim => "wim",
-            Self::Chm => "Chm",
-            Self::Msi => "Compound",
-            Self::Nsis => "Nsis",
-            Self::Vhdx => "VHDX",
-            Self::Vhd => "VHD",
-            Self::Vmdk => "VMDK",
-            Self::Qcow2 => "QCOW",
-            Self::Vdi => "VDI",
-            Self::Fat => "FAT",
-            Self::Ntfs => "NTFS",
-            Self::Ext => "Ext",
-            Self::Hfs => "HFS",
-            Self::Apfs => "APFS",
-            Self::Cramfs => "CramFS",
-            Self::Gpt => "GPT",
-            Self::Mbr => "MBR",
-        }
-    }
-
-    /// The format 7-Zip's `Type` names, if it's one of these.
-    pub fn from_seven_zip_type(t: &str) -> Option<Self> {
-        Self::ALL
-            .into_iter()
-            .find(|k| k.seven_zip_type().eq_ignore_ascii_case(t))
-    }
-
     /// Explorer's menu offers BeeZip's archive items on these formats' extensions; none of
     /// them is associated (docs/M6.md §3.7). Windows mounts VHD(X) and installs MSIs, and
     /// `.img` and `.exe` are too broad.
@@ -180,40 +139,6 @@ impl External {
             self,
             Self::Wim | Self::Chm | Self::Vhd | Self::Vhdx | Self::Vmdk | Self::Qcow2 | Self::Vdi
         )
-    }
-
-    /// BeeZip reads it with its own code (docs/M7.md to docs/M11.md): the file systems,
-    /// partitioned disks, virtual disks, MSI and NSIS installers with MSI's patches, transforms
-    /// and merge modules, WIM images, CHM help files and CramFS images. 7-Zip still reads what
-    /// those readers don't support, when it's installed (an ext volume over 16 TiB, for one).
-    pub const fn native(self) -> bool {
-        matches!(
-            self,
-            Self::Wim
-                | Self::Chm
-                | Self::Nsis
-                | Self::Msi
-                | Self::Vhd
-                | Self::Vhdx
-                | Self::Vmdk
-                | Self::Qcow2
-                | Self::Vdi
-                | Self::Fat
-                | Self::Ntfs
-                | Self::Ext
-                | Self::Hfs
-                | Self::Apfs
-                | Self::Cramfs
-                | Self::Gpt
-                | Self::Mbr
-        )
-    }
-
-    /// Whether `7z t` checks the files' data against checksums the format stores (WIM's
-    /// SHA-1s, a version 2 CramFS image's CRC of itself). For the rest, testing means "7-Zip can
-    /// decode it" (docs/M6.md §3.5).
-    pub const fn checks_data(self) -> bool {
-        matches!(self, Self::Wim | Self::Cramfs)
     }
 
     pub fn format(self) -> &'static dyn ArchiveFormat {
@@ -258,8 +183,8 @@ impl ArchiveFormat for ExternalFormat {
         sniff::sniff(self.0, probe)
     }
 
-    /// List and extract only: 7-Zip reads these, and BeeZip edits nothing it reads through
-    /// 7-Zip. An NSIS installer is one solid stream.
+    /// List and extract only: BeeZip writes none of these, and edits none. An NSIS installer is
+    /// one solid stream.
     fn caps(&self) -> FormatCaps {
         FormatCaps {
             list: true,
@@ -270,12 +195,10 @@ impl ArchiveFormat for ExternalFormat {
     }
 }
 
-/// What `archive.info` tells about an archive 7-Zip reads (docs/M6.md §3.5), or a disk or volume
-/// BeeZip reads itself (docs/M7.md §2).
+/// What `archive.info` tells about a disk, volume, installer or image of these formats
+/// (docs/M7.md §2).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ExternalInfo {
-    /// The program that reads it: "7-Zip 26.00". `None` when it's BeeZip.
-    pub backend: Option<String>,
     /// The formats opened, outermost first: `["vhdx", "gpt", "ntfs"]`.
     pub levels: Vec<String>,
     /// What the levels record: a volume's label, a WIM's images, a cluster size.
@@ -289,28 +212,9 @@ pub struct ExternalInfo {
 pub struct LevelProperty {
     /// The level's format: `ntfs`.
     pub level: String,
-    /// 7-Zip's name for it: `Label`, `Cluster Size`.
+    /// Its name, as 7-Zip names it where it does: `Label`, `Cluster Size`.
     pub name: String,
     pub value: String,
-}
-
-/// `[seven_zip]` in the config, as core takes it.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct SevenZipOptions {
-    /// The 7-Zip to run; `None` finds one (docs/M6.md §3.1).
-    pub path: Option<PathBuf>,
-    /// `false` turns the backend off: its formats are still detected, and opening one is
-    /// `BackendUnavailable`.
-    pub enabled: bool,
-}
-
-impl Default for SevenZipOptions {
-    fn default() -> Self {
-        Self {
-            path: None,
-            enabled: true,
-        }
-    }
 }
 
 #[cfg(test)]
@@ -322,7 +226,6 @@ mod tests {
         for (i, k) in External::ALL.into_iter().enumerate() {
             assert_eq!(k as usize, i);
             assert_eq!(FORMATS[i].0, k);
-            assert_eq!(External::from_seven_zip_type(k.seven_zip_type()), Some(k));
             assert_eq!(FormatId::from_name(k.name()), Some(FormatId::External(k)));
         }
     }

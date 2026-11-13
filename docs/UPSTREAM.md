@@ -383,17 +383,21 @@ Seen while planning M10 (docs/M10.md §14), in `target/m10-spikes/cramfs/` (`mak
 
 ### 7-Zip 26.00
 
-CI's Windows runner shows which 7-Zip it has; BeeZip needs 25.01 or newer.
+Since M11 (0.6.0) BeeZip never runs 7-Zip: it's only a test oracle, the program the fixture
+scripts, the opt-in sample comparisons and CI's Windows interop tests check BeeZip's readers and
+archives against (docs/M11.md §7). These bugs matter only there, where a test compares with it.
+CI's Windows runner shows which 7-Zip it has.
 
 - **An NSIS solid-LZMA installer lists a file's size wrong** (sizes come from the script, as
   estimates): `$PLUGINSDIR/StartMenu.dll` in BeeZip's own installer lists 13 316 bytes and
   extracts 7 680.
   - *Check:* compare `7z l -slt` with `7z x` on an installer from `cargo xtask dist`.
-  - *Workaround:* NSIS installers, and any listing with an unknown size before its last item, are
-    extracted into a staging folder first (`backend/sevenzip.rs`, `extract_staged`).
+  - *Workaround (until M11):* the 7-Zip backend extracted NSIS installers into a staging folder
+    first. The fixture records take sizes from `7z x`.
 - **CramFS names are read in the OEM code page**, and `-mcp` is refused for CramFS and WIM.
   - *Check:* `7z l -slt -sccUTF-8` on the CramFS fixture in `tests/fixtures/thirdparty/7zip/`.
-  - *Workaround:* `oem_names` in `backend/slt.rs` maps the name back to its bytes.
+  - *Workaround:* the oracle tests map a name back to its bytes (`seven_zip_name` in
+    `tests/cramfs.rs`).
 - Not worked around, since BeeZip doesn't ask 7-Zip for these:
   - an ARJ volume set opens one part at a time and tests OK;
   - ntfs-3g's Interix links list as plain files, but `7z x` makes them links;

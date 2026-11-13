@@ -45,8 +45,8 @@ BeeZip is a Windows-first desktop archive manager (Tauri 2 + React) that opens, 
                                        ▼
                    beezip-commands: Registry · Engine · Jobs · Policy
                                        ▼
-          beezip-core: Detect · Codecs · ArchiveFormats · Backends · SafeFs
-               native crates │ 7-Zip external (opt) │ libarchive (opt feature)
+          beezip-core: Detect · Codecs · ArchiveFormats · SafeFs
+               native crates and readers │ libarchive (opt feature)
 ```
 
 ### Workspace layout
@@ -84,10 +84,9 @@ tests/fixtures/               # reference archives + manifest.json (entries + ha
   - `add(meta, Read, &Ctx)`.
   - `copy_from(reader, keep) -> ids not copied`, which copies entries without recompressing them: zip entries byte for byte (BeeZip's own copy, not the zip crate's `raw_copy_file`, whose copies are corrupt for ZipCrypto and LZMA), whole 7z blocks, tar, cpio and ar members. It takes a list rather than one id because 7z copies whole blocks (docs/M5.md §3.2).
   - `finish()`.
-- **`Backend`** groups formats: `Native`, `SevenZipCli` and `Libarchive`. The registry picks a backend for each format and operation using capabilities and priority.
-  - The 7-Zip backend (M6) is one `ArchiveReader` for the formats in docs/M6.md §3.2. It reads `7z l -slt` and streams `7z x -so` into FsSink; only NSIS installers BeeZip doesn't read itself go through a staging folder (docs/M10.md). It needs 7-Zip 25.01 or newer.
-  - From M7, BeeZip reads partitioned disks, FAT, NTFS, ext2/3/4, bare HFS+ and APFS volumes and MSI installers itself (docs/M7.md); 7-Zip reads only what those readers don't support, when it's installed (docs/M7.md §2).
-  - M11 removes the 7-Zip backend (docs/M11.md §7): BeeZip reads every format itself, including the variants 7-Zip read for it (§6), and runs no other program. 7-Zip stays a test oracle.
+- **Backends,** as first planned, grouped formats: `Native`, `SevenZipCli` and `Libarchive`. Only the native readers remain, with libarchive an optional feature never built.
+  - The 7-Zip backend (M6 to M10) was one `ArchiveReader` for the formats in docs/M6.md §3.2: it read `7z l -slt` and streamed `7z x -so` into FsSink. From M7, BeeZip read those formats itself, and 7-Zip only what its readers didn't support.
+  - M11 removed it (docs/M11.md §7): BeeZip reads every format itself, including the variants 7-Zip read for it (§6), and runs no other program. 7-Zip stays a test oracle. The formats it read are still `FormatId::External`, named in `backend::External`.
 - **No serialization in core:** core doesn't depend on serde, schemars or ts-rs. `beezip-commands` owns every wire type and converts, so core types can change without changing the API the front ends see.
 - **`Source`** is one of:
   - a file (Read+Seek);
@@ -145,7 +144,7 @@ pub trait Command: Send + Sync + 'static {
   - `Internal`: a caught panic or bug.
 
   Each code maps to a CLI exit code, to MCP `isError` + structuredContent, and to a UI toast.
-- **Config:** `%APPDATA%\BeeZip\config.toml`, shared by the GUI, the CLI and MCP. It holds default levels, the overwrite policy, the 7-Zip path, MCP roots, limits, the Explorer menu's items and the desktop's theme. The settings commands read and write it, keeping its comments (`toml_edit`).
+- **Config:** `%APPDATA%\BeeZip\config.toml`, shared by the GUI, the CLI and MCP. It holds default levels, the overwrite policy, MCP roots, limits, the Explorer menu's items and the desktop's theme. The settings commands read and write it, keeping its comments (`toml_edit`).
 - **Index cache (M3):** it caches open readers along with their indexes, keyed by the canonical path and each volume's size and mtime: up to four archives and 4 million entries. A job borrows its archive and puts it back, so a reader is never shared. Encrypted archives aren't cached, so no cached reader carries a password between jobs. Commands stay stateless, which suits MCP and the CLI, and the GUI can still page through a 1M-entry archive quickly ([`docs/M3.md`](M3.md) §4.2).
 
 ### Command catalog (v1)
@@ -153,7 +152,7 @@ pub trait Command: Send + Sync + 'static {
 |---|---|---|
 | `formats.list` | RO | capability matrix (the format/backend table) |
 | `file.detect` | RO | format chain + confidence, e.g. `zstd → tar` |
-| `archive.info` | RO | totals, method, solid, encrypted, volumes, comment; from M6 `backend` ("7-Zip 26.00") and `levels` (`vhdx > gpt > ntfs`) |
+| `archive.info` | RO | totals, method, solid, encrypted, volumes, comment; from M6 `levels` (`vhdx > gpt > ntfs`), with `backend` ("7-Zip 26.00") until M11 removed it |
 | `archive.list` | RO | `dir` (folder inside the archive), `glob`, `flat`, `offset/limit` paging |
 | `archive.test` | RO | CRC/integrity check |
 | `entry.read` | RO | `offset/max_bytes`; text, hex or base64 (for preview and MCP) |
@@ -393,8 +392,8 @@ After approval I implement **M0 + M1** and then stop for your review before goin
 - **API churn** (zip, rmcp, specta): wrap each crate in an adapter module, pin versions exactly, use Renovate, and keep ts-rs instead of tauri-specta for now.
 - **The zip crate's raw copy** (`raw_copy_file`, `new_append`, 9.2.2–9.4.1) rebuilds the flags it copies, so ZipCrypto and LZMA entries come out corrupt. Worked around: BeeZip copies zip entries itself, byte for byte (docs/M5.md §3.3).
 - **UnRAR license:** keep it behind a feature, ship the notice in `THIRD_PARTY_NOTICES`, never offer RAR creation, and track `rars` as a pure-Rust replacement.
-- **libarchive on Windows:** optional feature, off by default. Most of the long tail comes from the 7-Zip external backend, which carries no license coupling because it runs as a separate process.
-- **The 7-Zip backend's names:** FsSink checks every name 7-Zip lists, as for any format; BeeZip never relies on 7-Zip's own renaming, since 7-Zip never writes to the destination (docs/M6.md §3.4).
+- **libarchive on Windows:** optional feature, off by default. The long tail the 7-Zip backend once read, BeeZip reads itself since M11.
+- **LZMS outside Windows:** wimlib's library, loaded only when an ESD is read, is the system's (LGPLv3+), not BeeZip's; without it an ESD is refused, saying how to install it (docs/M11.md §6.2).
 - **Installers and a running BeeZip:** Tauri's installer closes a running BeeZip without asking in silent and passive mode (winget, the updater). The updater cancels running jobs first (docs/M6.md §9.3, §9.4).
 - **Solid archives and random access:** previews use the index cache plus a temp extraction cache, and `FormatCaps.random_access` tells the UI when a preview will be slow.
 - **Native drag-out to Explorer from the webview:** stretch goal (M6). The fallback is "Extract to…" plus dragging out a temp extraction.

@@ -1,4 +1,4 @@
-<!-- {"title": "Formats", "description": "The archive formats and compressors BeeZip reads, writes, edits and encrypts, the disks, file systems, installers and help files it reads, and what it reads through 7-Zip.", "layout": "docs"} -->
+<!-- {"title": "Formats", "description": "The archive formats and compressors BeeZip reads, writes, edits and encrypts, the disks, file systems, installers and help files it reads, and what it doesn't.", "layout": "docs"} -->
 <h1>Formats</h1>
 <p class="lede">BeeZip reads <!-- beezip:format-count --> archive formats and a dozen compressors, writes the common ones, and changes zip, 7z, tar, cpio and ar archives in place. This table comes from <code>beezip formats</code>, which shows the same on your machine.</p>
 
@@ -41,7 +41,7 @@
   <li><strong>A merge module</strong> (<code>.msm</code>) lists its files where it puts them, as an MSI does (<code>SystemFolder/vcruntime140.dll</code>); those at the top go wherever the product that merges it chooses. Info gives the module's ID, version and language.</li>
   <li><strong>A patch or transform</strong> (<code>.msp</code>, <code>.mst</code>) lists its storages and streams as 7-Zip does: its tables (<code>!File</code>), its summary (<code>[5]SummaryInformation</code>), a patch's transforms as folders and its cabinets, named with <code>.cab</code> so they open as one. A patch's files are named by the installer it patches, which it doesn't hold, and most are changes only Windows Installer applies, so they're listed as the patch stores them. Info gives a patch's name and description and a transform's product codes. They store no checksums, so testing one shows that every stream can be read.</li>
   <li><strong>A sparse file</strong> that claims far more than the image holds, such as 100 GB in a few MiB, is refused by the ratio limit before anything is written, and so is a virtual disk's partition that claims far more than the disk's files hold.</li>
-  <li><strong>What BeeZip doesn't read itself</strong> in a volume goes to 7-Zip when it's installed, and Info says so.</li>
+  <li><strong>What BeeZip doesn't read</strong> in a volume, such as an ext volume over 16 TiB, is refused, saying what it is (<a href="#not-read">below</a>).</li>
 </ul>
 
 <h2 id="wim">WIM and ESD images</h2>
@@ -82,11 +82,12 @@
   <li><strong>NSIS forks</strong> with first headers of their own (NSISBI's large installers, say) aren't recognised, by BeeZip or 7-Zip.</li>
 </ul>
 
-<h2 id="through-7-zip">What goes through 7-Zip</h2>
-<p>With <a href="https://7-zip.org">7-Zip</a> 25.01 or newer installed, BeeZip also lists, tests and extracts the few files of other formats that use something BeeZip doesn't read itself, such as an ext volume over 16 TiB.</p>
+<h2 id="not-read">What BeeZip doesn't read</h2>
+<p>BeeZip reads every format on this page itself, and runs no other program to read anything: since 0.6.0 it doesn't use 7-Zip. A file that uses something its reader doesn't support is refused with a message saying what, and nothing is written. Most of these, 7-Zip doesn't read either.</p>
 <ul>
-  <li><strong>7-Zip only reads:</strong> every file streams from it through BeeZip's own extraction, with the same safety rules as every other format.</li>
-  <li><strong>Finding 7-Zip:</strong> BeeZip looks in the registry, on PATH and in Program Files, or uses <code>seven_zip.path</code> in <a href="settings.html#seven-zip">Settings</a>. Without it, these formats are still recognised, and opening one says what to install.</li>
-  <li><strong>Installing it:</strong> BeeZip doesn't come with 7-Zip. On Windows, <strong>Install 7-Zip</strong> beside the error, or in Settings → 7-Zip, installs it with winget, which downloads 7-Zip's own installer and checks its hash; Windows then asks for administrator rights, for 7-Zip's installer only. <strong>Update 7-Zip</strong> does the same for a 7-Zip older than 25.01. The file opens as soon as it's done, without restarting BeeZip; <code>beezip 7zip install</code> does the same from the command line. Without winget, and on Linux and macOS, <strong>Get 7-Zip…</strong> opens 7-Zip's download page. On Linux, take 7-Zip's own <code>7zz</code>: distributions' packages are usually older than 25.01.</li>
-  <li><strong>They're never changed:</strong> <code>convert</code> copies one into a format BeeZip writes.</li>
+  <li><strong>Encrypted disk images:</strong> QCOW2 with AES or LUKS, encrypted ESD images and FileVault's APFS volumes. BeeZip doesn't decrypt disk images.</li>
+  <li><strong>An ext volume over 16 TiB</strong> (more than 2<sup>32</sup> blocks), and ext's Lustre directory data and external journals.</li>
+  <li><strong>WIM 1.09 to 1.12,</strong> from Windows Longhorn's betas (2003–05), wimlib's pipable WIMs, and solid resources in a method WIM doesn't define.</li>
+  <li><strong>VMware's ESXi snapshot and raw-device extents</strong> (seSparse, vmfsSparse, RDM), VHDX version 2 or with regions and metadata it must understand and BeeZip doesn't, and VDI blocks with extra bytes.</li>
+  <li><strong>Layouts nothing is known to write:</strong> NTFS records over 64 KiB, and CHM help files other than ITSF versions 2 and 3.</li>
 </ul>

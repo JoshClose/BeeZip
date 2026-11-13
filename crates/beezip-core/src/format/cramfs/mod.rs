@@ -881,7 +881,6 @@ impl ArchiveReader for CramfsReader {
             locked: false,
             recovery_record: false,
             external: Some(ExternalInfo {
-                backend: None,
                 levels: vec!["cramfs".to_owned()],
                 properties: self.properties.clone(),
                 notes: Vec::new(),

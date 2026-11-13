@@ -1988,7 +1988,6 @@ mod tests {
             assert!(got.iter().any(|(p, ..)| p == "bee-\u{F41D}.txt"), "{file}");
             assert_eq!(dirs, ["sub", "sub/nested", "Ünïcödé dir"], "{file}");
             let info = r.info(&mut cx).unwrap().external.unwrap();
-            assert_eq!(info.backend, None, "{file}");
             assert_eq!(info.levels, levels, "{file}");
             let prop = |n: &str| {
                 info.properties

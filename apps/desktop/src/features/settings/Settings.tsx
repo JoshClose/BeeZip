@@ -13,7 +13,6 @@ import { chooseTheme, errorMessage, loadSettings, saveSettings, THEMES, useTheme
 import { startup } from "../../lib/startup";
 import { toastError } from "../../lib/toasts";
 import { ExplorerSettings } from "./ExplorerSettings";
-import { SevenZipSettings } from "./SevenZipSettings";
 import { EDIT_OVERWRITE } from "../edit/AddDialog";
 import { CheckSetting, ChoiceSetting, LevelSetting, NumberSetting, PathsSetting, Section, Segmented, Setting } from "./fields";
 
@@ -311,8 +310,6 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
           </Section>
 
           {platform === "windows" && <ExplorerSettings shell={s.shell} errors={errors} save={save} />}
-
-          <SevenZipSettings config={s.seven_zip} errors={errors} save={save} />
 
           <Section title="MCP server" description="For beezip mcp, which AI assistants use. Its --root and --read-only flags win over these.">
             <Setting label="May write under" htmlFor="mcp-roots" hint="One folder per line. With none, assistants can read archives but write nothing." error={errors["mcp.roots"]}>
