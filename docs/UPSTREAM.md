@@ -331,6 +331,17 @@ docs; `big/make.sh` remakes it).
   - *Workaround (keep):* the CHM reader reads every chunk and takes every PMGL one, whatever the
     header says (M9 decision 3).
 
+### mkfs.cramfs 2.39.3 (util-linux, Ubuntu 24.04), which makes the CramFS fixtures
+
+Seen while planning M10 (docs/M10.md §14), in `target/m10-spikes/cramfs/` (`make.sh` remakes it).
+- **A name of 253 to 255 bytes writes an image nothing can read.** `MAX_INPUT_NAMELEN` is 255
+  (`disk-utils/cramfs.h`), but the inode's name length holds at most 252 bytes (63 four-byte
+  units). The name pads to 256, `inode->namelen = len >> 2` wraps to 0, and the folder's next
+  inode is read from the name's bytes. There's no warning; util-linux's master is the same.
+  - *Check:* `mkfs.cramfs` on a folder holding a 255-byte name, then `fsck.cramfs` or `7z l`.
+  - *Workaround (keep):* the fixture scripts keep names to 252 bytes; the CramFS reader refuses a
+    zero name length as `Corrupt`, and the malicious corpus has such an image.
+
 ## Programs BeeZip runs or targets
 
 ### 7-Zip 26.00
@@ -396,6 +407,20 @@ CI's Windows runner shows which 7-Zip it has; BeeZip needs 25.01 or newer.
     C:\BeeZip\fixtures\vhd\kids\fe-1.vhd" for `kids/fe-2.vhd`), more sign that it would open a
     UNC path a crafted VHD names (still not verified);
   - the extended-L2 wrong data above shows with 16 KiB clusters too.
+- Seen while planning M10 (docs/M10.md §14), not worked around since BeeZip reads these itself
+  from M10; samples under `target/m10-spikes/` (`cramfs/make.sh`, `cramfs/craft.py` and
+  `nsis/make.sh` remake the made ones):
+  - **CramFS:** a file with holes fails with "Data Error" at its first hole (`mkfs.cramfs -z`);
+    an image of 8 to 64 KiB blocks fails every file over 4 KiB as "Unsupported Method"
+    (`-b 16384`); an image padded for a boot block can't be opened (`-p`), though the superblock
+    is where Linux and util-linux look for it; Linux 4.15's extended-pointer flag (0x800) is read
+    as a block size of 8 KiB (`crafted/ext-ptrs.img`);
+  - **NSIS:** an NSIS 2 zlib installer from a makensis linked to the system's zlib (Ubuntu 16.04's
+    2.50) fails from its first stored block, since 7-Zip reads NSIS 2's form there (its source
+    says it can't tell these apart); the uninstaller is left out when its instruction-layout
+    guess marks one of Tauri's instructions bad ("BadCmd=13", BeeZip's own installers); a stored
+    header with compressed files (MuMu Player's tools) extracts them as empty with "Not
+    implemented".
 
 ### Windows 11 (build 26300)
 

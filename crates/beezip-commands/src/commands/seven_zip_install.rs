@@ -19,7 +19,7 @@ use crate::{
 };
 
 /// Install 7-Zip with winget, or update one older than 25.01, so BeeZip can open NSIS
-/// installers and CramFS images. winget downloads 7-Zip's own
+/// installers. winget downloads 7-Zip's own
 /// installer and checks its hash; the installer asks for administrator rights. Windows only:
 /// elsewhere, get 7-Zip 25.01 or newer (on Linux and macOS, 7-Zip's own `7zz`) from
 /// https://7-zip.org/download.html.

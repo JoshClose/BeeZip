@@ -60,8 +60,18 @@
   <li><strong>What BeeZip doesn't read itself</strong> (a help file compressed with something other than LZX, say) goes to 7-Zip when it's installed, and Info says so.</li>
 </ul>
 
+<h2 id="cramfs">CramFS images</h2>
+<p>BeeZip reads CramFS, Linux's compressed ROM file system, itself, on every platform: it lists, tests and extracts an image, and reads one file without decoding the rest.</p>
+<ul>
+  <li><strong>Every layout Linux reads:</strong> either byte order, blocks of 4 to 64 KiB (worked out from the image, which doesn't record them), holes, a 512-byte boot block before the image, and Linux 4.15's extended block pointers. 7-Zip reads none of these but the byte orders.</li>
+  <li><strong>The listing</strong> is 7-Zip's: folders, files and links, with their permissions. CramFS stores no times. Devices, FIFOs and sockets are listed, and skipped when extracting.</li>
+  <li><strong>Testing checks the image's CRC,</strong> and that every file decodes.</li>
+  <li><strong>An image cut short</strong> still lists whole, and every file before the cut comes out; the rest are reported as cut short.</li>
+  <li><strong>7-Zip's own LZMA variant</strong>, which Linux doesn't read, goes to 7-Zip when it's installed, and Info says so.</li>
+</ul>
+
 <h2 id="through-7-zip">Formats read through 7-Zip</h2>
-<p>With <a href="https://7-zip.org">7-Zip</a> 25.01 or newer installed, BeeZip also lists, tests and extracts the formats marked "Through 7-Zip" above: NSIS installers and CramFS images, and on Linux and macOS ESD images and WIMs compressed with LZMS.</p>
+<p>With <a href="https://7-zip.org">7-Zip</a> 25.01 or newer installed, BeeZip also lists, tests and extracts the formats marked "Through 7-Zip" above: NSIS installers, and on Linux and macOS ESD images and WIMs compressed with LZMS.</p>
 <ul>
   <li><strong>7-Zip only reads:</strong> every file streams from it through BeeZip's own extraction, with the same safety rules as every other format.</li>
   <li><strong>An MSI patch or merge module</strong> shows its files under the installer's internal names, as 7-Zip does.</li>
