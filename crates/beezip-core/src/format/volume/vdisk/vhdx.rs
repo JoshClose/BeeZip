@@ -18,23 +18,25 @@
 //! - **The parent** is looked for by its locator's `relative_path`, then `absolute_win32_path`, by
 //!   [`Files`]' rules. It must be a VHDX whose DataWriteGuid is the child's `parent_linkage` (or
 //!   `parent_linkage2`) and whose logical sectors are the child's size.
-//! - **Refused** (`UnsupportedOperation`, so 7-Zip may try): a version other than 1, a log of a
-//!   version other than 0 to replay, a log over 64 MiB, a block table over 2^23 entries, a parent
-//!   locator of another type.
+//! - **The block table** is read a page (1 MiB) at a time when its entries are wanted, a few
+//!   pages kept (docs/M11.md §6.1): a disk of MS-VHDX's 64 TiB in 1 MiB blocks has 512 MiB of
+//!   it. Opening checks every entry, one page after another.
+//! - **A parent locator** of any type is read for its keys, as 7-Zip reads it; MS-VHDX defines
+//!   only a VHDX's.
+//! - **Refused** (`UnsupportedOperation`): a version other than 1, a log of a version other than
+//!   0 to replay, a log over 64 MiB.
 //! - **Blocks past the file's end** read as zeros, counted in Info, as M7 reads a truncated
 //!   image.
 
 use std::{cell::RefCell, collections::BTreeMap};
 
-use super::{Files, Got, Handle, Layer, Origin, guid, le16, le32, le64, vhd::run_at};
+use super::{Files, Got, Handle, Layer, Origin, Paged, Width, guid, le16, le32, le64, vhd::run_at};
 use crate::{Error, Result};
 
 const KIB: u64 = 1 << 10;
 const MIB: u64 = 1 << 20;
 /// The largest log replayed.
 const MAX_LOG: u64 = 64 * MIB;
-/// The most block table entries read: 64 MiB of table, 8 TiB of 1 MiB blocks.
-const MAX_BAT: u64 = 1 << 23;
 /// MS-VHDX's largest disk.
 const MAX_SIZE: u64 = 64 << 40;
 /// The largest metadata item read: MS-VHDX's limit.
@@ -100,6 +102,8 @@ const PARENT_LOCATOR: [u8; 16] = g(
     0x454D,
     [0xAB, 0xF7, 0xD3, 0xD8, 0x48, 0x34, 0xAB, 0x0C],
 );
+/// The only parent locator type MS-VHDX defines; another's keys are read the same way.
+#[cfg(test)]
 const LOCATOR_VHDX: [u8; 16] = g(
     0xB04A_EFB7,
     0xD19E,
@@ -566,12 +570,6 @@ fn locator(item: &[u8]) -> Result<Locator> {
     if item.len() < 20 {
         return Err(Error::corrupt("vhdx: the parent locator is cut short"));
     }
-    if item[..16] != LOCATOR_VHDX {
-        return Err(Error::unsupported(format!(
-            "vhdx: a parent locator of type {}; BeeZip follows a VHDX's",
-            guid(&array(&item[..16]))
-        )));
-    }
     let count = usize::from(le16(item, 18));
     if 20 + 12 * count > item.len() {
         return Err(Error::corrupt(
@@ -637,7 +635,8 @@ pub struct Vhdx {
     disk_id: [u8; 16],
     fixed: bool,
     parent: Option<Locator>,
-    bat: Vec<u64>,
+    /// The block table, read a page at a time (see the module's notes).
+    bat: Paged,
     past_end: u64,
     /// How many log entries were replayed, if any.
     replayed: Option<usize>,
@@ -816,85 +815,24 @@ impl Vhdx {
         } else {
             blocks + (blocks - 1) / chunk
         };
-        if needed > MAX_BAT {
-            return Err(Error::unsupported(format!(
-                "vhdx: a block table of {needed} entries; BeeZip reads up to {MAX_BAT}"
-            )));
-        }
         if needed * 8 > bat_len {
             return Err(Error::corrupt(
                 "vhdx: the block table is too small for the disk",
             ));
         }
-        let raw = file.read_vec(bat_off, needed * 8, MAX_BAT * 8, "vhdx: the block table")?;
-        let bat: Vec<u64> = raw
-            .as_chunks::<8>()
-            .0
-            .iter()
-            .map(|c| u64::from_le_bytes(*c))
-            .collect();
-        let at = |i: u64| bat.get(usize::try_from(i).unwrap_or(usize::MAX)).copied();
-        let mut past_end = 0u64;
-        let beyond = |off: u64, len: u64| off.checked_add(len).is_none_or(|x| x > file.end);
-        for b in 0..blocks {
-            let e = at(b + b / chunk).unwrap_or(0);
-            match e & 7 {
-                0..=3 => {}
-                s @ (FULLY_PRESENT | PARTIALLY_PRESENT) => {
-                    if s == PARTIALLY_PRESENT && !has_parent {
-                        return Err(Error::corrupt(format!(
-                            "vhdx: block {b} is partially present in a disk with no parent"
-                        )));
-                    }
-                    let off = (e >> 20) * MIB;
-                    if off < MIB {
-                        return Err(Error::corrupt(format!(
-                            "vhdx: block {b} lies in the header area"
-                        )));
-                    }
-                    if beyond(off, block) {
-                        past_end += 1;
-                    }
-                    if s == PARTIALLY_PRESENT {
-                        let m = at((b / chunk) * (chunk + 1) + chunk).unwrap_or(0);
-                        if m & 7 != FULLY_PRESENT {
-                            return Err(Error::corrupt(format!(
-                                "vhdx: block {b} is partially present without its sector bitmap"
-                            )));
-                        }
-                    }
-                }
-                s => {
-                    return Err(Error::corrupt(format!(
-                        "vhdx: block {b} has the reserved state {s}"
-                    )));
-                }
-            }
+        if bat_off
+            .checked_add(needed * 8)
+            .is_none_or(|e| e > file.src.len)
+        {
+            return Err(Error::corrupt(format!(
+                "vhdx: the block table: {} bytes at {bat_off} reach past the file's end ({} \
+                 bytes)",
+                needed * 8,
+                file.src.len
+            )));
         }
-        if has_parent {
-            for c in 0..bitmaps {
-                let e = at(c * (chunk + 1) + chunk).unwrap_or(0);
-                match e & 7 {
-                    NOT_PRESENT => {}
-                    FULLY_PRESENT => {
-                        let off = (e >> 20) * MIB;
-                        if off < MIB {
-                            return Err(Error::corrupt(format!(
-                                "vhdx: sector bitmap {c} lies in the header area"
-                            )));
-                        }
-                        if beyond(off, MIB) {
-                            past_end += 1;
-                        }
-                    }
-                    s => {
-                        return Err(Error::corrupt(format!(
-                            "vhdx: sector bitmap {c} has the state {s}"
-                        )));
-                    }
-                }
-            }
-        }
+        let bat = Paged::new(bat_off, needed, Width::Le64);
+        let past_end = check_bat(&mut file, &bat, blocks, chunk, block, has_parent)?;
         Ok(Self {
             file: RefCell::new(file),
             name: name.to_owned(),
@@ -914,23 +852,25 @@ impl Vhdx {
         })
     }
 
-    /// Block `b`'s entry in the block table.
-    fn entry(&self, b: u64) -> Result<u64> {
-        b.checked_add(b / self.chunk)
-            .and_then(|i| usize::try_from(i).ok())
-            .and_then(|i| self.bat.get(i))
-            .copied()
-            .ok_or_else(|| Error::corrupt("vhdx: a read past the block table"))
+    /// Block `b`'s entry in the block table, read through `file`.
+    fn entry(&self, file: &mut Image, b: u64) -> Result<u64> {
+        let i = b
+            .checked_add(b / self.chunk)
+            .ok_or_else(|| Error::corrupt("vhdx: a read past the block table"))?;
+        self.bat.get(i, "vhdx: the block table", |at, out| {
+            file.read_at(at, out, "vhdx: the block table")
+        })
     }
 
     /// Where block `b`'s bits are in its sector bitmap block, and how many bytes they take.
-    fn bitmap_at(&self, b: u64) -> (u64, usize) {
+    fn bitmap_at(&self, file: &mut Image, b: u64) -> (u64, usize) {
         let per = self.block / u64::from(self.sector) / 8;
         let i = (b / self.chunk) * (self.chunk + 1) + self.chunk;
-        let e = usize::try_from(i)
-            .ok()
-            .and_then(|i| self.bat.get(i))
-            .copied()
+        let e = self
+            .bat
+            .get(i, "vhdx: the block table", |at, out| {
+                file.read_at(at, out, "vhdx: the block table")
+            })
             .unwrap_or(0);
         (
             (e >> 20) * MIB + (b % self.chunk) * per,
@@ -943,7 +883,10 @@ impl Vhdx {
         if self.bitmap.as_ref().is_some_and(|(k, _)| *k == b) {
             return Ok(());
         }
-        let (at, n) = self.bitmap_at(b);
+        let (at, n) = {
+            let mut file = self.file.borrow_mut();
+            self.bitmap_at(&mut file, b)
+        };
         let mut v = self.bitmap.take().map(|(_, v)| v).unwrap_or_default();
         v.resize(n, 0);
         self.file
@@ -960,7 +903,7 @@ impl Vhdx {
         let Ok(mut file) = self.file.try_borrow_mut() else {
             return z - a;
         };
-        let (at, n) = self.bitmap_at(b);
+        let (at, n) = self.bitmap_at(&mut file, b);
         let mut bits = vec![0u8; n];
         if file
             .read_at(at, &mut bits, "vhdx: a sector bitmap")
@@ -986,6 +929,89 @@ impl Vhdx {
     }
 }
 
+/// Checks every entry of the block table `bat` (for `blocks` blocks, a sector bitmap entry after
+/// each `chunk`), one page after another: each block's state and place, and a partially present
+/// block's bitmap. How many blocks and bitmaps lie past the file's end.
+fn check_bat(
+    file: &mut Image,
+    bat: &Paged,
+    blocks: u64,
+    chunk: u64,
+    block: u64,
+    has_parent: bool,
+) -> Result<u64> {
+    let mut past_end = 0u64;
+    // A partially present block of the current chunk, waiting for its bitmap's entry.
+    let mut partial: Option<u64> = None;
+    let end = file.end;
+    let missing = |b: u64| {
+        Error::corrupt(format!(
+            "vhdx: block {b} is partially present without its sector bitmap"
+        ))
+    };
+    let read = |at: u64, out: &mut [u8]| file.read_at(at, out, "vhdx: the block table");
+    bat.scan(read, |i, e| {
+        let (c, slot) = (i / (chunk + 1), i % (chunk + 1));
+        if slot == chunk {
+            // A sector bitmap's entry: read only for a differencing disk.
+            if !has_parent {
+                return Ok(());
+            }
+            return match e & 7 {
+                NOT_PRESENT => partial.take().map_or(Ok(()), |b| Err(missing(b))),
+                FULLY_PRESENT => {
+                    partial = None;
+                    let off = (e >> 20) * MIB;
+                    if off < MIB {
+                        return Err(Error::corrupt(format!(
+                            "vhdx: sector bitmap {c} lies in the header area"
+                        )));
+                    }
+                    if off.checked_add(MIB).is_none_or(|x| x > end) {
+                        past_end += 1;
+                    }
+                    Ok(())
+                }
+                s => Err(partial.take().map_or_else(
+                    || Error::corrupt(format!("vhdx: sector bitmap {c} has the state {s}")),
+                    missing,
+                )),
+            };
+        }
+        let b = c * chunk + slot;
+        if b >= blocks {
+            return Ok(());
+        }
+        match e & 7 {
+            0..=3 => Ok(()),
+            s @ (FULLY_PRESENT | PARTIALLY_PRESENT) => {
+                if s == PARTIALLY_PRESENT && !has_parent {
+                    return Err(Error::corrupt(format!(
+                        "vhdx: block {b} is partially present in a disk with no parent"
+                    )));
+                }
+                let off = (e >> 20) * MIB;
+                if off < MIB {
+                    return Err(Error::corrupt(format!(
+                        "vhdx: block {b} lies in the header area"
+                    )));
+                }
+                if off.checked_add(block).is_none_or(|x| x > end) {
+                    past_end += 1;
+                }
+                if s == PARTIALLY_PRESENT && partial.is_none() {
+                    partial = Some(b);
+                }
+                Ok(())
+            }
+            s => Err(Error::corrupt(format!(
+                "vhdx: block {b} has the reserved state {s}"
+            ))),
+        }
+    })?;
+    Ok(past_end)
+}
+
 /// A GUID without its braces, as Windows shows a disk's.
 fn show(id: &[u8; 16]) -> String {
     plain(&guid(id))
@@ -1005,7 +1031,10 @@ impl Layer for Vhdx {
         let n = buf
             .len()
             .min(usize::try_from(self.block - within).unwrap_or(usize::MAX));
-        let e = self.entry(b)?;
+        let e = {
+            let mut file = self.file.borrow_mut();
+            self.entry(&mut file, b)?
+        };
         let base = (e >> 20) * MIB;
         match e & 7 {
             FULLY_PRESENT => {
@@ -1050,7 +1079,11 @@ impl Layer for Vhdx {
         let (first, last) = (start / self.block, (end - 1) / self.block);
         let mut held = 0u64;
         for b in first..=last {
-            let Ok(e) = self.entry(b) else {
+            let e = match self.file.try_borrow_mut() {
+                Ok(mut f) => self.entry(&mut f, b),
+                Err(_) => break,
+            };
+            let Ok(e) = e else {
                 break;
             };
             let state = e & 7;
@@ -1509,6 +1542,107 @@ mod tests {
 
     // ---- Damage, and what BeeZip doesn't read. ----
 
+    /// A dynamic VHDX of `size` bytes in 1 MiB blocks of 512-byte sectors, as the M11 spike's
+    /// `craft.py` makes one: headers, region tables and metadata in its first 3 MiB, then the
+    /// block table, then each of `present` (block, byte) a fully present block of that byte.
+    /// The file is made long with `set_len`, so its zeros cost nothing to write.
+    fn big_vhdx(path: &Path, size: u64, present: &[(u64, u8)]) -> u64 {
+        use std::io::{Seek, SeekFrom, Write};
+        let block = MIB;
+        let chunk = (1u64 << 23) * 512 / block;
+        let blocks = size.div_ceil(block);
+        let entries = blocks + (blocks - 1) / chunk;
+        let bat_len = (entries * 8).div_ceil(MIB) * MIB;
+        let mut f = vec![0u8; 3 * MIB as usize];
+        f[..8].copy_from_slice(b"vhdxfile");
+        for (k, at) in [64usize << 10, 128 << 10].into_iter().enumerate() {
+            f[at..at + 4].copy_from_slice(b"head");
+            f[at + 8..at + 16].copy_from_slice(&(10 + k as u64).to_le_bytes());
+            f[at + 16..at + 48].fill(0x21);
+            f[at + 66..at + 68].copy_from_slice(&1u16.to_le_bytes());
+            f[at + 68..at + 72].copy_from_slice(&(MIB as u32).to_le_bytes());
+            f[at + 72..at + 80].copy_from_slice(&MIB.to_le_bytes());
+            let c = crc_with_hole(&f[at..at + 4096], 4);
+            f[at + 4..at + 8].copy_from_slice(&c.to_le_bytes());
+        }
+        for at in [192usize << 10, 256 << 10] {
+            f[at..at + 4].copy_from_slice(b"regi");
+            f[at + 8..at + 12].copy_from_slice(&2u32.to_le_bytes());
+            let regions = [(BAT_REGION, 3 * MIB, bat_len), (META_REGION, 2 * MIB, MIB)];
+            for (i, (id, off, len)) in regions.into_iter().enumerate() {
+                let e = at + 16 + 32 * i;
+                f[e..e + 16].copy_from_slice(&id);
+                f[e + 16..e + 24].copy_from_slice(&off.to_le_bytes());
+                f[e + 24..e + 28].copy_from_slice(&(len as u32).to_le_bytes());
+                f[e + 28..e + 32].copy_from_slice(&1u32.to_le_bytes());
+            }
+            let c = crc_with_hole(&f[at..at + (64 << 10)], 4);
+            f[at + 4..at + 8].copy_from_slice(&c.to_le_bytes());
+        }
+        let m = 2 * MIB as usize;
+        f[m..m + 8].copy_from_slice(b"metadata");
+        let items: [([u8; 16], Vec<u8>); 5] = [
+            (FILE_PARAMS, [(block as u32).to_le_bytes(), [0; 4]].concat()),
+            (DISK_SIZE, size.to_le_bytes().to_vec()),
+            (DISK_ID, vec![0x33; 16]),
+            (LOGICAL, 512u32.to_le_bytes().to_vec()),
+            (PHYSICAL, 4096u32.to_le_bytes().to_vec()),
+        ];
+        f[m + 10..m + 12].copy_from_slice(&(items.len() as u16).to_le_bytes());
+        for (i, (id, val)) in items.iter().enumerate() {
+            let e = m + 32 + 32 * i;
+            let data = (64 << 10) + 4096 * i;
+            f[e..e + 16].copy_from_slice(id);
+            f[e + 16..e + 20].copy_from_slice(&(data as u32).to_le_bytes());
+            f[e + 20..e + 24].copy_from_slice(&(val.len() as u32).to_le_bytes());
+            f[e + 24..e + 28].copy_from_slice(&4u32.to_le_bytes());
+            f[m + data..m + data + val.len()].copy_from_slice(val);
+        }
+        let mut file = std::fs::File::create(path).unwrap();
+        file.write_all(&f).unwrap();
+        let data_at = 3 * MIB + bat_len;
+        file.set_len(data_at + present.len() as u64 * MIB).unwrap();
+        for (k, &(b, byte)) in present.iter().enumerate() {
+            let off = data_at + k as u64 * MIB;
+            let entry = 6 | (off >> 20) << 20;
+            file.seek(SeekFrom::Start(3 * MIB + (b + b / chunk) * 8))
+                .unwrap();
+            file.write_all(&entry.to_le_bytes()).unwrap();
+            file.seek(SeekFrom::Start(off)).unwrap();
+            file.write_all(&vec![byte; MIB as usize]).unwrap();
+        }
+        entries
+    }
+
+    /// A disk of 8 TiB and 64 GiB in 1 MiB blocks (Hyper-V's `New-VHD -BlockSizeBytes 1MB`) has
+    /// 8,456,207 block table entries, over the 2^23 BeeZip read whole until M11: read a page at a
+    /// time, its first and last blocks and one in between are there, and the rest zeros.
+    #[test]
+    fn a_block_table_over_2_23_entries_is_read_in_pages() {
+        use std::io::{Read, Seek, SeekFrom};
+        let t = tempfile::tempdir().unwrap();
+        let path = t.path().join("big.vhdx");
+        let size = (8u64 << 40) + (64 << 30);
+        let blocks = size / MIB;
+        let present = [(0, 0xA1), (blocks / 2, 0xB2), (blocks - 1, 0xC3)];
+        let entries = big_vhdx(&path, size, &present);
+        assert_eq!(entries, 8_456_207);
+        let mut d = open_path(&path).unwrap();
+        assert_eq!(d.len(), size);
+        for (b, byte) in present {
+            let mut buf = vec![0u8; 4096];
+            d.seek(SeekFrom::Start(b * MIB + 512)).unwrap();
+            d.read_exact(&mut buf).unwrap();
+            assert!(buf.iter().all(|&x| x == byte), "block {b}");
+            // The block after it (or before the last) reads zeros.
+            let other = if b + 1 < blocks { b + 1 } else { b - 1 };
+            d.seek(SeekFrom::Start(other * MIB)).unwrap();
+            d.read_exact(&mut buf).unwrap();
+            assert!(buf.iter().all(|&x| x == 0), "block {other}");
+        }
+        assert_eq!(d.held_in(0, size), 3 * MIB);
+    }
+
     #[test]
     fn damage_and_variants_refused() {
         let b = std::fs::read(fixture("parents/odd.vhdx")).unwrap();
@@ -1724,11 +1858,26 @@ mod tests {
         place(t.path(), "unc.avhdx", None, Some(&kv));
         let e = open_path(&t.path().join("unc.avhdx")).err().unwrap();
         assert_eq!(e.kind, ErrorKind::Unsafe, "{e}");
-        // A parent locator of another type.
-        let mut c = c;
+    }
+
+    /// A parent locator of another type is read for its keys, as 7-Zip reads it (docs/M11.md
+    /// §6.1): the child still finds its parent.
+    #[test]
+    fn a_locator_of_another_type_is_read() {
+        let t = tempfile::tempdir().unwrap();
+        let mut c = std::fs::read(fixture("kids/odd-1.avhdx")).unwrap();
         let (at, _) = locator_at(&c);
+        assert_eq!(c[at..at + 16], LOCATOR_VHDX);
         c[at] ^= 1;
-        let e = try_bytes("type.avhdx", &c).err().unwrap();
-        assert_eq!(e.kind, ErrorKind::UnsupportedOperation, "{e}");
+        std::fs::create_dir_all(t.path().join("kids")).unwrap();
+        std::fs::create_dir_all(t.path().join("parents")).unwrap();
+        std::fs::write(t.path().join("kids/odd-1.avhdx"), &c).unwrap();
+        std::fs::copy(
+            fixture("parents/odd.vhdx"),
+            t.path().join("parents/odd.vhdx"),
+        )
+        .unwrap();
+        let mut d = open_path(&t.path().join("kids/odd-1.avhdx")).unwrap();
+        assert_eq!(sha256(&mut d), child_sum());
     }
 }

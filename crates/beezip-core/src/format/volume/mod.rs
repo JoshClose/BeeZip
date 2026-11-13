@@ -529,7 +529,8 @@ impl DiskReader {
     ) -> Result<()> {
         // A disk spooled out of a codec looks for its parents beside the original.
         let origin = vdisk::Origin::of(&self.source.path);
-        let mut files = vdisk::Files::new(&origin, self.source.counter.clone());
+        let mut files = vdisk::Files::new(&origin, self.source.counter.clone())
+            .with_memory(self.source.limits.decoder_memory);
         let disk = vdisk::open(kind, vdisk::Handle::new(input, len), origin, &mut files)?;
         let level = kind.name().to_owned();
         for (name, value) in disk.properties() {

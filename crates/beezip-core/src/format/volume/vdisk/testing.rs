@@ -1,6 +1,7 @@
 //! What the VMDK, QCOW2 and VDI readers' tests share: the fixtures `tests/fixtures/make-vdisk.sh`
 //! makes in `tests/fixtures/thirdparty/vdisk/`, what each one's virtual disk is
-//! (`expected.tsv`), and a short mutation run over them.
+//! (`expected.tsv`), and a short mutation run over them. The crafted VHDs there (`h-*.vhd`) are
+//! checked the same way.
 
 use std::{
     io::Read,
@@ -49,6 +50,7 @@ pub fn kind_of(file: &str) -> External {
         Some("vmdk") => External::Vmdk,
         Some("qcow2" | "qcow") => External::Qcow2,
         Some("vdi") => External::Vdi,
+        Some("vhd") => External::Vhd,
         e => panic!("no format for {e:?}"),
     }
 }
