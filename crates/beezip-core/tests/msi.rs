@@ -6,10 +6,14 @@
 //!   cabinets, a standard folder and a merge module's copy of one, a loop, the same path twice,
 //!   Binary and Icon streams, an external cabinet there and one missing, an uncompressed file in
 //!   the source image and one missing, a name in code page 0, a wrong hash and a wrong size;
-//! - patches, transforms and merge modules left to 7-Zip;
-//! - with `BEEZIP_MSI_SAMPLES` naming a folder of real installers (the M7 spike's RustDesk,
+//! - merge modules built here with the msi crate and BeeZip's CAB writer, listed where they put
+//!   their files; patches and transforms listed as their compound files under 7-Zip's names
+//!   (docs/M11.md); the committed ones in `thirdparty/msi/` are checked by `fixtures.rs`;
+//! - with `BEEZIP_MSI_SAMPLES` naming folders of real installers (the M7 spike's RustDesk,
 //!   QGIS and LLVM ones), an ignored test that reads every file natively and through 7-Zip and
-//!   compares them by File key: `cargo test --release --test msi -- --ignored real_installers`.
+//!   compares them by File key: `cargo test --release --test msi -- --ignored real_installers`;
+//!   and one that compares every patch, transform and merge module in them with 7-Zip's
+//!   extraction (docs/M11.md §8): `-- --ignored real_patches`.
 //!
 //! The malicious MSIs in `tests/fixtures/malicious/` are written by another ignored test here,
 //! `write_the_malicious_msis`; `tests/malicious/msi.rs` reads them.
@@ -881,45 +885,6 @@ fn code_page_zero_is_the_systems() {
     assert_eq!(names(1251), ["ROOT2/cafй.txt"]);
 }
 
-#[test]
-fn patches_transforms_and_merge_modules_are_left_to_7zip() {
-    let dir = tempfile::tempdir().unwrap();
-    let mut made = Vec::new();
-    for (name, t) in [
-        ("patch.msp", PackageType::Patch),
-        ("transform.mst", PackageType::Transform),
-    ] {
-        let p = dir.path().join(name);
-        drop(Package::create(t, new_file(&p)).unwrap());
-        made.push(p);
-    }
-    let p = dir.path().join("module.msm");
-    let mut pkg = Package::create(PackageType::Installer, new_file(&p)).unwrap();
-    pkg.create_table(
-        "ModuleSignature",
-        vec![
-            Column::build("ModuleID").primary_key().id_string(72),
-            Column::build("Language").primary_key().int16(),
-            Column::build("Version").string(32),
-        ],
-    )
-    .unwrap();
-    drop(pkg);
-    made.push(p);
-    for p in made {
-        let source = Source::new(&p, Vec::new(), &native()).unwrap();
-        let err = beezip_core::format::msi::open(source, &mut SimpleCtx::new())
-            .err()
-            .unwrap();
-        assert_eq!(
-            err.kind,
-            ErrorKind::UnsupportedOperation,
-            "{}: {err}",
-            p.display()
-        );
-    }
-}
-
 /// A file that isn't a compound file, or a package without its string pool, is damaged: it
 /// fails cleanly, and doesn't go to 7-Zip.
 #[test]
@@ -960,10 +925,22 @@ fn mutated_packages_never_panic() {
         fs::read(build_multi(dir.path())).unwrap(),
     ];
     for name in [
+        "module.msm",
+        "module-lzx.msm",
+        "patch.msp",
+        "v1-to-v2.mst",
+        "v2-to-v1.mst",
+    ] {
+        seeds.push(fs::read(fixtures().join("thirdparty/msi").join(name)).unwrap());
+    }
+    for name in [
         "deep.msi",
         "pool-4gib.msi",
         "catalog-nulls.msi",
         "summary-2gib.msi",
+        "msp-names.msp",
+        "mst-claim.mst",
+        "msm-no-cab.msm",
     ] {
         seeds.push(fs::read(fixtures().join("malicious").join(name)).unwrap());
     }
@@ -1030,6 +1007,490 @@ fn mutated_packages_never_panic() {
                     let _ = std::io::copy(&mut e.by_ref().take(1 << 20), &mut std::io::sink());
                 }
             }
+        }
+    }
+}
+
+// --- Merge modules, patches and transforms (docs/M11.md) ---------------------------------------
+
+/// The GUID a merge module's keys carry.
+const G: &str = "8D5E0F2A_1B2C_4D3E_9F40_112233445566";
+
+/// What a merge module's `MergeModule.CABinet` stream is.
+#[derive(Clone, Copy)]
+enum ModuleCab {
+    Sound,
+    Missing,
+    NotACabinet,
+}
+
+/// A merge module built with the msi crate and BeeZip's CAB writer, as `module.msm` is with
+/// msi.dll: no Media table, its files in `MergeModule.CABinet`, at the merge point (TARGETDIR's
+/// `.` child), in a folder below it, in a modularized standard folder and in a folder of a
+/// modularized one, and a custom action. Its word count says its files aren't compressed, which a
+/// module's always are. Returns each file's path as BeeZip lists it, with its bytes.
+fn build_module(path: &Path, cabinet: ModuleCab) -> Vec<(String, Vec<u8>)> {
+    let mut pkg = Package::create(PackageType::Installer, new_file(path)).unwrap();
+    pkg.summary_info_mut().set_word_count(0);
+    pkg.summary_info_mut()
+        .set_subject("BeeZip test module".to_owned());
+    create_tables(&mut pkg);
+    pkg.drop_table("Media").unwrap();
+    pkg.create_table(
+        "ModuleSignature",
+        vec![
+            Column::build("ModuleID").primary_key().id_string(72),
+            Column::build("Language").primary_key().int16(),
+            Column::build("Version").string(32),
+        ],
+    )
+    .unwrap();
+    pkg.insert_rows(Insert::into("ModuleSignature").row(vec![
+        Value::from(format!("BeeZipTest.{G}")),
+        n(1033),
+        s("2.0.1"),
+    ]))
+    .unwrap();
+    let k = |name: &str| format!("{name}.{G}");
+    let dirs = [
+        ("TARGETDIR".to_owned(), None, "SourceDir"),
+        (k("MergeRedirectFolder"), Some("TARGETDIR".to_owned()), "."),
+        (k("Docs"), Some(k("MergeRedirectFolder")), "DOCS|Docs"),
+        (k("SystemFolder"), Some("TARGETDIR".to_owned()), "System"),
+        (
+            k("ProgramFilesFolder"),
+            Some("TARGETDIR".to_owned()),
+            "PFiles",
+        ),
+        (k("Vendor"), Some(k("ProgramFilesFolder")), "Vendor"),
+    ];
+    let mut q = Insert::into("Directory");
+    for (d, p, dd) in dirs {
+        q = q.row(vec![
+            Value::from(d),
+            p.map_or(Value::Null, Value::from),
+            s(dd),
+        ]);
+    }
+    pkg.insert_rows(q).unwrap();
+    // FileName, key, its folder, data, and where BeeZip lists it.
+    let files: [(&str, String, String, &[u8], &str); 4] = [
+        (
+            "top.txt",
+            k("top.txt"),
+            k("MergeRedirectFolder"),
+            b"at the merge point\n",
+            "top.txt",
+        ),
+        (
+            "GUIDE~1.TXT|guide.txt",
+            k("guide.txt"),
+            k("Docs"),
+            b"a guide\n",
+            "Docs/guide.txt",
+        ),
+        (
+            "sys.dll",
+            k("sys.dll"),
+            k("SystemFolder"),
+            b"MZ sys",
+            "SystemFolder/sys.dll",
+        ),
+        (
+            "tool.dll",
+            k("tool.dll"),
+            k("Vendor"),
+            &[b't'; 40_000],
+            "ProgramFilesFolder/Vendor/tool.dll",
+        ),
+    ];
+    let (mut comps, mut rows, mut hashes) = (
+        Insert::into("Component"),
+        Insert::into("File"),
+        Insert::into("MsiFileHash"),
+    );
+    for (i, (name, key, dir, data, _)) in files.iter().enumerate() {
+        comps = comps.row(vec![
+            Value::from(key.clone()),
+            Value::Null,
+            Value::from(dir.clone()),
+            n(0),
+            Value::Null,
+            Value::Null,
+        ]);
+        rows = rows.row(vec![
+            Value::from(key.clone()),
+            Value::from(key.clone()),
+            s(name),
+            n(data.len() as i32),
+            Value::Null,
+            Value::Null,
+            n(0),
+            n(i as i32 + 1),
+        ]);
+        let h: [u8; 16] = md5::Md5::digest(data).into();
+        let part = |i: usize| n(i32::from_le_bytes(h[i * 4..i * 4 + 4].try_into().unwrap()));
+        hashes = hashes.row(vec![
+            Value::from(key.clone()),
+            n(0),
+            part(0),
+            part(1),
+            part(2),
+            part(3),
+        ]);
+    }
+    pkg.insert_rows(comps).unwrap();
+    pkg.insert_rows(rows).unwrap();
+    pkg.insert_rows(hashes).unwrap();
+    let action: &[u8] = b"MZ a custom action";
+    pkg.insert_rows(Insert::into("Binary").row(vec![Value::from(k("Action")), Value::Binary]))
+        .unwrap();
+    pkg.write_stream(&format!("Binary.{}", k("Action")))
+        .unwrap()
+        .write_all(action)
+        .unwrap();
+    let bytes = match cabinet {
+        ModuleCab::Sound => {
+            let work = tempfile::tempdir().unwrap();
+            let c = work.path().join("module.cab");
+            let data: Vec<(&str, &[u8])> = files
+                .iter()
+                .map(|(_, key, _, d, _)| (key.as_str(), *d))
+                .collect();
+            cab(&c, &data, CabMethod::Mszip);
+            Some(fs::read(&c).unwrap())
+        }
+        ModuleCab::Missing => None,
+        ModuleCab::NotACabinet => Some(b"not a cabinet, though named as one".repeat(10)),
+    };
+    if let Some(bytes) = bytes {
+        pkg.write_stream("MergeModule.CABinet")
+            .unwrap()
+            .write_all(&bytes)
+            .unwrap();
+    }
+    drop(pkg);
+    let mut want: Vec<(String, Vec<u8>)> = files
+        .iter()
+        .map(|(_, _, _, d, p)| ((*p).to_owned(), d.to_vec()))
+        .collect();
+    want.push((format!("[Binary]/{}", k("Action")), action.to_vec()));
+    want
+}
+
+#[test]
+fn merge_modules_list_where_they_put_their_files() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("module.msm");
+    let want = build_module(&path, ModuleCab::Sound);
+    let mut cx = SimpleCtx::new();
+    let mut opened = open(&path, &native(), &mut cx).unwrap();
+    assert_eq!(
+        opened.detection.format(),
+        Some(FormatId::External(External::Msi))
+    );
+    let entries = opened.reader.entries(&mut cx).unwrap().to_vec();
+    let mut files: Vec<&str> = entries
+        .iter()
+        .filter(|e| !e.is_dir())
+        .map(|e| e.path.as_str())
+        .collect();
+    files.sort_unstable();
+    let mut paths: Vec<&str> = want.iter().map(|(p, _)| p.as_str()).collect();
+    paths.sort_unstable();
+    assert_eq!(files, paths);
+    for (p, data) in &want {
+        let id = by_path(&entries, p).id;
+        assert_eq!(&read_entry(&mut *opened.reader, id).unwrap(), data, "{p}");
+    }
+    let info = opened.reader.info(&mut cx).unwrap();
+    let x = info.external.unwrap();
+    assert_eq!(x.levels, ["msm", "cab"]);
+    let prop = |name: &str| {
+        x.properties
+            .iter()
+            .find(|p| p.name == name)
+            .map(|p| (p.level.as_str(), p.value.as_str()))
+    };
+    assert_eq!(
+        prop("Module"),
+        Some(("msm", format!("BeeZipTest.{G}").as_str()))
+    );
+    assert_eq!(prop("Version"), Some(("msm", "2.0.1")));
+    assert_eq!(prop("Language"), Some(("msm", "1033")));
+    assert_eq!(prop("Subject"), Some(("msm", "BeeZip test module")));
+    assert!(x.notes[0].contains("merge module"), "{:?}", x.notes);
+    assert!(cx.warnings.is_empty(), "{:?}", cx.warnings);
+
+    // Tested and extracted whole: the MsiFileHash rows hold.
+    let report = ops::test(&path, &beezip_core::Selection::all(), &native(), &mut cx).unwrap();
+    assert!(report.errors.is_empty(), "{:?}", report.errors);
+    let out = tempfile::tempdir().unwrap();
+    ops::extract(
+        &path,
+        out.path(),
+        &beezip_core::Selection::all(),
+        &native(),
+        FsOptions::default(),
+        &mut SimpleCtx::new(),
+    )
+    .unwrap();
+    for (p, data) in &want {
+        assert_eq!(&fs::read(out.path().join(p)).unwrap(), data, "{p}");
+    }
+}
+
+/// A module without its cabinet, or with a stream of that name that isn't one, lists its files,
+/// and each fails when it's read; the custom action still reads.
+#[test]
+fn a_merge_modules_missing_cabinet_fails_its_files() {
+    let dir = tempfile::tempdir().unwrap();
+    for (cabinet, says) in [
+        (
+            ModuleCab::Missing,
+            "the merge module's cabinet, `MergeModule.CABinet`, isn't in it",
+        ),
+        (ModuleCab::NotACabinet, "can't be read"),
+    ] {
+        let path = dir.path().join("broken.msm");
+        let want = build_module(&path, cabinet);
+        let mut cx = SimpleCtx::new();
+        let mut opened = open(&path, &native(), &mut cx).unwrap();
+        assert!(
+            cx.warnings.iter().any(|w| w.contains(says)),
+            "{:?}",
+            cx.warnings
+        );
+        let entries = opened.reader.entries(&mut cx).unwrap().to_vec();
+        for (p, data) in &want {
+            let got = read_entry(&mut *opened.reader, by_path(&entries, p).id);
+            if p.starts_with("[Binary]/") {
+                assert_eq!(&got.unwrap(), data);
+            } else {
+                assert_eq!(got.unwrap_err().kind, ErrorKind::Corrupt, "{p}");
+            }
+        }
+    }
+}
+
+/// Adds `streams` (cfb path, bytes) and `storages` to the compound file at `path`.
+fn add_to_compound(path: &Path, storages: &[&str], streams: &[(&str, &[u8])]) {
+    let mut comp = cfb::open_rw(path).unwrap();
+    for st in storages {
+        comp.create_storage(st).unwrap();
+    }
+    for (name, data) in streams {
+        let mut s = comp.create_stream(name).unwrap();
+        s.write_all(data).unwrap();
+    }
+    comp.flush().unwrap();
+}
+
+/// A cabinet of one small file, written by BeeZip.
+fn small_cab() -> Vec<u8> {
+    let work = tempfile::tempdir().unwrap();
+    let c = work.path().join("small.cab");
+    cab(
+        &c,
+        &[("payload.txt", b"inside the cabinet\n")],
+        CabMethod::Mszip,
+    );
+    fs::read(&c).unwrap()
+}
+
+/// A transform is detected by its CLSID and listed as its compound file, with 7-Zip's names:
+/// packed names unpacked, the table mark as `!`, a control character as `[n]`; a cabinet stream
+/// gets `.cab`; storages first, then streams, by name ignoring case.
+#[test]
+fn transforms_list_their_streams_under_7zips_names() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("t.mst");
+    drop(Package::create(PackageType::Transform, new_file(&path)).unwrap());
+    let cabinet = small_cab();
+    let storage = stream_path("TGT_1ToUPG_1", false);
+    let inner = format!("{storage}{}", &stream_path("Property", true)[..]);
+    let file_table = stream_path("File", true);
+    let pcw = stream_path("PCW_CAB_X", false);
+    let named_cab = stream_path("data.cab", false);
+    add_to_compound(
+        &path,
+        &[&storage],
+        &[
+            (&file_table, b"rows of changes"),
+            (&inner, b"a property"),
+            (&pcw, &cabinet),
+            (&named_cab, &cabinet),
+            ("/\u{1}Ole", b"control"),
+            ("/名前", b"a name in CJK"),
+        ],
+    );
+    let det = beezip_core::detect_path(&path, &beezip_core::Limits::default()).unwrap();
+    assert_eq!(det.format(), Some(FormatId::External(External::Msi)));
+    let mut cx = SimpleCtx::new();
+    let mut opened = open(&path, &native(), &mut cx).unwrap();
+    let entries = opened.reader.entries(&mut cx).unwrap().to_vec();
+    let paths: Vec<&str> = entries.iter().map(|e| e.path.as_str()).collect();
+    // The storage first, then every stream by its name ignoring case.
+    assert_eq!(paths[0], "TGT_1ToUPG_1");
+    assert!(entries[0].is_dir());
+    let files: Vec<&str> = paths[1..].to_vec();
+    let mut sorted = files.clone();
+    sorted.sort_by_key(|p| p.to_lowercase());
+    assert_eq!(files, sorted);
+    for (p, data) in [
+        ("!File", &b"rows of changes"[..]),
+        ("TGT_1ToUPG_1/!Property", b"a property"),
+        ("PCW_CAB_X.cab", &cabinet),
+        ("data.cab", &cabinet),
+        ("[1]Ole", b"control"),
+        ("名前", "a name in CJK".as_bytes()),
+    ] {
+        let e = by_path(&entries, p);
+        assert_eq!(e.size, Some(data.len() as u64), "{p}");
+        assert_eq!(read_entry(&mut *opened.reader, e.id).unwrap(), data, "{p}");
+    }
+    assert!(paths.contains(&"[5]SummaryInformation"), "{paths:?}");
+    let info = opened.reader.info(&mut cx).unwrap();
+    assert_eq!(info.external.unwrap().levels, ["mst"]);
+
+    // The test reads every stream, and says a compound file has no checksums.
+    let report = ops::test(&path, &beezip_core::Selection::all(), &native(), &mut cx).unwrap();
+    assert!(report.errors.is_empty(), "{:?}", report.errors);
+    assert!(report.note.unwrap().contains("no checksums"));
+
+    // The extracted cabinet opens as one.
+    let out = tempfile::tempdir().unwrap();
+    ops::extract(
+        &path,
+        out.path(),
+        &beezip_core::Selection::all(),
+        &native(),
+        FsOptions::default(),
+        &mut SimpleCtx::new(),
+    )
+    .unwrap();
+    let mut cab_r = open(&out.path().join("PCW_CAB_X.cab"), &native(), &mut cx)
+        .unwrap()
+        .reader;
+    let inside: Vec<String> = cab_r
+        .entries(&mut cx)
+        .unwrap()
+        .iter()
+        .map(|e| e.path.clone())
+        .collect();
+    assert_eq!(inside, ["payload.txt"]);
+}
+
+/// A patch's Info comes from its MsiPatchMetadata table and summary; another kind of compound
+/// file that reaches the reader by its name is listed the same way, with its CLSID.
+#[test]
+fn patches_and_other_compound_files_open() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("p.msp");
+    let mut pkg = Package::create(PackageType::Patch, new_file(&path)).unwrap();
+    pkg.create_table(
+        "MsiPatchMetadata",
+        vec![
+            Column::build("Company")
+                .primary_key()
+                .nullable()
+                .id_string(72),
+            Column::build("Property").primary_key().id_string(72),
+            Column::build("Value").text_string(0),
+        ],
+    )
+    .unwrap();
+    pkg.insert_rows(
+        Insert::into("MsiPatchMetadata")
+            .row(vec![Value::Null, s("DisplayName"), s("BeeZip test patch")])
+            .row(vec![Value::Null, s("Classification"), s("Update")])
+            .row(vec![Value::Null, s("AllowRemoval"), s("1")]),
+    )
+    .unwrap();
+    drop(pkg);
+    add_to_compound(
+        &path,
+        &[],
+        &[(&stream_path("PCW_CAB_A", false), &small_cab())],
+    );
+    let mut cx = SimpleCtx::new();
+    let mut opened = open(&path, &native(), &mut cx).unwrap();
+    let x = opened.reader.info(&mut cx).unwrap().external.unwrap();
+    assert_eq!(x.levels, ["msp"]);
+    let props: Vec<(&str, &str)> = x
+        .properties
+        .iter()
+        .map(|p| (p.name.as_str(), p.value.as_str()))
+        .collect();
+    assert!(
+        props.contains(&("DisplayName", "BeeZip test patch")),
+        "{props:?}"
+    );
+    assert!(props.contains(&("Classification", "Update")), "{props:?}");
+    assert!(
+        !props.iter().any(|(n, _)| *n == "AllowRemoval"),
+        "{props:?}"
+    );
+    let entries = opened.reader.entries(&mut cx).unwrap();
+    assert!(entries.iter().any(|e| e.path == "PCW_CAB_A.cab"));
+    assert!(entries.iter().any(|e| e.path == "!MsiPatchMetadata"));
+
+    // A Word document's CLSID: listed as its storages and streams, saying what it is.
+    let doc = dir.path().join("doc.msi");
+    let mut comp = cfb::create(&doc).unwrap();
+    let word = uuid::Uuid::parse_str("00020906-0000-0000-c000-000000000046").unwrap();
+    comp.set_storage_clsid("/", word).unwrap();
+    comp.create_stream("/WordDocument")
+        .unwrap()
+        .write_all(b"text")
+        .unwrap();
+    comp.flush().unwrap();
+    drop(comp);
+    let source = Source::new(&doc, Vec::new(), &native()).unwrap();
+    let mut r = beezip_core::format::msi::open(source, &mut cx).unwrap();
+    let x = r.info(&mut cx).unwrap().external.unwrap();
+    assert_eq!(x.levels, ["compound"]);
+    assert_eq!(x.properties[0].name, "CLSID");
+    assert_eq!(
+        x.properties[0].value,
+        "{00020906-0000-0000-c000-000000000046}"
+    );
+    let entries = r.entries(&mut cx).unwrap();
+    assert_eq!(entries.len(), 1);
+    assert_eq!(entries[0].path, "WordDocument");
+}
+
+/// The msi crate's empty patch, transform and merge module open, as their kinds.
+#[test]
+fn empty_patches_transforms_and_merge_modules_open() {
+    let dir = tempfile::tempdir().unwrap();
+    for (name, t, level) in [
+        ("patch.msp", PackageType::Patch, "msp"),
+        ("transform.mst", PackageType::Transform, "mst"),
+        ("module.msm", PackageType::Installer, "msm"),
+    ] {
+        let p = dir.path().join(name);
+        let mut pkg = Package::create(t, new_file(&p)).unwrap();
+        if level == "msm" {
+            pkg.create_table(
+                "ModuleSignature",
+                vec![
+                    Column::build("ModuleID").primary_key().id_string(72),
+                    Column::build("Language").primary_key().int16(),
+                    Column::build("Version").string(32),
+                ],
+            )
+            .unwrap();
+        }
+        drop(pkg);
+        let source = Source::new(&p, Vec::new(), &native()).unwrap();
+        let mut cx = SimpleCtx::new();
+        let mut r = beezip_core::format::msi::open(source, &mut cx).unwrap();
+        let x = r.info(&mut cx).unwrap().external.unwrap();
+        assert_eq!(x.levels[0], level, "{name}");
+        let report = r.test(&mut cx);
+        if let Some(report) = report {
+            assert!(report.unwrap().errors.is_empty(), "{name}");
         }
     }
 }
@@ -1345,12 +1806,103 @@ fn write_the_malicious_msis() {
     comp.flush().unwrap();
     drop(comp);
 
+    // docs/M11.md §8: patches, transforms and merge modules.
+    // A patch with names unsafe on disk: a packed `..` storage holding a file, a control
+    // character, `CON`.
+    let p = out.join("msp-names.msp");
+    drop(Package::create(PackageType::Patch, new_file(&p)).unwrap());
+    let dotdot = stream_path("..", false);
+    add_to_compound(
+        &p,
+        &[&dotdot],
+        &[
+            (&format!("{dotdot}/escaped.txt"), &b"out of reach\n"[..]),
+            ("/\u{2}ctl", b"a control character\n"),
+            ("/CON", b"a device's name\n"),
+        ],
+    );
+
+    // A patch with `/`, `\` and `:` in names, which MS-CFB forbids: written as other
+    // characters, then renamed in the directory.
+    let p = out.join("msp-slash.msp");
+    drop(Package::create(PackageType::Patch, new_file(&p)).unwrap());
+    add_to_compound(
+        &p,
+        &[],
+        &[
+            ("/aXb", b"slash"),
+            ("/cYd", b"backslash"),
+            ("/eZf", b"colon"),
+        ],
+    );
+    let mut bytes = fs::read(&p).unwrap();
+    for (from, to) in [("aXb", "a/b"), ("cYd", "c\\d"), ("eZf", "e:f")] {
+        let entry = dir_entry_size_at(&bytes, from) - 0x78;
+        for (i, u) in to.encode_utf16().enumerate() {
+            bytes[entry + i * 2..entry + i * 2 + 2].copy_from_slice(&u.to_le_bytes());
+        }
+    }
+    fs::write(&p, &bytes).unwrap();
+
+    // A transform 300 storages deep, with a stream at the bottom.
+    let p = out.join("mst-deep.mst");
+    drop(Package::create(PackageType::Transform, new_file(&p)).unwrap());
+    let mut comp = cfb::open_rw(&p).unwrap();
+    let mut at = String::new();
+    for _ in 0..300 {
+        at.push_str("/d");
+        comp.create_storage(&at).unwrap();
+    }
+    comp.create_stream(format!("{at}/bottom"))
+        .unwrap()
+        .write_all(b"300 deep\n")
+        .unwrap();
+    comp.flush().unwrap();
+    drop(comp);
+
+    // A transform of 2,000 streams.
+    let p = out.join("mst-many.mst");
+    drop(Package::create(PackageType::Transform, new_file(&p)).unwrap());
+    let mut comp = cfb::open_rw(&p).unwrap();
+    for i in 0..2000 {
+        comp.create_stream(format!("/s{i}"))
+            .unwrap()
+            .write_all(b"x")
+            .unwrap();
+    }
+    comp.flush().unwrap();
+    drop(comp);
+
+    // A transform with a stream whose directory entry claims 4 GiB.
+    let p = out.join("mst-claim.mst");
+    drop(Package::create(PackageType::Transform, new_file(&p)).unwrap());
+    add_to_compound(
+        &p,
+        &[],
+        &[("/claim", b"claims 4 GiB"), ("/fine", b"reads\n")],
+    );
+    let mut bytes = fs::read(&p).unwrap();
+    let at = dir_entry_size_at(&bytes, "claim");
+    bytes[at..at + 8].copy_from_slice(&0xFFFF_FFF0_u64.to_le_bytes());
+    fs::write(&p, &bytes).unwrap();
+
+    // Merge modules without their cabinet, and with a stream of its name that isn't one.
+    build_module(&out.join("msm-no-cab.msm"), ModuleCab::Missing);
+    build_module(&out.join("msm-not-cab.msm"), ModuleCab::NotACabinet);
+
     for name in [
         "deep.msi",
         "pool-4gib.msi",
         "catalog-nulls.msi",
         "stream-4gib.msi",
         "summary-2gib.msi",
+        "msp-names.msp",
+        "msp-slash.msp",
+        "mst-deep.mst",
+        "mst-many.mst",
+        "mst-claim.mst",
+        "msm-no-cab.msm",
+        "msm-not-cab.msm",
     ] {
         let len = fs::metadata(out.join(name)).unwrap().len();
         println!("{name}: {len} bytes");
@@ -1403,8 +1955,8 @@ fn real_installers_read_as_7zip_reads_them() {
         eprintln!("skipping: BEEZIP_MSI_SAMPLES isn't set");
         return;
     };
-    let mut samples: Vec<PathBuf> = fs::read_dir(dir)
-        .unwrap()
+    let mut samples: Vec<PathBuf> = std::env::split_paths(&dir)
+        .flat_map(|d| fs::read_dir(d).unwrap())
         .map(|e| e.unwrap().path())
         .filter(|p| p.extension().is_some_and(|e| e.eq_ignore_ascii_case("msi")))
         .collect();
@@ -1491,6 +2043,133 @@ fn real_installers_read_as_7zip_reads_them() {
             cx.warnings
         );
     }
+}
+
+/// 7-Zip's name for a path on Windows: what it writes in place of what a name can't hold.
+fn seven_zip_on_disk(path: &str) -> String {
+    if !cfg!(windows) {
+        return path.to_owned();
+    }
+    path.chars()
+        .map(|c| {
+            if "<>:\"|?*".contains(c) || (c as u32) < 32 {
+                '_'
+            } else {
+                c
+            }
+        })
+        .collect()
+}
+
+/// Every file under `dir`, by its path (`/`-separated), with its size and SHA-256.
+fn hashed_tree(dir: &Path) -> HashMap<String, (u64, String)> {
+    walkdir::WalkDir::new(dir)
+        .into_iter()
+        .map(Result::unwrap)
+        .filter(|e| e.file_type().is_file())
+        .map(|e| {
+            let data = fs::read(e.path()).unwrap();
+            let rel = e.path().strip_prefix(dir).unwrap();
+            (
+                rel.to_string_lossy().replace('\\', "/"),
+                (data.len() as u64, sha256(&data)),
+            )
+        })
+        .collect()
+}
+
+/// Runs `7z x` on `file` into `out`.
+fn seven_zip_x(seven: &Path, file: &Path, out: &Path) {
+    let status = std::process::Command::new(seven)
+        .args(["x", "-y", "-bso0", "-bsp0"])
+        .arg(format!("-o{}", out.display()))
+        .arg(file)
+        .status()
+        .unwrap();
+    assert!(status.success(), "7z x {}", file.display());
+}
+
+/// Every patch, transform and merge module under the folders `BEEZIP_MSI_SAMPLES` names
+/// (separated as PATH is, searched to any depth), against 7-Zip's extraction (docs/M11.md §8):
+/// each stream of a patch or transform has 7-Zip's bytes under 7-Zip's name (`.cab` added to a
+/// cabinet's); a merge module's files are those 7-Zip extracts from its `MergeModule.CABinet`,
+/// compared by their bytes since 7-Zip names them by their keys. The spike's samples, which
+/// can't be redistributed, stay in `target/m11-spikes/`:
+/// `cargo test --release --test msi -- --ignored real_patches`.
+#[test]
+#[ignore = "reads the samples named by BEEZIP_MSI_SAMPLES"]
+fn real_patches_transforms_and_modules_read_as_7zip_extracts_them() {
+    let Some(folders) = std::env::var_os("BEEZIP_MSI_SAMPLES") else {
+        eprintln!("skipping: BEEZIP_MSI_SAMPLES isn't set");
+        return;
+    };
+    let seven = beezip_core::backend::find(&SevenZipOptions::default())
+        .expect("BEEZIP_MSI_SAMPLES needs 7-Zip");
+    let mut samples: Vec<PathBuf> = std::env::split_paths(&folders)
+        .flat_map(walkdir::WalkDir::new)
+        .map(Result::unwrap)
+        .map(walkdir::DirEntry::into_path)
+        .filter(|p| {
+            p.extension().is_some_and(|e| {
+                ["msp", "mst", "msm"]
+                    .iter()
+                    .any(|x| e.eq_ignore_ascii_case(x))
+            })
+        })
+        .collect();
+    samples.sort();
+    let (mut streams, mut module_files) = (0usize, 0usize);
+    for path in &samples {
+        let mut cx = SimpleCtx::new();
+        let mut r = open(path, &native(), &mut cx)
+            .unwrap_or_else(|e| panic!("{}: {e}", path.display()))
+            .reader;
+        let levels = r.info(&mut cx).unwrap().external.unwrap().levels;
+        let mut ours = Hashes::default();
+        r.extract(&beezip_core::Selection::all(), &mut ours, &mut cx)
+            .unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+        let out = tempfile::tempdir().unwrap();
+        seven_zip_x(&seven.exe, path, out.path());
+        let theirs = hashed_tree(out.path());
+        if levels[0] == "msm" {
+            // The module's cabinet, as 7-Zip extracts it (an empty module has none).
+            let cab = out.path().join("MergeModule.CABinet");
+            let cab_out = tempfile::tempdir().unwrap();
+            if cab.exists() {
+                seven_zip_x(&seven.exe, &cab, cab_out.path());
+            }
+            let in_cab = hashed_tree(cab_out.path());
+            let mut want: Vec<&(u64, String)> = in_cab.values().collect();
+            let mut got: Vec<&(u64, String)> = ours
+                .0
+                .iter()
+                .filter(|(p, _)| !p.starts_with("[Binary]/") && !p.starts_with("[Icon]/"))
+                .map(|(_, h)| h)
+                .collect();
+            want.sort();
+            got.sort();
+            assert_eq!(got, want, "{}: the module's files", path.display());
+            module_files += got.len();
+        } else {
+            let mut ours_by_name: HashMap<String, &(u64, String)> = HashMap::new();
+            for (p, h) in &ours.0 {
+                ours_by_name.insert(seven_zip_on_disk(p), h);
+            }
+            for (p, h) in &theirs {
+                let got = ours_by_name
+                    .get(p)
+                    .or_else(|| ours_by_name.get(&format!("{p}.cab")));
+                assert_eq!(got, Some(&h), "{}: `{p}`", path.display());
+            }
+            assert_eq!(ours.0.len(), theirs.len(), "{}: streams", path.display());
+            streams += theirs.len();
+        }
+    }
+    println!(
+        "{} files: {streams} streams of patches and transforms and {module_files} files of \
+         merge modules as 7-Zip extracts them",
+        samples.len()
+    );
 }
 
 /// `deep.msi` keeps to its caps: each path within 4,096 bytes, the deep folders under their

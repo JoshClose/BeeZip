@@ -61,7 +61,7 @@ pub const CLI_GROUPS: &[(&str, &str)] = &[
         "Show and change BeeZip's settings (config.toml)",
     ),
     ("shell", "BeeZip's Explorer menu: what a click on it does"),
-    ("7zip", "7-Zip, which opens MSI patches for BeeZip"),
+    ("7zip", "7-Zip, which opens what BeeZip doesn't read itself"),
 ];
 
 /// A command: one input type and one output type, shared by every front end.

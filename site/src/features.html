@@ -39,12 +39,12 @@
 <ul>
   <li><strong>Reads and writes</strong> zip, 7z, tar, cpio, ar, CAB, ISO 9660 (with Joliet and Rock Ridge), squashfs and DMG, and tar and cpio under any compressor.</li>
   <li><strong>Reads</strong> RAR 1.5 to 7, Debian packages, RPMs, LHA, UDF, XAR and macOS packages, and ARJ, ACE, ZOO and ARC from the DOS days.</li>
-  <li><strong>Reads disks and installers:</strong> the virtual disks VHD, VHDX, VMDK, QCOW2 and VDI with their snapshots, GPT and MBR disks, FAT, NTFS, ext2/3/4, HFS+ and APFS volumes, and MSI installers, whose files are listed where they install.</li>
+  <li><strong>Reads disks and installers:</strong> the virtual disks VHD, VHDX, VMDK, QCOW2 and VDI with their snapshots, GPT and MBR disks, FAT, NTFS, ext2/3/4, HFS+ and APFS volumes, and MSI installers, whose files are listed where they install, with their patches, transforms and merge modules.</li>
   <li><strong>Reads Windows' install images:</strong> WIM, ESD and split WIMs, every file checked against its SHA-1, decoded on every core.</li>
   <li><strong>Reads CHM help files,</strong> a page at a time for a preview, while a double-click still opens the help.</li>
   <li><strong>Reads CramFS images</strong> of every layout Linux reads, holes, other block sizes and boot blocks too.</li>
   <li><strong>Reads NSIS installers,</strong> NSIS 2 and 3, with exact sizes and the uninstaller as the installer writes it.</li>
-  <li><strong>With 7-Zip 25.01 or newer installed,</strong> also reads MSI patches, transforms and merge modules. Every file still comes out through BeeZip's own extraction.</li>
+  <li><strong>With 7-Zip 25.01 or newer installed,</strong> also reads ESD images on Linux and macOS, and the few files BeeZip doesn't read itself. Every file still comes out through BeeZip's own extraction.</li>
   <li><strong>Compressors:</strong> gzip, zlib, bzip2, xz, lzma, lzip, Zstandard, LZ4, Brotli, Snappy, Unix compress and lzop, for single files and under tar and cpio.</li>
   <li><strong>Recognised by content,</strong> not by name: <code>download.bin</code> that's really a <code>.tar.zst</code> opens as one.</li>
   <li><strong>Split archives</strong> (<code>a.7z.001</code>, <code>a.part1.rar</code>, <code>a.zip.001</code>, and the old <code>.r00</code>, <code>.a01</code> and <code>.c00</code> sets) open from any part.</li>

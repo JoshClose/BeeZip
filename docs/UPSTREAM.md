@@ -173,7 +173,10 @@ files under `target/` exist only on the machine that found the bug. The mileston
 - **NTFS: clusters over 64 KiB read as damaged:** `BootSector::decode` (`src/fs/ntfs/boot.rs:70`)
   rejects the negative encoding of sectors per cluster (over 0x80) that such volumes use.
   - *Workaround:* BeeZip checks the boot sector first and makes those volumes
-    `UnsupportedOperation`, so 7-Zip reads them when it's installed.
+    `UnsupportedOperation`, so 7-Zip reads them when it's installed. M11 plans to patch a
+    vendored copy instead (`docs/M11.md` §6.3): about ten lines in `decode` and a `cluster_bytes`
+    field, checked in the spike on mkntfs volumes of 128 KiB to 2 MiB clusters, every file as
+    7-Zip extracts it.
 - **NTFS, found by reading the code and avoided rather than reproduced:**
   - `descend_index` (`src/fs/ntfs/mod.rs:667`) reads an index block as contiguous bytes from its
     first cluster, and `read_directory` (`:553`) assumes the root's first entry is at 16: BeeZip
@@ -233,6 +236,24 @@ files under `target/` exist only on the machine that found the bug. The mileston
   (`src/fs/ext/mod.rs:5226–5227`), bounded by BeeZip's group-count check, and `FileReader` reads
   one block per `read`, walking the extent tree again each time (`:5048–5085`), which BeeZip's
   own block map avoids.
+- **APFS: sealed volumes aren't recognised** (found in M11's planning, from reading the code and
+  Apple's reference): `APFS_INCOMPAT_SEALED_VOLUME` is tested as `0x80`
+  (`src/fs/apfs/mod.rs:782`), but Apple's *APFS Reference* and 7-Zip (`ApfsHandler.cpp:215`) give
+  `0x20`. So a sealed volume (macOS 11 and later's system volume, an IPSW's) isn't refused as
+  fstool means to, and is read without its file-extent tree, which holds a sealed volume's
+  extents: its files probably read wrong or empty. Not reproduced: there's no sealed sample here.
+  - *Check:* a volume superblock with `0x20` in `apfs_incompatible_features` opens through
+    `apple::open`; with `0x80` it's refused.
+  - *Workaround:* none yet. M11 plans to fix the constant in a vendored copy and read the
+    file-extent tree (`docs/M11.md` §6.3).
+- **HFS+: a catalog or attributes file in more than eight extents is refused**
+  (`ForkReader::from_inline`, `src/fs/hfs_plus/btree.rs:171`: "extents-overflow file is not
+  supported in v1"), though `from_inline_plus_overflow` (`:199`) is there. A long-used volume
+  fragments them. 7-Zip follows the overflow extents (`HfsHandler.cpp`).
+  - *Check:* a bare HFS+ volume whose catalog fork has more than eight extents goes to 7-Zip; in a
+    DMG it fails.
+  - *Workaround:* none yet (`UnsupportedOperation`). M11 plans to patch a vendored copy
+    (`docs/M11.md` §6.3).
 - **Its DMG layer caches one decoded chunk** (10 000 files took 25 s against 0.18 s) and caps a
   chunk at 8 GiB.
   - *Workaround:* BeeZip's own UDIF reader (`format/udif.rs`) behind fstool's `BlockDevice`.
@@ -299,6 +320,15 @@ files under `target/` exist only on the machine that found the bug. The mileston
   - *Check:* `tests/fixtures/make-7z.sh`'s `wixl.msi`: its `名前.txt` is listed by its key, `cjk`.
   - *Workaround:* none; the fixture's record names that file `cjk`, and the test packages with
     non-ASCII names are built by the `msi` crate in `tests/msi.rs`.
+- **With `<Package Compressed="no">` it writes no Media row and keeps the "compressed" bit.**
+  Seen while planning M11 (docs/M11.md §14): it fails its own assertion
+  (`wixl_msi_table_media_set_last_sequence: assertion 'rec != NULL' failed`), leaves the Media
+  table empty, and still writes word count 10 (bit 1, files compressed by default), so the
+  package names no source for its files.
+  - *Check:* `target/m11-spikes/made/v1/p.wxs` built with `wixl -D Compressed=no`, then
+    `msiinfo export u1.msi Media` (no rows) and `msiinfo suminfo u1.msi` (`Source: 10`).
+  - *Workaround:* `make-msi-extras.ps1` adds the Media row and sets the word count to 8 with
+    Windows Installer's own API before the SDK's patch tools read the images.
 
 ### qemu-img 8.2.2 (Ubuntu 24.04), which makes the virtual-disk fixtures
 
@@ -534,6 +564,12 @@ For M8's virtual disks, WOF and WIM (docs/M8.md §15, with repros in its spikes 
   and say the client needs .NET 8, while `Microsoft.ArtifactSigning.Client` 1.0.147+ needs .NET 10.
 - **APFS keeps a file's old name** when a rename replaces it under another case. That's how APFS
   works, not a bug; BeeZip removes the earlier name first.
+- **cfb 0.16.0 refuses a compound file with `/`, `\`, `:` or `!` in a name** ("Object name
+  cannot contain / character"), as MS-CFB §2.6.1 forbids those characters; 7-Zip lists such
+  names with `_`. Windows Installer never writes them, so BeeZip calls such a file damaged
+  (docs/M11.md §5.2). Not a bug.
+- **wixl 0.103 can't make merge modules** ("unhandled child Wix node Module"): a missing feature,
+  not a bug. M11's merge-module fixtures come from Windows Installer's own API instead.
 - **cfb 0.16.0's `Stream` can't move between threads** (its `flusher` is a `Box<dyn Flusher>`,
   `src/internal/stream.rs:29`): a design choice, not a bug. BeeZip's `CfbStream`
   (`format/msi/tables.rs`) reopens the stream for each read, under a mutex.

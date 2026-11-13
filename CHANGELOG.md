@@ -7,6 +7,21 @@ Write a new section as `## X.Y.Z`, with `###` groups and `- ` items, describing 
 using BeeZip will notice. Leave the date out: the Releases page dates each version by its
 `vX.Y.Z` tag.
 
+## 0.6.0
+
+### MSI patches, transforms and merge modules without 7-Zip
+
+- **Merge modules (`.msm`) list their files where they put them,** as an MSI does
+  (`SystemFolder/vcruntime140.dll`), checked against their hashes, where 7-Zip lists their
+  streams and names their files by internal keys. Info gives the module's ID, version and
+  language.
+- **Patches (`.msp`) and transforms (`.mst`) list their storages and streams as 7-Zip does**
+  (`!File`, `[5]SummaryInformation`), checked stream for stream against 7-Zip on 4 patches and
+  631 transforms. A patch's cabinets get `.cab` added to their names, so they open with a
+  double-click. Info gives a patch's name and description, and a transform's product codes and
+  versions.
+- **Transforms open:** BeeZip didn't recognise them before, through 7-Zip or otherwise.
+
 ## 0.5.0
 
 ### NSIS installers without 7-Zip

@@ -1537,9 +1537,9 @@ error: string | null, };
 export type SevenZipAction = "installed" | "updated" | "none";
 
 /**
- * The installed 7-Zip, which reads MSI patches for BeeZip (docs/M6.md §3), and what BeeZip's
- * own disk, MSI, WIM, CHM, CramFS and NSIS readers don't support (docs/M7.md to docs/M10.md):
- * an ESD on Linux and macOS, for one.
+ * The installed 7-Zip, which reads for BeeZip what its own disk, MSI, WIM, CHM, CramFS and
+ * NSIS readers don't support (docs/M6.md §3, docs/M7.md to docs/M11.md): an ESD on Linux and
+ * macOS, for one.
  */
 export type SevenZipConfig = {
 /**
@@ -1559,8 +1559,8 @@ enabled: boolean, };
 export type SevenZipFix = "install" | "update" | "download";
 
 /**
- * Install 7-Zip with winget, or update one older than 25.01, so BeeZip can open MSI
- * patches, transforms and merge modules. winget downloads 7-Zip's own
+ * Install 7-Zip with winget, or update one older than 25.01, so BeeZip can open the few
+ * files it doesn't read itself. winget downloads 7-Zip's own
  * installer and checks its hash; the installer asks for administrator rights. Windows only:
  * elsewhere, get 7-Zip 25.01 or newer (on Linux and macOS, 7-Zip's own `7zz`) from
  * https://7-zip.org/download.html.
@@ -2022,8 +2022,8 @@ export type CommandMap = {
    */
   "settings.set": { input: SettingsSetInput; output: SettingsSetOutput };
   /**
-   * Install 7-Zip with winget, or update one older than 25.01, so BeeZip can open MSI
-   * patches, transforms and merge modules. winget downloads 7-Zip's own
+   * Install 7-Zip with winget, or update one older than 25.01, so BeeZip can open the few
+   * files it doesn't read itself. winget downloads 7-Zip's own
    * installer and checks its hash; the installer asks for administrator rights. Windows only:
    * elsewhere, get 7-Zip 25.01 or newer (on Linux and macOS, 7-Zip's own `7zz`) from
    * https://7-zip.org/download.html.

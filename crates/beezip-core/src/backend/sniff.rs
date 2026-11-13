@@ -120,6 +120,9 @@ const COMPOUND: &[u8] = b"\xD0\xCF\x11\xE0\xA1\xB1\x1A\xE1";
 const MSI_PACKAGE: &[u8] = b"\x84\x10\x0C\x00\x00\x00\x00\x00\xC0\x00\x00\x00\x00\x00\x00\x46";
 /// A patch's, {000C1086-0000-0000-C000-000000000046}.
 const MSI_PATCH: &[u8] = b"\x86\x10\x0C\x00\x00\x00\x00\x00\xC0\x00\x00\x00\x00\x00\x00\x46";
+/// A transform's, {000C1082-0000-0000-C000-000000000046}, whether a file of its own or a
+/// storage in a package or patch (docs/M11.md §3.3).
+const MSI_TRANSFORM: &[u8] = b"\x82\x10\x0C\x00\x00\x00\x00\x00\xC0\x00\x00\x00\x00\x00\x00\x46";
 
 /// A Compound File (version 3 with 512-byte sectors, or 4 with 4 KiB ones) whose root entry,
 /// the first in its first directory sector, is a root storage with an installer's CLSID. An
@@ -143,8 +146,8 @@ fn msi(probe: &Probe<'_>) -> Option<Confidence> {
     match bytes_at(probe, (u64::from(dir) + 1) << shift, 128) {
         Some(root) => {
             let clsid = root.get(0x50..0x60)?;
-            (root.get(0x42) == Some(&5) && (clsid == MSI_PACKAGE || clsid == MSI_PATCH))
-                .then_some(Confidence::Certain)
+            let installer = [MSI_PACKAGE, MSI_PATCH, MSI_TRANSFORM].contains(&clsid);
+            (root.get(0x42) == Some(&5) && installer).then_some(Confidence::Certain)
         }
         None => named(probe, External::Msi).then_some(Confidence::Likely),
     }
@@ -761,6 +764,8 @@ mod tests {
         assert_eq!(sniffs(&msi), [(External::Msi, CERTAIN)]);
         let msp = compound(MSI_PATCH, 0, 1);
         assert_eq!(sniffs(&msp), [(External::Msi, CERTAIN)]);
+        let mst = compound(MSI_TRANSFORM, 0, 1);
+        assert_eq!(sniffs(&mst), [(External::Msi, CERTAIN)]);
         let doc = compound(WORD, 1, 2);
         assert_eq!(sniffs(&doc), []);
         let named = |data: &[u8], name: &'static str| {
@@ -790,16 +795,19 @@ mod tests {
         assert_eq!(sniff(External::Msi, &p), Some(CERTAIN));
         let p = Probe { tail: &[], ..p };
         assert_eq!(sniff(External::Msi, &p), None);
-        assert_eq!(
-            sniff(
-                External::Msi,
-                &Probe {
-                    name: Some("x.msm"),
-                    ..p
-                }
-            ),
-            Some(LIKELY)
-        );
+        for name in ["x.msm", "x.mst", "x.msp"] {
+            assert_eq!(
+                sniff(
+                    External::Msi,
+                    &Probe {
+                        name: Some(name),
+                        ..p
+                    }
+                ),
+                Some(LIKELY),
+                "{name}"
+            );
+        }
         let doc = compound(WORD, 200, 201);
         let p = Probe {
             head: &doc[..4096],
