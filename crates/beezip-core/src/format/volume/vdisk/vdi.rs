@@ -9,8 +9,10 @@
 //!   files beside the child and in the folder above ([`Files::find_vdi`]), and is the one whose
 //!   uuidCreate is the child's uuidLinkage. Its uuidModify must be the child's uuidParentModify
 //!   when that's set, or it changed after the child was made.
-//! - **Refused** (`UnsupportedOperation`): version 0 headers, undo images, extra bytes before
-//!   each block (`cbBlockExtra`: VirtualBox never writes them, and readers disagree on them).
+//! - **An undo image** (VirtualBox 1.x's, written by none since) is read alone, as 7-Zip reads it
+//!   (docs/M11.md §6.1): what it doesn't hold reads as zeros, and Info says so.
+//! - **Refused** (`UnsupportedOperation`): version 0 headers, extra bytes before each block
+//!   (`cbBlockExtra`: VirtualBox never writes them, and readers disagree on them).
 
 use super::{Files, Got, Handle, Layer, Origin, le32, le64};
 use crate::{Error, Result, backend::External};
@@ -72,10 +74,8 @@ impl Vdi {
     fn open(mut file: Handle) -> Result<Self> {
         let h = head(&mut file)?;
         let kind = le32(&h, 76);
-        match kind {
-            1 | 2 | 4 => {}
-            3 => return Err(Error::unsupported("vdi: an undo image")),
-            k => return Err(Error::corrupt(format!("vdi: image type {k}"))),
+        if !(1..=4).contains(&kind) {
+            return Err(Error::corrupt(format!("vdi: image type {kind}")));
         }
         let off_blocks = u64::from(le32(&h, 340));
         let off_data = u64::from(le32(&h, 344));
@@ -176,6 +176,7 @@ impl Layer for Vdi {
         let kind = match self.kind {
             1 => "Dynamic",
             2 => "Fixed",
+            3 => "Undo",
             _ => "Differencing",
         };
         out.push(("Method", kind.into()));
@@ -185,6 +186,16 @@ impl Layer for Vdi {
             out.push(("Parent ID", show(&self.linkage)));
         }
         out.push(("Allocated", self.allocated.to_string()));
+    }
+
+    fn notes(&self, out: &mut Vec<String>) {
+        if self.kind == 3 {
+            out.push(
+                "vdi: an undo image, read alone: what it doesn't hold reads as zeros, not as \
+                 the disk it was made over"
+                    .to_owned(),
+            );
+        }
     }
 }
 

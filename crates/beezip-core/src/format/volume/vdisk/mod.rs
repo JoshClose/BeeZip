@@ -11,7 +11,8 @@
 //!   identity its format records.
 //! - **Every size and offset is checked before it's used,** and a table is read only when the
 //!   file holds it, so memory is bounded by the files' size. A mapping that points past its file
-//!   is `Corrupt` when it's read.
+//!   is `Corrupt` when it's read. VHD's and VHDX's block tables, which may be gigabytes, are read
+//!   a page at a time ([`Paged`]).
 //! - **What a reader doesn't support** is `UnsupportedOperation`, which `source::open` hands to
 //!   7-Zip when it's installed; damage is `Corrupt`, and a parent that can't be found `NotFound`,
 //!   which 7-Zip couldn't read either.
@@ -29,6 +30,7 @@ pub mod vhdx;
 pub mod vmdk;
 
 use std::{
+    cell::RefCell,
     collections::VecDeque,
     io::{self, Read, Seek, SeekFrom},
 };
@@ -372,6 +374,105 @@ impl Layer for RawLayer {
 
     fn properties(&self, out: &mut Vec<(&'static str, String)>) {
         out.push(("Type", "raw".into()));
+    }
+}
+
+/// A table's entry: VHD's are 4 bytes, big-endian; VHDX's 8, little-endian.
+#[derive(Debug, Clone, Copy)]
+pub enum Width {
+    Be32,
+    Le64,
+}
+
+impl Width {
+    const fn bytes(self) -> u64 {
+        match self {
+            Self::Be32 => 4,
+            Self::Le64 => 8,
+        }
+    }
+
+    fn decode(self, b: &[u8]) -> u64 {
+        match self {
+            Self::Be32 => u64::from(be32(b, 0)),
+            Self::Le64 => le64(b, 0),
+        }
+    }
+}
+
+/// A table of `entries` entries at `at` in its file, read a page ([`PAGE`] bytes) at a time when
+/// one of its entries is wanted, a few pages kept (docs/M11.md §6.1). Opening walks the table
+/// with [`Paged::scan`], one page after another, without keeping it.
+pub struct Paged {
+    pub at: u64,
+    pub entries: u64,
+    width: Width,
+    pages: RefCell<Cache>,
+}
+
+/// A table page's bytes.
+pub const PAGE: u64 = 1 << 20;
+/// Table pages kept: 16 MiB.
+const PAGES: usize = 16;
+
+impl Paged {
+    pub fn new(at: u64, entries: u64, width: Width) -> Self {
+        Self {
+            at,
+            entries,
+            width,
+            pages: RefCell::new(Cache::new(PAGES)),
+        }
+    }
+
+    /// Entry `i`; its page is read by `read(at, buf)` when it isn't kept. `what` names the table.
+    pub fn get(
+        &self,
+        i: u64,
+        what: &str,
+        read: impl FnOnce(u64, &mut [u8]) -> Result<()>,
+    ) -> Result<u64> {
+        if i >= self.entries {
+            return Err(Error::corrupt(format!("{what}: a read past its end")));
+        }
+        let per = PAGE / self.width.bytes();
+        let page = i / per;
+        let mut pages = self
+            .pages
+            .try_borrow_mut()
+            .map_err(|_| Error::corrupt(format!("{what}: in use")))?;
+        if pages.get(page).is_none() {
+            let n = (self.entries - page * per).min(per) * self.width.bytes();
+            let at = self.at + page * PAGE;
+            pages.fill(page, usize::try_from(n).unwrap_or(0), |out| read(at, out))?;
+        }
+        let p = pages.get(page).unwrap_or(&[]);
+        let k = usize::try_from((i % per) * self.width.bytes()).unwrap_or(usize::MAX);
+        let w = usize::try_from(self.width.bytes()).unwrap_or(0);
+        Ok(p.get(k..k + w).map_or(0, |b| self.width.decode(b)))
+    }
+
+    /// Calls `each(i, entry)` for every entry in order, reading a page at a time through
+    /// `read(at, buf)`; stops at the first error.
+    pub fn scan(
+        &self,
+        mut read: impl FnMut(u64, &mut [u8]) -> Result<()>,
+        mut each: impl FnMut(u64, u64) -> Result<()>,
+    ) -> Result<()> {
+        let per = PAGE / self.width.bytes();
+        let w = usize::try_from(self.width.bytes()).unwrap_or(1);
+        let mut buf = Vec::new();
+        let mut first = 0u64;
+        while first < self.entries {
+            let n = (self.entries - first).min(per);
+            buf.resize(usize::try_from(n * self.width.bytes()).unwrap_or(0), 0);
+            read(self.at + first * self.width.bytes(), &mut buf)?;
+            for (k, e) in buf.chunks_exact(w).enumerate() {
+                each(first + k as u64, self.width.decode(e))?;
+            }
+            first += n;
+        }
+        Ok(())
     }
 }
 
