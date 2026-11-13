@@ -119,6 +119,12 @@ fn wim_claims_are_refused_or_read_within_limits() {
 /// damaged, at once; past it the image is refused before anything is allocated.
 #[test]
 fn wim_chunks_of_1_gib_are_held_to_decoder_memory() {
+    // Its metadata is LZMS (solid-xpress.wim's is): without wimlib, refused as it opens.
+    if !wim::lzms_available() {
+        let e = native("wim-chunk-1g.esd").err().unwrap();
+        assert_eq!(e.kind, ErrorKind::UnsupportedOperation, "{e}");
+        return;
+    }
     let t = Instant::now();
     let mut r = native("wim-chunk-1g.esd").unwrap();
     let (report, _) = exercise("wim-chunk-1g.esd", &mut *r);
