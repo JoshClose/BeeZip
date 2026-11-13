@@ -1,7 +1,7 @@
 #!/bin/bash
 # BeeZip's own installer as an NSIS sample (docs/M6.md §10, docs/M10.md §7): BeeZip detects it,
 # lists it, tests it and extracts it with its own reader, and gets the same files as `7z x`, and
-# the uninstaller, which 7-Zip leaves out of this installer. Run from the repository after
+# the uninstaller, which 7-Zip may leave out. Run from the repository after
 # `cargo xtask dist --debug`.
 set -euo pipefail
 
@@ -21,15 +21,15 @@ grep -q ': nsis' "$work/detect.txt" || { echo "not detected as an NSIS installer
 "$beezip" x "$setup" -o "$work/beezip" --overwrite always
 "$seven" x -sns- -y -o"$work/7z" "$setup" > /dev/null
 
-# The uninstaller: 7-Zip leaves it out (its guess at the installer's instruction layout marks
-# one of Tauri's instructions bad); BeeZip rebuilds it as WriteUninstaller writes it, and it's
-# an NSIS uninstaller.
+# The uninstaller: BeeZip rebuilds it as WriteUninstaller writes it, and it's an NSIS
+# uninstaller. 7-Zip leaves it out of some of BeeZip's installers (its guess at the instruction
+# layout marks one of Tauri's instructions bad) and writes it from others, such as CI's: where
+# 7-Zip writes it, the two must be the same file.
 un="$work/beezip/uninstall.exe"
 [ -f "$un" ] || { echo "no uninstall.exe" >&2; exit 1; }
-[ ! -e "$work/7z/uninstall.exe" ] || { echo "7-Zip wrote uninstall.exe too: drop this exception" >&2; exit 1; }
 "$beezip" info "$un" | tee "$work/un.txt"
 grep -q 'nsis kind: uninstaller' "$work/un.txt" || { echo "uninstall.exe isn't an NSIS uninstaller" >&2; exit 1; }
-rm "$un"
+[ -e "$work/7z/uninstall.exe" ] || rm "$un"
 
 hashes() { (cd "$1" && find . -type f -print0 | sort -z | xargs -0 sha256sum); }
 diff <(hashes "$work/beezip") <(hashes "$work/7z")
