@@ -336,7 +336,7 @@ fn a_cut_file_lists_whole_and_gives_what_is_left() {
 }
 
 #[test]
-fn what_beezip_does_not_read_goes_to_7zip() {
+fn layouts_nothing_reads_are_refused() {
     let s = Sample::new();
     let cases = [
         Layout {
@@ -348,19 +348,34 @@ fn what_beezip_does_not_read_goes_to_7zip() {
             ..Layout::default()
         },
         Layout {
-            lzxc_version: 3,
-            ..Layout::default()
-        },
-        Layout {
-            reset_version: 3,
-            ..Layout::default()
-        },
-        Layout {
             reset_entry_size: 4,
             ..Layout::default()
         },
         Layout {
             reset_block: 0x1_0000,
+            ..Layout::default()
+        },
+    ];
+    for l in cases {
+        let (_d, r) = open(&chm(&s.files(), &l));
+        let e = r.err().unwrap_or_else(|| panic!("{l:?} opened"));
+        assert_eq!(e.kind, ErrorKind::UnsupportedOperation, "{l:?}: {e}");
+    }
+}
+
+/// What 7-Zip reads and no compiler is known to write reads as 7-Zip reads it (docs/M11.md
+/// §6.1): `LZXC` and reset table version 3 as 2, another transform named in `Transform/List`
+/// (`LZXC` decides), a third section name.
+#[test]
+fn layouts_7zip_reads_read() {
+    let s = Sample::new();
+    let cases = [
+        Layout {
+            lzxc_version: 3,
+            ..Layout::default()
+        },
+        Layout {
+            reset_version: 3,
             ..Layout::default()
         },
         Layout {
@@ -378,8 +393,10 @@ fn what_beezip_does_not_read_goes_to_7zip() {
     ];
     for l in cases {
         let (_d, r) = open(&chm(&s.files(), &l));
-        let e = r.err().unwrap_or_else(|| panic!("{l:?} opened"));
-        assert_eq!(e.kind, ErrorKind::UnsupportedOperation, "{l:?}: {e}");
+        let mut r = r.unwrap_or_else(|e| panic!("{l:?}: {e}"));
+        let got = extract(&mut r);
+        assert_eq!(got["pages/a.htm"], Ok(s.big.clone()), "{l:?}");
+        assert_eq!(got["#SYSTEM"], Ok(s.sys.clone()), "{l:?}");
     }
 }
 

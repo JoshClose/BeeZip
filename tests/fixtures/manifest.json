@@ -18165,6 +18165,246 @@
       ]
     },
     {
+      "file": "cramfs/sevenzip-lzma.img",
+      "command": "crafted: flags 0x8003 (LZMA, 4 KiB blocks)",
+      "producer": "make-cramfs.sh (Python, as 7-Zip reads it)",
+      "chain": "cramfs",
+      "native": true,
+      "levels": [
+        "cramfs"
+      ],
+      "password": null,
+      "utc_mtimes": false,
+      "hardlinks": 0,
+      "symlinks": 0,
+      "others": 0,
+      "note": "BeeZip's own reader (docs/M10.md). The entries are the tree the image was made from (make-cramfs.sh); 7-Zip's own variant (docs/M11.md §6.1), which no other tool is known to write; 7-Zip 26.00 extracts the same files (checked by make-cramfs.sh).",
+      "entries": [
+        {
+          "path": "mixed.txt",
+          "kind": "file",
+          "size": 49890,
+          "sha256": "c31b243234a2a2337254d5e29753cf97a7d9940a73b6b902d4d2c0b6b4cede71"
+        },
+        {
+          "path": "small.txt",
+          "kind": "file",
+          "size": 6,
+          "sha256": "4c47b3e816fbe7d40cef9f665ba8f0be1ae68b5e8e7ed70f5b6bab7f70528e8f"
+        }
+      ]
+    },
+    {
+      "file": "cramfs/sevenzip-lzma-4k.img",
+      "command": "crafted: flags 0x8003",
+      "producer": "make-cramfs.sh (Python, as 7-Zip reads it)",
+      "chain": "cramfs",
+      "native": true,
+      "levels": [
+        "cramfs"
+      ],
+      "password": null,
+      "utc_mtimes": false,
+      "hardlinks": 0,
+      "symlinks": 0,
+      "others": 0,
+      "note": "BeeZip's own reader (docs/M10.md). The entries are the tree the image was made from (make-cramfs.sh); 7-Zip's own variant (docs/M11.md §6.1), which no other tool is known to write; 7-Zip 26.00 extracts the same files (checked by make-cramfs.sh).",
+      "entries": [
+        {
+          "path": "big.txt",
+          "kind": "file",
+          "size": 10240,
+          "sha256": "b86d05f79ee82967e9ed3814848052d6fb6117977a6707e3e336210980832153"
+        },
+        {
+          "path": "small.txt",
+          "kind": "file",
+          "size": 6,
+          "sha256": "4c47b3e816fbe7d40cef9f665ba8f0be1ae68b5e8e7ed70f5b6bab7f70528e8f"
+        }
+      ]
+    },
+    {
+      "file": "cramfs/sevenzip-lzma-512k.img",
+      "command": "crafted: flags 0xb803",
+      "producer": "make-cramfs.sh (Python, as 7-Zip reads it)",
+      "chain": "cramfs",
+      "native": true,
+      "levels": [
+        "cramfs"
+      ],
+      "password": null,
+      "utc_mtimes": false,
+      "hardlinks": 0,
+      "symlinks": 0,
+      "others": 0,
+      "note": "BeeZip's own reader (docs/M10.md). The entries are the tree the image was made from (make-cramfs.sh); 7-Zip's own variant (docs/M11.md §6.1), which no other tool is known to write; 7-Zip 26.00 extracts the same files (checked by make-cramfs.sh).",
+      "entries": [
+        {
+          "path": "big.txt",
+          "kind": "file",
+          "size": 1310720,
+          "sha256": "e27112d3993960a7a092daa6db646aa0a00bc79b6dd5d6486e6293738f142d52"
+        },
+        {
+          "path": "small.txt",
+          "kind": "file",
+          "size": 6,
+          "sha256": "4c47b3e816fbe7d40cef9f665ba8f0be1ae68b5e8e7ed70f5b6bab7f70528e8f"
+        }
+      ]
+    },
+    {
+      "file": "cramfs/sevenzip-lzma-64k.img",
+      "command": "crafted: flags 0xa003",
+      "producer": "make-cramfs.sh (Python, as 7-Zip reads it)",
+      "chain": "cramfs",
+      "native": true,
+      "levels": [
+        "cramfs"
+      ],
+      "password": null,
+      "utc_mtimes": false,
+      "hardlinks": 0,
+      "symlinks": 0,
+      "others": 0,
+      "note": "BeeZip's own reader (docs/M10.md). The entries are the tree the image was made from (make-cramfs.sh); 7-Zip's own variant (docs/M11.md §6.1), which no other tool is known to write; 7-Zip 26.00 extracts the same files (checked by make-cramfs.sh).",
+      "entries": [
+        {
+          "path": "big.txt",
+          "kind": "file",
+          "size": 163840,
+          "sha256": "428624bf6487fe0d396ffe06196285308e359130bc12491853d9e505c2e150fb"
+        },
+        {
+          "path": "small.txt",
+          "kind": "file",
+          "size": 6,
+          "sha256": "4c47b3e816fbe7d40cef9f665ba8f0be1ae68b5e8e7ed70f5b6bab7f70528e8f"
+        }
+      ]
+    },
+    {
+      "file": "cramfs/sevenzip-zlib-4k.img",
+      "command": "crafted: flags 0x4003",
+      "producer": "make-cramfs.sh (Python, as 7-Zip reads it)",
+      "chain": "cramfs",
+      "native": true,
+      "levels": [
+        "cramfs"
+      ],
+      "password": null,
+      "utc_mtimes": false,
+      "hardlinks": 0,
+      "symlinks": 0,
+      "others": 0,
+      "note": "BeeZip's own reader (docs/M10.md). The entries are the tree the image was made from (make-cramfs.sh); 7-Zip's own variant (docs/M11.md §6.1), which no other tool is known to write; 7-Zip 26.00 extracts the same files (checked by make-cramfs.sh).",
+      "entries": [
+        {
+          "path": "big.txt",
+          "kind": "file",
+          "size": 10240,
+          "sha256": "b86d05f79ee82967e9ed3814848052d6fb6117977a6707e3e336210980832153"
+        },
+        {
+          "path": "small.txt",
+          "kind": "file",
+          "size": 6,
+          "sha256": "4c47b3e816fbe7d40cef9f665ba8f0be1ae68b5e8e7ed70f5b6bab7f70528e8f"
+        }
+      ]
+    },
+    {
+      "file": "cramfs/sevenzip-zlib-512k.img",
+      "command": "crafted: flags 0x7803",
+      "producer": "make-cramfs.sh (Python, as 7-Zip reads it)",
+      "chain": "cramfs",
+      "native": true,
+      "levels": [
+        "cramfs"
+      ],
+      "password": null,
+      "utc_mtimes": false,
+      "hardlinks": 0,
+      "symlinks": 0,
+      "others": 0,
+      "note": "BeeZip's own reader (docs/M10.md). The entries are the tree the image was made from (make-cramfs.sh); 7-Zip's own variant (docs/M11.md §6.1), which no other tool is known to write; 7-Zip 26.00 extracts the same files (checked by make-cramfs.sh).",
+      "entries": [
+        {
+          "path": "big.txt",
+          "kind": "file",
+          "size": 1310720,
+          "sha256": "e27112d3993960a7a092daa6db646aa0a00bc79b6dd5d6486e6293738f142d52"
+        },
+        {
+          "path": "small.txt",
+          "kind": "file",
+          "size": 6,
+          "sha256": "4c47b3e816fbe7d40cef9f665ba8f0be1ae68b5e8e7ed70f5b6bab7f70528e8f"
+        }
+      ]
+    },
+    {
+      "file": "cramfs/sevenzip-zlib-64k.img",
+      "command": "crafted: flags 0x6003",
+      "producer": "make-cramfs.sh (Python, as 7-Zip reads it)",
+      "chain": "cramfs",
+      "native": true,
+      "levels": [
+        "cramfs"
+      ],
+      "password": null,
+      "utc_mtimes": false,
+      "hardlinks": 0,
+      "symlinks": 0,
+      "others": 0,
+      "note": "BeeZip's own reader (docs/M10.md). The entries are the tree the image was made from (make-cramfs.sh); 7-Zip's own variant (docs/M11.md §6.1), which no other tool is known to write; 7-Zip 26.00 extracts the same files (checked by make-cramfs.sh).",
+      "entries": [
+        {
+          "path": "big.txt",
+          "kind": "file",
+          "size": 163840,
+          "sha256": "428624bf6487fe0d396ffe06196285308e359130bc12491853d9e505c2e150fb"
+        },
+        {
+          "path": "small.txt",
+          "kind": "file",
+          "size": 6,
+          "sha256": "4c47b3e816fbe7d40cef9f665ba8f0be1ae68b5e8e7ed70f5b6bab7f70528e8f"
+        }
+      ]
+    },
+    {
+      "file": "cramfs/bit31.img",
+      "producer": "make-cramfs.sh (Python)",
+      "command": "crafted: a Linux image (zlib, 4 KiB blocks) with flag bit 31 set",
+      "chain": "cramfs",
+      "native": true,
+      "levels": [
+        "cramfs"
+      ],
+      "password": null,
+      "utc_mtimes": false,
+      "hardlinks": 0,
+      "symlinks": 0,
+      "others": 0,
+      "note": "BeeZip's own reader (docs/M10.md). The entries are the tree the image was made from (make-cramfs.sh); a flag Linux refuses, which BeeZip ignores with a warning, as 7-Zip ignores it (docs/M11.md §6.1).",
+      "entries": [
+        {
+          "path": "mixed.txt",
+          "kind": "file",
+          "size": 49890,
+          "sha256": "c31b243234a2a2337254d5e29753cf97a7d9940a73b6b902d4d2c0b6b4cede71"
+        },
+        {
+          "path": "small.txt",
+          "kind": "file",
+          "size": 6,
+          "sha256": "4c47b3e816fbe7d40cef9f665ba8f0be1ae68b5e8e7ed70f5b6bab7f70528e8f"
+        }
+      ]
+    },
+    {
       "file": "nsis/u-zlib.exe",
       "producer": "makensis 3.09 (Ubuntu 24.04 in Docker)",
       "command": "makensis -INPUTCHARSET UTF8 (Unicode true; SetCompressor zlib; see make-nsis.sh)",

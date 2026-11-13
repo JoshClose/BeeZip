@@ -53,6 +53,7 @@ sudo dnf install ./beezip-*.x86_64.rpm     # Fedora</code></pre>
     <h3 id="linux-needs">What it needs</h3>
     <ul>
       <li>64-bit x86 with glibc 2.35 or newer: Ubuntu 22.04, Debian 12 and later.</li>
+      <li>wimlib's library, to open ESD images: the <code>.deb</code> and <code>.rpm</code> recommend it, and <code>apt install wimtools</code> or <code>dnf install wimlib</code> installs it otherwise (<a href="docs/formats.html#wim">more</a>).</li>
       <li>Optionally 7-Zip 25.01 or newer, for the <a href="docs/formats.html#through-7-zip">formats read through it</a>: 7-Zip's own <code>7zz</code> from <a href="https://7-zip.org/download.html">7-zip.org</a>, since distributions' packages are usually older.</li>
     </ul>
   </section>
@@ -70,6 +71,7 @@ sudo dnf install ./beezip-*.x86_64.rpm     # Fedora</code></pre>
     <h3 id="macos-needs">What it needs</h3>
     <ul>
       <li>A Mac with Apple silicon, on macOS 11 or newer.</li>
+      <li>wimlib, to open ESD images: <code>brew install wimlib</code> (<a href="docs/formats.html#wim">more</a>).</li>
       <li>Optionally 7-Zip 25.01 or newer (<code>7zz</code>, from <a href="https://7-zip.org/download.html">7-zip.org</a>), for the <a href="docs/formats.html#through-7-zip">formats read through it</a>.</li>
     </ul>
   </section>

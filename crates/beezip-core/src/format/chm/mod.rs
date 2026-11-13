@@ -368,8 +368,8 @@ impl Inner {
                     end,
                 }))
             }
-            n => Err(Error::unsupported(format!(
-                "chm: a file in section {n}; BeeZip reads one compressed section"
+            n => Err(bad(format!(
+                "a file in section {n}; BeeZip reads sections 0 and 1"
             ))),
         }
     }

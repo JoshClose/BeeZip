@@ -13,6 +13,9 @@ empty folder, five links, a character and a block device, a FIFO and a socket. T
 | `pad.img` | mkfs.cramfs `-p` | after a 512-byte boot block (7-Zip can't open it) |
 | `b16k.img` | mkfs.cramfs `-b 16384` | 16 KiB blocks (7-Zip: "Unsupported Method") |
 | `ext-ptrs.img` | make-cramfs.sh | Linux 4.15's extended block pointers: stored, direct stored, direct compressed and plain blocks |
-| `sevenzip-lzma.img` | make-cramfs.sh | 7-Zip's own LZMA variant, which BeeZip hands to 7-Zip; no record |
+| `sevenzip-lzma.img` | make-cramfs.sh | 7-Zip's own variant ("Modified CramFS"): LZMA, 4 KiB blocks |
+| `sevenzip-{lzma,zlib}-{4k,64k,512k}.img` | make-cramfs.sh | the same variant, LZMA and zlib, blocks of 4, 64 and 512 KiB |
+| `bit31.img` | make-cramfs.sh | flag bit 31 set, which BeeZip and 7-Zip ignore |
 
-7-Zip 26.00 extracts the same files from `le.img` and `be.img` (checked by the script).
+7-Zip 26.00 extracts the same files from `le.img`, `be.img` and the variant's images (checked by the
+script).

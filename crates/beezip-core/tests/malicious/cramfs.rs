@@ -99,3 +99,14 @@ fn cramfs_claims_fail_their_files_only() {
     let mut r = native("cramfs-files-4g.cramfs").unwrap();
     assert!(r.test(&mut SimpleCtx::new()).unwrap().unwrap().ok());
 }
+
+/// 7-Zip's variant with an LZMA block claiming a 4 GiB dictionary: held to the block's size, so
+/// it reads at once without allocating what it claims (docs/M11.md §8).
+#[test]
+fn cramfs_lzma_dictionary_claims_are_held_to_the_block() {
+    let t = Instant::now();
+    let mut r = native("cramfs-lzma-dict.cramfs").unwrap();
+    let report = r.test(&mut SimpleCtx::new()).unwrap().unwrap();
+    assert!(report.ok(), "{:?}", report.errors);
+    assert!(t.elapsed() < Duration::from_secs(2));
+}

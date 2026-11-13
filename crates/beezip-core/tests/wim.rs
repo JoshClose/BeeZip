@@ -41,7 +41,11 @@ pub fn lzms_here() -> bool {
 
 /// The WIM at `path`, through BeeZip's own reader (never 7-Zip), on `threads` workers.
 fn native(path: &Path, threads: u32) -> beezip_core::Result<Box<dyn ArchiveReader>> {
-    let opts = OpenOptions::default().with_threads(threads);
+    let mut opts = OpenOptions::default().with_threads(threads);
+    // chunk-256m.esd's 65 MiB of zeros take 48 bytes: past the ratio limit, as they should be.
+    if path.file_name().is_some_and(|n| n == "chunk-256m.esd") {
+        opts.limits.max_ratio = None;
+    }
     let source = Source::new(path, Vec::new(), &opts)?;
     wim::open(source, &mut SimpleCtx::new())
 }

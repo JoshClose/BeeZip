@@ -34,6 +34,12 @@
 #   check.wim             small, XPRESS, with an integrity table (--check)
 #   none.wim              small, stored
 #   split.swm, split2.swm the tree in LZX, split in two parts
+#   chunk-256m.esd        solid LZMS in chunks of 256 MiB, of a tree whose 65 MiB of zeros fill
+#                         one chunk past the 64 MiB BeeZip read before M11 (docs/M11.md §6.1)
+#   xpress2-flag.wim      xpress.wim with the header's later XPRESS flag (0x200000), crafted
+#   clookup.wim           xpress.wim with its lookup table flagged compressed (one chunk, stored)
+#   spanned.wim           xpress.wim with every data resource flagged spanned, which wimlib and
+#                         7-Zip ignore
 #   ntfs.wim              rich.img captured by wimlib's NTFS capture (libntfs-3g), LZX: streams,
 #                         hard links, symlinks, a junction, a WSL symlink, a WIMBoot (WOF) file,
 #                         EFS flags, Interix files; without compressed/random.bin,
@@ -54,6 +60,7 @@
 #                           metadata's SHA-1 redone)
 #   wim-solid-1tb.esd       solid-xpress.wim's solid resource claims 1 TB of data
 #   wim-chunk-back.wim      xpress.wim's text.txt: its chunk table goes back
+#   wim-chunk-1g.esd        solid-xpress.wim's solid resource in chunks of 1 GiB, claiming 2 GiB
 # and three inputs the M8 spike's fuzzer found (target/m8-spikes/wim/repro/), copied as they
 # are, not made here: wim-spike-panic.wim (a stored solid chunk shorter than it says, which
 # panicked the prototype), wim-spike-hang.wim (each blob decoding its 64 MiB chunk again) and
@@ -136,6 +143,14 @@ open(f'{W}/extra/noise.bin', 'wb').write(rnd.randbytes(1500))
 for n in os.listdir(f'{W}/extra'):
     os.utime(f'{W}/extra/{n}', (E, E))
 os.utime(f'{W}/empty', (E, E))
+# More than 64 MiB that compresses to nothing, for chunks past the size BeeZip once capped.
+os.makedirs(f'{W}/big')
+with open(f'{W}/big/zeros-65m.bin', 'wb') as f:
+    f.truncate(65 * 1024 * 1024 + 1)
+open(f'{W}/big/readme.txt', 'wb').write(b'hello, beezip!\n')
+for n in os.listdir(f'{W}/big'):
+    os.utime(f'{W}/big/{n}', (E, E))
+os.utime(f'{W}/big', (E, E))
 PY
 
     cd "$W"
@@ -169,6 +184,7 @@ PY
         > "$W/ntfs.cfg"
     cp /fixtures/thirdparty/ntfs/rich.img "$W/rich.img"
     cap "$W/rich.img" "$out/ntfs.wim" Rich --compress=LZX --config="$W/ntfs.cfg"
+    cap big "$out/chunk-256m.esd" Big --solid --solid-chunk-size=268435456
 
     # The GUIDs, fixed; the expected contents, from the trees; the damaged images.
     python3 -I - "$out" "$mal" "$W" <<'PY'
@@ -180,9 +196,13 @@ def set_guid(path, n):
         f.seek(24)
         f.write(uuid.UUID(f'6d7a6970-6265-457a-8970-{n:012x}').bytes_le)
 
-names = sorted(f for f in os.listdir(out) if f.endswith(('.wim', '.esd', '.swm')))
+# M11's images get GUIDs of their own, so the others' stay as they were.
+M11 = ['chunk-256m.esd']
+names = sorted(f for f in os.listdir(out) if f.endswith(('.wim', '.esd', '.swm')) and f not in M11)
 for i, f in enumerate(names):
     set_guid(os.path.join(out, f), 0x500 + (0 if f.startswith('split') else i + 1))
+for i, f in enumerate(M11):
+    set_guid(os.path.join(out, f), 0x5F0 + i)
 
 def listing(root):
     """What the folder at `root` holds: every entry under it, as BeeZip should list it."""
@@ -208,7 +228,7 @@ def listing(root):
     return rows
 
 roots = {'tree': 'tree', 'sub': 'tree/sub', 'small': 'small', 'empty': 'empty',
-         'extra': 'extra'}
+         'extra': 'extra', 'big': 'big'}
 trees = {name: listing(os.path.join(W, path)) for name, path in roots.items()}
 fixtures = [
     {'file': 'xpress.wim', 'images': ['tree'], 'method': 'XPRESS'},
@@ -229,6 +249,10 @@ fixtures = [
     {'file': 'none.wim', 'images': ['small'], 'method': 'Store'},
     {'file': 'split.swm', 'images': ['tree'], 'method': 'LZX', 'parts': 2},
     {'file': 'split2.swm', 'images': ['tree'], 'method': 'LZX', 'parts': 2},
+    {'file': 'chunk-256m.esd', 'images': ['big'], 'method': 'LZMS', 'lzms': True, 'solid': 1},
+    {'file': 'xpress2-flag.wim', 'images': ['tree'], 'method': 'XPRESS'},
+    {'file': 'clookup.wim', 'images': ['tree'], 'method': 'XPRESS'},
+    {'file': 'spanned.wim', 'images': ['tree'], 'method': 'XPRESS'},
 ]
 manifest = {
     'note': 'Made by tests/fixtures/make-wim.sh. `trees` is what each source folder holds, read '
@@ -252,6 +276,23 @@ def res(b, at):
 def lookup(b):
     size, flags, off, orig = res(b, 48)
     return [(off + i, *res(b, off + i), b[off + i + 30:off + i + 50]) for i in range(0, size, 50)]
+
+# ---- Variants 7-Zip reads and no writer is known for (docs/M11.md §6.1), from xpress.wim.
+x = open(os.path.join(out, 'xpress.wim'), 'rb').read()
+# The header's later XPRESS flag, 0x200000, in place of 0x20000.
+b = bytearray(x)
+struct.pack_into('<I', b, 16, (u32(b, 16) & ~0x20000) | 0x200000)
+open(os.path.join(out, 'xpress2-flag.wim'), 'wb').write(b)
+# The lookup table flagged compressed: one chunk, as long as its data, so stored.
+b = bytearray(x)
+b[55] |= 0x4
+open(os.path.join(out, 'clookup.wim'), 'wb').write(b)
+# Every data resource flagged spanned.
+b = bytearray(x)
+for e in lookup(b):
+    if not e[2] & 2:
+        b[e[0] + 7] |= 0x8
+open(os.path.join(out, 'spanned.wim'), 'wb').write(b)
 
 # A folder list met twice: sub/nested's list is the root's.
 b = bytearray(open(os.path.join(out, 'none.wim'), 'rb').read())
@@ -294,11 +335,18 @@ _, size, flags, off, orig, _ = e
 assert flags & 4 and orig > 3 * 32768, (flags, orig)
 struct.pack_into('<I', b, off + 4, u32(b, off) - 1)
 open(os.path.join(mal, 'wim-chunk-back.wim'), 'wb').write(b)
-for f in names:
+
+# A solid resource in chunks of 1 GiB, claiming 2 GiB: each chunk takes 1 GiB of
+# `decoder_memory` to decode.
+b = bytearray(open(os.path.join(out, 'solid-xpress.wim'), 'rb').read())
+solid = next(e for e in lookup(b) if e[2] & 0x10 and e[4] == 1 << 32)
+struct.pack_into('<QI', b, solid[3], 2 << 30, 1 << 30)
+open(os.path.join(mal, 'wim-chunk-1g.esd'), 'wb').write(b)
+for f in names + M11:
     assert os.path.getsize(os.path.join(out, f)) < 100_000, f
 PY
     chown -R "${HOST_IDS:-0:0}" "$out" "$mal"/wim-folder-loop.wim "$mal"/wim-solid-1tb.esd \
-        "$mal"/wim-chunk-back.wim || true
+        "$mal"/wim-chunk-back.wim "$mal"/wim-chunk-1g.esd || true
     exit 0
 fi
 

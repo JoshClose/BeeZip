@@ -668,7 +668,7 @@ fn what_it_doesnt_read_is_unsupported() {
         let path = write(tmp.path(), name, &bytes);
         reader(&path, 1).err().map(|e| e.kind)
     };
-    // Another version; wimlib's pipable layout; unknown compression flags; a spanned resource.
+    // Another version; wimlib's pipable layout; unknown compression flags.
     assert_eq!(
         refused("v.wim", &|b| b[12..16]
             .copy_from_slice(&0x10900u32.to_le_bytes())),
@@ -683,15 +683,14 @@ fn what_it_doesnt_read_is_unsupported() {
             .copy_from_slice(&0x10_0002u32.to_le_bytes())),
         Some(ErrorKind::UnsupportedOperation)
     );
+    // A spanned resource: the flag is ignored, as 7-Zip ignores it (docs/M11.md §6.1).
     let lookup = built.lookup as usize;
-    assert_eq!(
-        refused("s.wim", &|b| b[lookup + 7] |= 0x8),
-        Some(ErrorKind::UnsupportedOperation)
-    );
-    // A compressed lookup table, which no writer makes.
+    assert_eq!(refused("s.wim", &|b| b[lookup + 7] |= 0x8), None);
+    // A lookup table flagged compressed in an image that isn't is damage; in a compressed one
+    // it reads (thirdparty/wim/clookup.wim).
     assert_eq!(
         refused("c.wim", &|b| b[55] |= 0x4),
-        Some(ErrorKind::UnsupportedOperation)
+        Some(ErrorKind::Corrupt)
     );
     // A lookup table past the file's end is damage.
     assert_eq!(

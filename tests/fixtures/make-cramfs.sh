@@ -20,14 +20,21 @@
 #   pad.img           after a 512-byte boot block (-p), which 7-Zip can't open
 #   b16k.img          16 KiB blocks (-b 16384), whose files of more than 4 KiB 7-Zip fails as
 #                     "Unsupported Method"
-# and two crafted here, since no tool on Linux writes them:
+# and crafted here, since no tool on Linux writes them:
 #   ext-ptrs.img      Linux 4.15's extended block pointers: a stored block, a direct stored one,
 #                     a direct compressed one, then plain ones after them
-#   sevenzip-lzma.img 7-Zip's own variant, LZMA blocks with a method in flag bits 14-15: BeeZip
-#                     hands it to 7-Zip (docs/M10.md §5.3), so it has no record here
+#   sevenzip-lzma.img 7-Zip's own variant ("Modified CramFS", docs/M11.md §6.1): flag bits 11-13
+#                     a block size of 4 KiB shifted by them, 14-15 the method; LZMA blocks of
+#                     4 KiB, each its properties, its size and a raw stream
+#   sevenzip-{lzma,zlib}-{4k,64k,512k}.img  the same variant, LZMA and zlib (method 1), with
+#                     blocks of 4, 64 and 512 KiB (sevenzip-lzma-4k.img is sevenzip-lzma.img's
+#                     layout with this tree)
+#   bit31.img         a Linux image with flag bit 31 set, which BeeZip and 7-Zip ignore
+# and malicious/cramfs-lzma-dict.cramfs: the variant's LZMA block claiming a 4 GiB dictionary.
 #
 # The records' entries come from the tree the images were made from, not from 7-Zip, which
-# reads few of them; le.img and be.img are checked against what 7-Zip extracts from them.
+# reads few of them; le.img, be.img and the variant's images are checked against what 7-Zip
+# extracts from them.
 set -euo pipefail
 
 # ---------------------------------------------------------------------------------------------
@@ -35,6 +42,7 @@ set -euo pipefail
 if [ "${1:-}" = --inside ]; then
     export LANG=C.UTF-8 LC_ALL=C.UTF-8 TZ=UTC
     out=/fixtures/thirdparty/cramfs
+    mal=/fixtures/malicious
     W=/work/tree
     rm -rf "$out" /work
     mkdir -p "$out" "$W"
@@ -88,9 +96,9 @@ PY
     mk pad.img -p
     mk b16k.img -b 16384
 
-    python3 -I - "$out" "$W" <<'PY'
+    python3 -I - "$out" "$W" "$mal" <<'PY'
 import hashlib, json, lzma, os, stat, struct, sys, zlib
-out, W = sys.argv[1:3]
+out, W, mal = sys.argv[1:4]
 
 # The tree's entries, as the records list them.
 entries = []
@@ -121,14 +129,14 @@ UNC, DIRECT = 1 << 31, 1 << 30
 def inode(mode, size, namelen, offset):
     return struct.pack('<III', mode, size, (namelen // 4) | (offset // 4) << 6)
 
-def image(files, flags, blocks):
+def image(files, flags, blocks, blk=BLK):
     names = [n.encode() + b'\0' * (-len(n.encode()) % 4) for n, _ in files]
     dir_at = 76
     dir_len = sum(12 + len(n) for n in names)
     at = dir_at + dir_len
     blobs, offsets = [], []
     for name, data in files:
-        count = -(-len(data) // BLK)
+        count = -(-len(data) // blk)
         tab, body = blocks(data, at + 4 * count)
         blob = tab + body
         blob += b'\0' * (-len(blob) % 4)
@@ -178,33 +186,73 @@ def ext_mixed(data, data_at):
             tab += struct.pack('<I', pos)
     return tab, body
 
-def seven_lzma(data, data_at):
+def seven_lzma(blk=BLK, dict_size=None):
     """7-Zip's variant: per block, LZMA's properties, the block's size, then raw LZMA."""
-    tab, body, end = b'', b'', data_at
-    for i in range(0, len(data), BLK):
-        b = data[i:i + BLK]
-        alone = lzma.compress(b, format=lzma.FORMAT_ALONE)
-        rec = alone[:5] + struct.pack('<I', len(b)) + alone[13:]
-        body += rec
-        end += len(rec)
-        tab += struct.pack('<I', end)
-    return tab, body
+    def blocks(data, data_at):
+        tab, body, end = b'', b'', data_at
+        for i in range(0, len(data), blk):
+            b = data[i:i + blk]
+            alone = lzma.compress(b, format=lzma.FORMAT_ALONE)
+            props = alone[:5] if dict_size is None else alone[:1] + struct.pack('<I', dict_size)
+            rec = props + struct.pack('<I', len(b)) + alone[13:]
+            body += rec
+            end += len(rec)
+            tab += struct.pack('<I', end)
+        return tab, body
+    return blocks
+
+def seven_zlib(blk):
+    """7-Zip's variant with zlib: plain zlib blocks of its block size."""
+    def blocks(data, data_at):
+        tab, body, end = b'', b'', data_at
+        for i in range(0, len(data), blk):
+            c = zlib.compress(data[i:i + blk], 9)
+            body += c
+            end += len(c)
+            tab += struct.pack('<I', end)
+        return tab, body
+    return blocks
+
+def plain(data, data_at):
+    """Linux's own layout: zlib blocks of 4 KiB."""
+    return seven_zlib(BLK)(data, data_at)
+
+def entries_of(files):
+    return [{'path': n, 'kind': 'file', 'size': len(d), 'sha256': hashlib.sha256(d).hexdigest()}
+            for n, d in files]
 
 text = b''.join(b'cramfs line %d\n' % i for i in range(3000))
 crafted = [('mixed.txt', text), ('small.txt', b'small\n')]
 open(os.path.join(out, 'ext-ptrs.img'), 'wb').write(image(crafted, 1 | 2 | 0x800, ext_mixed))
-open(os.path.join(out, 'sevenzip-lzma.img'), 'wb').write(image(crafted, 1 | 2 | 2 << 14, seven_lzma))
-crafted_tree = [{'path': n, 'kind': 'file', 'size': len(d), 'sha256': hashlib.sha256(d).hexdigest()}
-                for n, d in crafted]
+open(os.path.join(out, 'sevenzip-lzma.img'), 'wb').write(image(crafted, 1 | 2 | 2 << 14, seven_lzma()))
+open(os.path.join(out, 'bit31.img'), 'wb').write(image(crafted, 1 | 2 | 1 << 31, plain))
 
-json.dump({'tree': tree, 'crafted': crafted_tree},
+# 7-Zip's variant at three block sizes, each image holding a file of two and a half blocks.
+period = b''.join(b'variant line %d of a repeating text\n' % i for i in range(97))
+variants = {}
+for shift in (0, 4, 7):
+    blk = BLK << shift
+    big = (period * (blk * 5 // 2 // len(period) + 1))[:blk * 5 // 2]
+    files = [('big.txt', big), ('small.txt', b'small\n')]
+    for method, name, blocks in ((2, 'lzma', seven_lzma(blk)), (1, 'zlib', seven_zlib(blk))):
+        f = 'sevenzip-%s-%dk.img' % (name, blk // 1024)
+        open(os.path.join(out, f), 'wb').write(
+            image(files, 1 | 2 | shift << 11 | method << 14, blocks, blk))
+        variants[f] = {'flags': hex(1 | 2 | shift << 11 | method << 14), 'entries': entries_of(files)}
+
+# Malicious: the variant's LZMA block claiming a 4 GiB dictionary (BeeZip holds it to the block).
+os.makedirs(mal, exist_ok=True)
+open(os.path.join(mal, 'cramfs-lzma-dict.cramfs'), 'wb').write(
+    image(crafted, 1 | 2 | 2 << 14, seven_lzma(dict_size=0xFFFFFFFF)))
+
+json.dump({'tree': tree, 'crafted': entries_of(crafted), 'variants': variants},
           open('/work/records.json', 'w', encoding='utf-8'), ensure_ascii=False)
 for f in sorted(os.listdir(out)):
     size = os.path.getsize(os.path.join(out, f))
     assert size < 100_000, (f, size)
 PY
     cp /work/records.json "$out/records.json"
-    chown -R "${HOST_IDS:-0:0}" "$out" || true
+    chown -R "${HOST_IDS:-0:0}" "$out" "$mal/cramfs-lzma-dict.cramfs" || true
     exit 0
 fi
 
@@ -228,13 +276,17 @@ for n in le be; do
     # Links 7-Zip calls dangerous make it exit 2; the files are still written.
     "$sz" x -y -bso0 -bsp0 -bse0 -o"$(host "$tmp/$n")" "$(host "$out/$n.img")" || true
 done
+for f in "$out"/sevenzip-*.img; do
+    n=$(basename "$f" .img)
+    "$sz" x -y -bso0 -bsp0 -bse0 -o"$(host "$tmp/$n")" "$(host "$f")"
+done
 python -I - "$(host "$here")" "$(host "$tmp")" "$("$sz" i | grep -m1 -o '7-Zip[^:]*[0-9][0-9]*\.[0-9]*')" <<'PY'
 import hashlib, json, os, sys
 here, tmp, seven = sys.argv[1:4]
 out = os.path.join(here, 'thirdparty', 'cramfs')
 rec = json.load(open(os.path.join(out, 'records.json'), encoding='utf-8'))
 os.remove(os.path.join(out, 'records.json'))
-tree, crafted = rec['tree'], rec['crafted']
+tree, crafted, variants = rec['tree'], rec['crafted'], rec['variants']
 
 # 7-Zip for Windows writes a CramFS name's bytes in the OEM code page (437 here). The 248-byte
 # name is past Windows' 260-character paths.
@@ -251,6 +303,12 @@ for n in ('le', 'be'):
         p = seven_name(n, e['path'])
         got = hashlib.sha256(open(p, 'rb').read()).hexdigest()
         assert got == e['sha256'], (n, e['path'])
+# 7-Zip's variant, against 7-Zip.
+for f, v in list(variants.items()) + [('sevenzip-lzma.img', {'entries': crafted})]:
+    for e in v['entries']:
+        p = os.path.join(tmp, f[:-4], e['path'])
+        got = hashlib.sha256(open(p, 'rb').read()).hexdigest()
+        assert got == e['sha256'], (f, e['path'])
 
 producer = 'mkfs.cramfs 2.39.3 (util-linux, Ubuntu 24.04 in Docker)'
 NOTE = ("BeeZip's own reader (docs/M10.md). The entries are the tree the image was made from "
@@ -287,6 +345,24 @@ records.append(dict({
     'utc_mtimes': False,
 }, **counts(crafted), note=NOTE + "Linux 4.15's extended block pointers, which no tool on Linux "
    'writes and 7-Zip 26.00 reads as a block size.', entries=crafted))
+SEVEN = ("7-Zip's own variant (docs/M11.md §6.1), which no other tool is known to write; %s "
+         'extracts the same files (checked by make-cramfs.sh).' % seven)
+crafted_variant = dict(producer='make-cramfs.sh (Python, as 7-Zip reads it)', chain='cramfs',
+                       native=True, levels=['cramfs'], password=None, utc_mtimes=False)
+records.append(dict({'file': 'cramfs/sevenzip-lzma.img',
+                     'command': 'crafted: flags 0x8003 (LZMA, 4 KiB blocks)'}, **crafted_variant,
+                    **counts(crafted), note=NOTE + SEVEN, entries=crafted))
+for f, v in sorted(variants.items()):
+    records.append(dict({'file': 'cramfs/' + f, 'command': 'crafted: flags ' + v['flags']},
+                        **crafted_variant, **counts(v['entries']), note=NOTE + SEVEN,
+                        entries=v['entries']))
+records.append(dict({
+    'file': 'cramfs/bit31.img', 'producer': 'make-cramfs.sh (Python)',
+    'command': 'crafted: a Linux image (zlib, 4 KiB blocks) with flag bit 31 set',
+    'chain': 'cramfs', 'native': True, 'levels': ['cramfs'], 'password': None,
+    'utc_mtimes': False,
+}, **counts(crafted), note=NOTE + 'a flag Linux refuses, which BeeZip ignores with a warning, as '
+   '7-Zip ignores it (docs/M11.md §6.1).', entries=crafted))
 
 manifest_path = os.path.join(here, 'manifest.json')
 manifest = json.load(open(manifest_path, encoding='utf-8'))
@@ -312,9 +388,12 @@ empty folder, five links, a character and a block device, a FIFO and a socket. T
 | `pad.img` | mkfs.cramfs `-p` | after a 512-byte boot block (7-Zip can't open it) |
 | `b16k.img` | mkfs.cramfs `-b 16384` | 16 KiB blocks (7-Zip: "Unsupported Method") |
 | `ext-ptrs.img` | make-cramfs.sh | Linux 4.15's extended block pointers: stored, direct stored, direct compressed and plain blocks |
-| `sevenzip-lzma.img` | make-cramfs.sh | 7-Zip's own LZMA variant, which BeeZip hands to 7-Zip; no record |
+| `sevenzip-lzma.img` | make-cramfs.sh | 7-Zip's own variant ("Modified CramFS"): LZMA, 4 KiB blocks |
+| `sevenzip-{lzma,zlib}-{4k,64k,512k}.img` | make-cramfs.sh | the same variant, LZMA and zlib, blocks of 4, 64 and 512 KiB |
+| `bit31.img` | make-cramfs.sh | flag bit 31 set, which BeeZip and 7-Zip ignore |
 
-%s extracts the same files from `le.img` and `be.img` (checked by the script).
+%s extracts the same files from `le.img`, `be.img` and the variant's images (checked by the
+script).
 ''' % seven
 open(os.path.join(out, 'README.md'), 'w', encoding='utf-8', newline='\n').write(readme)
 print(len(records), 'records;', len(tree), 'entries in the tree')

@@ -18,6 +18,11 @@
 #                       zeros: several reset intervals, and a last frame whose LZX runs past
 #                       section 1's stated end
 #   halibut.chm         a Halibut document of four chapters: Halibut's own LZX encoder
+#   lzxc-v3.chm, reset-v3.chm, transform-guid.chm, section-renamed.chm
+#                       chmcmd-chunks.chm with its LZX control data, then its reset table, as
+#                       version 3, its Transform/List naming another GUID, and its compressed
+#                       section named MSCompressee: crafted, since no compiler is known to write
+#                       them, and read as 7-Zip reads them (docs/M11.md §6.1)
 #   expected.json       every file 7-Zip extracts from each (path, size, SHA-256): the oracle
 #                       BeeZip's reader is checked against (crates/beezip-core/tests/chm.rs). The
 #                       chmcmd trees' own files are checked against it first, here.
@@ -154,6 +159,41 @@ for f in sorted(os.listdir(out)):
                 p += 4 + n
     open(path, 'wb').write(d)
     assert len(d) < 100_000, (f, len(d))
+
+# Variants 7-Zip reads and no compiler is known to write (docs/M11.md §6.1).
+base = open(os.path.join(out, 'chmcmd-chunks.chm'), 'rb').read()
+where = {name: (at, ln) for name, s, at, ln in entries(base) if s == 0}
+CD = b'::DataSpace/Storage/MSCompressed/ControlData'
+RT = (b'::DataSpace/Storage/MSCompressed/Transform/{7FC28940-9D31-11D0-9B27-00A0C91E9C7C}'
+      b'/InstanceData/ResetTable')
+TL = b'::DataSpace/Storage/MSCompressed/Transform/List'
+
+def variant(name, edit):
+    d = bytearray(base)
+    edit(d)
+    open(os.path.join(out, name), 'wb').write(d)
+
+variant('lzxc-v3.chm', lambda d: struct.pack_into('<I', d, where[CD][0] + 8, 3))
+variant('reset-v3.chm', lambda d: struct.pack_into('<I', d, where[RT][0], 3))
+
+def other_transform(d):
+    at, ln = where[TL]
+    g = '7FC28940'.encode('utf-16-le')
+    i = d.find(g, at, at + ln)
+    assert i >= 0
+    d[i:i + len(g)] = '7FC28941'.encode('utf-16-le')
+variant('transform-guid.chm', other_transform)
+
+def renamed(d):
+    # Every MSCompressed, in the directory's names (UTF-8) and in the NameList (UTF-16): same
+    # length, so the listing chunks keep their layout.
+    for old, new in ((b'MSCompressed', b'MSCompressee'),
+                     ('MSCompressed'.encode('utf-16-le'), 'MSCompressee'.encode('utf-16-le'))):
+        i = d.find(old)
+        while i >= 0:
+            d[i:i + len(old)] = new
+            i = d.find(old, i + 1)
+variant('section-renamed.chm', renamed)
 PY
     chown -R "${HOST_IDS:-0:0}" "$out" || true
     exit 0
@@ -189,6 +229,8 @@ producers = {
     'chmcmd-big.chm': 'chmcmd 3.2.2 (Free Pascal, Ubuntu 24.04 in Docker)',
     'halibut.chm': 'Halibut 1.3 (Ubuntu 24.04 in Docker)',
 }
+for v in ('lzxc-v3.chm', 'reset-v3.chm', 'transform-guid.chm', 'section-renamed.chm'):
+    producers[v] = "make-chm.sh, crafted from chmcmd-chunks.chm"
 fixtures = {}
 for f in sorted(os.listdir(out)):
     if not f.endswith('.chm'):
@@ -201,7 +243,8 @@ for f in sorted(os.listdir(out)):
             rel = os.path.relpath(p, root).replace(os.sep, '/')
             data = open(p, 'rb').read()
             files[rel] = {'size': len(data), 'sha256': hashlib.sha256(data).hexdigest()}
-    tree = {'chmcmd-chunks.chm': 'chunks', 'chmcmd-big.chm': 'big'}.get(f)
+    tree = 'chunks' if 'crafted' in producers[f] else {
+        'chmcmd-chunks.chm': 'chunks', 'chmcmd-big.chm': 'big'}.get(f)
     for rel, want in trees.get(tree, {}).items():
         assert files.get(rel) == want, (f, rel, files.get(rel), want)
     fixtures[f] = {

@@ -5,6 +5,7 @@
 //!   redone, so the image opens).
 //! - `wim-solid-1tb.esd`: a solid resource that claims 1 TB of data.
 //! - `wim-chunk-back.wim`: `text.txt`'s chunk table goes back.
+//! - `wim-chunk-1g.esd`: a solid resource in chunks of 1 GiB, claiming 2 GiB (docs/M11.md §8).
 //! - `wim-spike-panic.wim`: a stored solid chunk shorter than it says (the prototype panicked).
 //! - `wim-spike-hang.wim`: an LZMS solid chunk that doesn't decode, held by every blob (the
 //!   prototype decoded it again for each).
@@ -112,4 +113,23 @@ fn wim_claims_are_refused_or_read_within_limits() {
         }
         Err(e) => assert_eq!(e.kind, ErrorKind::UnsupportedOperation),
     }
+}
+
+/// Chunks of 1 GiB, which WIM allows since M11: within `decoder_memory` they're decoded and found
+/// damaged, at once; past it the image is refused before anything is allocated.
+#[test]
+fn wim_chunks_of_1_gib_are_held_to_decoder_memory() {
+    let t = Instant::now();
+    let mut r = native("wim-chunk-1g.esd").unwrap();
+    let (report, _) = exercise("wim-chunk-1g.esd", &mut *r);
+    assert!(!report.ok());
+    assert!(t.elapsed() < Duration::from_secs(10), "{:?}", t.elapsed());
+
+    let small = OpenOptions::new(Limits {
+        decoder_memory: 256 << 20,
+        ..Limits::default()
+    });
+    let source = Source::new(&corpus("wim-chunk-1g.esd"), Vec::new(), &small).unwrap();
+    let e = wim::open(source, &mut SimpleCtx::new()).err().unwrap();
+    assert_eq!(e.kind, ErrorKind::LimitExceeded, "{e}");
 }

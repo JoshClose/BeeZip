@@ -283,8 +283,8 @@ impl Default for JobsConfig {
 }
 
 /// The installed 7-Zip, which reads for BeeZip what its own disk, MSI, WIM, CHM, CramFS and
-/// NSIS readers don't support (docs/M6.md §3, docs/M7.md to docs/M11.md): an ESD on Linux and
-/// macOS, for one.
+/// NSIS readers don't support (docs/M6.md §3, docs/M7.md to docs/M11.md): an NTFS volume of
+/// clusters over 64 KiB, for one.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
 #[serde(default)]
 pub struct SevenZipConfig {

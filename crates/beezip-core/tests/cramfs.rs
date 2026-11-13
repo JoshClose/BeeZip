@@ -1,7 +1,7 @@
 //! BeeZip's own CramFS reader (docs/M10.md) on `tests/fixtures/thirdparty/cramfs/`, made by
 //! `tests/fixtures/make-cramfs.sh` with mkfs.cramfs (whose files `fixtures.rs` checks through
-//! their records): what Info says of each, 7-Zip's own variant handed to 7-Zip, and cut images.
-//! Then real images against 7-Zip, opt-in.
+//! their records): what Info says of each, 7-Zip's own variant and an unknown flag read
+//! (docs/M11.md §6.1), and cut images. Then real images against 7-Zip, opt-in.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
@@ -13,7 +13,7 @@ use std::{
 
 use beezip_core::{
     ArchiveReader, Ctx, Entry, EntryKind, EntrySink, ErrorKind, OpenOptions, Selection,
-    SevenZipOptions, SimpleCtx, format::cramfs, open, source::Source,
+    SevenZipOptions, SimpleCtx, format::cramfs, source::Source,
 };
 use sha2::{Digest, Sha256};
 
@@ -114,45 +114,48 @@ fn info_says_how_each_fixture_was_made() {
     }
 }
 
+/// 7-Zip's own variant reads natively, LZMA and zlib, at every block size it allows; a method
+/// nothing defines is refused; a flag above bit 15 is ignored with a warning.
 #[test]
-fn sevenzips_own_variant_goes_to_7zip() {
-    let path = fixtures().join("sevenzip-lzma.img");
-    let err = native(&path).err().unwrap();
-    assert_eq!(err.kind, ErrorKind::UnsupportedOperation, "{err}");
-    assert!(err.message.contains("flags Linux doesn't know"), "{err}");
-
-    // Without 7-Zip, the error says what BeeZip couldn't read.
-    let off = OpenOptions::default().with_seven_zip(SevenZipOptions {
-        path: None,
-        enabled: false,
-    });
-    let err = open(&path, &off, &mut SimpleCtx::new()).err().unwrap();
-    assert_eq!(err.kind, ErrorKind::BackendUnavailable);
-    assert!(
-        err.message
-            .starts_with("BeeZip can't read this one itself (its superblock sets flags"),
-        "{}",
-        err.message
-    );
-
-    // With it, 7-Zip reads it, and Info says why.
-    if beezip_core::backend::find(&SevenZipOptions::default()).is_err() {
-        return;
+fn sevenzips_own_variant_reads() {
+    for (file, method) in [
+        ("sevenzip-lzma.img", "LZMA"),
+        ("sevenzip-lzma-512k.img", "LZMA"),
+        ("sevenzip-zlib-64k.img", "zlib"),
+    ] {
+        let mut r = native(&fixtures().join(file)).unwrap();
+        let info = r.info(&mut SimpleCtx::new()).unwrap();
+        assert_eq!(info.methods, [method], "{file}");
+        let files = extract(&mut *r);
+        assert_eq!(files["small.txt"], Ok(b"small\n".to_vec()), "{file}");
+        assert!(files.values().all(Result::is_ok), "{file}");
     }
+
+    let dir = tempfile::tempdir().unwrap();
+    let mut img = std::fs::read(fixtures().join("sevenzip-lzma.img")).unwrap();
+    // Method 3, which 7-Zip lists and can't extract.
+    img[9] |= 0xC0;
+    let p = dir.path().join("method3.img");
+    std::fs::write(&p, &img).unwrap();
+    let err = native(&p).err().unwrap();
+    assert_eq!(err.kind, ErrorKind::UnsupportedOperation, "{err}");
+    assert!(err.message.contains("method 3"), "{err}");
+
+    // Flag bit 31 on a Linux image: read, with a warning.
+    let source = Source::new(
+        &fixtures().join("bit31.img"),
+        Vec::new(),
+        &OpenOptions::default(),
+    )
+    .unwrap();
     let mut cx = SimpleCtx::new();
-    let mut opened = open(&path, &OpenOptions::default(), &mut cx).unwrap();
-    let info = opened.reader.info(&mut cx).unwrap();
-    let x = info.external.unwrap();
-    assert!(x.backend.is_some());
+    let mut r = cramfs::open(source, &mut cx).unwrap();
     assert!(
-        x.notes
-            .iter()
-            .any(|n| n.contains("BeeZip can't read this one itself")),
+        cx.warnings.iter().any(|w| w.contains("0x80000000")),
         "{:?}",
-        x.notes
+        cx.warnings
     );
-    let files = extract(&mut *opened.reader);
-    assert_eq!(files["small.txt"], Ok(b"small\n".to_vec()));
+    assert!(extract(&mut *r).values().all(Result::is_ok));
 }
 
 #[test]
