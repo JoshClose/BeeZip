@@ -22,6 +22,18 @@ using BeeZip will notice. Leave the date out: the Releases page dates each versi
   versions.
 - **Transforms open:** BeeZip didn't recognise them before, through 7-Zip or otherwise.
 
+### ESD images on Linux and macOS, and what only 7-Zip read
+
+- **ESD images and LZMS WIMs open on Linux and macOS** through wimlib's library, loaded only
+  when one is opened, as Windows' own decoder is on Windows: `apt install wimtools`,
+  `dnf install wimlib` or `brew install wimlib`. The `.deb` and `.rpm` recommend it. Without
+  it, opening an ESD says what to install.
+- **QCOW version 1 images** (`qemu-img -O qcow`) open: plain, compressed or with a backing file.
+  7-Zip reads only the uncompressed ones.
+- **7-Zip's own CramFS variant** opens: LZMA or zlib, with blocks of 4 to 512 KiB.
+- **WIM chunks of up to 1 GiB**, which wimlib writes on request, and CHM help files and WIM
+  images with layouts no tool is known to write, read as 7-Zip reads them.
+
 ## 0.5.0
 
 ### NSIS installers without 7-Zip

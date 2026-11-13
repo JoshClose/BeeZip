@@ -45,12 +45,12 @@
 </ul>
 
 <h2 id="wim">WIM and ESD images</h2>
-<p>BeeZip reads Windows' install images itself: WIM, ESD and split WIMs (<code>.swm</code>, opened from any part), stored or compressed with XPRESS, LZX or LZMS, solid or not. LZMS, which ESD images use, is decoded by Windows' own decoder, so on Linux and macOS an ESD goes to 7-Zip.</p>
+<p>BeeZip reads Windows' install images itself: WIM, ESD and split WIMs (<code>.swm</code>, opened from any part), stored or compressed with XPRESS, LZX or LZMS, solid or not. LZMS, which ESD images use, is decoded by Windows' own decoder, and on Linux and macOS by wimlib's library, which BeeZip loads when it's installed: <code>apt install wimtools</code> on Debian and Ubuntu, <code>dnf install wimlib</code> on Fedora, <code>brew install wimlib</code> on macOS (BeeZip's <code>.deb</code> and <code>.rpm</code> recommend it). Without it, opening an ESD says what to install.</p>
 <ul>
   <li><strong>Images</strong> are folders <code>1/</code>, <code>2/</code>, as 7-Zip names them; an image file with one image lists it at the top. Info gives the images' names.</li>
   <li><strong>Every file is checked</strong> against the SHA-1 the image records as it's read, and testing also checks the image's integrity table when it has one.</li>
   <li><strong>Hard links</strong> are listed as links, alternate streams as <code>file:stream</code>, and links and junctions as NTFS's are. A link Windows rewrote when it captured the image (a target inside the captured folder) points inside the image again.</li>
-  <li><strong>Large images extract in parallel:</strong> chunks decode on every core, as <code>[extract] threads</code> allows.</li>
+  <li><strong>Large images extract in parallel:</strong> chunks decode on every core, as <code>[extract] threads</code> allows. Chunks of up to 1 GiB, which wimlib writes on request, read within <code>decoder_memory</code>.</li>
 </ul>
 
 <h2 id="chm">CHM help files</h2>
@@ -59,7 +59,7 @@
   <li><strong>The listing</strong> is 7-Zip's: the help's pages, images and folders, and its own files (<code>#SYSTEM</code>, <code>$OBJINST</code>…). Info gives its title, language and compiler.</li>
   <li><strong>A CHM stores no checksums,</strong> so testing one shows that every file can be read, not that it's intact.</li>
   <li><strong>A file cut short</strong> still lists whole, and every file before the cut comes out; the rest are reported as cut short.</li>
-  <li><strong>What BeeZip doesn't read itself</strong> (a help file compressed with something other than LZX, say) goes to 7-Zip when it's installed, and Info says so.</li>
+  <li><strong>Layouts no compiler is known to write,</strong> which 7-Zip reads, read too: a compressed section under another name, and version 3 of its control data or reset table.</li>
 </ul>
 
 <h2 id="cramfs">CramFS images</h2>
@@ -69,7 +69,7 @@
   <li><strong>The listing</strong> is 7-Zip's: folders, files and links, with their permissions. CramFS stores no times. Devices, FIFOs and sockets are listed, and skipped when extracting.</li>
   <li><strong>Testing checks the image's CRC,</strong> and that every file decodes.</li>
   <li><strong>An image cut short</strong> still lists whole, and every file before the cut comes out; the rest are reported as cut short.</li>
-  <li><strong>7-Zip's own LZMA variant</strong>, which Linux doesn't read, goes to 7-Zip when it's installed, and Info says so.</li>
+  <li><strong>7-Zip's own variant</strong>, which Linux doesn't read, reads too: LZMA or zlib, with blocks of 4 to 512 KiB.</li>
 </ul>
 
 <h2 id="nsis">NSIS installers</h2>
@@ -83,7 +83,7 @@
 </ul>
 
 <h2 id="through-7-zip">What goes through 7-Zip</h2>
-<p>With <a href="https://7-zip.org">7-Zip</a> 25.01 or newer installed, BeeZip also lists, tests and extracts ESD images and WIMs compressed with LZMS on Linux and macOS, and the few files of other formats that use something BeeZip doesn't read itself.</p>
+<p>With <a href="https://7-zip.org">7-Zip</a> 25.01 or newer installed, BeeZip also lists, tests and extracts the few files of other formats that use something BeeZip doesn't read itself, such as an NTFS volume of clusters over 64 KiB.</p>
 <ul>
   <li><strong>7-Zip only reads:</strong> every file streams from it through BeeZip's own extraction, with the same safety rules as every other format.</li>
   <li><strong>Finding 7-Zip:</strong> BeeZip looks in the registry, on PATH and in Program Files, or uses <code>seven_zip.path</code> in <a href="settings.html#seven-zip">Settings</a>. Without it, these formats are still recognised, and opening one says what to install.</li>

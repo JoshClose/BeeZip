@@ -370,20 +370,37 @@ fn a_block_size_settles_by_most_files() {
 }
 
 #[test]
-fn flags_linux_doesnt_know_go_to_7zip() {
+fn flags_linux_doesnt_know_read_as_7zip_reads_them() {
     let s = Sample::new();
-    // 7-Zip's LZMA variant: method 2 in bits 14–15.
+    // 7-Zip's variant with zlib (method 1 in bits 14–15) and 4 KiB blocks (bits 11–13 clear):
+    // the same blocks Linux's layout has, so every file reads.
     let built = cramfs(
         &s.tree(),
         &Layout {
-            flags: 2 << 14,
+            flags: 1 << 14,
             ..Layout::default()
         },
     );
     let (_d, r) = open(&built.image);
-    let e = r.err().unwrap();
-    assert_eq!(e.kind, ErrorKind::UnsupportedOperation, "{e}");
-    assert!(e.message.contains("0x8000"), "{e}");
+    let got = extract(&mut r.unwrap());
+    for (p, data) in s.files() {
+        assert_eq!(got.get(&p), Some(&Ok(data)), "{p}");
+    }
+    // A flag above bit 15: ignored, with a warning.
+    let built = cramfs(
+        &s.tree(),
+        &Layout {
+            flags: 1 << 20,
+            ..Layout::default()
+        },
+    );
+    let (_d, r, cx) = open_with(&built.image, &OpenOptions::default());
+    assert!(r.is_ok());
+    assert!(
+        cx.warnings.iter().any(|w| w.contains("0x100000")),
+        "{:?}",
+        cx.warnings
+    );
 }
 
 #[test]

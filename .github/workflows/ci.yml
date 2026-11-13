@@ -115,11 +115,12 @@ jobs:
       BEEZIP_REQUIRE_GNU_TAR: "1"      # and without GNU tar
       BEEZIP_REQUIRE_LINUX_TOOLS: "1"  # gzip, lzop, uncompress, cpio, ar, xorriso and unsquashfs check BeeZip's output (docs/M5.md §10, docs/M6.md §10)
       BEEZIP_REQUIRE_7Z_BACKEND: "1"   # the 7-Zip backend's tests fail instead of skipping without 7zz (docs/M6.md §3)
+      BEEZIP_REQUIRE_LZMS: "1"         # the LZMS images fail instead of being refused without wimlib (docs/M11.md §6.2)
     steps:
       - uses: actions/checkout@v7
       - run: rustup toolchain install
-      - name: The Linux tools the interop tests run
-        run: sudo apt-get update -q && sudo apt-get install -y -q --no-install-recommends lzop ncompress cpio binutils squashfs-tools xorriso
+      - name: The Linux tools the interop tests run, and wimlib's library for LZMS
+        run: sudo apt-get update -q && sudo apt-get install -y -q --no-install-recommends lzop ncompress cpio binutils squashfs-tools xorriso libwim15t64
       - name: 7-Zip's own Linux build, 26.00 (Ubuntu's 7zip is 23.01, too old for the backend)
         run: |
           curl -fsSL -o "$RUNNER_TEMP/7z.tar.xz" https://www.7-zip.org/a/7z2600-linux-x64.tar.xz
@@ -233,8 +234,12 @@ jobs:
         with: { node-version: 24, cache: pnpm, cache-dependency-path: apps/desktop/pnpm-lock.yaml }
       - name: clippy
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - name: wimlib, whose library BeeZip loads to read LZMS (docs/M11.md §6.2)
+        run: brew install wimlib
       - name: test
         run: cargo test --workspace --locked
+        env:
+          BEEZIP_REQUIRE_LZMS: "1"
       - name: pnpm install
         working-directory: apps/desktop
         run: pnpm install --frozen-lockfile

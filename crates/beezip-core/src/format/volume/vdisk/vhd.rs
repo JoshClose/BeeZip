@@ -1,9 +1,10 @@
 //! VHD, from Microsoft's Virtual Hard Disk Image Format Specification (docs/M8.md §3.1), read
 //! only.
 //!
-//! - **The footer** is the file's last 512 bytes (511 from Virtual PC before 2004): `conectix`,
-//!   the one's-complement checksum, version 1.0. A dynamic or differencing disk whose last footer
-//!   is damaged uses its copy at the start, with a note in Info.
+//! - **The footer** is the file's last 512 bytes (511 from Virtual PC before 2004): `conectix`
+//!   and the one's-complement checksum. Its version, 1.0 in every VHD known, isn't checked, nor
+//!   the dynamic header's, as 7-Zip checks neither (docs/M11.md §6.1). A dynamic or differencing
+//!   disk whose last footer is damaged uses its copy at the start, with a note in Info.
 //! - **The size** is the footer's current size, as Windows reads it: a disk qemu-img rounded up to
 //!   its geometry reads zeros past the raw image, as qemu reads it.
 //! - **A fixed disk** is the file's first bytes.
@@ -15,23 +16,21 @@
 //! - **The parent** is looked for by its relative path (`W2ru`), its absolute path (`W2ku`) and
 //!   the Parent Unicode Name, in that order, by [`Files`]' rules. It must be a VHD whose unique id
 //!   is the child's Parent Unique ID; the parent's time stamp isn't checked (Hyper-V writes 0).
-//! - **Refused** (`UnsupportedOperation`, so 7-Zip may try): a footer or dynamic header version
-//!   other than 1.0, a disk type other than fixed, dynamic or differencing, blocks over 256 MiB, a
-//!   block table over 2^24 entries.
+//! - **Blocks** of 512 bytes to 2 GiB, the most the header can say; a block is read from the file
+//!   where it is, never held whole. **The block table** is read a page at a time ([`Paged`]),
+//!   whatever its size.
+//! - **Refused** (`UnsupportedOperation`): a disk type other than fixed, dynamic or
+//!   differencing.
 //! - **Blocks past the file's end** read as zeros, counted in Info, as M7 reads a truncated
 //!   image.
 
 use std::cell::RefCell;
 
-use super::{Files, Got, Handle, Layer, Origin, be32, be64};
+use super::{Files, Got, Handle, Layer, Origin, Paged, Width, be32, be64};
 use crate::{Error, Result, backend::External};
 
 /// A block table entry for a block that isn't in the file.
 const UNUSED: u32 = 0xFFFF_FFFF;
-/// The most block table entries read: 64 MiB of table, 32 TiB of 2 MiB blocks.
-const MAX_BAT: u64 = 1 << 24;
-/// The largest block read; the specification's default is 2 MiB.
-const MAX_BLOCK: u64 = 256 << 20;
 /// The longest parent locator read.
 const MAX_LOCATOR: u64 = 64 << 10;
 /// Seconds from 1970 to 2000-01-01, where a VHD's time stamps start.
@@ -203,7 +202,8 @@ pub struct Vhd {
     size: u64,
     block: u64,
     bitmap_len: u64,
-    bat: Vec<u32>,
+    /// The block table, read a page at a time.
+    bat: Paged,
     /// Where the disk's data ends: the footer's start.
     data_end: u64,
     parent_id: [u8; 16],
@@ -219,13 +219,6 @@ impl Vhd {
         let (footer, data_end, from_copy) = find_footer(&mut file)?.ok_or_else(|| {
             Error::corrupt("vhd: no valid footer at the file's end, nor a copy at its start")
         })?;
-        if footer.version != 0x0001_0000 {
-            return Err(Error::unsupported(format!(
-                "vhd: version {}.{}; BeeZip reads 1.0",
-                footer.version >> 16,
-                footer.version & 0xFFFF
-            )));
-        }
         let kind = match footer.kind {
             2 => Kind::Fixed,
             3 => Kind::Dynamic,
@@ -246,7 +239,7 @@ impl Vhd {
             size,
             block: 0,
             bitmap_len: 0,
-            bat: Vec::new(),
+            bat: Paged::new(0, 0, Width::Be32),
             data_end,
             parent_id: [0; 16],
             past_end: 0,
@@ -266,48 +259,37 @@ impl Vhd {
         if &h[..8] != b"cxsparse" || be32(&h, 36) != checksum(&h, 36) {
             return Err(Error::corrupt("vhd: the dynamic disk header is damaged"));
         }
-        let version = be32(&h, 24);
-        if version != 0x0001_0000 {
-            return Err(Error::unsupported(format!(
-                "vhd: a dynamic disk header of version {}.{}; BeeZip reads 1.0",
-                version >> 16,
-                version & 0xFFFF
-            )));
-        }
         let table = be64(&h, 16);
         let max_entries = u64::from(be32(&h, 28));
         let block = u64::from(be32(&h, 32));
         if block < 512 || !block.is_power_of_two() {
             return Err(Error::corrupt(format!("vhd: blocks of {block} bytes")));
         }
-        if block > MAX_BLOCK {
-            return Err(Error::unsupported(format!(
-                "vhd: blocks of {block} bytes; BeeZip reads them up to {MAX_BLOCK}"
-            )));
-        }
         let blocks = size.div_ceil(block);
-        if blocks > MAX_BAT {
-            return Err(Error::unsupported(format!(
-                "vhd: a block table of {blocks} entries; BeeZip reads up to {MAX_BAT}"
-            )));
-        }
         if blocks > max_entries {
             return Err(Error::corrupt(format!(
                 "vhd: {max_entries} block table entries for a disk of {blocks} blocks"
             )));
         }
-        let raw = file.read_vec(table, blocks * 4, MAX_BAT * 4, "vhd: the block table")?;
-        let bat: Vec<u32> = raw
-            .as_chunks::<4>()
-            .0
-            .iter()
-            .map(|c| u32::from_be_bytes(*c))
-            .collect();
+        if table.checked_add(blocks * 4).is_none_or(|e| e > file.len) {
+            return Err(Error::corrupt(format!(
+                "vhd: the block table: {} bytes at {table} reach past the file's end ({} bytes)",
+                blocks * 4,
+                file.len
+            )));
+        }
+        let bat = Paged::new(table, blocks, Width::Be32);
         let bitmap_len = (block / 512).div_ceil(8).div_ceil(512) * 512;
-        let past_end = bat
-            .iter()
-            .filter(|&&e| e != UNUSED && u64::from(e) * 512 + bitmap_len + block > data_end)
-            .count() as u64;
+        let mut past_end = 0u64;
+        bat.scan(
+            |at, out| file.read_exact_at(at, out, "vhd: the block table"),
+            |_, e| {
+                if e != u64::from(UNUSED) && e * 512 + bitmap_len + block > data_end {
+                    past_end += 1;
+                }
+                Ok(())
+            },
+        )?;
         let mut names = Vec::new();
         if kind == Kind::Differencing {
             let (mut rel, mut abs) = (None, None);
@@ -345,13 +327,12 @@ impl Vhd {
         Ok((v, names))
     }
 
-    /// The block table entry of block `b`.
-    fn entry(&self, b: u64) -> Result<u32> {
-        usize::try_from(b)
-            .ok()
-            .and_then(|i| self.bat.get(i))
-            .copied()
-            .ok_or_else(|| Error::corrupt("vhd: a read past the block table"))
+    /// The block table entry of block `b`, read through `file`.
+    fn entry(&self, file: &mut Handle, b: u64) -> Result<u32> {
+        let e = self.bat.get(b, "vhd: the block table", |at, out| {
+            file.read_exact_at(at, out, "vhd: the block table")
+        })?;
+        Ok(u32::try_from(e).unwrap_or(UNUSED))
     }
 
     /// Bytes of `n` at `at` before the disk's data ends.
@@ -459,7 +440,10 @@ impl Layer for Vhd {
         let n = buf
             .len()
             .min(usize::try_from(self.block - within).unwrap_or(usize::MAX));
-        let e = self.entry(b)?;
+        let e = {
+            let mut file = self.file.borrow_mut();
+            self.entry(&mut file, b)?
+        };
         if e == UNUSED {
             let got = match self.kind {
                 Kind::Differencing => Got::Hole,
@@ -507,7 +491,11 @@ impl Layer for Vhd {
         let (first, last) = (start / self.block, (end - 1) / self.block);
         let mut held = 0u64;
         for b in first..=last {
-            let Ok(e) = self.entry(b) else {
+            let e = match self.file.try_borrow_mut() {
+                Ok(mut f) => self.entry(&mut f, b),
+                Err(_) => break,
+            };
+            let Ok(e) = e else {
                 break;
             };
             if e == UNUSED {
@@ -564,6 +552,16 @@ impl Layer for Vhd {
     }
 
     fn notes(&self, out: &mut Vec<String>) {
+        let v = self.footer.version;
+        if v != 0x0001_0000 {
+            out.push(format!(
+                "vhd: {}'s footer says version {}.{}, where every VHD known is 1.0; it was read \
+                 as one",
+                self.name,
+                v >> 16,
+                v & 0xFFFF
+            ));
+        }
         if self.from_copy {
             out.push(format!(
                 "vhd: the footer at the end of {} is damaged; its copy at the start was used",
@@ -1124,23 +1122,28 @@ pub(super) mod tests {
             h[36..40].copy_from_slice(&s.to_be_bytes());
             b[512..1536].copy_from_slice(&h);
         };
+        // Read as 7-Zip reads them (docs/M11.md §6.1): versions other than 1.0, the footer's
+        // noted; blocks of 512 MiB, whose 128 KiB sector bitmap leaves block 0's data past the
+        // file's end, so the disk reads as zeros.
+        let want = sha256_of(&[vec![0x11; 4096], vec![0; 61440]].concat());
         let mut b = base.clone();
         let n = b.len();
         b[n - 512 + 12..n - 512 + 16].copy_from_slice(&0x0002_0000u32.to_be_bytes());
         b[12..16].copy_from_slice(&0x0002_0000u32.to_be_bytes());
         refit(&mut b);
-        let e = try_open("v2.vhd", &b).err().unwrap();
-        assert_eq!(e.kind, ErrorKind::UnsupportedOperation, "{e}");
+        let mut d = try_open("v2.vhd", &b).unwrap();
+        assert!(d.notes()[0].contains("says version 2.0"), "{:?}", d.notes());
+        assert_eq!(sha256(&mut d), want);
         let mut b = base.clone();
         b[512 + 24..512 + 28].copy_from_slice(&0x0002_0000u32.to_be_bytes());
         refit(&mut b);
-        let e = try_open("h2.vhd", &b).err().unwrap();
-        assert_eq!(e.kind, ErrorKind::UnsupportedOperation, "{e}");
+        assert_eq!(sha256(&mut try_open("h2.vhd", &b).unwrap()), want);
         let mut b = base.clone();
         b[512 + 32..512 + 36].copy_from_slice(&(512u32 << 20).to_be_bytes());
         refit(&mut b);
-        let e = try_open("big.vhd", &b).err().unwrap();
-        assert_eq!(e.kind, ErrorKind::UnsupportedOperation, "{e}");
+        let mut d = try_open("big.vhd", &b).unwrap();
+        assert!(d.notes()[0].contains("lie past its end"), "{:?}", d.notes());
+        assert_eq!(sha256(&mut d), sha256_of(&[0u8; 65536]));
         let mut b = base.clone();
         b[512 + 32..512 + 36].copy_from_slice(&3000u32.to_be_bytes());
         refit(&mut b);
@@ -1152,6 +1155,64 @@ pub(super) mod tests {
         assert_eq!(e.kind, ErrorKind::Corrupt, "{e}");
         let e = try_open("none.vhd", &[0u8; 600]).err().unwrap();
         assert_eq!(e.kind, ErrorKind::Corrupt, "{e}");
+    }
+
+    /// A block table of 2^24 + 1 entries, over the 2^24 BeeZip read whole until M11 (docs/M11.md
+    /// §6.1), read a page at a time: its first and last blocks.
+    #[test]
+    fn a_block_table_over_2_24_entries_is_read_in_pages() {
+        use std::io::{Read, Seek, SeekFrom};
+        let count = (1u64 << 24) + 1;
+        let size = count * 4096;
+        let b = crafted(
+            size,
+            id(9),
+            None,
+            &[
+                (0, vec![0x5A; 4096], vec![]),
+                ((count - 1) as u32, vec![0xA5; 4096], vec![]),
+            ],
+        );
+        let t = tempfile::tempdir().unwrap();
+        let p = t.path().join("wide.vhd");
+        std::fs::write(&p, &b).unwrap();
+        drop(b);
+        let mut d = open_path(&p).unwrap();
+        let mut buf = vec![0u8; 4096];
+        for (at, byte) in [(0, 0x5A), (size - 4096, 0xA5), (size / 2, 0)] {
+            d.seek(SeekFrom::Start(at)).unwrap();
+            d.read_exact(&mut buf).unwrap();
+            assert!(buf.iter().all(|&x| x == byte), "at {at}");
+        }
+        assert_eq!(d.held_in(0, size), 8192);
+    }
+
+    /// The VHDs `make-vdisk.sh` crafts in `thirdparty/vdisk/` from `fat-dyn.vhd` and
+    /// `fat-fixed.vhd`, which 7-Zip reads and BeeZip refused until M11 (docs/M11.md §6.1): a
+    /// footer and a dynamic header of version 2.0, a block of 512 MiB. Each reads as their disk.
+    #[test]
+    fn variants_read_as_their_disks() {
+        super::super::testing::check_all(&[".vhd"]);
+        // Detected as what they are, as M11's other variants there are (docs/M11.md §6.1).
+        let dir = super::super::testing::dir();
+        for (f, kind) in [
+            ("h-footer-v2.vhd", External::Vhd),
+            ("h-dynhdr-v2.vhd", External::Vhd),
+            ("h-block512m.vhd", External::Vhd),
+            ("q-v1.qcow", External::Qcow2),
+            ("q-v1-c.qcow", External::Qcow2),
+            ("q-v1-child.qcow", External::Qcow2),
+            ("v-grain2m.vmdk", External::Vmdk),
+            ("v-vmfsraw.vmdk", External::Vmdk),
+            ("d-undo.vdi", External::Vdi),
+        ] {
+            let det = crate::detect_path(&dir.join(f), &crate::Limits::default()).unwrap();
+            assert_eq!(
+                det.format(),
+                Some(crate::format::FormatId::External(kind)),
+                "{f}"
+            );
+        }
     }
 
     /// Bytes of the fixtures changed at random: each opens and reads cleanly, or fails cleanly.

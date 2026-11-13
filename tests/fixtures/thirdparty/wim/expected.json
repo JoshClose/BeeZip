@@ -5,7 +5,8 @@
   "sub": "/work/tree/sub",
   "small": "/work/small",
   "empty": "/work/empty",
-  "extra": "/work/extra"
+  "extra": "/work/extra",
+  "big": "/work/big"
  },
  "trees": {
   "tree": [
@@ -473,6 +474,22 @@
     "size": 15,
     "sha256": "881335b2d92e7983d9f9eed91238d88626d5402948079501a52461e117966874"
    }
+  ],
+  "big": [
+   {
+    "path": "readme.txt",
+    "mtime_ns": 1767225600000000000,
+    "kind": "file",
+    "size": 15,
+    "sha256": "881335b2d92e7983d9f9eed91238d88626d5402948079501a52461e117966874"
+   },
+   {
+    "path": "zeros-65m.bin",
+    "mtime_ns": 1767225600000000000,
+    "kind": "file",
+    "size": 68157441,
+    "sha256": "6053d87901da7580e1aee399d2916de21cfa29d8f440074664be75b7037f9e81"
+   }
   ]
  },
  "fixtures": [
@@ -596,6 +613,36 @@
    ],
    "method": "LZX",
    "parts": 2
+  },
+  {
+   "file": "chunk-256m.esd",
+   "images": [
+    "big"
+   ],
+   "method": "LZMS",
+   "lzms": true,
+   "solid": 1
+  },
+  {
+   "file": "xpress2-flag.wim",
+   "images": [
+    "tree"
+   ],
+   "method": "XPRESS"
+  },
+  {
+   "file": "clookup.wim",
+   "images": [
+    "tree"
+   ],
+   "method": "XPRESS"
+  },
+  {
+   "file": "spanned.wim",
+   "images": [
+    "tree"
+   ],
+   "method": "XPRESS"
   }
  ]
 }

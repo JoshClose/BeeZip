@@ -228,12 +228,10 @@ fn a_declined_prompt_is_a_cancel_and_a_failure_names_wingets_code() {
     assert!(err.contains("error[Io]: winget couldn't download"), "{err}");
 }
 
-/// A file only 7-Zip reads: a CramFS image in 7-Zip's own LZMA variant, which Linux doesn't
-/// read either (BeeZip reads WIMs itself since M8, CHM help files since M9, and CramFS images
-/// and NSIS installers since M10).
+/// A file BeeZip's own readers refuse, which goes to 7-Zip: an AES-encrypted QCOW2 (BeeZip reads
+/// 7-Zip's CramFS variant itself since M11, docs/M11.md §6.1).
 fn sevenzip_only() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../tests/fixtures/thirdparty/cramfs/sevenzip-lzma.img")
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/thirdparty/vdisk/q-aes.qcow2")
 }
 
 /// What `beezip list` on that image says without 7-Zip, with `winget` as the winget there is.

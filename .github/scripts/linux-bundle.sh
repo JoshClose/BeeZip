@@ -71,6 +71,7 @@ check() {
   for d in libwebkit2gtk-4.1-0 libgtk-3-0; do
     [[ ", $depends," == *", $d,"* ]] || fail "the deb doesn't depend on $d: $depends"
   done
+  [[ "$(dpkg-deb -f "$deb" Recommends)" == *libwim15* ]] || fail "the deb doesn't recommend wimlib's library"
   has_files "$(dpkg-deb -c "$deb")" deb
 
   x=$(mktemp -d)
@@ -102,6 +103,7 @@ check() {
   rpm -qpi "$rpm"
   [ "$(rpm -qp --qf '%{NAME}' "$rpm")" = beezip ] || fail "the rpm's package isn't beezip"
   echo "requires:"; rpm -qpR "$rpm"
+  rpm -qp --recommends "$rpm" | grep -q 'libwim.so.15' || fail "the rpm doesn't recommend wimlib's library"
   local rpmlist
   rpmlist=$(rpm -qplv "$rpm")
   echo "$rpmlist"

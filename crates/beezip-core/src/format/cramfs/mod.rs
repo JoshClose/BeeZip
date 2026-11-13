@@ -1,8 +1,13 @@
 //! CramFS, Linux's compressed ROM file system, read by BeeZip's own code (docs/M10.md).
 //!
 //! - **The superblock** (§3.1) is at 0, or at 512 after a boot block, in either byte order: the
-//!   magic's order is every field's. Flags Linux doesn't know (7-Zip's LZMA variant puts a
-//!   method in bits 14–15) are `UnsupportedOperation`, for 7-Zip.
+//!   magic's order is every field's. Flags above bit 15 are ignored with a warning, as 7-Zip
+//!   ignores them; others Linux doesn't know are `UnsupportedOperation`.
+//! - **7-Zip's own variant** (docs/M11.md §6.1), which no other tool is known to write: a
+//!   version 2 image with any of flag bits 12–15 set takes bits 11–13 as a block size of 4 KiB
+//!   shifted by them, and bits 14–15 as the method: zlib (0 or 1) or LZMA (2), each block then
+//!   five bytes of properties, its size and a raw stream. Bit 11 is Linux's extended-pointer
+//!   flag only when bits 12–15 are clear.
 //! - **Inodes** are 12 bytes; a folder is one run of its children's inodes, each followed by its
 //!   name, NUL-padded to 4 bytes. Files and links are a table of block pointers, then zlib
 //!   blocks, one per block of output; a block of no bytes is a hole. Linux 4.15's extended
@@ -56,6 +61,13 @@ const FLAG_EXT_PTRS: u32 = 0x800;
 /// Linux's `CRAMFS_SUPPORTED_FLAGS`.
 const KNOWN: u32 = 0xFF | FLAG_HOLES | FLAG_WRONG_SIGNATURE | FLAG_SHIFTED_ROOT | FLAG_EXT_PTRS;
 
+/// 7-Zip's variant of a version 2 image: bits 11–13 a block size of 4 KiB shifted by them, bits
+/// 14–15 a method (0 and 1 zlib, 2 LZMA, 3 none). Any of bits 12–15 set marks it.
+fn sevenzip_variant(flags: u32) -> Option<(u32, u32)> {
+    (flags & FLAG_V2 != 0 && flags & 0xF000 != 0)
+        .then(|| (4096 << ((flags >> 11) & 7), (flags >> 14) & 3))
+}
+
 const BLK_UNCOMPRESSED: u32 = 1 << 31;
 const BLK_DIRECT: u32 = 1 << 30;
 
@@ -103,6 +115,8 @@ struct Super {
     edition: u32,
     files: u32,
     name: Vec<u8>,
+    /// Flags above bit 15, which are ignored.
+    ignored: u32,
 }
 
 impl Super {
@@ -172,6 +186,7 @@ fn superblock(input: &mut (impl Read + Seek)) -> Result<(Super, Inode)> {
             edition: 0,
             files: 0,
             name: s[48..64].iter().copied().take_while(|&c| c != 0).collect(),
+            ignored: 0,
         };
         let short = || bad("the superblock is cut short");
         sb.size = sb.u32(s, 4).ok_or_else(short)?;
@@ -179,12 +194,19 @@ fn superblock(input: &mut (impl Read + Seek)) -> Result<(Super, Inode)> {
         sb.crc = sb.u32(s, 32).ok_or_else(short)?;
         sb.edition = sb.u32(s, 36).ok_or_else(short)?;
         sb.files = sb.u32(s, 44).ok_or_else(short)?;
-        if sb.flags & !KNOWN != 0 {
+        let known = if sevenzip_variant(sb.flags).is_some() {
+            KNOWN & !FLAG_EXT_PTRS | 0xF800
+        } else {
+            KNOWN
+        };
+        let unknown = sb.flags & !known;
+        if unknown & 0xFFFF != 0 {
             return Err(Error::unsupported(format!(
-                "its superblock sets flags Linux doesn't know ({:#x})",
-                sb.flags & !KNOWN
+                "cramfs: its superblock sets flags Linux doesn't know ({:#x})",
+                unknown & 0xFFFF
             )));
         }
+        sb.ignored = unknown;
         let root = sb.inode(s, 64).ok_or_else(short)?;
         if root.mode & S_IFMT != S_IFDIR {
             return Err(bad("the root isn't a folder"));
@@ -304,11 +326,48 @@ struct Inner {
     blk: u32,
     zlib: Decompress,
     packed: Vec<u8>,
+    /// 7-Zip's LZMA variant.
+    lzma: bool,
 }
 
 impl Inner {
     fn ext(&self) -> bool {
-        self.sb.flags & FLAG_EXT_PTRS != 0
+        self.sb.flags & FLAG_EXT_PTRS != 0 && sevenzip_variant(self.sb.flags).is_none()
+    }
+
+    /// An LZMA block of 7-Zip's variant: 5 bytes of properties, the size it decodes to (4 bytes,
+    /// little-endian), then the stream, which must end exactly there. The dictionary is held to
+    /// the block: a window past it is never used, so no more is allocated.
+    fn unlzma(packed: &[u8], out: &mut Vec<u8>, want: usize) -> std::result::Result<(), String> {
+        let (props, rest) = packed
+            .split_at_checked(5)
+            .ok_or("it's shorter than its header")?;
+        let (size, data) = rest
+            .split_at_checked(4)
+            .ok_or("it's shorter than its header")?;
+        let size = u32::from_le_bytes(size.try_into().unwrap_or_default()) as usize;
+        if size != want {
+            return Err(format!("it says {size} bytes, for {want}"));
+        }
+        let dict = u32::from_le_bytes(props[1..5].try_into().unwrap_or_default())
+            .min(u32::try_from(want.max(4096)).unwrap_or(u32::MAX));
+        let mut src = data;
+        let mut r =
+            lzma_rust2::LzmaReader::new_with_props(&mut src, want as u64, props[0], dict, None)
+                .map_err(|e| format!("it's damaged ({e})"))?;
+        out.clear();
+        out.resize(want, 0);
+        r.read_exact(out)
+            .map_err(|e| format!("it's damaged ({e})"))?;
+        let mut more = [0u8; 1];
+        if !matches!(r.read(&mut more), Ok(0)) {
+            return Err("it decodes to more than its size".into());
+        }
+        drop(r);
+        if !src.is_empty() {
+            return Err(format!("{} bytes are left after its stream", src.len()));
+        }
+        Ok(())
     }
 
     /// Decodes zlib block `packed` into `out`: exactly `want` bytes, or why not.
@@ -522,8 +581,12 @@ impl<'a> FileData<'a> {
                 .take(len)
                 .read_to_end(&mut packed)
                 .map_err(|e| Error::io("reading the image", &e))?;
-            Inner::inflate(&mut self.inner.zlib, &packed, &mut self.buf, want)
-                .map_err(|e| bad(format!("block {k} of a file: {e}")))
+            if self.inner.lzma {
+                Inner::unlzma(&packed, &mut self.buf, want)
+            } else {
+                Inner::inflate(&mut self.inner.zlib, &packed, &mut self.buf, want)
+            }
+            .map_err(|e| bad(format!("block {k} of a file: {e}")))
         })();
         self.inner.packed = packed;
         got
@@ -595,6 +658,13 @@ impl CramfsReader {
         let len = input.len();
         let mut input = CountingReader::new(input, source.counter.clone());
         let (sb, root) = superblock(&mut input)?;
+        if sb.ignored != 0 {
+            cx.warn(format!(
+                "{}: its superblock sets flags BeeZip doesn't know ({:#x}); they're ignored",
+                source.file_name(),
+                sb.ignored
+            ));
+        }
         let nodes = walk(&mut input, len, &sb, root, &source, cx)?;
         let mut inner = Inner {
             input,
@@ -603,8 +673,21 @@ impl CramfsReader {
             blk: 4096,
             zlib: Decompress::new(true),
             packed: Vec::new(),
+            lzma: false,
         };
-        inner.blk = inner.block_size(&nodes);
+        match sevenzip_variant(inner.sb.flags) {
+            Some((blk, method)) => {
+                if method == 3 {
+                    return Err(Error::unsupported(
+                        "cramfs: its superblock says compression method 3, which isn't defined",
+                    ));
+                }
+                inner.blk = blk;
+                inner.lzma = method == 2;
+            }
+            None => inner.blk = inner.block_size(&nodes),
+        }
+        let method_name = if inner.lzma { "LZMA" } else { "zlib" };
 
         let names = source.names;
         let mut entries = Vec::with_capacity(nodes.len());
@@ -625,7 +708,7 @@ impl CramfsReader {
                     e.kind = EntryKind::File;
                     e.size = Some(u64::from(i.size));
                     if i.size > 0 {
-                        e.method = Some(Cow::Borrowed("zlib"));
+                        e.method = Some(Cow::Borrowed(method_name));
                         item = Data::Blocks(i);
                     }
                 }
@@ -780,7 +863,7 @@ impl ArchiveReader for CramfsReader {
 
     fn info(&mut self, _: &mut dyn Ctx) -> Result<ArchiveInfo> {
         let methods = if self.data.iter().any(|d| matches!(d, Data::Blocks(_))) {
-            vec![Cow::Borrowed("zlib")]
+            vec![Cow::Borrowed(if self.inner.lzma { "LZMA" } else { "zlib" })]
         } else {
             Vec::new()
         };

@@ -36,6 +36,9 @@ jobs:
           key: fuzz-corpus-${{ matrix.target }}-${{ github.run_id }}
           restore-keys: fuzz-corpus-${{ matrix.target }}-
       - run: mkdir -p fuzz/corpus/${{ matrix.target }}
+      # wimlib's library, which the WIM reader loads for LZMS (docs/M11.md §6.2).
+      - if: matrix.target == 'wim'
+        run: sudo apt-get update -q && sudo apt-get install -y -q --no-install-recommends libwim15t64
       # libFuzzer reads the seed directories recursively, so all of tests/fixtures seeds it, and
       # 7-Zip's real listings and messages seed sevenzip-listing.
       # The prebuilt cargo-fuzz is a musl binary and defaults --target to its own triple, where

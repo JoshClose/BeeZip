@@ -1,5 +1,6 @@
-//! The malicious VMDK, QCOW2 and VDI files (docs/M8.md §9), from `tests/fixtures/make-vdisk.sh`,
-//! read by BeeZip's own readers: each is refused cleanly or read within its limits.
+//! The malicious VMDK, QCOW2, QCOW, VDI and VHDX files (docs/M8.md §9, docs/M11.md §8), from
+//! `tests/fixtures/make-vdisk.sh`, read by BeeZip's own readers: each is refused cleanly or read
+//! within its limits.
 
 use std::time::{Duration, Instant};
 
@@ -68,13 +69,57 @@ fn names_that_arent_files_are_never_opened() {
     }
 }
 
-/// Grains of 1 GiB (rust-img-vmdk 0.5.1 allocates one for this 157 KB file): refused from the
-/// header, before any grain is read.
+/// Grains of 1 GiB (rust-img-vmdk 0.5.1 allocates one for this 157 KB file), compressed. Since
+/// M11 BeeZip reads grains up to 1 GiB, as 7-Zip does (docs/M11.md §6.1): within the default
+/// `decoder_memory` it opens, and its first grain, whose compressed bytes would decode to far less,
+/// fails as damaged without 1 GiB allocated (only the disk's 256 KiB of it would be kept); with
+/// less memory allowed, it's refused from the header.
 #[test]
-fn a_grain_of_1_gib_is_refused_from_the_header() {
-    let e = native("vdisk-grain-1g.vmdk", External::Vmdk);
-    assert_eq!(e.kind, ErrorKind::UnsupportedOperation, "{e}");
+fn a_grain_of_1_gib_is_read_within_decoder_memory() {
+    let t = Instant::now();
+    let opened = open(
+        &corpus("vdisk-grain-1g.vmdk"),
+        &OpenOptions::default(),
+        &mut SimpleCtx::new(),
+    );
+    if let Err(e) = &opened {
+        assert_eq!(e.kind, ErrorKind::Corrupt, "{e}");
+    }
+    let (r, _) = extract("vdisk-grain-1g.vmdk", FsOptions::default());
+    assert_eq!(r.unwrap_err().kind, ErrorKind::Corrupt);
+    assert!(t.elapsed() < Duration::from_secs(4));
+
+    let small = OpenOptions::new(Limits {
+        decoder_memory: 64 << 20,
+        ..Limits::default()
+    });
+    let source = Source::new(&corpus("vdisk-grain-1g.vmdk"), Vec::new(), &small).unwrap();
+    let e = DiskReader::open(source, External::Vmdk, &mut SimpleCtx::new())
+        .err()
+        .unwrap();
+    assert_eq!(e.kind, ErrorKind::LimitExceeded, "{e}");
     assert!(e.message.contains("grains of 1073741824 bytes"), "{e}");
+}
+
+/// QCOW version 1, read since M11 (docs/M11.md §6.1): an L1 table past the file's end is
+/// refused as it opens; a compressed cluster running past it fails when it's read, as damage.
+#[test]
+fn damaged_qcow_version_1_fails_cleanly() {
+    let e = refused("vdisk-qcow1-l1.qcow", External::Qcow2, ErrorKind::Corrupt);
+    assert!(e.message.contains("the L1 table"), "{e}");
+    let t = Instant::now();
+    let (r, _) = extract("vdisk-qcow1-clen.qcow", FsOptions::default());
+    assert_eq!(r.unwrap_err().kind, ErrorKind::Corrupt);
+    assert!(t.elapsed() < Duration::from_secs(2));
+}
+
+/// A VHDX of 64 TiB in 1 MiB blocks claims a block table of 67,125,247 entries (513 MiB), read a
+/// page at a time since M11 (docs/M11.md §6.1); in a 3 MiB file it's past the end: refused as it
+/// opens, without a page of it allocated.
+#[test]
+fn a_vhdx_block_table_past_the_file_is_refused() {
+    let e = refused("vdisk-vhdx-table.vhdx", External::Vhdx, ErrorKind::Corrupt);
+    assert!(e.message.contains("the block table"), "{e}");
 }
 
 /// 2 TiB of nothing, an empty QCOW2 and a ZERO extent: listed as one raw file whose files hold

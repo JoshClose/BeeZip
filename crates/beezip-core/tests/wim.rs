@@ -1,7 +1,8 @@
 //! BeeZip's own WIM reader (docs/M8.md §5) on `tests/fixtures/thirdparty/wim/`, made by
 //! `tests/fixtures/make-wim.sh` with wimlib-imagex: each is read natively and compared with what
-//! the tree it was made from holds, as the script recorded it (`expected.json`); the LZMS ones on
-//! Windows only. Then real images, opt-in.
+//! the tree it was made from holds, as the script recorded it (`expected.json`); the LZMS ones
+//! wherever LZMS reads (Windows, and wimlib's library on Linux and macOS: docs/M11.md §6.2).
+//! Then real images, opt-in.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
@@ -28,9 +29,23 @@ fn sha256(data: &[u8]) -> String {
     hex(&Sha256::digest(data))
 }
 
+/// Whether LZMS reads here: on Windows, and where wimlib's library is installed. With
+/// `BEEZIP_REQUIRE_LZMS` set to 1 (CI, which installs wimlib), a missing one fails.
+pub fn lzms_here() -> bool {
+    let here = wim::lzms_available();
+    if !here && std::env::var("BEEZIP_REQUIRE_LZMS").as_deref() == Ok("1") {
+        panic!("LZMS needs wimlib's library here (libwim15, or `brew install wimlib`)");
+    }
+    here
+}
+
 /// The WIM at `path`, through BeeZip's own reader (never 7-Zip), on `threads` workers.
 fn native(path: &Path, threads: u32) -> beezip_core::Result<Box<dyn ArchiveReader>> {
-    let opts = OpenOptions::default().with_threads(threads);
+    let mut opts = OpenOptions::default().with_threads(threads);
+    // chunk-256m.esd's 65 MiB of zeros take 48 bytes: past the ratio limit, as they should be.
+    if path.file_name().is_some_and(|n| n == "chunk-256m.esd") {
+        opts.limits.max_ratio = None;
+    }
     let source = Source::new(path, Vec::new(), &opts)?;
     wim::open(source, &mut SimpleCtx::new())
 }
@@ -148,10 +163,12 @@ fn every_fixture_reads_as_its_tree_holds() {
 
 fn check(manifest: &Value, fx: &Value, path: &Path) -> Result<(), String> {
     let lzms = fx["lzms"].as_bool().unwrap_or(false);
-    if lzms && !cfg!(windows) {
-        // On Linux and macOS, for 7-Zip to read.
+    if lzms && !lzms_here() {
+        // Without wimlib's library, the error says how to install it.
         return match native(path, 1) {
-            Err(e) if e.kind == ErrorKind::UnsupportedOperation => Ok(()),
+            Err(e) if e.kind == ErrorKind::UnsupportedOperation && e.message.contains("wimlib") => {
+                Ok(())
+            }
             other => Err(format!("LZMS opened as {:?}", other.err())),
         };
     }

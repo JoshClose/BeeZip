@@ -63,8 +63,9 @@ windows-sys = { workspace = true, features = [
     "Win32_System_Registry", "Win32_System_Threading",
 ] }
 
-# safefs/quarantine.rs reads and writes extended attributes (docs/M6.md §8.3).
-[target.'cfg(target_os = "macos")'.dependencies]
+# safefs/quarantine.rs reads and writes extended attributes (docs/M6.md §8.3); wim/lzms_wimlib.rs
+# loads wimlib's library (docs/M11.md §6.2).
+[target.'cfg(unix)'.dependencies]
 libc.workspace = true
 
 [dev-dependencies]
