@@ -33,6 +33,12 @@ using BeeZip will notice. Leave the date out: the Releases page dates each versi
 - **7-Zip's own CramFS variant** opens: LZMA or zlib, with blocks of 4 to 512 KiB.
 - **WIM chunks of up to 1 GiB**, which wimlib writes on request, and CHM help files and WIM
   images with layouts no tool is known to write, read as 7-Zip reads them.
+- **NTFS volumes of clusters over 64 KiB** open: Windows formats clusters of up to 2 MiB
+  (`format /A:2M`).
+- **HFS+ volumes whose catalog is in many pieces** open, as a long-used Mac's are, alone or in
+  a DMG.
+- **Sealed APFS volumes read right:** macOS 11 and later's system volume, alone or in a DMG, read
+  every file as zeros before.
 
 ## 0.5.0
 
