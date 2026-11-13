@@ -1538,8 +1538,8 @@ export type SevenZipAction = "installed" | "updated" | "none";
 
 /**
  * The installed 7-Zip, which reads for BeeZip what its own disk, MSI, WIM, CHM, CramFS and
- * NSIS readers don't support (docs/M6.md §3, docs/M7.md to docs/M11.md): an ESD on Linux and
- * macOS, for one.
+ * NSIS readers don't support (docs/M6.md §3, docs/M7.md to docs/M11.md): an ext volume over
+ * 16 TiB, for one.
  */
 export type SevenZipConfig = {
 /**
