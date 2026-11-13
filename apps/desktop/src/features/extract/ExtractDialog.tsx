@@ -2,7 +2,6 @@
 import { open as pickFolder } from "@tauri-apps/plugin-dialog";
 import { FolderOutput, ListTree } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { SevenZipFix } from "../../components/SevenZipFix";
 import { Button } from "../../components/ui/button";
 import { Checkbox } from "../../components/ui/checkbox";
 import { Dialog } from "../../components/ui/dialog";
@@ -203,7 +202,6 @@ export function ExtractDialog({ tab, entries, note, onClose }: { tab: Tab; entri
         {planError !== undefined && (
           <div className="flex flex-col items-start gap-2">
             <p className="selectable text-danger">{`${describeError(planError).code}: ${describeError(planError).message}`}</p>
-            <SevenZipFix error={planError} />
           </div>
         )}
         {plan && (

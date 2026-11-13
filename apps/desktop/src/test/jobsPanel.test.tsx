@@ -2,7 +2,7 @@
 // Copy, and the whole text of a line cut short on hover.
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { JobsPanel, jobText, LOG_SHOWN } from "../features/jobs/JobsPanel";
+import { JobsPanel, jobText, LOG_SHOWN, outputSummary } from "../features/jobs/JobsPanel";
 import { type JobRecord, newJob, useJobs } from "../lib/jobs";
 import { usePanes } from "../lib/panes";
 import { useToasts } from "../lib/toasts";
@@ -29,6 +29,11 @@ beforeEach(() => {
 });
 
 describe("a job as text", () => {
+  it("says a test of one entry in the singular", () => {
+    expect(outputSummary("archive.test", { archive: "a.zip", entries: 1, bytes: 10 })).toBe("The 1 entry is OK (10 B read)");
+    expect(outputSummary("archive.test", { archive: "a.zip", entries: 3, bytes: 10 })).toBe("All 3 entries are OK (10 B read)");
+  });
+
   it("has its title, how it ended and its whole log", () => {
     const failed = job(1, { status: "failed", error: { code: "Corrupt", message: "bad CRC in b.txt" }, logs: [{ level: "Info", message: "Waiting" }, ...warnings(2)] });
     expect(jobText(failed)).toBe("Job 1\nCorrupt: bad CRC in b.txt\n\nWaiting\nWarning: skipped file-0\nWarning: skipped file-1");

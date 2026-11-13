@@ -2,7 +2,6 @@
 // progress, Cancel, its log and its result. Finished jobs stay until cleared.
 import { Check, ChevronDown, ChevronUp, CircleAlert, CircleCheck, CircleSlash, Copy, LoaderCircle } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { SevenZipFix } from "../../components/SevenZipFix";
 import { Button } from "../../components/ui/button";
 import { Splitter } from "../../components/ui/splitter";
 import type {
@@ -11,7 +10,6 @@ import type {
   ArchiveExtractOutput,
   ArchiveTestOutput,
   EditOutput,
-  SevenZipInstallOutput,
   StreamCompressOutput,
 } from "../../gen/commands";
 import { cn } from "../../lib/cn";
@@ -31,14 +29,8 @@ export function summary(job: JobRecord): string {
   return outputSummary(job.command, job.output);
 }
 
-/** What a cancelled job's line says. Installing 7-Zip writes no files of BeeZip's: its last
- * warning says what happened (the administrator prompt declined, or winget stopped). */
-export function cancelledText(job: Pick<JobRecord, "command" | "logs">): string {
-  if (job.command === "seven_zip.install") {
-    return [...job.logs].reverse().find((l) => l.level === "Warn")?.message ?? "Cancelled. 7-Zip wasn't installed.";
-  }
-  return "Cancelled. Files it had started writing were removed.";
-}
+/** What a cancelled job's line says. */
+export const CANCELLED_TEXT = "Cancelled. Files it had started writing were removed.";
 
 /** An edit's line, as the CLI says it (docs/M5.md §7.4): "Added 3 files to a.zip (12 entries
  * copied as they were); 1.2 MiB → 1.4 MiB". */
@@ -87,17 +79,6 @@ export function outputSummary(command: string, out: unknown): string {
       const o = out as ArchiveTestOutput;
       const ok = o.entries === 1 ? "The 1 entry is OK" : `All ${plural(o.entries, "entry", "entries")} are OK`;
       return `${ok} (${formatSize(o.bytes)} read)${o.note ? `. ${o.note}` : ""}`;
-    }
-    case "seven_zip.install": {
-      const o = out as SevenZipInstallOutput;
-      const { name, path, problem } = o.status;
-      if (!name) {
-        const done = { installed: "Installed 7-Zip", updated: "Updated 7-Zip", none: "7-Zip is installed and new enough" }[o.action];
-        return `${done}, but BeeZip doesn't use it: ${problem ?? "its settings"}`;
-      }
-      if (o.action === "installed") return `Installed ${name} at ${path}`;
-      if (o.action === "updated") return `Updated to ${name} at ${path}`;
-      return `${name} at ${path} is new enough; nothing to do`;
     }
     case "archive.add":
     case "archive.remove":
@@ -234,7 +215,7 @@ function JobRow({ job }: { job: JobRecord }) {
         </>
       )}
       {job.status === "finished" && <p className="selectable text-muted">{summary(job)}</p>}
-      {job.status === "cancelled" && <p className="text-muted">{cancelledText(job)}</p>}
+      {job.status === "cancelled" && <p className="text-muted">{CANCELLED_TEXT}</p>}
       {job.status === "failed" && error && (
         <div className="flex items-start gap-2">
           <p className="selectable min-w-0 flex-1 text-danger">
@@ -245,7 +226,6 @@ function JobRow({ job }: { job: JobRecord }) {
               Show report
             </Button>
           )}
-          <SevenZipFix error={error} />
         </div>
       )}
       {/* In full: the jobs list is the one scroller, and its edge makes it taller. */}

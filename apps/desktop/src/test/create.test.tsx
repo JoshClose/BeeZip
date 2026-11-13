@@ -15,17 +15,17 @@ const caps = { list: true, extract: true, create: true, append: false, delete: f
 // Enough of `formats.list` for the dialog.
 const formats: FormatsListOutput = {
   formats: [
-    { id: "zip", name: "Zip", extensions: [".zip"], caps, methods: [{ id: "store", levels: null }, { id: "deflate", levels: levels(1, 9, 6) }, { id: "zstd", levels: levels(1, 22, 3) }], encryption: ["aes256", "zipcrypto"], backend: null, available: true, menu: true },
-    { id: "7z", name: "7z", extensions: [".7z"], caps: { ...caps, encrypt_headers: true, solid: true }, methods: [{ id: "lzma2", levels: levels(0, 9, 5) }, { id: "copy", levels: null }], encryption: ["aes256"], backend: null, available: true, menu: true },
-    { id: "tar", name: "Tar", extensions: [".tar"], caps: { ...caps, encrypt: false }, methods: [], encryption: [], backend: null, available: true, menu: true },
-    { id: "iso", name: "ISO image", extensions: [".iso"], caps: { ...caps, encrypt: false }, methods: [], encryption: [], backend: null, available: true, menu: true },
+    { id: "zip", name: "Zip", extensions: [".zip"], caps, methods: [{ id: "store", levels: null }, { id: "deflate", levels: levels(1, 9, 6) }, { id: "zstd", levels: levels(1, 22, 3) }], encryption: ["aes256", "zipcrypto"], menu: true },
+    { id: "7z", name: "7z", extensions: [".7z"], caps: { ...caps, encrypt_headers: true, solid: true }, methods: [{ id: "lzma2", levels: levels(0, 9, 5) }, { id: "copy", levels: null }], encryption: ["aes256"], menu: true },
+    { id: "tar", name: "Tar", extensions: [".tar"], caps: { ...caps, encrypt: false }, methods: [], encryption: [], menu: true },
+    { id: "iso", name: "ISO image", extensions: [".iso"], caps: { ...caps, encrypt: false }, methods: [], encryption: [], menu: true },
     {
       id: "squashfs",
       name: "squashfs image",
       extensions: [".squashfs", ".sqfs", ".snap"],
       caps: { ...caps, encrypt: false },
       methods: [{ id: "gzip", levels: levels(1, 9, 9) }, { id: "xz", levels: levels(0, 9, 6) }, { id: "lz4", levels: null }],
-      encryption: [], backend: null, available: true, menu: true,
+      encryption: [], menu: true,
     },
   ],
   codecs: [
@@ -33,7 +33,6 @@ const formats: FormatsListOutput = {
     { id: "gzip", name: "gzip", extensions: [".gz", ".tgz"], levels: levels(0, 9, 6), threads: false, detected: true },
   ],
   create: ["zip", "7z", "tar", "tar.gz", "tar.zst", "iso", "squashfs"],
-  seven_zip: { name: null, path: null, found_in: null, problem: "not found", min_version: "25.01", fix: null },
 };
 
 const form = (patch: Partial<CreateForm>): CreateForm => ({

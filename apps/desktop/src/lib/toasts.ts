@@ -2,7 +2,7 @@
 import { create } from "zustand";
 import { describeError, isCancelled } from "./format";
 
-/** `error` is the command's error a toast shows: one that needs 7-Zip gets its button. */
+/** `error` is the command's error a toast shows. */
 export type Toast = { id: number; tone: "error" | "info"; title: string; body?: string; error?: unknown };
 
 type ToastState = {

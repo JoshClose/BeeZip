@@ -31,7 +31,6 @@ const info: ArchiveInfoOutput = {
   locked: false,
   recovery_record: false,
   comment: null,
-  backend: null,
   levels: [],
   properties: [],
   notes: [],

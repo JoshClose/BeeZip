@@ -2,7 +2,6 @@
 // more), hex, or an image up to 16 MiB. The type comes from the extension, then the bytes.
 import { FileQuestion } from "lucide-react";
 import { useEffect, useState } from "react";
-import { SevenZipFix } from "../../components/SevenZipFix";
 import { Button } from "../../components/ui/button";
 import type { CmdError, EntryInfo } from "../../gen/commands";
 import { archiveArgs, type Tab, useArchives } from "../../lib/archives";
@@ -124,7 +123,6 @@ function Body({ tab, entry }: { tab: Tab; entry: EntryInfo }) {
           <p className="selectable text-danger">
             {code}: {message}
           </p>
-          <SevenZipFix error={shown.error} />
         </div>
       );
     }

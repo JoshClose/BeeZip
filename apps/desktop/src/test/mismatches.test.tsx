@@ -34,8 +34,6 @@ const format = (id: string, methods: { id: string; levels: ReturnType<typeof lev
   caps,
   methods,
   encryption: [],
-  backend: null,
-  available: true,
   menu: true,
 });
 const formats = {
@@ -48,7 +46,6 @@ const formats = {
   ],
   codecs: [{ id: "zstd", name: "Zstandard", extensions: [".zst", ".tzst"], levels: levels(1, 22, 3), threads: true, detected: true }],
   create: ["zip", "7z", "cab", "squashfs", "tar.zst"],
-  seven_zip: { name: null, path: null, found_in: null, problem: "not found", min_version: "25.01", fix: null },
 } as unknown as FormatsListOutput;
 
 // The settings: `[levels]` for deflate and zstd, and `[extract]` keeping both, with links.

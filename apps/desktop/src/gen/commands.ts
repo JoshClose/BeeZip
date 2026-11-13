@@ -467,12 +467,8 @@ recovery_record: boolean,
  */
 not_editable: string | null,
 /**
- * The program that reads it, for the formats BeeZip leaves to one: "7-Zip 26.00".
- */
-backend: string | null,
-/**
- * The formats opened, outermost first: `["vhdx", "gpt", "ntfs"]`, by 7-Zip or by BeeZip's
- * own disk and file-system readers (`["gpt", "ntfs"]`). Empty for the other formats.
+ * The formats opened, outermost first: `["vhdx", "gpt", "ntfs"]`, for the disk images, file
+ * systems and installers (`["msi", "cab"]`). Empty for the other formats.
  */
 levels: Array<string>,
 /**
@@ -480,7 +476,7 @@ levels: Array<string>,
  */
 properties: Array<InfoProperty>,
 /**
- * Things to know about the archive: an MSI's names are the installer's internal keys.
+ * Things to know about the archive: where an MSI's files are listed.
  */
 notes: Array<string>, };
 
@@ -651,8 +647,8 @@ export type ArchiveTestOutput = { archive: string, entries: number,
  */
 bytes: number,
 /**
- * What the test couldn't check: a disk image read through 7-Zip stores no checksums of
- * its files' data, so its test shows only that every file can be read.
+ * What the test couldn't check: a format that stores no checksums of its files' data (a
+ * CHM help file, a disk image's FAT) shows only that every file can be read.
  */
 note?: string | null, };
 
@@ -887,7 +883,7 @@ export type Config = { extract: ExtractConfig, edit: EditConfig, names: NamesCon
  * Default levels by codec name (`zstd`, `gzip`…) or zip and 7z method (`deflate`,
  * `lzma2`…). A codec or method missing here uses its own default.
  */
-levels: { [key in string]: number }, stream: StreamConfig, limits: LimitsConfig, mcp: McpConfig, shell: ShellConfig, jobs: JobsConfig, desktop: DesktopConfig, seven_zip: SevenZipConfig, updates: UpdatesConfig, };
+levels: { [key in string]: number }, stream: StreamConfig, limits: LimitsConfig, mcp: McpConfig, shell: ShellConfig, jobs: JobsConfig, desktop: DesktopConfig, updates: UpdatesConfig, };
 
 /**
  * An entry the new archive couldn't hold.
@@ -1167,18 +1163,8 @@ methods: Array<MethodInfo>,
  */
 encryption: Array<string>,
 /**
- * The program that reads it, for the formats BeeZip leaves to one: `7-zip`. `null` for
- * BeeZip's own, which include the disks, file systems and installers it reads since
- * docs/M7.md.
- */
-backend: string | null,
-/**
- * Whether it opens here: false while its backend is missing, too old or turned off.
- */
-available: boolean,
-/**
- * Explorer's menu offers BeeZip's items on its extensions. The 7-Zip formats' `.img`,
- * `.exe` and `.msi` are left out (docs/M6.md §3.7).
+ * Explorer's menu offers BeeZip's items on its extensions. The disk images' and
+ * installers' `.img`, `.exe` and `.msi` are left out (docs/M6.md §3.7).
  */
 menu: boolean, };
 
@@ -1192,11 +1178,7 @@ export type FormatsListOutput = { formats: Array<FormatInfo>, codecs: Array<Code
 /**
  * The `--format` names `archive.create` accepts: `zip`, `tar`, `tar.gz`…
  */
-create: Array<string>,
-/**
- * The 7-Zip found, which the formats with `backend: "7-zip"` need.
- */
-seven_zip: SevenZipStatus, };
+create: Array<string>, };
 
 /**
  * One fact a level of an archive records (docs/M6.md §3.5).
@@ -1207,7 +1189,7 @@ export type InfoProperty = {
  */
 level: string,
 /**
- * 7-Zip's name for it: `Label`, `Cluster Size`.
+ * Its name: `Label`, `Cluster Size`.
  */
 name: string, value: string, };
 
@@ -1530,78 +1512,6 @@ warnings: Array<string>,
  * commands that need the config fail until it's fixed.
  */
 error: string | null, };
-
-/**
- * What `seven_zip.install` did.
- */
-export type SevenZipAction = "installed" | "updated" | "none";
-
-/**
- * The installed 7-Zip, which reads for BeeZip what its own disk, MSI, WIM, CHM, CramFS and
- * NSIS readers don't support (docs/M6.md §3, docs/M7.md to docs/M11.md): an ext volume over
- * 16 TiB, for one.
- */
-export type SevenZipConfig = {
-/**
- * The 7-Zip console program to run (`7z.exe`, 25.01 or newer). Empty: BeeZip finds one in
- * the registry, on PATH or in Program Files.
- */
-path: string | null,
-/**
- * Read those formats through 7-Zip. Off, they are still recognised, and opening one says
- * that 7-Zip is turned off.
- */
-enabled: boolean, };
-
-/**
- * How to get a 7-Zip BeeZip can run.
- */
-export type SevenZipFix = "install" | "update" | "download";
-
-/**
- * Install 7-Zip with winget, or update one older than 25.01, so BeeZip can open the few
- * files it doesn't read itself. winget downloads 7-Zip's own
- * installer and checks its hash; the installer asks for administrator rights. Windows only:
- * elsewhere, get 7-Zip 25.01 or newer (on Linux and macOS, 7-Zip's own `7zz`) from
- * https://7-zip.org/download.html.
- */
-export type SevenZipInstallInput = Record<symbol, never>;
-
-export type SevenZipInstallOutput = { action: SevenZipAction,
-/**
- * 7-Zip as BeeZip finds it now, under the settings: a path set there, or 7-Zip turned off,
- * still wins over the 7-Zip installed.
- */
-status: SevenZipStatus, };
-
-/**
- * The 7-Zip that reads the formats BeeZip leaves to it (docs/M6.md §3.1), as found under the
- * settings.
- */
-export type SevenZipStatus = {
-/**
- * "7-Zip 26.00"; `null` when there's none to run.
- */
-name: string | null, path: string | null,
-/**
- * Where it was found: `settings`, `registry`, `PATH` or `Program Files`.
- */
-found_in: string | null,
-/**
- * Why there's none to run: not found, too old, turned off.
- */
-problem: string | null,
-/**
- * The oldest version BeeZip runs: `25.01`.
- */
-min_version: string,
-/**
- * What would give BeeZip a 7-Zip to run: `install` or `update` it with winget
- * (`seven_zip.install`), or `download` it from 7-zip.org where there's no winget. `null`
- * when there's one to run, when it's turned off, or when the trouble is the path in the
- * settings, which installing wouldn't change.
- */
-fix: SevenZipFix | null, };
 
 /**
  * Explorer's right-click menu (docs/M4.md §7.2).
@@ -2021,14 +1931,6 @@ export type CommandMap = {
    * they start.
    */
   "settings.set": { input: SettingsSetInput; output: SettingsSetOutput };
-  /**
-   * Install 7-Zip with winget, or update one older than 25.01, so BeeZip can open the few
-   * files it doesn't read itself. winget downloads 7-Zip's own
-   * installer and checks its hash; the installer asks for administrator rights. Windows only:
-   * elsewhere, get 7-Zip 25.01 or newer (on Linux and macOS, 7-Zip's own `7zz`) from
-   * https://7-zip.org/download.html.
-   */
-  "seven_zip.install": { input: SevenZipInstallInput; output: SevenZipInstallOutput };
   /**
    * Add BeeZip to Explorer's right-click menu, or repair it. It registers the menu for this
    * user (no admin), writes the settings the menu reads, removes the other kind of menu, and
