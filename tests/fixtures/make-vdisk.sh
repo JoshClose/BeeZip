@@ -46,8 +46,10 @@
 #                       q-child-sniff (disk.img with no format recorded: sniffed raw); two internal
 #                       snapshots with writes between (q-snap); extended L2 alone, with -c, and
 #                       over disk.img with 2 KiB writes; data files raw and not (q-data*.bin);
-#                       encrypted with AES and with LUKS (cut after the header's cluster), QCOW
-#                       version 1 (q-v1.qcow), all refused. Crafted: the dirty and corrupt bits
+#                       encrypted with AES and with LUKS (cut after the header's cluster),
+#                       refused. QCOW version 1 (docs/M11.md §6.1): plain (q-v1.qcow), compressed
+#                       (q-v1-c.qcow) and a child of q-v1 (q-v1-child.qcow, 512-byte clusters as
+#                       qemu writes a child, 4 KiB written over it). Crafted: the dirty and corrupt bits
 #                       (q-dirty, q-corrupt), an unknown incompatible bit and compression type
 #                       (refused). To stay small, the images have 4 KiB clusters but q-v3,
 #                       q-deflate, q-zstd and q-el2 (qemu-img's default 64 KiB), q-c512, and
@@ -58,8 +60,15 @@
 #                       into it), d-odd (fixed, not whole blocks long), d-base.vdi and the
 #                       differencing chain in Snapshots/ as VirtualBox lays it out ({...411} a
 #                       child of d-base, {...421} its child), {...431} whose parent changed after
-#                       it was made, {...441} an orphan; d-extra (extra bytes before each block)
-#                       and d-undo (an undo image), both refused.
+#                       it was made, {...441} an orphan; d-extra (extra bytes before each block),
+#                       refused; d-undo (an undo image), read alone, as 7-Zip reads it.
+#   h-*.vhd, v-grain2m.vmdk, v-vmfsraw.vmdk   what 7-Zip reads and BeeZip refused until M11
+#                       (docs/M11.md §6.1), crafted: VHDs of mbr-fat.img (thirdparty/7zip, the disk
+#                       of thirdparty/vhd's fat-dyn.vhd and fat-fixed.vhd) whose footer says
+#                       version 2.0 (h-footer-v2), whose dynamic header does (h-dynhdr-v2), and one
+#                       of a single 512 MiB block (h-block512m, the file ending with the disk); a
+#                       monolithicSparse disk.img in grains of 2 MiB (v-grain2m); disk.img as
+#                       ESXi's VMFSRAW extent (v-vmfsraw.vmdk, v-vmfsraw-raw.img).
 #   b-*.{vmdk,qcow2}    a 5 GiB disk (and 1,536 bytes) of zeros but five 1-4 KiB patterns: at its
 #                       start, across a grain table's end (32 MiB), 2^31 and 2^32 (the ends of
 #                       qemu-img's 2 GiB twoGbMaxExtentSparse extents), and in the part of a grain
@@ -93,6 +102,11 @@
 #   vdisk-vdi-a.vdi, vdisk-vdi-b.vdi         differencing VDIs, each the other's parent by uuid
 #   vdisk-grain-1g.vmdk                      grains of 1 GiB (rust-img-vmdk 0.5.1 allocates one)
 #   vdisk-2t.qcow2, vdisk-zero-2t.vmdk       2 TiB of nothing: an empty QCOW2, a ZERO extent
+#   vdisk-vhdx-table.vhdx                    a VHDX of 64 TiB in 1 MiB blocks, whose block table
+#                                            (67,125,247 entries, 513 MiB) is past the file's end
+#   vdisk-qcow1-l1.qcow                      QCOW version 1 whose L1 table is past the file's end
+#   vdisk-qcow1-clen.qcow                    QCOW version 1 whose compressed clusters run past
+#                                            the file's end
 set -euo pipefail
 
 E=1767225600 # 2026-01-01T00:00:00Z
@@ -541,11 +555,12 @@ def vdis(raw, outdir):
     put('d-odd.vdi', vdi_image({i: odd[i * k64:(i + 1) * k64] for i in range(5)}, len(odd),
                                block=k64, kind=2, ids=(0x330, 0x331, 0, 0)))
     note('d-odd.vdi', odd)
-    # Refused: extra bytes before each block; an undo image.
+    # Refused: extra bytes before each block.
     put('d-extra.vdi', vdi_image({0: data[:512]}, 4096, block=512, extra=512, ids=(0x340, 0x341, 0, 0)))
     expect(outdir, 'd-extra.vdi', 'UnsupportedOperation')
+    # An undo image, read alone as 7-Zip reads it: its free blocks read zeros.
     put('d-undo.vdi', vdi_image({0: data[:512]}, 4096, block=512, kind=3, ids=(0x350, 0x351, 0, 0)))
-    expect(outdir, 'd-undo.vdi', 'UnsupportedOperation')
+    note('d-undo.vdi', data[:512] + bytes(4096 - 512))
     # A differencing chain as VirtualBox lays one out: the base beside the VM, the children in
     # Snapshots/ named by their uuids. Child: block 2 new, block 3 discarded, the rest the base's.
     # Grandchild: block 0 rewritten (4 KiB of random.bin changed).
@@ -572,6 +587,163 @@ def vdis(raw, outdir):
     put(name(0x441), vdi_image({2: child[2 * k64:3 * k64]}, len(disk), block=k64, kind=4,
                                ids=(0x441, 0x442, 0x4FF, 0x4FE)))
     expect(outdir, name(0x441).replace('\\', '/'), 'NotFound')
+
+
+def qcow1_damage(path, what):
+    """A QCOW version 1 image damaged: `l1`, its L1 table moved past the file's end; `clen`, its
+    compressed clusters moved to 8 bytes before the file's end, so each runs past it."""
+    data = bytearray(open(path, 'rb').read())
+    size = len(data)
+    if what == 'l1':
+        struct.pack_into('>Q', data, 40, (size + (1 << 20)) & ~511)
+    else:
+        bits, l2_bits = data[32], data[33]
+        l1 = struct.unpack_from('>Q', data, 40)[0]
+        x = 63 - bits
+        moved = 0
+        for i in range(-(-struct.unpack_from('>Q', data, 24)[0] // ((1 << bits) << l2_bits))):
+            l2 = struct.unpack_from('>Q', data, l1 + 8 * i)[0]
+            for k in range(1 << l2_bits) if l2 else ():
+                e = struct.unpack_from('>Q', data, l2 + 8 * k)[0]
+                if e >> 63:
+                    length = (e >> x) & ((1 << bits) - 1)
+                    struct.pack_into('>Q', data, l2 + 8 * k, 1 << 63 | length << x | (size - 8))
+                    moved += 1
+        if not moved:
+            raise SystemExit(f'{path}: no compressed cluster')
+    open(path, 'wb').write(data)
+
+
+def vhd_sum(b, at, n, field):
+    """A VHD checksum: the one's complement of the bytes' sum, the checksum's own left out."""
+    total = sum(b[at:at + field]) + sum(b[at + field + 4:at + n])
+    return struct.pack('>I', ~total & 0xFFFFFFFF)
+
+
+def vhd_refit(b, dynamic=True):
+    for at in (0, len(b) - 512):
+        b[at + 64:at + 68] = vhd_sum(b, at, 512, 64)
+    if dynamic:
+        b[512 + 36:512 + 40] = vhd_sum(b, 512, 1024, 36)
+
+
+def variants(outdir, vhd_dir, raw):
+    """What 7-Zip reads and BeeZip refused until M11 (see make-vdisk.sh's notes)."""
+    put = lambda name, img: open(os.path.join(outdir, name), 'wb').write(img)
+    note = lambda name, disk: expect(outdir, name, 'read', len(disk), disk_digests(
+        Disk(len(disk), [(0, disk)])), 'crafted')
+    dyn = open(os.path.join(vhd_dir, 'fat-dyn.vhd'), 'rb').read()
+    fixed = open(os.path.join(vhd_dir, 'fat-fixed.vhd'), 'rb').read()
+    disk = fixed[:-512]
+    # Version 2.0 in both footers; in the dynamic header.
+    v = bytearray(dyn)
+    for at in (0, len(v) - 512):
+        v[at + 12:at + 16] = struct.pack('>I', 0x00020000)
+    vhd_refit(v)
+    put('h-footer-v2.vhd', v)
+    note('h-footer-v2.vhd', disk)
+    v = bytearray(dyn)
+    v[512 + 24:512 + 28] = struct.pack('>I', 0x00020000)
+    vhd_refit(v)
+    put('h-dynhdr-v2.vhd', v)
+    note('h-dynhdr-v2.vhd', disk)
+    # One 512 MiB block holding the disk: its sector bitmap (128 KiB, all set), then the disk;
+    # the file ends there, so the rest of the block reads as zeros.
+    block = 512 << 20
+    foot = bytearray(fixed[-512:])
+    foot[16:24] = struct.pack('>Q', 512)
+    foot[60:64] = struct.pack('>I', 3)
+    h = bytearray(1024)
+    h[0:8] = b'cxsparse'
+    h[8:16] = b'\xff' * 8
+    struct.pack_into('>QIII', h, 16, 1536, 0x00010000, 1, block)
+    bat = bytearray(b'\xff' * 512)
+    bat[0:4] = struct.pack('>I', 4)
+    v = bytearray(bytes(foot) + bytes(h) + bytes(bat) + b'\xff' * (block // 512 // 8) + disk +
+                  bytes(foot))
+    vhd_refit(v)
+    put('h-block512m.vhd', v)
+    note('h-block512m.vhd', disk)
+
+    img = open(raw, 'rb').read()
+    cap = len(img) // 512
+    # A monolithicSparse disk.img in one grain of 2 MiB.
+    grain = 4096
+    h = bytearray(512)
+    struct.pack_into('<4sIIQQQQIQQQ', h, 0, b'KDMV', 1, 0x1, cap, grain, 1, 20, 512, 0, 21, 128)
+    h[0x49:0x4D] = b'\n \r\n'
+    desc = ('# Disk DescriptorFile\nversion=1\nCID=6d7a0060\nparentCID=ffffffff\n'
+            'createType="monolithicSparse"\n\n# Extent description\n'
+            f'RW {cap} SPARSE "v-grain2m.vmdk"\n').encode()
+    body = bytes(h) + desc + bytes(20 * 512 - len(desc))
+    body += struct.pack('<I', 22) + bytes(508) + struct.pack('<I', 128) + bytes(2044)
+    body += bytes(128 * 512 - len(body)) + img + bytes(grain * 512 - len(img))
+    put('v-grain2m.vmdk', body)
+    note('v-grain2m.vmdk', img)
+    # disk.img as ESXi's VMFSRAW extent.
+    put('v-vmfsraw-raw.img', img)
+    put('v-vmfsraw.vmdk', ('# Disk DescriptorFile\nversion=1\nCID=6d7a0061\nparentCID=ffffffff\n'
+                           'createType="vmfsRaw"\n\n# Extent description\n'
+                           f'RW {cap} VMFSRAW "v-vmfsraw-raw.img"\n').encode())
+    note('v-vmfsraw.vmdk', img)
+
+
+def vhdx_table(path):
+    """A VHDX of 64 TiB in 1 MiB blocks whose block table is past the file's end (see the notes):
+    headers, region tables and metadata in 3 MiB, as a real one lays them out."""
+    kib, mib = 1 << 10, 1 << 20
+
+    def crc32c(b):
+        c = 0xFFFFFFFF
+        for x in b:
+            c ^= x
+            for _ in range(8):
+                c = (c >> 1) ^ 0x82F63B78 if c & 1 else c >> 1
+        return c ^ 0xFFFFFFFF
+
+    def fix(f, at, n):
+        f[at + 4:at + 8] = bytes(4)
+        f[at + 4:at + 8] = struct.pack('<I', crc32c(bytes(f[at:at + n])))
+
+    g = lambda t: uuid.UUID(t).bytes_le
+    size, blk, sector = 64 << 40, mib, 512
+    chunk = (1 << 23) * sector // blk
+    blocks = -(-size // blk)
+    entries = blocks + (blocks - 1) // chunk
+    bat_len = -(-(entries * 8) // mib) * mib
+    f = bytearray(3 * mib)
+    f[0:8] = b'vhdxfile'
+    for k, at in enumerate((64 * kib, 128 * kib)):
+        f[at:at + 4] = b'head'
+        struct.pack_into('<Q', f, at + 8, 10 + k)
+        f[at + 16:at + 48] = bytes([0x21] * 32)
+        struct.pack_into('<HHIQ', f, at + 64, 0, 1, mib, mib)
+        fix(f, at, 4 * kib)
+    for at in (192 * kib, 256 * kib):
+        f[at:at + 4] = b'regi'
+        struct.pack_into('<I', f, at + 8, 2)
+        f[at + 16:at + 32] = g('2DC27766-F623-4200-9D64-115E9BFD4A08')
+        struct.pack_into('<QII', f, at + 32, 3 * mib, bat_len, 1)
+        f[at + 48:at + 64] = g('8B7CA206-4790-4B9A-B8FE-575F050F886E')
+        struct.pack_into('<QII', f, at + 64, 2 * mib, mib, 1)
+        fix(f, at, 64 * kib)
+    m = 2 * mib
+    f[m:m + 8] = b'metadata'
+    items = [
+        ('CAA16737-FA36-4D43-B3B6-33F0AA44E76B', struct.pack('<II', blk, 0)),
+        ('2FA54224-CD1B-4876-B211-5DBED83BF4B8', struct.pack('<Q', size)),
+        ('BECA12AB-B2E6-4523-93EF-C309E000C746', bytes([0x33] * 16)),
+        ('8141BF1D-A96F-4709-BA47-F233A8FAAB5F', struct.pack('<I', sector)),
+        ('CDA348C7-445D-4471-9CC9-E9885251C556', struct.pack('<I', 4096)),
+    ]
+    struct.pack_into('<H', f, m + 10, len(items))
+    for i, (gid, val) in enumerate(items):
+        e, data = m + 32 + 32 * i, 64 * kib + 4 * kib * i
+        f[e:e + 16] = g(gid)
+        struct.pack_into('<III', f, e + 16, data, len(val), 4)
+        f[m + data:m + data + len(val)] = val
+    open(path, 'wb').write(f)
+    print(f'{path}: {entries} block table entries')
 
 
 def vdi_loop(outdir):
@@ -610,6 +782,12 @@ if __name__ == '__main__':
         vdis(*args)
     elif cmd == 'vdi-loop':
         vdi_loop(*args)
+    elif cmd == 'qcow1-damage':
+        qcow1_damage(*args)
+    elif cmd == 'variants':
+        variants(*args)
+    elif cmd == 'vhdx-table':
+        vhdx_table(*args)
     elif cmd == 'expect':
         expect(*args)
     elif cmd == 'expect-raw':
@@ -695,6 +873,9 @@ EOF
     cid v-refuse-method.vmdk 6d7a0024
     C expect . v-refuse-method.vmdk UnsupportedOperation
 
+    # ---- What 7-Zip reads and BeeZip refused until M11 ----
+    C variants . /fixtures/thirdparty/vhd disk.img
+
     # ---- VDI ----
     c vdi disk.img d-dyn.vdi && C vdi-ids d-dyn.vdi 360 361
     c vdi -o static=on disk.img d-fixed.vdi && C vdi-ids d-fixed.vdi 362 363
@@ -757,14 +938,20 @@ EOF
     C expect . q-refuse-bit.qcow2 UnsupportedOperation
     c qcow2 -o $k4 disk.img q-refuse-ctype.qcow2 && C qcow-or q-refuse-ctype.qcow2 72 8 && C qcow-byte q-refuse-ctype.qcow2 104 2
     C expect . q-refuse-ctype.qcow2 UnsupportedOperation
-    # Refused: encryption; QCOW version 1.
+    # Refused: encryption.
     q convert --object secret,id=s0,data=beezip -f raw -O qcow2 -o $k4,encrypt.format=aes,encrypt.key-secret=s0 disk.img q-aes.qcow2
     C expect . q-aes.qcow2 UnsupportedOperation
     q convert --object secret,id=s0,data=beezip -f raw -O qcow2 -o encrypt.format=luks,encrypt.key-secret=s0,encrypt.iter-time=10 disk.img q-luks.qcow2
     truncate -s 64K q-luks.qcow2
     C expect . q-luks.qcow2 UnsupportedOperation
+    # QCOW version 1: plain, compressed, and a child of the plain one with 4 KiB written over it
+    # (qemu writes it with 512-byte clusters). qemu-img 8.2.2 exits 1, saying nothing, after
+    # writing a sound compressed one: it's compared with disk.img instead.
     c qcow disk.img q-v1.qcow
-    C expect . q-v1.qcow UnsupportedOperation
+    c qcow -c disk.img q-v1-c.qcow || true
+    qemu-img compare -q -f raw -F qcow disk.img q-v1-c.qcow
+    q create -q -f qcow -b q-v1.qcow -F qcow q-v1-child.qcow
+    io -f qcow -c 'write -P 0xa5 69632 4096' q-v1-child.qcow
 
     # ---- The big disk ----
     # qemu-img's twoGbMaxExtentSparse extents are 2 GiB: b-split's are cut where its are.
@@ -793,9 +980,9 @@ EOF
     for f in v-sparse v-compat6 v-zg v-flat v-2gs v-2gf v-stream v-child v-gchild v-child-flat v-vmfs \
              q-v3 q-v2 q-deflate q-zstd q-c512 q-rc1 q-rc64 q-zero q-zero-v2 q-child q-child-raw \
              q-gchild q-child-big q-child-vmdk q-child-vdi q-child-sniff q-snap q-el2 q-el2-deflate \
-             q-el2-child q-data-raw q-data q-dirty q-corrupt d-dyn d-fixed \
+             q-el2-child q-data-raw q-data q-dirty q-corrupt q-v1 q-v1-c q-v1-child d-dyn d-fixed \
              b-c4k z z-deflate; do
-        for e in vmdk qcow2 vdi; do [ -f "$f.$e" ] && f=$f.$e && break; done
+        for e in vmdk qcow2 qcow vdi; do [ -f "$f.$e" ] && f=$f.$e && break; done
         rm -f "$W/o.raw"
         qemu-img convert -O raw "$f" "$W/o.raw"
         C expect-raw "$f" "$W/o.raw"
@@ -826,6 +1013,9 @@ EOF
     C vdi-loop .
     cp "$out/v-stream.vmdk" vdisk-grain-1g.vmdk && C vmdk-header vdisk-grain-1g.vmdk grain 0x200000
     q create -q -f qcow2 vdisk-2t.qcow2 2T
+    C vhdx-table vdisk-vhdx-table.vhdx
+    cp "$out/q-v1.qcow" vdisk-qcow1-l1.qcow && C qcow1-damage vdisk-qcow1-l1.qcow l1
+    cp "$out/q-v1-c.qcow" vdisk-qcow1-clen.qcow && C qcow1-damage vdisk-qcow1-clen.qcow clen
     printf '# Disk DescriptorFile\nversion=1\nCID=6d7a0052\nparentCID=ffffffff\ncreateType="custom"\n\n# Extent description\nRW 4294967296 ZERO\n' \
         > vdisk-zero-2t.vmdk
     chown -R "${HOST_IDS:-0:0}" "$out" "$mal"/vdisk-* || true
