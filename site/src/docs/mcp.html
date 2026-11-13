@@ -49,7 +49,7 @@ read_only = false</code></pre>
 <div class="table-wrap"><table>
   <thead><tr><th scope="col">Tool</th><th scope="col">Writes</th><th scope="col">What it does</th></tr></thead>
   <tbody>
-    <tr><td><code>formats_list</code></td><td></td><td>The formats and compressors BeeZip reads and writes, and which 7-Zip it found.</td></tr>
+    <tr><td><code>formats_list</code></td><td></td><td>The formats and compressors BeeZip reads and writes.</td></tr>
     <tr><td><code>file_detect</code></td><td></td><td>What a file is: <code>zstd → tar</code>, a self-extracting archive, a split set, or not an archive.</td></tr>
     <tr><td><code>archive_info</code></td><td></td><td>Counts, sizes, ratio, methods, encryption, volumes, and why it can't be changed, if it can't.</td></tr>
     <tr><td><code>archive_list</code></td><td></td><td>Entries, one folder level at a time or all of them, filtered and sorted.</td></tr>
@@ -95,5 +95,5 @@ read_only = false</code></pre>
 <ul>
   <li><strong>Progress</strong> reaches clients that ask for it.</li>
   <li><strong>Cancelling a call</strong> cancels its job and removes its partly written file; so does the client disconnecting.</li>
-  <li><strong>Errors</strong> come back with a stable code the assistant can act on: <code>NotFound</code>, <code>InvalidArgs</code>, <code>UnsupportedFormat</code>, <code>UnsupportedOperation</code>, <code>PasswordRequired</code>, <code>WrongPassword</code>, <code>Corrupt</code>, <code>OutsideSandbox</code>, <code>Conflict</code>, <code>LimitExceeded</code>, <code>Unsafe</code>, <code>BackendUnavailable</code>, <code>Cancelled</code>, <code>Io</code> or <code>Internal</code>.</li>
+  <li><strong>Errors</strong> come back with a stable code the assistant can act on: <code>NotFound</code>, <code>InvalidArgs</code>, <code>UnsupportedFormat</code>, <code>UnsupportedOperation</code>, <code>PasswordRequired</code>, <code>WrongPassword</code>, <code>Corrupt</code>, <code>OutsideSandbox</code>, <code>Conflict</code>, <code>LimitExceeded</code>, <code>Unsafe</code>, <code>BackendUnavailable</code> (only from a build without RAR), <code>Cancelled</code>, <code>Io</code> or <code>Internal</code>.</li>
 </ul>

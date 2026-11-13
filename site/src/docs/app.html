@@ -19,7 +19,7 @@
   <li><strong>From Explorer's menu:</strong> <strong>Open with BeeZip</strong> opens each selected archive in a tab, <strong>Extract to…</strong> opens the Extract dialog, and <strong>Compress to…</strong> opens New archive with the selection. See <a href="explorer.html">Explorer's menu</a>.</li>
 </ul>
 <p>Launching BeeZip again, such as by double-clicking another archive, opens that archive in the window that's already running, rather than in a second window. An archive that's already open switches to its tab.</p>
-<p>A split archive opens from any of its parts, and BeeZip recognises a format by its content, not its extension. Opening a file that isn't an archive says so; drop it on the window to pack it into a new one. Some formats are read through an installed 7-Zip; without it, opening one says so, with <strong>Install 7-Zip</strong> on Windows, and the tab lists the archive as soon as 7-Zip is installed. See <a href="formats.html#through-7-zip">Formats</a>.</p>
+<p>A split archive opens from any of its parts, and BeeZip recognises a format by its content, not its extension. Opening a file that isn't an archive says so; drop it on the window to pack it into a new one. A file of a format BeeZip lists that uses something it doesn't read is refused, saying what (<a href="formats.html#not-read">Formats</a>).</p>
 
 <h2 id="browsing">Browsing an archive</h2>
 <p>An archive's tab has a toolbar along the top, the folder tree on the left, the entries in the middle, the preview on the right, and a status line at the bottom.</p>
@@ -166,10 +166,10 @@
 <h2 id="more-tools">Test, Info, Convert and more</h2>
 
 <h3 id="test">Test</h3>
-<p><strong>Test</strong> in the toolbar reads every entry back and checks it against its CRC, without writing anything. When it passes, BeeZip says “a.zip is OK”, with how many entries and bytes it checked. A disk image read through 7-Zip stores no checksums, and the result says what was checked instead.</p>
+<p><strong>Test</strong> in the toolbar reads every entry back and checks it against its CRC, without writing anything. When it passes, BeeZip says “a.zip is OK”, with how many entries and bytes it checked. A format that stores no checksums of its files, such as a CHM help file, says what was checked instead.</p>
 
 <h3 id="info">Info</h3>
-<p><strong>Archive info</strong> (the <strong>i</strong> in the toolbar) shows the archive's format; the program that reads it, for formats read through 7-Zip; the levels of a disk, such as <code>gpt › ntfs</code>, and a volume's label; how many entries, files, folders and links it holds; its size, packed size and ratio; the methods; whether it's encrypted (none, some entries or every entry, and whether the names are too); whether it's solid, and in how many blocks; and its volumes, comment and notes where it has them. The dialog also has the tab's <a href="#name-encoding">name encoding</a>.</p>
+<p><strong>Archive info</strong> (the <strong>i</strong> in the toolbar) shows the archive's format; the levels of a disk, such as <code>gpt › ntfs</code>, and a volume's label; how many entries, files, folders and links it holds; its size, packed size and ratio; the methods; whether it's encrypted (none, some entries or every entry, and whether the names are too); whether it's solid, and in how many blocks; and its volumes, comment and notes where it has them. The dialog also has the tab's <a href="#name-encoding">name encoding</a>.</p>
 
 <h3 id="convert">Convert</h3>
 <p><strong>Convert…</strong> in the toolbar writes the archive again in another format, or with other options. The source stays as it was. The dialog is New archive's, with <strong>Source</strong> in place of the files: the new archive starts beside the source with the same name and the new extension, as 7z for a zip and as zip otherwise. <strong>Leave out</strong> skips entries, and <strong>Split into volumes</strong> splits the result.</p>
@@ -236,7 +236,7 @@
 <p>The Extract, New archive, Convert, add and Benchmark dialogs, and the palette's forms, have <strong>Copy as CLI</strong>. It shows the <code>beezip</code> command that does the same as the dialog, filled in as it is now, and copies it to the clipboard. A password is left out, and the line says so: the command asks for it when you run it. See <a href="cli.html">The command line</a>.</p>
 
 <h2 id="settings">Settings</h2>
-<p><strong>Settings</strong> opens from the welcome screen, from <strong>Settings…</strong> in the command palette, or with <kbd>Ctrl</kbd>+<kbd>,</kbd>. Its sections are Appearance, Extracting, Editing, Creating, Limits, Job windows, Updates, Explorer menu, 7-Zip and MCP server.</p>
+<p><strong>Settings</strong> opens from the welcome screen, from <strong>Settings…</strong> in the command palette, or with <kbd>Ctrl</kbd>+<kbd>,</kbd>. Its sections are Appearance, Extracting, Editing, Creating, Limits, Job windows, Updates, Explorer menu and MCP server.</p>
 <ul>
   <li><strong>Saved as you go:</strong> each change is written to <code>config.toml</code> as you make it, keeping the file's comments, and the next job uses it. There's nothing to apply.</li>
   <li><strong>Errors beside the field:</strong> a value BeeZip can't take shows its error beside the field and isn't saved.</li>

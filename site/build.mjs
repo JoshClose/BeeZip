@@ -166,7 +166,7 @@ const GROUPS = [
   ["Extracting and opening", ["extract", "open"]],
   ["Creating and changing archives", ["create", "add", "remove", "rename", "convert"]],
   ["Single files", ["compress", "decompress"]],
-  ["Settings, Explorer's menu and 7-Zip", ["settings get", "settings set", "shell status", "shell install", "shell uninstall", "shell plan", "7zip install"]],
+  ["Settings and Explorer's menu", ["settings get", "settings set", "shell status", "shell install", "shell uninstall", "shell plan"]],
   ["Everything else", ["bench", "version", "mcp", "commands", "schema", "run"]],
 ];
 
@@ -212,9 +212,8 @@ ${sections}
 // ---------------------------------------------------------------------------------------------
 // Formats: the table, and the home page's honeycomb.
 
-const viaSevenZip = (f) => !!f.backend;
 const archiveFormats = () => formats.formats.filter((f) => f.id !== "stream");
-const kind = (f) => (viaSevenZip(f) ? "seven" : f.caps.create ? "rw" : "ro");
+const kind = (f) => (f.caps.create ? "rw" : "ro");
 
 function formatsTable() {
   const yes = (b, what) => (b ? `<span class="yes">${what}</span>` : `<span class="no">–</span>`);
@@ -224,9 +223,7 @@ function formatsTable() {
     return `<tr class="${kind(f)}"><th scope="row">${esc(f.name)}</th><td>${ext}</td><td>${yes(true, "Reads")}</td><td>${yes(
       f.caps.create,
       "Writes",
-    )}</td><td>${yes(edit, "Edits")}</td><td>${yes(f.caps.encrypt, "Encrypts")}</td><td>${yes(f.caps.volumes, "Splits")}</td><td>${
-      viaSevenZip(f) ? "Through 7-Zip" : ""
-    }</td></tr>`;
+    )}</td><td>${yes(edit, "Edits")}</td><td>${yes(f.caps.encrypt, "Encrypts")}</td><td>${yes(f.caps.volumes, "Splits")}</td></tr>`;
   });
   const codecs = formats.codecs
     .filter((c) => c.extensions.length)
@@ -237,7 +234,7 @@ function formatsTable() {
         }</td><td>${c.threads ? "Yes" : "–"}</td></tr>`,
     );
   return `<div class="table-wrap"><table class="formats">
-<thead><tr><th scope="col">Format</th><th scope="col">Extensions</th><th scope="col">Read</th><th scope="col">Create</th><th scope="col">Edit</th><th scope="col">Encrypt</th><th scope="col">Split</th><th scope="col"></th></tr></thead>
+<thead><tr><th scope="col">Format</th><th scope="col">Extensions</th><th scope="col">Read</th><th scope="col">Create</th><th scope="col">Edit</th><th scope="col">Encrypt</th><th scope="col">Split</th></tr></thead>
 <tbody>
 ${rows.join("\n")}
 </tbody></table></div>
@@ -250,9 +247,9 @@ ${codecs.join("\n")}
 </tbody></table></div>`;
 }
 
-/** The formats as comb cells: amber when BeeZip writes them, outlined when it reads them, deep amber through 7-Zip. */
+/** The formats as comb cells: amber when BeeZip writes them, outlined when it reads them. */
 function honeycomb() {
-  const order = { rw: 0, ro: 1, seven: 2 };
+  const order = { rw: 0, ro: 1 };
   const cells = archiveFormats()
     .slice()
     .sort((a, b) => order[kind(a)] - order[kind(b)])

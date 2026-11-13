@@ -874,8 +874,8 @@ pre {
   color: var(--muted);
 }
 
-/* The formats, as a comb: amber cells BeeZip reads and writes, outlined cells it reads, deep
-   amber ones it reads through 7-Zip, and the compressors in ink. site.js indents every other row
+/* The formats, as a comb: amber cells BeeZip reads and writes, outlined cells it reads, and the
+   compressors in ink. site.js indents every other row
    by half a cell and lets the rows interlock; without it, the cells sit in plain rows. */
 .comb {
   --w: 104px;
@@ -937,19 +937,6 @@ pre {
   background: var(--paper);
 }
 
-.comb .seven::before {
-  background: var(--deep);
-}
-
-.comb .seven {
-  color: #fff;
-}
-
-@media (prefers-color-scheme: dark) {
-  .comb .seven {
-    color: #1f2023;
-  }
-}
 
 .comb .codec::before {
   background: var(--ink);
@@ -987,7 +974,6 @@ pre {
 
 .legend .rw { background: var(--amber-fill); }
 .legend .ro { background: radial-gradient(circle, var(--paper) 45%, var(--amber-fill) 47%); }
-.legend .seven { background: var(--deep); }
 .legend .codec { background: var(--ink); }
 
 /* Four ways in. */
@@ -1305,10 +1291,6 @@ table.formats .yes {
 
 table.formats .no {
   color: var(--muted);
-}
-
-table.formats tr.seven th::after {
-  content: "";
 }
 
 .note {

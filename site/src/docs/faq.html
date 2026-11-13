@@ -1,4 +1,4 @@
-<!-- {"title": "Questions and problems", "description": "Answers about BeeZip: Windows' warning on first run, the portable copy and the installer, the right-click menu, 7-Zip formats, passwords, garbled names and more.", "layout": "docs"} -->
+<!-- {"title": "Questions and problems", "description": "Answers about BeeZip: Windows' warning on first run, the portable copy and the installer, the right-click menu, formats BeeZip refuses, passwords, garbled names and more.", "layout": "docs"} -->
 <h1>Questions and problems</h1>
 <p class="lede">Answers to what people run into most. If yours isn't here, <a href="https://github.com/JoshClose/BeeZip/issues">ask on GitHub</a>.</p>
 
@@ -27,12 +27,10 @@
   <li><strong>Some items are missing:</strong> they may be turned off in Settings → Explorer menu.</li>
 </ul>
 
-<h2 id="needs-7-zip">An archive says it needs 7-Zip</h2>
-<p>The few files that use something BeeZip doesn't read itself, such as an ext volume over 16 TiB, are read through <a href="https://7-zip.org">7-Zip</a> 25.01 or newer, which BeeZip doesn't come with. On Linux and macOS, ESD images need wimlib's library instead (<a href="formats.html#wim">WIM and ESD</a>). Disk images, virtual disks, their file systems, WIM images, MSI and NSIS installers (with MSI's patches, transforms and merge modules), CHM help files and CramFS images don't need it. <a href="formats.html#through-7-zip">Formats</a> lists them.</p>
+<h2 id="not-read">BeeZip says it doesn't read a file</h2>
+<p>BeeZip reads every format it lists itself, with no other program. A few files use something its readers don't, such as an ext volume over 16 TiB or an encrypted disk image, and BeeZip refuses them, saying what it found. <a href="formats.html#not-read">Formats</a> lists them. Since 0.6.0, BeeZip doesn't use 7-Zip for anything; a <code>[seven_zip]</code> section left in an older <code>config.toml</code> is ignored.</p>
 <ul>
-  <li><strong>On Windows,</strong> click <strong>Install 7-Zip</strong> beside the error, or <strong>Update 7-Zip</strong> when the one installed is older than 25.01. winget downloads 7-Zip's own installer and checks it, Windows asks for administrator rights, and the file opens when it's done. Saying no to Windows' prompt installs nothing; click the button again to retry. On the command line, <code>beezip 7zip install</code> does the same.</li>
-  <li><strong>Without winget, and on Linux and macOS,</strong> <strong>Get 7-Zip…</strong> opens <a href="https://7-zip.org/download.html">7-Zip's download page</a>. On Linux, take 7-Zip's own <code>7zz</code> and put it on PATH: distributions' packages are usually older than 25.01.</li>
-  <li><strong>If 7-Zip is installed somewhere BeeZip doesn't look,</strong> set <code>seven_zip.path</code> in <a href="settings.html#seven-zip">Settings</a>.</li>
+  <li><strong>On Linux and macOS, an ESD image</strong> needs wimlib's library, which BeeZip loads to decode LZMS: <code>apt install wimtools</code>, <code>dnf install wimlib</code> or <code>brew install wimlib</code> (<a href="formats.html#wim">WIM and ESD</a>).</li>
 </ul>
 
 <h2 id="wrong-password">BeeZip says my archive is damaged, but it isn't</h2>
