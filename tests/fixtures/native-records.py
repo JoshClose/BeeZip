@@ -3,7 +3,7 @@
 Since M7 BeeZip reads FAT, NTFS, ext, HFS+, APFS, GPT and MBR disks and MSI installers itself,
 since M8 WIM images (docs/M8.md §5; an LZMS one only on Windows, so wimlib-solid.esd has no
 native record here: tests/wim.rs reads wimlib's LZMS images natively on Windows), since M9 CHM
-help files (docs/M9.md), and since M10 CramFS images (docs/M10.md).
+help files (docs/M9.md), and since M10 CramFS images and NSIS installers (docs/M10.md).
 make-7z.sh records what 7-Zip lists from its images (`"backend": "7-zip"`), and the fixture test
 reads those through 7-Zip. This script derives, from each of those records, what BeeZip's own
 reader must list from the same image (`"native": true`): the same files with the same bytes, as
@@ -160,6 +160,12 @@ records.append(native(f, ['chm'], files(by_file[f]), 0, 0,
                       'BeeZip reads CHM help files itself since M9 (docs/M9.md). The same files '
                       "as 7-Zip lists, CHM's own (#SYSTEM, $OBJINST…) among them, and the folder "
                       'pages, which 7-Zip lists as a 0-byte entry, as a folder.'))
+
+for comp in ('lzma', 'zlib', 'bzip2'):
+    f = '7zip/nsis-%s.exe' % comp
+    records.append(native(f, ['nsis'], files(by_file[f]), 0, 0,
+                          'BeeZip reads NSIS installers itself since M10 (docs/M10.md): the same '
+                          'files 7-Zip lists, with exact sizes.'))
 
 f = '7zip/cramfs.img'
 records.append(native(f, ['cramfs'], files(by_file[f]), 0, 2,

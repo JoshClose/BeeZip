@@ -13048,6 +13048,288 @@
       "native": true
     },
     {
+      "file": "7zip/nsis-lzma.exe",
+      "producer": "makensis 3.09 (Ubuntu 24.04 in Docker)",
+      "command": "makensis -INPUTCHARSET UTF8 lzma.nsi (SetCompressor /SOLID lzma; File for each of the tree's files, under $INSTDIR)",
+      "chain": "nsis",
+      "levels": [
+        "nsis"
+      ],
+      "password": null,
+      "utc_mtimes": false,
+      "hardlinks": 0,
+      "symlinks": 0,
+      "entries": [
+        {
+          "path": "hard-readme.txt",
+          "kind": "file",
+          "size": 15,
+          "sha256": "a357597dcc1f4c3d10721860b7d1f354c8c409c918c15321d4a9709bed42f804",
+          "mtime": "2026-01-01T00:00:00.000000000Z"
+        },
+        {
+          "path": "readme.txt",
+          "kind": "file",
+          "size": 15,
+          "sha256": "a357597dcc1f4c3d10721860b7d1f354c8c409c918c15321d4a9709bed42f804",
+          "mtime": "2026-01-01T00:00:00.000000000Z"
+        },
+        {
+          "path": "empty.txt",
+          "kind": "file",
+          "size": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "mtime": "2026-01-01T00:00:00.000000000Z"
+        },
+        {
+          "path": "random.bin",
+          "kind": "file",
+          "size": 65536,
+          "sha256": "bea8b451fc9b393e5cfe458cbc1532d2d02cbf16acbf0645425960428a85a386",
+          "mtime": "2026-01-01T00:00:00.000000000Z"
+        },
+        {
+          "path": "mtime.txt",
+          "kind": "file",
+          "size": 12,
+          "sha256": "78b8e62e122395aa78bdac854de54f0255f6e117283443a5a856592aea77c76f",
+          "mtime": "2024-05-06T07:08:08.000000000Z"
+        },
+        {
+          "path": "名前.txt",
+          "kind": "file",
+          "size": 4,
+          "sha256": "4bd57b9d2dcfa83efc6bb8326daf5e663224b35290bf1ef1c2ee5382570851b1",
+          "mtime": "2026-01-01T00:00:00.000000000Z"
+        },
+        {
+          "path": "bee-🐝.txt",
+          "kind": "file",
+          "size": 6,
+          "sha256": "5312b0b582d805303c95d7e2b1bc6fad70e04b3dde5413aae758b68767b06ada",
+          "mtime": "2026-01-01T00:00:00.000000000Z"
+        },
+        {
+          "path": "café-ñandú.txt",
+          "kind": "file",
+          "size": 8,
+          "sha256": "48b1abd43f44834d24dc243de1fb8ba8a370b5975fa70ff7ae72f70b3af889fb",
+          "mtime": "2026-01-01T00:00:00.000000000Z"
+        },
+        {
+          "path": "with space.txt",
+          "kind": "file",
+          "size": 8,
+          "sha256": "42af91d7d27ac0c312e046733e9b9c7f11687869bd5abbda1d17cc9dd15711b6",
+          "mtime": "2026-01-01T00:00:00.000000000Z"
+        },
+        {
+          "path": "sub/nested/deep.txt",
+          "kind": "file",
+          "size": 5,
+          "sha256": "64896f89fd11190013b70103e603a1c5826e56b7fb7d2197ab279b0690043599",
+          "mtime": "2026-01-01T00:00:00.000000000Z"
+        },
+        {
+          "path": "Ünïcödé dir/日本語.txt",
+          "kind": "file",
+          "size": 17,
+          "sha256": "a5436bac4fce7bb7a76dc31fb86d3af372338b1835b7082f40432983574f6d63",
+          "mtime": "2026-01-01T00:00:00.000000000Z"
+        }
+      ],
+      "note": "Entries are what BeeZip's own reader lists (docs/M7.md), derived by native-records.py from the 7-Zip record of the same file: the same bytes, as `7z x` extracts them. BeeZip reads NSIS installers itself since M10 (docs/M10.md): the same files 7-Zip lists, with exact sizes.",
+      "native": true
+    },
+    {
+      "file": "7zip/nsis-zlib.exe",
+      "producer": "makensis 3.09 (Ubuntu 24.04 in Docker)",
+      "command": "makensis -INPUTCHARSET UTF8 zlib.nsi (SetCompressor zlib; File for each of the tree's files, under $INSTDIR)",
+      "chain": "nsis",
+      "levels": [
+        "nsis"
+      ],
+      "password": null,
+      "utc_mtimes": false,
+      "hardlinks": 0,
+      "symlinks": 0,
+      "entries": [
+        {
+          "path": "hard-readme.txt",
+          "kind": "file",
+          "size": 15,
+          "sha256": "a357597dcc1f4c3d10721860b7d1f354c8c409c918c15321d4a9709bed42f804",
+          "mtime": "2026-01-01T00:00:00.000000000Z"
+        },
+        {
+          "path": "readme.txt",
+          "kind": "file",
+          "size": 15,
+          "sha256": "a357597dcc1f4c3d10721860b7d1f354c8c409c918c15321d4a9709bed42f804",
+          "mtime": "2026-01-01T00:00:00.000000000Z"
+        },
+        {
+          "path": "empty.txt",
+          "kind": "file",
+          "size": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "mtime": "2026-01-01T00:00:00.000000000Z"
+        },
+        {
+          "path": "random.bin",
+          "kind": "file",
+          "size": 65536,
+          "sha256": "bea8b451fc9b393e5cfe458cbc1532d2d02cbf16acbf0645425960428a85a386",
+          "mtime": "2026-01-01T00:00:00.000000000Z"
+        },
+        {
+          "path": "mtime.txt",
+          "kind": "file",
+          "size": 12,
+          "sha256": "78b8e62e122395aa78bdac854de54f0255f6e117283443a5a856592aea77c76f",
+          "mtime": "2024-05-06T07:08:08.000000000Z"
+        },
+        {
+          "path": "名前.txt",
+          "kind": "file",
+          "size": 4,
+          "sha256": "4bd57b9d2dcfa83efc6bb8326daf5e663224b35290bf1ef1c2ee5382570851b1",
+          "mtime": "2026-01-01T00:00:00.000000000Z"
+        },
+        {
+          "path": "bee-🐝.txt",
+          "kind": "file",
+          "size": 6,
+          "sha256": "5312b0b582d805303c95d7e2b1bc6fad70e04b3dde5413aae758b68767b06ada",
+          "mtime": "2026-01-01T00:00:00.000000000Z"
+        },
+        {
+          "path": "café-ñandú.txt",
+          "kind": "file",
+          "size": 8,
+          "sha256": "48b1abd43f44834d24dc243de1fb8ba8a370b5975fa70ff7ae72f70b3af889fb",
+          "mtime": "2026-01-01T00:00:00.000000000Z"
+        },
+        {
+          "path": "with space.txt",
+          "kind": "file",
+          "size": 8,
+          "sha256": "42af91d7d27ac0c312e046733e9b9c7f11687869bd5abbda1d17cc9dd15711b6",
+          "mtime": "2026-01-01T00:00:00.000000000Z"
+        },
+        {
+          "path": "sub/nested/deep.txt",
+          "kind": "file",
+          "size": 5,
+          "sha256": "64896f89fd11190013b70103e603a1c5826e56b7fb7d2197ab279b0690043599",
+          "mtime": "2026-01-01T00:00:00.000000000Z"
+        },
+        {
+          "path": "Ünïcödé dir/日本語.txt",
+          "kind": "file",
+          "size": 17,
+          "sha256": "a5436bac4fce7bb7a76dc31fb86d3af372338b1835b7082f40432983574f6d63",
+          "mtime": "2026-01-01T00:00:00.000000000Z"
+        }
+      ],
+      "note": "Entries are what BeeZip's own reader lists (docs/M7.md), derived by native-records.py from the 7-Zip record of the same file: the same bytes, as `7z x` extracts them. BeeZip reads NSIS installers itself since M10 (docs/M10.md): the same files 7-Zip lists, with exact sizes.",
+      "native": true
+    },
+    {
+      "file": "7zip/nsis-bzip2.exe",
+      "producer": "makensis 3.09 (Ubuntu 24.04 in Docker)",
+      "command": "makensis -INPUTCHARSET UTF8 bzip2.nsi (SetCompressor bzip2; File for each of the tree's files, under $INSTDIR)",
+      "chain": "nsis",
+      "levels": [
+        "nsis"
+      ],
+      "password": null,
+      "utc_mtimes": false,
+      "hardlinks": 0,
+      "symlinks": 0,
+      "entries": [
+        {
+          "path": "hard-readme.txt",
+          "kind": "file",
+          "size": 15,
+          "sha256": "a357597dcc1f4c3d10721860b7d1f354c8c409c918c15321d4a9709bed42f804",
+          "mtime": "2026-01-01T00:00:00.000000000Z"
+        },
+        {
+          "path": "readme.txt",
+          "kind": "file",
+          "size": 15,
+          "sha256": "a357597dcc1f4c3d10721860b7d1f354c8c409c918c15321d4a9709bed42f804",
+          "mtime": "2026-01-01T00:00:00.000000000Z"
+        },
+        {
+          "path": "empty.txt",
+          "kind": "file",
+          "size": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "mtime": "2026-01-01T00:00:00.000000000Z"
+        },
+        {
+          "path": "random.bin",
+          "kind": "file",
+          "size": 65536,
+          "sha256": "bea8b451fc9b393e5cfe458cbc1532d2d02cbf16acbf0645425960428a85a386",
+          "mtime": "2026-01-01T00:00:00.000000000Z"
+        },
+        {
+          "path": "mtime.txt",
+          "kind": "file",
+          "size": 12,
+          "sha256": "78b8e62e122395aa78bdac854de54f0255f6e117283443a5a856592aea77c76f",
+          "mtime": "2024-05-06T07:08:08.000000000Z"
+        },
+        {
+          "path": "名前.txt",
+          "kind": "file",
+          "size": 4,
+          "sha256": "4bd57b9d2dcfa83efc6bb8326daf5e663224b35290bf1ef1c2ee5382570851b1",
+          "mtime": "2026-01-01T00:00:00.000000000Z"
+        },
+        {
+          "path": "bee-🐝.txt",
+          "kind": "file",
+          "size": 6,
+          "sha256": "5312b0b582d805303c95d7e2b1bc6fad70e04b3dde5413aae758b68767b06ada",
+          "mtime": "2026-01-01T00:00:00.000000000Z"
+        },
+        {
+          "path": "café-ñandú.txt",
+          "kind": "file",
+          "size": 8,
+          "sha256": "48b1abd43f44834d24dc243de1fb8ba8a370b5975fa70ff7ae72f70b3af889fb",
+          "mtime": "2026-01-01T00:00:00.000000000Z"
+        },
+        {
+          "path": "with space.txt",
+          "kind": "file",
+          "size": 8,
+          "sha256": "42af91d7d27ac0c312e046733e9b9c7f11687869bd5abbda1d17cc9dd15711b6",
+          "mtime": "2026-01-01T00:00:00.000000000Z"
+        },
+        {
+          "path": "sub/nested/deep.txt",
+          "kind": "file",
+          "size": 5,
+          "sha256": "64896f89fd11190013b70103e603a1c5826e56b7fb7d2197ab279b0690043599",
+          "mtime": "2026-01-01T00:00:00.000000000Z"
+        },
+        {
+          "path": "Ünïcödé dir/日本語.txt",
+          "kind": "file",
+          "size": 17,
+          "sha256": "a5436bac4fce7bb7a76dc31fb86d3af372338b1835b7082f40432983574f6d63",
+          "mtime": "2026-01-01T00:00:00.000000000Z"
+        }
+      ],
+      "note": "Entries are what BeeZip's own reader lists (docs/M7.md), derived by native-records.py from the 7-Zip record of the same file: the same bytes, as `7z x` extracts them. BeeZip reads NSIS installers itself since M10 (docs/M10.md): the same files 7-Zip lists, with exact sizes.",
+      "native": true
+    },
+    {
       "file": "7zip/cramfs.img",
       "producer": "mkfs.cramfs 2.39.3 (util-linux, Ubuntu 24.04 in Docker)",
       "command": "mkfs.cramfs -n BeeZipCramfs tree cramfs.img",
@@ -17774,6 +18056,1000 @@
           "kind": "file",
           "size": 6,
           "sha256": "4c47b3e816fbe7d40cef9f665ba8f0be1ae68b5e8e7ed70f5b6bab7f70528e8f"
+        }
+      ]
+    },
+    {
+      "file": "nsis/u-zlib.exe",
+      "producer": "makensis 3.09 (Ubuntu 24.04 in Docker)",
+      "command": "makensis -INPUTCHARSET UTF8 (Unicode true; SetCompressor zlib; see make-nsis.sh)",
+      "chain": "nsis",
+      "native": true,
+      "levels": [
+        "nsis"
+      ],
+      "password": null,
+      "utc_mtimes": false,
+      "hardlinks": 0,
+      "symlinks": 0,
+      "note": "BeeZip's own reader (docs/M10.md). The entries are what 7-Zip 26.00 extracts, checked against the tree the script installs by make-nsis.sh; the uninstaller is the stub with its icon patched, then its data, and nsExec.dll is the plugin makensis adds.",
+      "entries": [
+        {
+          "path": "$0/readme.txt",
+          "kind": "file",
+          "size": 11,
+          "sha256": "07708093e4bca8a74eb37680052281746c828a062495010dfb5c108bc1e7bcb3",
+          "mtime": "2024-05-06T07:08:08.000000000Z"
+        },
+        {
+          "path": "$APPDATA/BeeZip/app.txt",
+          "kind": "file",
+          "size": 240,
+          "sha256": "0c0a3ef8d40545f8c742f0465b6c3c9958a7454d708890d5ae9c487f449c4d6f",
+          "mtime": "2026-01-01T00:00:00.000000000Z"
+        },
+        {
+          "path": "$PLUGINSDIR/nsExec.dll",
+          "kind": "file",
+          "size": 10752,
+          "sha256": "0d7f702c518286a2d87db689af169c3857142324de4c9d76d51ebf639dced3df"
+        },
+        {
+          "path": "$PLUGINSDIR/plugin-data.bin",
+          "kind": "file",
+          "size": 400,
+          "sha256": "f12ee09371fb542db8359420cfdd2a9027975aa4078586c5e3e7df31b3eac80a",
+          "mtime": "2026-01-01T00:00:00.000000000Z"
+        },
+        {
+          "path": "$PLUGINSDIR/splash.bmp",
+          "kind": "file",
+          "size": 300,
+          "sha256": "f7cd4578f4bffa65a7a3851948594a85b2fdd71a534a0727f26209215e5d6843"
+        },
+        {
+          "path": "$SYSDIR/sys.txt",
+          "kind": "file",
+          "size": 240,
+          "sha256": "731b03a0f10c2ea19d79a7e35ecfb55ff18cc36fd93ccaeecd77c0399d9b76eb",
+          "mtime": "2026-01-01T00:00:00.000000000Z"
+        },
+        {
+          "path": "$TEMP/temp.txt",
+          "kind": "file",
+          "size": 260,
+          "sha256": "33bee86463a4fab5e6b7696dd1a72bf39a9d393cc52972f0d366874aa98fb432",
+          "mtime": "2026-01-01T00:00:00.000000000Z"
+        },
+        {
+          "path": "again/readme.txt",
+          "kind": "file",
+          "size": 11,
+          "sha256": "07708093e4bca8a74eb37680052281746c828a062495010dfb5c108bc1e7bcb3",
+          "mtime": "2024-05-06T07:08:08.000000000Z"
+        },
+        {
+          "path": "bee-🐝.txt",
+          "kind": "file",
+          "size": 6,
+          "sha256": "5312b0b582d805303c95d7e2b1bc6fad70e04b3dde5413aae758b68767b06ada",
+          "mtime": "2026-01-01T00:00:00.000000000Z"
+        },
+        {
+          "path": "café-ñandú.txt",
+          "kind": "file",
+          "size": 6,
+          "sha256": "115e41e477697e4e191fec2b9b8d2161d1f4980bedff2cf7782cfa0a58269e9d",
+          "mtime": "2026-01-01T00:00:00.000000000Z"
+        },
+        {
+          "path": "created-empty.txt",
+          "kind": "file",
+          "size": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "path": "empty.txt",
+          "kind": "file",
+          "size": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "mtime": "2026-01-01T00:00:00.000000000Z"
+        },
+        {
+          "path": "random-20k.bin",
+          "kind": "file",
+          "size": 20000,
+          "sha256": "26e3663adc817b3b13ef6129fa13e21d8a3bc48dac24db1b957c4441b01070d5",
+          "mtime": "2026-01-01T00:00:00.000000000Z"
+        },
+        {
+          "path": "readme.txt",
+          "kind": "file",
+          "size": 11,
+          "sha256": "07708093e4bca8a74eb37680052281746c828a062495010dfb5c108bc1e7bcb3",
+          "mtime": "2024-05-06T07:08:08.000000000Z"
+        },
+        {
+          "path": "renamed.txt",
+          "kind": "file",
+          "size": 11,
+          "sha256": "07708093e4bca8a74eb37680052281746c828a062495010dfb5c108bc1e7bcb3",
+          "mtime": "2024-05-06T07:08:08.000000000Z"
+        },
+        {
+          "path": "sub/inner/a.txt",
+          "kind": "file",
+          "size": 2,
+          "sha256": "87428fc522803d31065e7bce3cf03fe475096631e5e07bbd7a0fde60c4cf25c7",
+          "mtime": "2026-01-01T00:00:00.000000000Z"
+        },
+        {
+          "path": "text.txt",
+          "kind": "file",
+          "size": 49890,
+          "sha256": "47af5cb2a406d3ce8a4a5c61c89bf6076d49ff7b4fe9994aa90719b9de986b35",
+          "mtime": "2026-01-01T00:00:00.000000000Z"
+        },
+        {
+          "path": "uninstall.exe",
+          "kind": "file",
+          "size": 100113,
+          "sha256": "e5da8012f3512afc70c02940313132001fa6dc9fe04cb5c2548d5f03371f9068"
+        },
+        {
+          "path": "名前.txt",
+          "kind": "file",
+          "size": 4,
+          "sha256": "9f2c1a03124d90994aa38206721ba5ab10fd03e269fa24860a7f39d362dd9b5f",
+          "mtime": "2026-01-01T00:00:00.000000000Z"
+        }
+      ]
+    },
+    {
+      "file": "nsis/u-bzip2-solid.exe",
+      "producer": "makensis 3.09 (Ubuntu 24.04 in Docker)",
+      "command": "makensis -INPUTCHARSET UTF8 (Unicode true; SetCompressor /SOLID bzip2; see make-nsis.sh)",
+      "chain": "nsis",
+      "native": true,
+      "levels": [
+        "nsis"
+      ],
+      "password": null,
+      "utc_mtimes": false,
+      "hardlinks": 0,
+      "symlinks": 0,
+      "note": "BeeZip's own reader (docs/M10.md). The entries are what 7-Zip 26.00 extracts, checked against the tree the script installs by make-nsis.sh; the uninstaller is the stub with its icon patched, then its data, and nsExec.dll is the plugin makensis adds.",
+      "entries": [
+        {
+          "path": "$0/readme.txt",
+          "kind": "file",
+          "size": 11,
+          "sha256": "07708093e4bca8a74eb37680052281746c828a062495010dfb5c108bc1e7bcb3",
+          "mtime": "2024-05-06T07:08:08.000000000Z"
+        },
+        {
+          "path": "$APPDATA/BeeZip/app.txt",
+          "kind": "file",
+          "size": 240,
+          "sha256": "0c0a3ef8d40545f8c742f0465b6c3c9958a7454d708890d5ae9c487f449c4d6f",
+          "mtime": "2026-01-01T00:00:00.000000000Z"
+        },
+        {
+          "path": "$PLUGINSDIR/nsExec.dll",
+          "kind": "file",
+          "size": 10752,
+          "sha256": "0d7f702c518286a2d87db689af169c3857142324de4c9d76d51ebf639dced3df"
+        },
+        {
+          "path": "$PLUGINSDIR/plugin-data.bin",
+          "kind": "file",
+          "size": 400,
+          "sha256": "f12ee09371fb542db8359420cfdd2a9027975aa4078586c5e3e7df31b3eac80a",
+          "mtime": "2026-01-01T00:00:00.000000000Z"
+        },
+        {
+          "path": "$PLUGINSDIR/splash.bmp",
+          "kind": "file",
+          "size": 300,
+          "sha256": "f7cd4578f4bffa65a7a3851948594a85b2fdd71a534a0727f26209215e5d6843"
+        },
+        {
+          "path": "$SYSDIR/sys.txt",
+          "kind": "file",
+          "size": 240,
+          "sha256": "731b03a0f10c2ea19d79a7e35ecfb55ff18cc36fd93ccaeecd77c0399d9b76eb",
+          "mtime": "2026-01-01T00:00:00.000000000Z"
+        },
+        {
+          "path": "$TEMP/temp.txt",
+          "kind": "file",
+          "size": 260,
+          "sha256": "33bee86463a4fab5e6b7696dd1a72bf39a9d393cc52972f0d366874aa98fb432",
+          "mtime": "2026-01-01T00:00:00.000000000Z"
+        },
+        {
+          "path": "again/readme.txt",
+          "kind": "file",
+          "size": 11,
+          "sha256": "07708093e4bca8a74eb37680052281746c828a062495010dfb5c108bc1e7bcb3",
+          "mtime": "2024-05-06T07:08:08.000000000Z"
+        },
+        {
+          "path": "bee-🐝.txt",
+          "kind": "file",
+          "size": 6,
+          "sha256": "5312b0b582d805303c95d7e2b1bc6fad70e04b3dde5413aae758b68767b06ada",
+          "mtime": "2026-01-01T00:00:00.000000000Z"
+        },
+        {
+          "path": "café-ñandú.txt",
+          "kind": "file",
+          "size": 6,
+          "sha256": "115e41e477697e4e191fec2b9b8d2161d1f4980bedff2cf7782cfa0a58269e9d",
+          "mtime": "2026-01-01T00:00:00.000000000Z"
+        },
+        {
+          "path": "created-empty.txt",
+          "kind": "file",
+          "size": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "path": "empty.txt",
+          "kind": "file",
+          "size": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "mtime": "2026-01-01T00:00:00.000000000Z"
+        },
+        {
+          "path": "random-20k.bin",
+          "kind": "file",
+          "size": 20000,
+          "sha256": "26e3663adc817b3b13ef6129fa13e21d8a3bc48dac24db1b957c4441b01070d5",
+          "mtime": "2026-01-01T00:00:00.000000000Z"
+        },
+        {
+          "path": "readme.txt",
+          "kind": "file",
+          "size": 11,
+          "sha256": "07708093e4bca8a74eb37680052281746c828a062495010dfb5c108bc1e7bcb3",
+          "mtime": "2024-05-06T07:08:08.000000000Z"
+        },
+        {
+          "path": "renamed.txt",
+          "kind": "file",
+          "size": 11,
+          "sha256": "07708093e4bca8a74eb37680052281746c828a062495010dfb5c108bc1e7bcb3",
+          "mtime": "2024-05-06T07:08:08.000000000Z"
+        },
+        {
+          "path": "sub/inner/a.txt",
+          "kind": "file",
+          "size": 2,
+          "sha256": "87428fc522803d31065e7bce3cf03fe475096631e5e07bbd7a0fde60c4cf25c7",
+          "mtime": "2026-01-01T00:00:00.000000000Z"
+        },
+        {
+          "path": "text.txt",
+          "kind": "file",
+          "size": 49890,
+          "sha256": "47af5cb2a406d3ce8a4a5c61c89bf6076d49ff7b4fe9994aa90719b9de986b35",
+          "mtime": "2026-01-01T00:00:00.000000000Z"
+        },
+        {
+          "path": "uninstall.exe",
+          "kind": "file",
+          "size": 99581,
+          "sha256": "e6e1f6cd732e8c446a9393a31cb32395afe25c4bf29c650173e3e067cc3cf22c"
+        },
+        {
+          "path": "名前.txt",
+          "kind": "file",
+          "size": 4,
+          "sha256": "9f2c1a03124d90994aa38206721ba5ab10fd03e269fa24860a7f39d362dd9b5f",
+          "mtime": "2026-01-01T00:00:00.000000000Z"
+        }
+      ]
+    },
+    {
+      "file": "nsis/u-lzma-solid.exe",
+      "producer": "makensis 3.09 (Ubuntu 24.04 in Docker)",
+      "command": "makensis -INPUTCHARSET UTF8 (Unicode true; SetCompressor /SOLID lzma; see make-nsis.sh)",
+      "chain": "nsis",
+      "native": true,
+      "levels": [
+        "nsis"
+      ],
+      "password": null,
+      "utc_mtimes": false,
+      "hardlinks": 0,
+      "symlinks": 0,
+      "note": "BeeZip's own reader (docs/M10.md). The entries are what 7-Zip 26.00 extracts, checked against the tree the script installs by make-nsis.sh; the uninstaller is the stub with its icon patched, then its data, and nsExec.dll is the plugin makensis adds.",
+      "entries": [
+        {
+          "path": "$0/readme.txt",
+          "kind": "file",
+          "size": 11,
+          "sha256": "07708093e4bca8a74eb37680052281746c828a062495010dfb5c108bc1e7bcb3",
+          "mtime": "2024-05-06T07:08:08.000000000Z"
+        },
+        {
+          "path": "$APPDATA/BeeZip/app.txt",
+          "kind": "file",
+          "size": 240,
+          "sha256": "0c0a3ef8d40545f8c742f0465b6c3c9958a7454d708890d5ae9c487f449c4d6f",
+          "mtime": "2026-01-01T00:00:00.000000000Z"
+        },
+        {
+          "path": "$PLUGINSDIR/nsExec.dll",
+          "kind": "file",
+          "size": 10752,
+          "sha256": "0d7f702c518286a2d87db689af169c3857142324de4c9d76d51ebf639dced3df"
+        },
+        {
+          "path": "$PLUGINSDIR/plugin-data.bin",
+          "kind": "file",
+          "size": 400,
+          "sha256": "f12ee09371fb542db8359420cfdd2a9027975aa4078586c5e3e7df31b3eac80a",
+          "mtime": "2026-01-01T00:00:00.000000000Z"
+        },
+        {
+          "path": "$PLUGINSDIR/splash.bmp",
+          "kind": "file",
+          "size": 300,
+          "sha256": "f7cd4578f4bffa65a7a3851948594a85b2fdd71a534a0727f26209215e5d6843"
+        },
+        {
+          "path": "$SYSDIR/sys.txt",
+          "kind": "file",
+          "size": 240,
+          "sha256": "731b03a0f10c2ea19d79a7e35ecfb55ff18cc36fd93ccaeecd77c0399d9b76eb",
+          "mtime": "2026-01-01T00:00:00.000000000Z"
+        },
+        {
+          "path": "$TEMP/temp.txt",
+          "kind": "file",
+          "size": 260,
+          "sha256": "33bee86463a4fab5e6b7696dd1a72bf39a9d393cc52972f0d366874aa98fb432",
+          "mtime": "2026-01-01T00:00:00.000000000Z"
+        },
+        {
+          "path": "again/readme.txt",
+          "kind": "file",
+          "size": 11,
+          "sha256": "07708093e4bca8a74eb37680052281746c828a062495010dfb5c108bc1e7bcb3",
+          "mtime": "2024-05-06T07:08:08.000000000Z"
+        },
+        {
+          "path": "bee-🐝.txt",
+          "kind": "file",
+          "size": 6,
+          "sha256": "5312b0b582d805303c95d7e2b1bc6fad70e04b3dde5413aae758b68767b06ada",
+          "mtime": "2026-01-01T00:00:00.000000000Z"
+        },
+        {
+          "path": "café-ñandú.txt",
+          "kind": "file",
+          "size": 6,
+          "sha256": "115e41e477697e4e191fec2b9b8d2161d1f4980bedff2cf7782cfa0a58269e9d",
+          "mtime": "2026-01-01T00:00:00.000000000Z"
+        },
+        {
+          "path": "created-empty.txt",
+          "kind": "file",
+          "size": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "path": "empty.txt",
+          "kind": "file",
+          "size": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "mtime": "2026-01-01T00:00:00.000000000Z"
+        },
+        {
+          "path": "random-20k.bin",
+          "kind": "file",
+          "size": 20000,
+          "sha256": "26e3663adc817b3b13ef6129fa13e21d8a3bc48dac24db1b957c4441b01070d5",
+          "mtime": "2026-01-01T00:00:00.000000000Z"
+        },
+        {
+          "path": "readme.txt",
+          "kind": "file",
+          "size": 11,
+          "sha256": "07708093e4bca8a74eb37680052281746c828a062495010dfb5c108bc1e7bcb3",
+          "mtime": "2024-05-06T07:08:08.000000000Z"
+        },
+        {
+          "path": "renamed.txt",
+          "kind": "file",
+          "size": 11,
+          "sha256": "07708093e4bca8a74eb37680052281746c828a062495010dfb5c108bc1e7bcb3",
+          "mtime": "2024-05-06T07:08:08.000000000Z"
+        },
+        {
+          "path": "sub/inner/a.txt",
+          "kind": "file",
+          "size": 2,
+          "sha256": "87428fc522803d31065e7bce3cf03fe475096631e5e07bbd7a0fde60c4cf25c7",
+          "mtime": "2026-01-01T00:00:00.000000000Z"
+        },
+        {
+          "path": "text.txt",
+          "kind": "file",
+          "size": 49890,
+          "sha256": "47af5cb2a406d3ce8a4a5c61c89bf6076d49ff7b4fe9994aa90719b9de986b35",
+          "mtime": "2026-01-01T00:00:00.000000000Z"
+        },
+        {
+          "path": "uninstall.exe",
+          "kind": "file",
+          "size": 100540,
+          "sha256": "2775154205dd337cb6afe4d73fa5f21f459e0a9c1c928bc4dbc9be1118dd02f4"
+        },
+        {
+          "path": "名前.txt",
+          "kind": "file",
+          "size": 4,
+          "sha256": "9f2c1a03124d90994aa38206721ba5ab10fd03e269fa24860a7f39d362dd9b5f",
+          "mtime": "2026-01-01T00:00:00.000000000Z"
+        }
+      ]
+    },
+    {
+      "file": "nsis/a-bzip2.exe",
+      "producer": "makensis 3.09 (Ubuntu 24.04 in Docker)",
+      "command": "makensis -INPUTCHARSET UTF8 (Unicode false; SetCompressor bzip2; see make-nsis.sh)",
+      "chain": "nsis",
+      "native": true,
+      "levels": [
+        "nsis"
+      ],
+      "password": null,
+      "utc_mtimes": false,
+      "hardlinks": 0,
+      "symlinks": 0,
+      "note": "BeeZip's own reader (docs/M10.md). The entries are what 7-Zip 26.00 extracts, checked against the tree the script installs by make-nsis.sh; the uninstaller is the stub with its icon patched, then its data, and nsExec.dll is the plugin makensis adds.",
+      "entries": [
+        {
+          "path": "$0/readme.txt",
+          "kind": "file",
+          "size": 11,
+          "sha256": "07708093e4bca8a74eb37680052281746c828a062495010dfb5c108bc1e7bcb3",
+          "mtime": "2024-05-06T07:08:08.000000000Z"
+        },
+        {
+          "path": "$APPDATA/BeeZip/app.txt",
+          "kind": "file",
+          "size": 240,
+          "sha256": "0c0a3ef8d40545f8c742f0465b6c3c9958a7454d708890d5ae9c487f449c4d6f",
+          "mtime": "2026-01-01T00:00:00.000000000Z"
+        },
+        {
+          "path": "$PLUGINSDIR/nsExec.dll",
+          "kind": "file",
+          "size": 10240,
+          "sha256": "519908ff8f537871435f016319babe695b9345057d98617b701a02f18cca84e9"
+        },
+        {
+          "path": "$PLUGINSDIR/plugin-data.bin",
+          "kind": "file",
+          "size": 400,
+          "sha256": "f12ee09371fb542db8359420cfdd2a9027975aa4078586c5e3e7df31b3eac80a",
+          "mtime": "2026-01-01T00:00:00.000000000Z"
+        },
+        {
+          "path": "$PLUGINSDIR/splash.bmp",
+          "kind": "file",
+          "size": 300,
+          "sha256": "f7cd4578f4bffa65a7a3851948594a85b2fdd71a534a0727f26209215e5d6843"
+        },
+        {
+          "path": "$SYSDIR/sys.txt",
+          "kind": "file",
+          "size": 240,
+          "sha256": "731b03a0f10c2ea19d79a7e35ecfb55ff18cc36fd93ccaeecd77c0399d9b76eb",
+          "mtime": "2026-01-01T00:00:00.000000000Z"
+        },
+        {
+          "path": "$TEMP/temp.txt",
+          "kind": "file",
+          "size": 260,
+          "sha256": "33bee86463a4fab5e6b7696dd1a72bf39a9d393cc52972f0d366874aa98fb432",
+          "mtime": "2026-01-01T00:00:00.000000000Z"
+        },
+        {
+          "path": "again/readme.txt",
+          "kind": "file",
+          "size": 11,
+          "sha256": "07708093e4bca8a74eb37680052281746c828a062495010dfb5c108bc1e7bcb3",
+          "mtime": "2024-05-06T07:08:08.000000000Z"
+        },
+        {
+          "path": "café-ñandú.txt",
+          "kind": "file",
+          "size": 6,
+          "sha256": "115e41e477697e4e191fec2b9b8d2161d1f4980bedff2cf7782cfa0a58269e9d",
+          "mtime": "2026-01-01T00:00:00.000000000Z"
+        },
+        {
+          "path": "created-empty.txt",
+          "kind": "file",
+          "size": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "path": "empty.txt",
+          "kind": "file",
+          "size": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "mtime": "2026-01-01T00:00:00.000000000Z"
+        },
+        {
+          "path": "random-20k.bin",
+          "kind": "file",
+          "size": 20000,
+          "sha256": "26e3663adc817b3b13ef6129fa13e21d8a3bc48dac24db1b957c4441b01070d5",
+          "mtime": "2026-01-01T00:00:00.000000000Z"
+        },
+        {
+          "path": "readme.txt",
+          "kind": "file",
+          "size": 11,
+          "sha256": "07708093e4bca8a74eb37680052281746c828a062495010dfb5c108bc1e7bcb3",
+          "mtime": "2024-05-06T07:08:08.000000000Z"
+        },
+        {
+          "path": "renamed.txt",
+          "kind": "file",
+          "size": 11,
+          "sha256": "07708093e4bca8a74eb37680052281746c828a062495010dfb5c108bc1e7bcb3",
+          "mtime": "2024-05-06T07:08:08.000000000Z"
+        },
+        {
+          "path": "sub/inner/a.txt",
+          "kind": "file",
+          "size": 2,
+          "sha256": "87428fc522803d31065e7bce3cf03fe475096631e5e07bbd7a0fde60c4cf25c7",
+          "mtime": "2026-01-01T00:00:00.000000000Z"
+        },
+        {
+          "path": "text.txt",
+          "kind": "file",
+          "size": 49890,
+          "sha256": "47af5cb2a406d3ce8a4a5c61c89bf6076d49ff7b4fe9994aa90719b9de986b35",
+          "mtime": "2026-01-01T00:00:00.000000000Z"
+        },
+        {
+          "path": "uninstall.exe",
+          "kind": "file",
+          "size": 97533,
+          "sha256": "4f1b089c0f616ffcd51425b2b6141c7907b9973c724f8ed02f3154a904448236"
+        }
+      ]
+    },
+    {
+      "file": "nsis/a-zlib-solid.exe",
+      "producer": "makensis 3.09 (Ubuntu 24.04 in Docker)",
+      "command": "makensis -INPUTCHARSET UTF8 (Unicode false; SetCompressor /SOLID zlib; see make-nsis.sh)",
+      "chain": "nsis",
+      "native": true,
+      "levels": [
+        "nsis"
+      ],
+      "password": null,
+      "utc_mtimes": false,
+      "hardlinks": 0,
+      "symlinks": 0,
+      "note": "BeeZip's own reader (docs/M10.md). The entries are what 7-Zip 26.00 extracts, checked against the tree the script installs by make-nsis.sh; the uninstaller is the stub with its icon patched, then its data, and nsExec.dll is the plugin makensis adds.",
+      "entries": [
+        {
+          "path": "$0/readme.txt",
+          "kind": "file",
+          "size": 11,
+          "sha256": "07708093e4bca8a74eb37680052281746c828a062495010dfb5c108bc1e7bcb3",
+          "mtime": "2024-05-06T07:08:08.000000000Z"
+        },
+        {
+          "path": "$APPDATA/BeeZip/app.txt",
+          "kind": "file",
+          "size": 240,
+          "sha256": "0c0a3ef8d40545f8c742f0465b6c3c9958a7454d708890d5ae9c487f449c4d6f",
+          "mtime": "2026-01-01T00:00:00.000000000Z"
+        },
+        {
+          "path": "$PLUGINSDIR/nsExec.dll",
+          "kind": "file",
+          "size": 10240,
+          "sha256": "519908ff8f537871435f016319babe695b9345057d98617b701a02f18cca84e9"
+        },
+        {
+          "path": "$PLUGINSDIR/plugin-data.bin",
+          "kind": "file",
+          "size": 400,
+          "sha256": "f12ee09371fb542db8359420cfdd2a9027975aa4078586c5e3e7df31b3eac80a",
+          "mtime": "2026-01-01T00:00:00.000000000Z"
+        },
+        {
+          "path": "$PLUGINSDIR/splash.bmp",
+          "kind": "file",
+          "size": 300,
+          "sha256": "f7cd4578f4bffa65a7a3851948594a85b2fdd71a534a0727f26209215e5d6843"
+        },
+        {
+          "path": "$SYSDIR/sys.txt",
+          "kind": "file",
+          "size": 240,
+          "sha256": "731b03a0f10c2ea19d79a7e35ecfb55ff18cc36fd93ccaeecd77c0399d9b76eb",
+          "mtime": "2026-01-01T00:00:00.000000000Z"
+        },
+        {
+          "path": "$TEMP/temp.txt",
+          "kind": "file",
+          "size": 260,
+          "sha256": "33bee86463a4fab5e6b7696dd1a72bf39a9d393cc52972f0d366874aa98fb432",
+          "mtime": "2026-01-01T00:00:00.000000000Z"
+        },
+        {
+          "path": "again/readme.txt",
+          "kind": "file",
+          "size": 11,
+          "sha256": "07708093e4bca8a74eb37680052281746c828a062495010dfb5c108bc1e7bcb3",
+          "mtime": "2024-05-06T07:08:08.000000000Z"
+        },
+        {
+          "path": "café-ñandú.txt",
+          "kind": "file",
+          "size": 6,
+          "sha256": "115e41e477697e4e191fec2b9b8d2161d1f4980bedff2cf7782cfa0a58269e9d",
+          "mtime": "2026-01-01T00:00:00.000000000Z"
+        },
+        {
+          "path": "created-empty.txt",
+          "kind": "file",
+          "size": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "path": "empty.txt",
+          "kind": "file",
+          "size": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "mtime": "2026-01-01T00:00:00.000000000Z"
+        },
+        {
+          "path": "random-20k.bin",
+          "kind": "file",
+          "size": 20000,
+          "sha256": "26e3663adc817b3b13ef6129fa13e21d8a3bc48dac24db1b957c4441b01070d5",
+          "mtime": "2026-01-01T00:00:00.000000000Z"
+        },
+        {
+          "path": "readme.txt",
+          "kind": "file",
+          "size": 11,
+          "sha256": "07708093e4bca8a74eb37680052281746c828a062495010dfb5c108bc1e7bcb3",
+          "mtime": "2024-05-06T07:08:08.000000000Z"
+        },
+        {
+          "path": "renamed.txt",
+          "kind": "file",
+          "size": 11,
+          "sha256": "07708093e4bca8a74eb37680052281746c828a062495010dfb5c108bc1e7bcb3",
+          "mtime": "2024-05-06T07:08:08.000000000Z"
+        },
+        {
+          "path": "sub/inner/a.txt",
+          "kind": "file",
+          "size": 2,
+          "sha256": "87428fc522803d31065e7bce3cf03fe475096631e5e07bbd7a0fde60c4cf25c7",
+          "mtime": "2026-01-01T00:00:00.000000000Z"
+        },
+        {
+          "path": "text.txt",
+          "kind": "file",
+          "size": 49890,
+          "sha256": "47af5cb2a406d3ce8a4a5c61c89bf6076d49ff7b4fe9994aa90719b9de986b35",
+          "mtime": "2026-01-01T00:00:00.000000000Z"
+        },
+        {
+          "path": "uninstall.exe",
+          "kind": "file",
+          "size": 98983,
+          "sha256": "821ad1efd352d84c01cae6ca9ba13f73bc96d326feedc08e8fddcd41380fd2d9"
+        }
+      ]
+    },
+    {
+      "file": "nsis/x64-lzma.exe",
+      "producer": "makensis 3.09 (Ubuntu 24.04 in Docker)",
+      "command": "makensis -INPUTCHARSET UTF8 (Target amd64-unicode; SetCompressor lzma; see make-nsis.sh)",
+      "chain": "nsis",
+      "native": true,
+      "levels": [
+        "nsis"
+      ],
+      "password": null,
+      "utc_mtimes": false,
+      "hardlinks": 0,
+      "symlinks": 0,
+      "note": "BeeZip's own reader (docs/M10.md). The entries are what 7-Zip 26.00 extracts, checked against the tree the script installs by make-nsis.sh; the uninstaller is the stub with its icon patched, then its data, and nsExec.dll is the plugin makensis adds.",
+      "entries": [
+        {
+          "path": "$0/readme.txt",
+          "kind": "file",
+          "size": 11,
+          "sha256": "07708093e4bca8a74eb37680052281746c828a062495010dfb5c108bc1e7bcb3",
+          "mtime": "2024-05-06T07:08:08.000000000Z"
+        },
+        {
+          "path": "$APPDATA/BeeZip/app.txt",
+          "kind": "file",
+          "size": 240,
+          "sha256": "0c0a3ef8d40545f8c742f0465b6c3c9958a7454d708890d5ae9c487f449c4d6f",
+          "mtime": "2026-01-01T00:00:00.000000000Z"
+        },
+        {
+          "path": "$PLUGINSDIR/nsExec.dll",
+          "kind": "file",
+          "size": 11264,
+          "sha256": "4685684a0c1bff0efa06c82f642fb2233ac2238775fdfa7730c59ae21dd575ce"
+        },
+        {
+          "path": "$PLUGINSDIR/plugin-data.bin",
+          "kind": "file",
+          "size": 400,
+          "sha256": "f12ee09371fb542db8359420cfdd2a9027975aa4078586c5e3e7df31b3eac80a",
+          "mtime": "2026-01-01T00:00:00.000000000Z"
+        },
+        {
+          "path": "$PLUGINSDIR/splash.bmp",
+          "kind": "file",
+          "size": 300,
+          "sha256": "f7cd4578f4bffa65a7a3851948594a85b2fdd71a534a0727f26209215e5d6843"
+        },
+        {
+          "path": "$SYSDIR/sys.txt",
+          "kind": "file",
+          "size": 240,
+          "sha256": "731b03a0f10c2ea19d79a7e35ecfb55ff18cc36fd93ccaeecd77c0399d9b76eb",
+          "mtime": "2026-01-01T00:00:00.000000000Z"
+        },
+        {
+          "path": "$TEMP/temp.txt",
+          "kind": "file",
+          "size": 260,
+          "sha256": "33bee86463a4fab5e6b7696dd1a72bf39a9d393cc52972f0d366874aa98fb432",
+          "mtime": "2026-01-01T00:00:00.000000000Z"
+        },
+        {
+          "path": "again/readme.txt",
+          "kind": "file",
+          "size": 11,
+          "sha256": "07708093e4bca8a74eb37680052281746c828a062495010dfb5c108bc1e7bcb3",
+          "mtime": "2024-05-06T07:08:08.000000000Z"
+        },
+        {
+          "path": "bee-🐝.txt",
+          "kind": "file",
+          "size": 6,
+          "sha256": "5312b0b582d805303c95d7e2b1bc6fad70e04b3dde5413aae758b68767b06ada",
+          "mtime": "2026-01-01T00:00:00.000000000Z"
+        },
+        {
+          "path": "café-ñandú.txt",
+          "kind": "file",
+          "size": 6,
+          "sha256": "115e41e477697e4e191fec2b9b8d2161d1f4980bedff2cf7782cfa0a58269e9d",
+          "mtime": "2026-01-01T00:00:00.000000000Z"
+        },
+        {
+          "path": "created-empty.txt",
+          "kind": "file",
+          "size": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "path": "empty.txt",
+          "kind": "file",
+          "size": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "mtime": "2026-01-01T00:00:00.000000000Z"
+        },
+        {
+          "path": "random-20k.bin",
+          "kind": "file",
+          "size": 20000,
+          "sha256": "26e3663adc817b3b13ef6129fa13e21d8a3bc48dac24db1b957c4441b01070d5",
+          "mtime": "2026-01-01T00:00:00.000000000Z"
+        },
+        {
+          "path": "readme.txt",
+          "kind": "file",
+          "size": 11,
+          "sha256": "07708093e4bca8a74eb37680052281746c828a062495010dfb5c108bc1e7bcb3",
+          "mtime": "2024-05-06T07:08:08.000000000Z"
+        },
+        {
+          "path": "renamed.txt",
+          "kind": "file",
+          "size": 11,
+          "sha256": "07708093e4bca8a74eb37680052281746c828a062495010dfb5c108bc1e7bcb3",
+          "mtime": "2024-05-06T07:08:08.000000000Z"
+        },
+        {
+          "path": "sub/inner/a.txt",
+          "kind": "file",
+          "size": 2,
+          "sha256": "87428fc522803d31065e7bce3cf03fe475096631e5e07bbd7a0fde60c4cf25c7",
+          "mtime": "2026-01-01T00:00:00.000000000Z"
+        },
+        {
+          "path": "text.txt",
+          "kind": "file",
+          "size": 49890,
+          "sha256": "47af5cb2a406d3ce8a4a5c61c89bf6076d49ff7b4fe9994aa90719b9de986b35",
+          "mtime": "2026-01-01T00:00:00.000000000Z"
+        },
+        {
+          "path": "uninstall.exe",
+          "kind": "file",
+          "size": 101043,
+          "sha256": "6c30ae80d6e9737e51e9a561b11f0f39cd3ac39d30262f178a83bea19c948330"
+        },
+        {
+          "path": "名前.txt",
+          "kind": "file",
+          "size": 4,
+          "sha256": "9f2c1a03124d90994aa38206721ba5ab10fd03e269fa24860a7f39d362dd9b5f",
+          "mtime": "2026-01-01T00:00:00.000000000Z"
+        }
+      ]
+    },
+    {
+      "file": "nsis/u-nocrc.exe",
+      "producer": "makensis 3.09 (Ubuntu 24.04 in Docker)",
+      "command": "makensis -INPUTCHARSET UTF8 (Unicode true; CRCCheck off; SetCompressor /SOLID lzma; see make-nsis.sh)",
+      "chain": "nsis",
+      "native": true,
+      "levels": [
+        "nsis"
+      ],
+      "password": null,
+      "utc_mtimes": false,
+      "hardlinks": 0,
+      "symlinks": 0,
+      "note": "BeeZip's own reader (docs/M10.md). The entries are what 7-Zip 26.00 extracts, checked against the tree the script installs by make-nsis.sh; the uninstaller is the stub with its icon patched, then its data, and nsExec.dll is the plugin makensis adds.",
+      "entries": [
+        {
+          "path": "$0/readme.txt",
+          "kind": "file",
+          "size": 11,
+          "sha256": "07708093e4bca8a74eb37680052281746c828a062495010dfb5c108bc1e7bcb3",
+          "mtime": "2024-05-06T07:08:08.000000000Z"
+        },
+        {
+          "path": "$APPDATA/BeeZip/app.txt",
+          "kind": "file",
+          "size": 240,
+          "sha256": "0c0a3ef8d40545f8c742f0465b6c3c9958a7454d708890d5ae9c487f449c4d6f",
+          "mtime": "2026-01-01T00:00:00.000000000Z"
+        },
+        {
+          "path": "$PLUGINSDIR/nsExec.dll",
+          "kind": "file",
+          "size": 10752,
+          "sha256": "0d7f702c518286a2d87db689af169c3857142324de4c9d76d51ebf639dced3df"
+        },
+        {
+          "path": "$PLUGINSDIR/plugin-data.bin",
+          "kind": "file",
+          "size": 400,
+          "sha256": "f12ee09371fb542db8359420cfdd2a9027975aa4078586c5e3e7df31b3eac80a",
+          "mtime": "2026-01-01T00:00:00.000000000Z"
+        },
+        {
+          "path": "$PLUGINSDIR/splash.bmp",
+          "kind": "file",
+          "size": 300,
+          "sha256": "f7cd4578f4bffa65a7a3851948594a85b2fdd71a534a0727f26209215e5d6843"
+        },
+        {
+          "path": "$SYSDIR/sys.txt",
+          "kind": "file",
+          "size": 240,
+          "sha256": "731b03a0f10c2ea19d79a7e35ecfb55ff18cc36fd93ccaeecd77c0399d9b76eb",
+          "mtime": "2026-01-01T00:00:00.000000000Z"
+        },
+        {
+          "path": "$TEMP/temp.txt",
+          "kind": "file",
+          "size": 260,
+          "sha256": "33bee86463a4fab5e6b7696dd1a72bf39a9d393cc52972f0d366874aa98fb432",
+          "mtime": "2026-01-01T00:00:00.000000000Z"
+        },
+        {
+          "path": "again/readme.txt",
+          "kind": "file",
+          "size": 11,
+          "sha256": "07708093e4bca8a74eb37680052281746c828a062495010dfb5c108bc1e7bcb3",
+          "mtime": "2024-05-06T07:08:08.000000000Z"
+        },
+        {
+          "path": "bee-🐝.txt",
+          "kind": "file",
+          "size": 6,
+          "sha256": "5312b0b582d805303c95d7e2b1bc6fad70e04b3dde5413aae758b68767b06ada",
+          "mtime": "2026-01-01T00:00:00.000000000Z"
+        },
+        {
+          "path": "café-ñandú.txt",
+          "kind": "file",
+          "size": 6,
+          "sha256": "115e41e477697e4e191fec2b9b8d2161d1f4980bedff2cf7782cfa0a58269e9d",
+          "mtime": "2026-01-01T00:00:00.000000000Z"
+        },
+        {
+          "path": "created-empty.txt",
+          "kind": "file",
+          "size": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "path": "empty.txt",
+          "kind": "file",
+          "size": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "mtime": "2026-01-01T00:00:00.000000000Z"
+        },
+        {
+          "path": "random-20k.bin",
+          "kind": "file",
+          "size": 20000,
+          "sha256": "26e3663adc817b3b13ef6129fa13e21d8a3bc48dac24db1b957c4441b01070d5",
+          "mtime": "2026-01-01T00:00:00.000000000Z"
+        },
+        {
+          "path": "readme.txt",
+          "kind": "file",
+          "size": 11,
+          "sha256": "07708093e4bca8a74eb37680052281746c828a062495010dfb5c108bc1e7bcb3",
+          "mtime": "2024-05-06T07:08:08.000000000Z"
+        },
+        {
+          "path": "renamed.txt",
+          "kind": "file",
+          "size": 11,
+          "sha256": "07708093e4bca8a74eb37680052281746c828a062495010dfb5c108bc1e7bcb3",
+          "mtime": "2024-05-06T07:08:08.000000000Z"
+        },
+        {
+          "path": "sub/inner/a.txt",
+          "kind": "file",
+          "size": 2,
+          "sha256": "87428fc522803d31065e7bce3cf03fe475096631e5e07bbd7a0fde60c4cf25c7",
+          "mtime": "2026-01-01T00:00:00.000000000Z"
+        },
+        {
+          "path": "text.txt",
+          "kind": "file",
+          "size": 49890,
+          "sha256": "47af5cb2a406d3ce8a4a5c61c89bf6076d49ff7b4fe9994aa90719b9de986b35",
+          "mtime": "2026-01-01T00:00:00.000000000Z"
+        },
+        {
+          "path": "uninstall.exe",
+          "kind": "file",
+          "size": 100532,
+          "sha256": "590af81317c710cdaf29184822dcdffacdc837730b069f24017213ab5d42bf04"
+        },
+        {
+          "path": "名前.txt",
+          "kind": "file",
+          "size": 4,
+          "sha256": "9f2c1a03124d90994aa38206721ba5ab10fd03e269fa24860a7f39d362dd9b5f",
+          "mtime": "2026-01-01T00:00:00.000000000Z"
         }
       ]
     }

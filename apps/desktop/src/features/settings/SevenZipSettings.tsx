@@ -1,5 +1,5 @@
-// The settings page's 7-Zip section (docs/M6.md §3.7, §3.8): which 7-Zip BeeZip runs for WIM, NSIS
-// and the virtual disks, where it was found, a button to install or update it, a path to choose
+// The settings page's 7-Zip section (docs/M6.md §3.7, §3.8): which 7-Zip BeeZip runs for MSI
+// patches and what its own readers don't read, where it was found, a button to install or update it, a path to choose
 // another, and a switch to turn it off.
 import { open as pickFile } from "@tauri-apps/plugin-dialog";
 import { FolderOpen } from "lucide-react";
@@ -71,7 +71,7 @@ export function SevenZipSettings({
   return (
     <Section
       title="7-Zip"
-      description="BeeZip opens NSIS installers through an installed 7-Zip, and MSI patches and the few files of other formats it doesn't read itself."
+      description="BeeZip opens MSI patches, transforms and merge modules through an installed 7-Zip, and the few files of other formats it doesn't read itself."
     >
       <div className="flex items-start gap-3">
         <p role="status" className="selectable min-w-0 flex-1 text-[12px]">

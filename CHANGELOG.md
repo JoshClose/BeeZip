@@ -9,6 +9,22 @@ using BeeZip will notice. Leave the date out: the Releases page dates each versi
 
 ## 0.5.0
 
+### NSIS installers without 7-Zip
+
+- **BeeZip reads NSIS installers itself,** on every platform: NSIS 2 and 3 and Jim Park's
+  Unicode NSIS, 32- and 64-bit, in zlib, bzip2 or LZMA, solid or not. Files are listed as 7-Zip
+  lists them, checked file for file against 7-Zip on 55 installers.
+- **Sizes are exact:** 7-Zip lists none for about a quarter of an installer's files, and some
+  wrong. A solid installer takes a moment to open while BeeZip finds them.
+- **Extracting an installer is much faster:** BeeZip no longer copies it through a folder of
+  7-Zip's first, which took six times as long as 7-Zip on its own.
+- **The uninstaller is extracted too,** rebuilt as the installer writes it, where 7-Zip leaves
+  it out, as it does from BeeZip's own installer.
+- **Installers 7-Zip gets wrong read right:** those built by Ubuntu's makensis 2.50, and those
+  with a stored header before compressed files.
+- **Testing checks the installer's CRC,** and an installer cut short gives every file before
+  the cut.
+
 ### CramFS images without 7-Zip
 
 - **BeeZip reads CramFS images itself,** on every platform, as 7-Zip lists them: checked file
@@ -16,8 +32,11 @@ using BeeZip will notice. Leave the date out: the Releases page dates each versi
 - **Images 7-Zip can't read open too:** files with holes, blocks of 8 to 64 KiB, an image after
   a 512-byte boot block, and Linux 4.15's extended block pointers.
 - **Testing checks the image's CRC,** and an image cut short gives every file before the cut.
-- **7-Zip is now needed only for NSIS installers and MSI patches,** and for the few files of
-  other formats BeeZip doesn't read itself.
+
+### 7-Zip
+
+- **7-Zip is now needed only for MSI patches, transforms and merge modules,** and for the few
+  files of other formats BeeZip doesn't read itself.
 
 ## 0.4.0
 

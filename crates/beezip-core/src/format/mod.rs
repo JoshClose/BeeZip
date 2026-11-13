@@ -18,6 +18,7 @@ pub mod iso;
 pub mod lzh;
 pub mod lzx;
 pub mod msi;
+pub mod nsis;
 pub mod pbzx;
 pub mod pkg;
 pub mod rar;

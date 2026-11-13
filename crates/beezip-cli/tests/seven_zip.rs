@@ -228,19 +228,20 @@ fn a_declined_prompt_is_a_cancel_and_a_failure_names_wingets_code() {
     assert!(err.contains("error[Io]: winget couldn't download"), "{err}");
 }
 
-/// A format only 7-Zip reads: an NSIS installer (BeeZip reads WIMs itself since M8, and CHM
-/// help files since M9).
-fn nsis() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/thirdparty/7zip/nsis-zlib.exe")
+/// A file only 7-Zip reads: a CramFS image in 7-Zip's own LZMA variant, which Linux doesn't
+/// read either (BeeZip reads WIMs itself since M8, CHM help files since M9, and CramFS images
+/// and NSIS installers since M10).
+fn sevenzip_only() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../tests/fixtures/thirdparty/cramfs/sevenzip-lzma.img")
 }
 
-/// What `beezip list` on an NSIS installer says without 7-Zip, with `winget` as the winget
-/// there is.
+/// What `beezip list` on that image says without 7-Zip, with `winget` as the winget there is.
 fn list_error(search: &Path, winget: &Path) -> String {
     let out = beezip(search)
         .env("BEEZIP_WINGET", winget)
         .arg("list")
-        .arg(nsis())
+        .arg(sevenzip_only())
         .output()
         .unwrap();
     assert_eq!(out.status.code(), Some(12));

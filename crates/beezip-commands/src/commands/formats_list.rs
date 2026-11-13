@@ -330,6 +330,14 @@ impl Command for FormatsList {
             "  {:<8} {:<25} {:<5} {:<7} {:<6} {:<8} {:<6}  {}\n",
             "ID", "NAME", "LIST", "EXTRACT", "CREATE", "ENCRYPT", "RANDOM", "EXTENSIONS"
         ));
+        // An installer is an `.exe`, which detection doesn't go by.
+        let exts = |f: &FormatInfo| {
+            if f.id == "nsis" {
+                "(an installer program)".to_owned()
+            } else {
+                f.extensions.join(" ")
+            }
+        };
         for f in out.formats.iter().filter(|f| f.backend.is_none()) {
             s.push_str(&format!(
                 "  {:<8} {:<25} {:<5} {:<7} {:<6} {:<8} {:<6}  {}\n",
@@ -340,30 +348,8 @@ impl Command for FormatsList {
                 yes(f.caps.create),
                 yes(f.caps.encrypt),
                 yes(f.caps.random_access),
-                f.extensions.join(" ")
+                exts(f)
             ));
-        }
-        let z = &out.seven_zip;
-        s.push_str(&match (&z.name, &z.path, &z.problem) {
-            (Some(name), Some(path), _) => {
-                format!(
-                    "\nRead through {name} ({}), list and extract\n",
-                    path.display()
-                )
-            }
-            (_, _, problem) => format!(
-                "\nRead through 7-Zip {} or newer, list and extract: {}\n",
-                z.min_version,
-                problem.as_deref().unwrap_or("not found")
-            ),
-        });
-        for f in out.formats.iter().filter(|f| f.backend.is_some()) {
-            let exts = if f.extensions.is_empty() {
-                "(an installer program)".to_owned()
-            } else {
-                f.extensions.join(" ")
-            };
-            s.push_str(&format!("  {:<8} {:<26} {}\n", f.id, f.name, exts));
         }
         for f in out.formats.iter().filter(|f| !f.methods.is_empty()) {
             let methods: Vec<String> = f
@@ -375,6 +361,22 @@ impl Command for FormatsList {
                 })
                 .collect();
             s.push_str(&format!("  {} methods: {}\n", f.id, methods.join(", ")));
+        }
+        // 7-Zip reads MSI patches and what BeeZip's own readers don't (docs/M10.md §6).
+        let z = &out.seven_zip;
+        s.push_str(&match (&z.name, &z.path, &z.problem) {
+            (Some(name), Some(path), _) => format!(
+                "\n7-Zip, for MSI patches and what BeeZip doesn't read itself: {name} ({})\n",
+                path.display()
+            ),
+            (_, _, problem) => format!(
+                "\n7-Zip {} or newer, for MSI patches and what BeeZip doesn't read itself: {}\n",
+                z.min_version,
+                problem.as_deref().unwrap_or("not found")
+            ),
+        });
+        for f in out.formats.iter().filter(|f| f.backend.is_some()) {
+            s.push_str(&format!("  {:<8} {:<26} {}\n", f.id, f.name, exts(f)));
         }
         s.push_str("\nCodecs\n");
         s.push_str(&format!(
