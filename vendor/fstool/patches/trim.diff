@@ -1,0 +1,11 @@
+--- a/src/merge.rs
++++ b/src/merge.rs
+@@ -90,6 +90,8 @@
+     /// after every regular file has been written so the target exists.
+     /// Falls back to `materialise_copy` when the destination FS can't
+     /// represent links.
++    // BeeZip: made only on Unix or with `tar`, which this trimmed copy leaves out on Windows.
++    #[cfg_attr(not(any(unix, feature = "tar")), allow(dead_code))]
+     HardLink(PathBuf),
+ }
+ 

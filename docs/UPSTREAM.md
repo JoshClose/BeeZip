@@ -130,6 +130,11 @@ files under `target/` exist only on the machine that found the bug. The mileston
 
 0.5.3 (2026-11-09) changes only archive, zip and tar writing, and fixes none of these.
 
+Since M11, BeeZip builds a patched copy (`vendor/fstool`, through `[patch.crates-io]`; its
+`BEEZIP.md` and `patches/` list each change, marked `BeeZip:` in the source): the NTFS, HFS+ and
+APFS bugs below marked *Patched*. On a bump, check each against the new release, and drop the copy
+once none is needed.
+
 - **The decmpfs header's magic is read big-endian**, so every Apple-compressed file fails.
   - *Workaround:* BeeZip decodes decmpfs itself (`format/dmg/decmpfs.rs`, `lzvn.rs`) and never
     asks fstool for a compressed file's body.
@@ -172,11 +177,10 @@ files under `target/` exist only on the machine that found the bug. The mileston
   - *Workaround (keep):* such streams are `Corrupt`; the size listed is the one fstool reads.
 - **NTFS: clusters over 64 KiB read as damaged:** `BootSector::decode` (`src/fs/ntfs/boot.rs:70`)
   rejects the negative encoding of sectors per cluster (over 0x80) that such volumes use.
-  - *Workaround:* BeeZip checks the boot sector first and makes those volumes
-    `UnsupportedOperation`, so 7-Zip reads them when it's installed. M11 plans to patch a
-    vendored copy instead (`docs/M11.md` §6.3): about ten lines in `decode` and a `cluster_bytes`
-    field, checked in the spike on mkntfs volumes of 128 KiB to 2 MiB clusters, every file as
-    7-Zip extracts it.
+  - *Patched (M11):* `decode` takes a value over 0x80 as 2^(256 - value) sectors and keeps the
+    cluster size in bytes (`cluster_bytes`; `vendor/fstool/patches/ntfs-clusters.diff`).
+  - *Check:* `clusters_of_128_kib_and_2_mib_read` (`format/volume/ntfs/tests.rs`), on mkntfs's
+    `thirdparty/ntfs/c128k.img.xz` and `c2m.img.xz`, through an unpatched fstool.
 - **NTFS, found by reading the code and avoided rather than reproduced:**
   - `descend_index` (`src/fs/ntfs/mod.rs:667`) reads an index block as contiguous bytes from its
     first cluster, and `read_directory` (`:553`) assumes the root's first entry is at 16: BeeZip
@@ -242,18 +246,21 @@ files under `target/` exist only on the machine that found the bug. The mileston
   `0x20`. So a sealed volume (macOS 11 and later's system volume, an IPSW's) isn't refused as
   fstool means to, and is read without its file-extent tree, which holds a sealed volume's
   extents: its files probably read wrong or empty. Not reproduced: there's no sealed sample here.
-  - *Check:* a volume superblock with `0x20` in `apfs_incompatible_features` opens through
-    `apple::open`; with `0x80` it's refused.
-  - *Workaround:* none yet. M11 plans to fix the constant in a vendored copy and read the
-    file-extent tree (`docs/M11.md` §6.3).
+  Reproduced in M11 with a crafted sealed volume: every file reads as zeros.
+  - *Patched (M11):* the flag is `0x20`, and a sealed volume's files take their extents from the
+    file-extent tree (`apfs_fext_tree_oid`, a new `fext.rs`; `vendor/fstool/patches/apfs-sealed.diff`).
+    Its integrity hashes aren't checked.
+  - *Check:* `an_overflowed_catalog_and_a_sealed_volume_read_as_their_sources` (`tests/dmg.rs`),
+    on `thirdparty/apple/apfs-sealed.apfs.xz`, through an unpatched fstool.
 - **HFS+: a catalog or attributes file in more than eight extents is refused**
   (`ForkReader::from_inline`, `src/fs/hfs_plus/btree.rs:171`: "extents-overflow file is not
   supported in v1"), though `from_inline_plus_overflow` (`:199`) is there. A long-used volume
   fragments them. 7-Zip follows the overflow extents (`HfsHandler.cpp`).
-  - *Check:* a bare HFS+ volume whose catalog fork has more than eight extents goes to 7-Zip; in a
-    DMG it fails.
-  - *Workaround:* none yet (`UnsupportedOperation`). M11 plans to patch a vendored copy
-    (`docs/M11.md` §6.3).
+  `open_writable` reads the catalog the same way, and `open` calls it.
+  - *Patched (M11):* `special_fork` builds the catalog's and attributes' forks with their overflow
+    extents (keyed by CNIDs 4 and 8), for `open`, `open_writable` and BeeZip's own resource-fork
+    reader (`vendor/fstool/patches/hfs-overflow.diff`).
+  - *Check:* the same test, on `thirdparty/apple/hfs-catalog-overflow.hfs.xz`.
 - **Its DMG layer caches one decoded chunk** (10 000 files took 25 s against 0.18 s) and caps a
   chunk at 8 GiB.
   - *Workaround:* BeeZip's own UDIF reader (`format/udif.rs`) behind fstool's `BlockDevice`.

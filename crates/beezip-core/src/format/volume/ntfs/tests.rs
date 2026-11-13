@@ -563,21 +563,21 @@ fn boot_sectors_beezip_doesnt_read_are_unsupported() {
         edit(&mut b);
         open_bytes(b).map(|_| ()).unwrap_err()
     };
-    // 2^8 sectors of 512 bytes: 128 KiB.
-    let e = kind(&|b| b[13] = 0xF8);
+    // 2^13 sectors of 512 bytes: 4 MiB, more than NTFS allows (2 MiB).
+    let e = kind(&|b| b[13] = 0xF3);
     assert_eq!(e.kind, ErrorKind::UnsupportedOperation, "{e}");
-    assert!(e.message.contains("128 KiB"), "{e}");
-    // 2 sectors, written the negative way.
-    assert_eq!(
-        kind(&|b| b[13] = 0xFF).kind,
-        ErrorKind::UnsupportedOperation
-    );
-    // Sectors of 4 KiB, 32 to a cluster.
-    let e = kind(&|b| {
-        b[11..13].copy_from_slice(&4096u16.to_le_bytes());
-        b[13] = 32;
-    });
-    assert_eq!(e.kind, ErrorKind::UnsupportedOperation, "{e}");
+    assert!(e.message.contains("4096 KiB"), "{e}");
+    // Clusters BeeZip reads since M11, 128 KiB written the negative way or 32 sectors of 4 KiB,
+    // on a volume laid out in 4 KiB ones: damage, found as it opens.
+    for edit in [
+        &(|b: &mut Vec<u8>| b[13] = 0xF8) as &dyn Fn(&mut Vec<u8>),
+        &|b| {
+            b[11..13].copy_from_slice(&4096u16.to_le_bytes());
+            b[13] = 32;
+        },
+    ] {
+        assert_eq!(kind(edit).kind, ErrorKind::Corrupt);
+    }
     // Damage.
     for edit in [
         &(|b: &mut Vec<u8>| b[13] = 3) as &dyn Fn(&mut Vec<u8>),
@@ -587,6 +587,30 @@ fn boot_sectors_beezip_doesnt_read_are_unsupported() {
         &|b| b[3] = b'X',
     ] {
         assert_eq!(kind(edit).kind, ErrorKind::Corrupt);
+    }
+}
+
+/// Volumes of 128 KiB and 2 MiB clusters from mkntfs, which writes them in NTFS's negative form
+/// as Windows does (`thirdparty/ntfs/c128k.img.xz`, `c2m.img.xz`; docs/M11.md §6.3): every file
+/// reads, through the image's xz.
+#[test]
+fn clusters_of_128_kib_and_2_mib_read() {
+    let want: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(fixture("thirdparty/ntfs/clusters.json")).unwrap())
+            .unwrap();
+    for image in ["thirdparty/ntfs/c128k.img.xz", "thirdparty/ntfs/c2m.img.xz"] {
+        let (mut opened, entries, warnings) = native(image);
+        assert!(warnings.is_empty(), "{image}: {warnings:?}");
+        for (path, w) in want.as_object().unwrap() {
+            let e = find(&entries, path);
+            assert_eq!(e.size, w["size"].as_u64(), "{image}: {path}");
+            let got = data(&mut opened, e.id).unwrap();
+            assert_eq!(
+                sha256(&got),
+                w["sha256"].as_str().unwrap(),
+                "{image}: {path}"
+            );
+        }
     }
 }
 

@@ -1,0 +1,18 @@
+{
+ "small.txt": {
+  "size": 6,
+  "sha256": "4c47b3e816fbe7d40cef9f665ba8f0be1ae68b5e8e7ed70f5b6bab7f70528e8f"
+ },
+ "text.txt": {
+  "size": 432000,
+  "sha256": "26324f722ab3127c756dc1f2f31d163c5ed424054393403c912a3425ff72ff60"
+ },
+ "rand.bin": {
+  "size": 20000,
+  "sha256": "2542d2b34fb0e5aeb6f182591e2d8011ae91a60eb8ce147e9c7d18c40a0c1b19"
+ },
+ "sub/nested.txt": {
+  "size": 7,
+  "sha256": "370a8c04b8a65bb4494275eec227f1b694db04c76da6b0b8ae88ed1ab19790a3"
+ }
+}
