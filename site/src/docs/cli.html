@@ -103,7 +103,7 @@ beezip rename backup.zip a.txt notes/a.txt   # renaming can move, too</code></pr
 <h2 id="converting">Converting</h2>
 <pre><code>beezip convert old.rar new.7z               # any archive BeeZip reads, as one it writes
 beezip convert a.tar.gz a.tar.zst           # entries copied, the stream compressed again
-beezip convert disk.vhdx files.zip          # through 7-Zip, for the formats that need it
+beezip convert disk.vhdx files.zip          # a disk image's files, as a zip
 beezip convert secret.7z open.zip --decrypt # encryption is only dropped when you say so
 beezip convert secret.7z secret.zip -p old --new-password new</code></pre>
 <p>The source isn't changed. What the new format can't hold is left out and reported. Entries are copied without decoding when the formats match and no option asks otherwise.</p>
