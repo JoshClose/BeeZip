@@ -33,12 +33,12 @@ Archive formats
   ext      ext2/3/4 image            yes   yes     -      -        yes     .img .ext2 .ext3 .ext4
   hfs      HFS+ image                yes   yes     -      -        yes     .hfs .hfsx
   apfs     APFS image                yes   yes     -      -        yes     .apfs
+  cramfs   CramFS image              yes   yes     -      -        yes     .cramfs .img
   gpt      GPT disk image            yes   yes     -      -        yes     .img .raw
   mbr      MBR disk image            yes   yes     -      -        yes     .img .raw
 
 Read through 7-Zip 25.01 or newer, list and extract: turned off in Settings
   nsis     NSIS installer             (an installer program)
-  cramfs   CramFS image               .cramfs .img
   zip methods: store, deflate (1-9, 6), bzip2 (1-9, 9), zstd (1-22, 3), xz (0-9, 6), ppmd (1-9, 7)
   7z methods: lzma2 (0-9, 5), lzma (0-9, 5), ppmd (1-9, 6), bzip2 (1-9, 9), deflate (1-9, 6), copy
   cab methods: store, mszip

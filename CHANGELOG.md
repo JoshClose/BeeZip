@@ -7,6 +7,18 @@ Write a new section as `## X.Y.Z`, with `###` groups and `- ` items, describing 
 using BeeZip will notice. Leave the date out: the Releases page dates each version by its
 `vX.Y.Z` tag.
 
+## 0.5.0
+
+### CramFS images without 7-Zip
+
+- **BeeZip reads CramFS images itself,** on every platform, as 7-Zip lists them: checked file
+  for file against 7-Zip on 13 images made by Linux's `mkfs.cramfs`.
+- **Images 7-Zip can't read open too:** files with holes, blocks of 8 to 64 KiB, an image after
+  a 512-byte boot block, and Linux 4.15's extended block pointers.
+- **Testing checks the image's CRC,** and an image cut short gives every file before the cut.
+- **7-Zip is now needed only for NSIS installers and MSI patches,** and for the few files of
+  other formats BeeZip doesn't read itself.
+
 ## 0.4.0
 
 ### CHM help files without 7-Zip

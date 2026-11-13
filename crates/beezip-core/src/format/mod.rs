@@ -11,6 +11,7 @@ pub mod arj;
 pub mod cab;
 pub mod chm;
 pub mod cpio;
+pub mod cramfs;
 pub mod deb;
 pub mod dmg;
 pub mod iso;

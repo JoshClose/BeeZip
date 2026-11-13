@@ -2,8 +2,8 @@
 
 Since M7 BeeZip reads FAT, NTFS, ext, HFS+, APFS, GPT and MBR disks and MSI installers itself,
 since M8 WIM images (docs/M8.md §5; an LZMS one only on Windows, so wimlib-solid.esd has no
-native record here: tests/wim.rs reads wimlib's LZMS images natively on Windows), and since M9
-CHM help files (docs/M9.md).
+native record here: tests/wim.rs reads wimlib's LZMS images natively on Windows), since M9 CHM
+help files (docs/M9.md), and since M10 CramFS images (docs/M10.md).
 make-7z.sh records what 7-Zip lists from its images (`"backend": "7-zip"`), and the fixture test
 reads those through 7-Zip. This script derives, from each of those records, what BeeZip's own
 reader must list from the same image (`"native": true`): the same files with the same bytes, as
@@ -19,8 +19,9 @@ What differs from 7-Zip's view:
 - An MSI's files are named by where they install, not by their File keys.
 - A WIM's `[1].xml` goes; a second name of a hard link group is a hard link.
 
-Run it after make-7z.sh: `python tests/fixtures/native-records.py`. It owns the records with
-`"native": true` and puts them after the 7-Zip records.
+Run it after make-7z.sh: `python tests/fixtures/native-records.py`. It owns the 7zip/ records
+with `"native": true` and puts them after the 7-Zip records; make-cramfs.sh's cramfs/ records are
+native too, and its own.
 """
 
 import copy
@@ -160,7 +161,13 @@ records.append(native(f, ['chm'], files(by_file[f]), 0, 0,
                       "as 7-Zip lists, CHM's own (#SYSTEM, $OBJINST…) among them, and the folder "
                       'pages, which 7-Zip lists as a 0-byte entry, as a folder.'))
 
-mine = lambda r: r.get('native') is True
+f = '7zip/cramfs.img'
+records.append(native(f, ['cramfs'], files(by_file[f]), 0, 2,
+                      'BeeZip reads CramFS images itself since M10 (docs/M10.md). CramFS has no '
+                      "hard links: hard-readme.txt is a file of its own, which shares readme.txt's "
+                      'data.'))
+
+mine = lambda r: r.get('native') is True and r['file'].startswith('7zip/')
 rest = [r for r in old if not mine(r)]
 last = max(i for i, r in enumerate(rest) if r.get('backend') == '7-zip')
 manifest['fixtures'] = rest[:last + 1] + records + rest[last + 1:]

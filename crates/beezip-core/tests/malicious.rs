@@ -23,6 +23,8 @@ mod arc;
 mod arj;
 #[path = "malicious/chm.rs"]
 mod chm;
+#[path = "malicious/cramfs.rs"]
+mod cramfs;
 #[path = "malicious/ext.rs"]
 mod ext;
 #[path = "malicious/fat.rs"]

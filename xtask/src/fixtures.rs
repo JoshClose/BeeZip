@@ -17,6 +17,7 @@ mod ace;
 mod arc;
 mod arj;
 mod chm;
+mod cramfs;
 mod xar;
 mod zoo;
 
@@ -252,6 +253,8 @@ fn corpus() -> anyhow::Result<Vec<(&'static str, Vec<u8>)>> {
     files.extend(xar::corpus()?);
     // M9: CHM (docs/M9.md §8).
     files.extend(chm::corpus()?);
+    // M10: CramFS (docs/M10.md §8).
+    files.extend(cramfs::corpus()?);
     Ok(files)
 }
 

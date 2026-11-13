@@ -182,11 +182,11 @@ impl External {
         )
     }
 
-    /// BeeZip reads it with its own code (docs/M7.md, docs/M8.md, docs/M9.md): the file
-    /// systems, partitioned disks, virtual disks, MSI installers, WIM images and CHM help files.
-    /// 7-Zip still reads what those readers don't support, when it's installed (an MSI patch, an
-    /// NTFS volume of clusters over 64 KiB, a QCOW version 1, an ESD on Linux); the rest are
-    /// 7-Zip's alone.
+    /// BeeZip reads it with its own code (docs/M7.md to docs/M10.md): the file systems,
+    /// partitioned disks, virtual disks, MSI installers, WIM images, CHM help files and CramFS
+    /// images. 7-Zip still reads what those readers don't support, when it's installed (an MSI
+    /// patch, an NTFS volume of clusters over 64 KiB, a QCOW version 1, an ESD on Linux, 7-Zip's
+    /// own CramFS variant); the rest are 7-Zip's alone.
     pub const fn native(self) -> bool {
         matches!(
             self,
@@ -203,15 +203,17 @@ impl External {
                 | Self::Ext
                 | Self::Hfs
                 | Self::Apfs
+                | Self::Cramfs
                 | Self::Gpt
                 | Self::Mbr
         )
     }
 
     /// Whether `7z t` checks the files' data against checksums the format stores (WIM's
-    /// SHA-1s). For the rest, testing means "7-Zip can decode it" (docs/M6.md §3.5).
+    /// SHA-1s, a version 2 CramFS image's CRC of itself). For the rest, testing means "7-Zip can
+    /// decode it" (docs/M6.md §3.5).
     pub const fn checks_data(self) -> bool {
-        matches!(self, Self::Wim)
+        matches!(self, Self::Wim | Self::Cramfs)
     }
 
     pub fn format(self) -> &'static dyn ArchiveFormat {

@@ -85,7 +85,7 @@ tests/fixtures/               # reference archives + manifest.json (entries + ha
   - `copy_from(reader, keep) -> ids not copied`, which copies entries without recompressing them: zip entries byte for byte (BeeZip's own copy, not the zip crate's `raw_copy_file`, whose copies are corrupt for ZipCrypto and LZMA), whole 7z blocks, tar, cpio and ar members. It takes a list rather than one id because 7z copies whole blocks (docs/M5.md §3.2).
   - `finish()`.
 - **`Backend`** groups formats: `Native`, `SevenZipCli` and `Libarchive`. The registry picks a backend for each format and operation using capabilities and priority.
-  - The 7-Zip backend (M6) is one `ArchiveReader` for the formats in docs/M6.md §3.2. It reads `7z l -slt` and streams `7z x -so` into FsSink; only NSIS installers go through a staging folder. It needs 7-Zip 25.01 or newer.
+  - The 7-Zip backend (M6) is one `ArchiveReader` for the formats in docs/M6.md §3.2. It reads `7z l -slt` and streams `7z x -so` into FsSink; only NSIS installers BeeZip doesn't read itself go through a staging folder (docs/M10.md). It needs 7-Zip 25.01 or newer.
   - From M7, BeeZip reads partitioned disks, FAT, NTFS, ext2/3/4, bare HFS+ and APFS volumes and MSI installers itself (docs/M7.md); 7-Zip reads only what those readers don't support, when it's installed (docs/M7.md §2).
 - **No serialization in core:** core doesn't depend on serde, schemars or ts-rs. `beezip-commands` owns every wire type and converts, so core types can change without changing the API the front ends see.
 - **`Source`** is one of:
@@ -278,7 +278,9 @@ Crate versions were checked on 2026-11-01. Churny crates are pinned exactly behi
 | squashfs | ✓ | ✓ | in-house reader; `backhand` 0.25.5 writer with BeeZip's codecs | M5 |
 | DMG (UDIF) | ✓ (HFS+, HFSX, APFS) | ✓ (HFS+, UDZO) | in-house UDIF; `fstool` 0.5.2 for the volumes | M5 |
 | ARJ, ACE, ZOO, ARC | ✓ | ✗ | in-house, from unarc-rs's ARJ, ACE and ZOO modules (MIT) and acefile (BSD-2); ARC BeeZip's own. HA, UC2, JAR, HYP and SQZ aren't read (license; docs/M6.md §4) | M6 |
-| NSIS, CramFS; MSI patches, transforms and merge modules (`.msp`, `.mst`, `.msm`) | ✓ | ✗ | `SevenZipCli` backend: finds an installed 7-Zip 25.01 or newer (configurable path), parses `7z l -slt` and streams `7z x -so` into `FsSink`; staging only for NSIS (docs/M6.md §3). Until M7 it also read the disks, file systems and MSI below, until M8 the virtual disks and WIM, and until M9 CHM | M6 |
+| MSI patches, transforms and merge modules (`.msp`, `.mst`, `.msm`) | ✓ | ✗ | `SevenZipCli` backend: finds an installed 7-Zip 25.01 or newer (configurable path), parses `7z l -slt` and streams `7z x -so` into `FsSink`; staging only for NSIS (docs/M6.md §3). Until M7 it also read the disks, file systems and MSI below, until M8 the virtual disks and WIM, until M9 CHM, and until M10 NSIS and CramFS | M6 |
+| NSIS installers | ✓ | ✗ | in-house reader (docs/M10.md): the first header at the PE overlay, solid or non-solid deflate, bzip2 or LZMA (BeeZip's own inflater with NSIS 2's stored blocks, and NSIS's bzip2), NSIS 2 and 3 and Park's Unicode strings, listed by 7-Zip's rules with exact sizes, the uninstaller rebuilt as NSIS writes it; the CRC checked by test | M10 |
+| CramFS | ✓ | ✗ | in-house reader (docs/M10.md): either byte order, at 0 or after a boot block, zlib pages of 4 to 64 KiB (read from the layout), holes and Linux 4.15's extended block pointers; the CRC checked by test | M10 |
 | CHM | ✓ | ✗ | in-house reader (docs/M9.md): the ITSF/ITSP directory, every listing chunk read; section 1 decoded by BeeZip's LZX decoder a 32 KiB frame at a time from the reset table, the last frame whole; a CHM using something else goes to 7-Zip | M9 |
 | WIM, ESD, SWM | ✓ | ✗ | in-house reader (docs/M8.md §5): 1.13 and ESD 0.14, none/XPRESS/LZX/LZMS, solid resources, split sets, every blob's SHA-1, chunks decoded on `[extract] threads` workers; LZMS through Windows' Compression API (cabinet.dll from System32) on Windows, 7-Zip elsewhere | M8 |
 | VHD, VHDX, VMDK, QCOW2, VDI | ✓ | ✗ | in-house readers (docs/M8.md §3): fixed, dynamic and differencing VHD/VHDX with a VHDX's log replayed in memory; VMDK hosted, split, flat, stream-optimized and child disks; QCOW2 v2/v3 with deflate/zstd clusters, extended L2, backing and data files; VDI with its snapshots. Parents found by BeeZip's rules, never over the network. M7's partition and file-system readers run inside them. What they refuse goes to 7-Zip when it's installed | M8 |
@@ -346,6 +348,8 @@ After approval I implement **M0 + M1** and then stop for your review before goin
 - **M9 — CHM.** Detailed plan: [`docs/M9.md`](M9.md), approved 2026-11-11. Ships in 0.4.0.
   - CHM help files read by BeeZip on its own LZX decoder, so 7-Zip is left with NSIS, CramFS and MSI patches.
   - `.chm` stays with the system's help viewer; Explorer's menu keeps BeeZip's items on it.
+- **M10 — NSIS and CramFS.** Detailed plan: [`docs/M10.md`](M10.md), approved 2026-11-12. Ships in 0.5.0.
+  - NSIS installers and CramFS images read by BeeZip, so 7-Zip is left with MSI patches, transforms and merge modules, and the variants BeeZip doesn't read.
 
 ---
 
