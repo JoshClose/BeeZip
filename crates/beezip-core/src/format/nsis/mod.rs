@@ -10,7 +10,8 @@
 //!   compressed or stored. Identical files are stored once.
 //! - **The listing** is 7-Zip's (`header.rs`), with the uninstaller always listed: it's the
 //!   installer's stub, its icon patched, then the uninstaller's data, as `WriteUninstaller`
-//!   writes it.
+//!   writes it; or, with no icon patch, the record alone, a whole uninstaller (makensis's
+//!   `!uninstfinalize` stores one, signed).
 //! - **Sizes are exact** (§4.1): a solid stream is decoded once as the installer opens, to read
 //!   each file's length; a non-solid installer's compressed records are decoded then too.
 //! - **Deflate** comes in NSIS 2's form too, whose stored blocks have no NLEN (`inflate.rs`):
@@ -763,14 +764,12 @@ impl Inner {
         match it.kind {
             ItemKind::Empty => Some(0),
             ItemKind::File => self.record_len(it.pos).ok().map(|r| r.0),
-            ItemKind::Uninstaller { patch } => {
-                let data = if patch {
-                    self.record_len(it.pos).ok()?.1
-                } else {
-                    it.pos
-                };
+            // The stub and the data after the patch, or (no patch) the data alone.
+            ItemKind::Uninstaller { patch: true } => {
+                let data = self.record_len(it.pos).ok()?.1;
                 Some(self.layout.first.at + self.record_len(data).ok()?.0)
             }
+            ItemKind::Uninstaller { patch: false } => self.record_len(it.pos).ok().map(|r| r.0),
         }
     }
 
@@ -1190,7 +1189,9 @@ impl NsisReader {
                 }
             },
             ItemKind::Uninstaller { patch: has_patch } => {
-                let mut stub = inner.stub()?;
+                // `WriteUninstaller` writes the stub only with an icon patch; without one
+                // (`!uninstfinalize`, say), the record is the whole uninstaller.
+                let mut stub = if has_patch { inner.stub()? } else { Vec::new() };
                 let data_pos = if has_patch {
                     let (len, next) = inner.record_len(it.pos)?;
                     if len > MAX_PATCH {

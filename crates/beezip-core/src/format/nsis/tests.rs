@@ -260,6 +260,47 @@ fn a_bare_installer_names_its_uninstaller_as_7zip_does() {
     reads_whole(&nsis(&s.ops(), &layout), &s.want(0), "no stub");
 }
 
+/// With no icon patch, `WriteUninstaller` writes its record alone: the whole uninstaller, as
+/// makensis stores one `!uninstfinalize` signed.
+#[test]
+fn an_uninstaller_without_a_patch_is_its_record() {
+    let whole = b"MZ a finished, signed uninstaller".to_vec();
+    for solid in [true, false] {
+        let ops = [
+            Op::File(b"a.txt", b"a"),
+            Op::WriteUninstaller {
+                name: b"$INSTDIR\\uninstall.exe",
+                alt: None,
+                data: &whole,
+                patches: Vec::new(),
+            },
+        ];
+        let layout = Layout {
+            solid,
+            method: W::Deflate,
+            ..Layout::default()
+        };
+        let (_d, r) = open(&nsis(&ops, &layout));
+        let mut r = r.unwrap();
+        let e = r
+            .entries
+            .iter()
+            .find(|e| e.path == "uninstall.exe")
+            .unwrap();
+        assert_eq!(e.size, Some(whole.len() as u64), "solid {solid}");
+        assert_eq!(
+            read_entry(&mut r, "uninstall.exe"),
+            Ok(whole.clone()),
+            "solid {solid}"
+        );
+        assert_eq!(
+            extract(&mut r)["uninstall.exe"],
+            Ok(whole.clone()),
+            "solid {solid}"
+        );
+    }
+}
+
 #[test]
 fn installlib_names_its_library() {
     let lib = b"MZ the library".to_vec();
