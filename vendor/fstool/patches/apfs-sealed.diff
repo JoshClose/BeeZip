@@ -1,0 +1,206 @@
+--- a/src/fs/apfs/mod.rs
++++ b/src/fs/apfs/mod.rs
+@@ -47,8 +47,9 @@
+ //!   omap to the snapshot's xid.
+ //! - **No encryption.** Encrypted volumes are detected via `apfs_fs_flags`
+ //!   and refused with `Unsupported`.
+-//! - **No sealed-volume hashes / integrity tree.** Sealed volumes are
+-//!   detected via `APFS_INCOMPAT_SEALED_VOLUME` and refused.
++//! - **No sealed-volume hashes / integrity tree.** BeeZip: sealed volumes
++//!   (`APFS_INCOMPAT_SEALED_VOLUME`, 0x20) read their file extents from the
++//!   file-extent tree ([`fext`]); their hashes aren't checked.
+ //! - **No FusionDrive tiering** (the secondary `nx_efi_jumpstart`
+ //!   structures, tier-2 omap, etc.).
+ //! - **Xattrs:** embedded xattrs are surfaced by
+@@ -74,6 +75,8 @@
+ 
+ pub mod btree;
+ pub mod checksum;
++// BeeZip: a sealed volume's file-extent tree.
++pub mod fext;
+ pub mod fstree;
+ pub mod jrec;
+ pub mod obj;
+@@ -228,6 +231,9 @@
+     /// Whether the volume is case-insensitive, so lookups fold case the
+     /// way the volume's own comparator does.
+     drec_case_fold: bool,
++    /// BeeZip: a sealed volume's file-extent tree root (`apfs_fext_tree_oid`), where its
++    /// files' extents are instead of the fs-tree.
++    fext_tree: Option<u64>,
+ }
+ 
+ /// Pending-write buffer: an ordered list of `create_*` operations
+@@ -778,13 +784,24 @@
+                 "apfs: encrypted volumes are not supported (read)".into(),
+             ));
+         }
+-        // Sealed-volume integrity hashes are not honoured.
+-        const APFS_INCOMPAT_SEALED_VOLUME: u64 = 0x0000_0080;
+-        if apsb.incompatible_features & APFS_INCOMPAT_SEALED_VOLUME != 0 {
+-            return Err(crate::Error::Unsupported(
+-                "apfs: sealed volumes (integrity hashes) are not supported".into(),
+-            ));
+-        }
++        // BeeZip: the sealed-volume flag is 0x20 in Apple's reference (and 7-Zip's
++        // ApfsHandler.cpp); fstool tested 0x80, which nothing defines, and so read a sealed
++        // volume (macOS 11+'s system volume) without its file extents. Those are in the
++        // file-extent tree (`apfs_fext_tree_oid`, at 1032). Its integrity hashes aren't checked.
++        const APFS_INCOMPAT_SEALED_VOLUME: u64 = 0x0000_0020;
++        let fext_tree = if apsb.incompatible_features & APFS_INCOMPAT_SEALED_VOLUME != 0 {
++            let oid = apsb_block
++                .get(1032..1040)
++                .map_or(0, |b| u64::from_le_bytes(b.try_into().unwrap()));
++            if oid == 0 {
++                return Err(crate::Error::InvalidImage(
++                    "apfs: a sealed volume without its file-extent tree".into(),
++                ));
++            }
++            Some(oid)
++        } else {
++            None
++        };
+ 
+         // ---- Volume omap ----
+         let vol_omap_phys =
+@@ -845,6 +862,7 @@
+                 fs_ctx: std::cell::RefCell::new(fs_ctx),
+                 drec_layout,
+                 drec_case_fold,
++                fext_tree,
+             }),
+         })
+     }
+@@ -1831,6 +1849,13 @@
+         dstream_oid: u64,
+     ) -> Result<Vec<(u64, FileExtentVal)>> {
+         let rs = self.read_state()?;
++        // BeeZip: a sealed volume's extents are in its file-extent tree.
++        if let Some(root) = rs.fext_tree {
++            let block_size = self.block_size;
++            return fext::extents(root, block_size as usize, dstream_oid, &mut |paddr, buf| {
++                read_at_paddr(dev, paddr, block_size, buf)
++            });
++        }
+         let target = FsKeyTarget {
+             oid: dstream_oid,
+             kind: APFS_TYPE_FILE_EXTENT,
+--- /dev/null
++++ b/src/fs/apfs/fext.rs
+@@ -0,0 +1,116 @@
++//! BeeZip: a sealed volume's file-extent tree (Apple's APFS reference, `fext_tree_key_t` and
++//! `fext_tree_val_t`). On a sealed volume (`APFS_INCOMPAT_SEALED_VOLUME`, macOS 11's system
++//! volume) a file's extents are kept here, keyed by `(private_id, logical_addr)`, and not in the
++//! fs-tree. It's a physical B-tree of fixed-size records, 16-byte keys and values, as the omap
++//! is; `apfs_fext_tree_oid` is its root's block.
++
++use super::btree::BTreeNode;
++use super::jrec::{FileExtentVal, J_FILE_EXTENT_LEN_MASK};
++
++const KEY: usize = 16;
++const VAL: usize = 16;
++/// The most nodes read for one file's extents: a damaged tree can't keep the walk going.
++const MAX_NODES: usize = 1 << 16;
++
++fn le64(b: &[u8], at: usize) -> u64 {
++    u64::from_le_bytes(b[at..at + 8].try_into().unwrap())
++}
++
++/// Every extent of the file whose data stream is `private_id`, in `logical_addr` order.
++pub fn extents<F>(
++    root_paddr: u64,
++    block_size: usize,
++    private_id: u64,
++    read_block: &mut F,
++) -> crate::Result<Vec<(u64, FileExtentVal)>>
++where
++    F: FnMut(u64, &mut [u8]) -> crate::Result<()>,
++{
++    let mut root = vec![0u8; block_size];
++    read_block(root_paddr, &mut root)?;
++    let node = BTreeNode::decode(&root)?;
++    let (klen, vlen) = node.fixed_kv_size().ok_or_else(|| {
++        crate::Error::InvalidImage("apfs: the file-extent tree's root has no btree_info".into())
++    })?;
++    if klen != KEY || vlen != VAL {
++        return Err(crate::Error::InvalidImage(format!(
++            "apfs: the file-extent tree's records are ({klen}, {vlen}) bytes, not (16, 16)"
++        )));
++    }
++    let mut out = Vec::new();
++    let mut budget = MAX_NODES;
++    let above = node.level.saturating_add(1);
++    walk(&root, private_id, read_block, &mut out, above, &mut budget)?;
++    out.sort_by_key(|(la, _)| *la);
++    Ok(out)
++}
++
++/// The records under `block` for `private_id`. Levels must fall strictly toward the leaves,
++/// below `above`, so a tree that points back up ends.
++fn walk<F>(
++    block: &[u8],
++    private_id: u64,
++    read_block: &mut F,
++    out: &mut Vec<(u64, FileExtentVal)>,
++    above: u16,
++    budget: &mut usize,
++) -> crate::Result<()>
++where
++    F: FnMut(u64, &mut [u8]) -> crate::Result<()>,
++{
++    let node = BTreeNode::decode(block)?;
++    if node.level >= above {
++        return Err(crate::Error::InvalidImage(
++            "apfs: the file-extent tree's levels don't fall toward its leaves".into(),
++        ));
++    }
++    if node.is_leaf() {
++        for i in 0..node.nkeys {
++            let (k, v) = node.entry_at(i, KEY, VAL)?;
++            if k.len() < KEY || v.len() < VAL {
++                return Err(crate::Error::InvalidImage(
++                    "apfs: a file-extent record is cut short".into(),
++                ));
++            }
++            if le64(k, 0) == private_id {
++                out.push((
++                    le64(k, 8),
++                    FileExtentVal {
++                        length: le64(v, 0) & J_FILE_EXTENT_LEN_MASK,
++                        phys_block_num: le64(v, 8),
++                    },
++                ));
++            }
++        }
++        return Ok(());
++    }
++    // Child i holds the keys from its own up to the next child's.
++    let mut children = Vec::with_capacity(node.nkeys as usize);
++    for i in 0..node.nkeys {
++        let (k, child) = node.child_entry_at(i, KEY)?;
++        if k.len() < KEY {
++            return Err(crate::Error::InvalidImage(
++                "apfs: a file-extent index key is cut short".into(),
++            ));
++        }
++        children.push((le64(k, 0), child));
++    }
++    for (i, &(first, child)) in children.iter().enumerate() {
++        if first > private_id {
++            break;
++        }
++        if children.get(i + 1).is_some_and(|&(next, _)| next < private_id) {
++            continue;
++        }
++        if *budget == 0 {
++            return Err(crate::Error::InvalidImage(
++                "apfs: the file-extent tree is larger than BeeZip reads for one file".into(),
++            ));
++        }
++        *budget -= 1;
++        let mut b = vec![0u8; block.len()];
++        read_block(child, &mut b)?;
++        walk(&b, private_id, read_block, out, node.level, budget)?;
++    }
++    Ok(())
++}

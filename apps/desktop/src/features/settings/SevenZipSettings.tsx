@@ -71,7 +71,7 @@ export function SevenZipSettings({
   return (
     <Section
       title="7-Zip"
-      description="BeeZip opens the few files it doesn't read itself through an installed 7-Zip, such as an NTFS volume of clusters over 64 KiB."
+      description="BeeZip opens the few files it doesn't read itself through an installed 7-Zip, such as an ext volume over 16 TiB."
     >
       <div className="flex items-start gap-3">
         <p role="status" className="selectable min-w-0 flex-1 text-[12px]">

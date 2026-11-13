@@ -149,6 +149,10 @@ The UnRAR source BeeZip builds is the copy `unrar_sys` 0.5.8 vendors, which carr
 
 BeeZip builds a patched copy of hadris-iso 3.0.0-rc.3 by hxyulin (MIT): `vendor/hadris-iso` in BeeZip's source, with its changes in `BEEZIP.md` there. Its license is with the Rust crates below.
 
+### fstool
+
+BeeZip builds a patched copy of fstool 0.5.2 by Karpelès Lab Inc. (MIT): `vendor/fstool` in BeeZip's source, trimmed to the file systems BeeZip reads through it, with its changes in `BEEZIP.md` there. Its license is with the Rust crates below.
+
 ## Rust crates
 
 BeeZip's programs (`BeeZip.exe`, `beezip.exe` and the Explorer menu's DLL) are built for x86_64-pc-windows-msvc from 398 crates, under these licenses. Each text below names the packages it covers; where a package offers a choice of licenses, it is the license BeeZip takes.

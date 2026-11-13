@@ -1,0 +1,59 @@
+--- a/src/fs/ntfs/boot.rs
++++ b/src/fs/ntfs/boot.rs
+@@ -28,6 +28,8 @@
+     pub clusters_per_mft_record: i8,
+     pub clusters_per_index_record: i8,
+     pub volume_serial: u64,
++    /// BeeZip: the cluster size in bytes, from either form of `sectors_per_cluster`.
++    pub cluster_bytes: u32,
+ }
+ 
+ /// Largest cluster size we accept (bytes). Real NTFS tops out at 2 MiB
+@@ -64,16 +66,20 @@
+         if !(256..=4096).contains(&bytes_per_sector) || !bytes_per_sector.is_power_of_two() {
+             return None;
+         }
+-        // `sectors_per_cluster`: power of two >= 1. (Values >= 0x80 encode
+-        // huge clusters via 2^(256-value) on real NTFS, but we keep the
+-        // simple linear interpretation and bound the product below.)
+-        if sectors_per_cluster == 0 || !sectors_per_cluster.is_power_of_two() {
+-            return None;
+-        }
++        // `sectors_per_cluster`: power of two >= 1. BeeZip: a value over 0x80 is
++        // NTFS's negative form, 2^(256 - value) sectors, as Windows writes
++        // clusters of 128 KiB to 2 MiB (`format /A:`, and mkntfs -c); it was
++        // read as a linear count and refused.
+         // Resulting cluster size must not overflow u32 and must stay within a
+         // sane ceiling.
+-        let cluster_size =
+-            u32::from(bytes_per_sector).checked_mul(u32::from(sectors_per_cluster))?;
++        let cluster_size = if sectors_per_cluster > 0x80 {
++            u32::from(bytes_per_sector).checked_shl(256 - u32::from(sectors_per_cluster))?
++        } else {
++            if sectors_per_cluster == 0 || !sectors_per_cluster.is_power_of_two() {
++                return None;
++            }
++            u32::from(bytes_per_sector).checked_mul(u32::from(sectors_per_cluster))?
++        };
+         if cluster_size > MAX_CLUSTER_SIZE {
+             return None;
+         }
+@@ -95,6 +101,7 @@
+             clusters_per_mft_record,
+             clusters_per_index_record,
+             volume_serial,
++            cluster_bytes: cluster_size,
+         })
+     }
+ 
+@@ -126,8 +133,8 @@
+         }
+     }
+ 
+-    /// Cluster size = sector size * sectors-per-cluster.
++    /// Cluster size = sector size * sectors-per-cluster (BeeZip: in either form).
+     pub fn cluster_size(&self) -> u32 {
+-        u32::from(self.bytes_per_sector) * u32::from(self.sectors_per_cluster)
++        self.cluster_bytes
+     }
+ }

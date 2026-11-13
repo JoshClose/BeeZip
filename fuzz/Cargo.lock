@@ -622,8 +622,6 @@ checksum = "3f9eec918d3f24069decb9af1554cad7c880e2da24a9afd88aca000531ab82c1"
 [[package]]
 name = "fstool"
 version = "0.5.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "eec4800da09b95f2e634de8b31bcbc3bfa72f5adf7f550b946184ac9c0f76293"
 dependencies = [
  "intl",
  "uuid",

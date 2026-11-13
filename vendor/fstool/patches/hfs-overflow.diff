@@ -1,0 +1,72 @@
+--- a/src/fs/hfs_plus/mod.rs
++++ b/src/fs/hfs_plus/mod.rs
+@@ -160,7 +160,9 @@
+         let vh = read_volume_header(dev)?;
+         let hfsx = vh.is_hfsx();
+ 
+-        let cat_fork = ForkReader::from_inline(&vh.catalog_file, vh.block_size, "catalog")?;
++        // BeeZip: the catalog's ninth and later extents are in the extents-overflow file, as
++        // TN1150 allows; fstool read only the eight inline ones and refused the rest.
++        let cat_fork = special_fork(dev, &vh, &vh.catalog_file, CATALOG_FILE_ID, "catalog")?;
+         let catalog = Catalog::open(dev, cat_fork, hfsx)?;
+ 
+         // Open the extents-overflow file if its fork has any blocks.
+@@ -1586,10 +1588,38 @@
+     if vh.attributes_file.total_blocks == 0 {
+         return Ok(None);
+     }
+-    let fork = ForkReader::from_inline(&vh.attributes_file, vh.block_size, "attributes")?;
++    // BeeZip: with its overflow extents, as the catalog's.
++    let fork = special_fork(dev, vh, &vh.attributes_file, ATTRIBUTES_FILE_ID, "attributes")?;
+     Ok(Some(Attributes::open(dev, fork, case_sensitive)?))
+ }
+ 
++/// BeeZip: the catalog file's CNID (`kHFSCatalogFileID`).
++pub const CATALOG_FILE_ID: u32 = 4;
++/// BeeZip: the attributes file's CNID (`kHFSAttributesFileID`).
++pub const ATTRIBUTES_FILE_ID: u32 = 8;
++
++/// BeeZip: a special file's fork (the catalog's, the attributes'), with the extents past its
++/// eighth from the extents-overflow file, keyed by the special file's CNID, as TN1150 lets a
++/// volume keep them. A fork that fits inline reads as before.
++pub fn special_fork(
++    dev: &mut dyn BlockDevice,
++    vh: &VolumeHeader,
++    fork: &ForkData,
++    file_id: u32,
++    what: &str,
++) -> Result<ForkReader> {
++    if u64::from(fork.total_blocks) <= fork.inline_blocks() || vh.extents_file.total_blocks == 0 {
++        return ForkReader::from_inline(fork, vh.block_size, what);
++    }
++    let ext_fork = ForkReader::from_inline(&vh.extents_file, vh.block_size, "extents-overflow")?;
++    let overflow = ExtentsOverflow::open(dev, ext_fork)?;
++    let first = u32::try_from(fork.inline_blocks()).map_err(|_| {
++        crate::Error::InvalidImage(format!("hfs+: the {what} fork's block count overflows"))
++    })?;
++    let extra = overflow.find_extents(dev, file_id, extents::FORK_DATA, first)?;
++    ForkReader::from_inline_plus_overflow(fork, &extra, vh.block_size, what)
++}
++
+ /// Render an OSType 4-byte tag for diagnostics, preferring ASCII
+ /// when the tag is human-readable and falling back to hex otherwise.
+ fn bytes_to_osstr(b: &[u8; 4]) -> String {
+--- a/src/fs/hfs_plus/writer.rs
++++ b/src/fs/hfs_plus/writer.rs
+@@ -3685,8 +3685,14 @@
+     let free_blocks = count_free_bits(&bitmap, total_blocks);
+ 
+     // ---- 2. Open the catalog B-tree and walk every leaf.
+-    let cat_fork =
+-        ForkReader::from_inline(&vh.catalog_file, block_size, "catalog (writable open)")?;
++    // BeeZip: with the catalog's overflow extents, as the reader takes them.
++    let cat_fork = super::special_fork(
++        dev,
++        vh,
++        &vh.catalog_file,
++        super::CATALOG_FILE_ID,
++        "catalog (writable open)",
++    )?;
+     let cat_header = read_btree_header(dev, &cat_fork)?;
+     let node_size = u32::from(cat_header.node_size);
+     let cat_total_nodes = cat_header.total_nodes;

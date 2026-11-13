@@ -25,10 +25,11 @@ use fstool::{
         EntryKind as FsKind,
         apfs::Apfs,
         hfs_plus::{
-            HfsPlus,
+            CATALOG_FILE_ID, HfsPlus,
             btree::ForkReader,
             catalog::{Catalog, CatalogKey, CatalogRecord, UniStr},
             extents::ExtentsOverflow,
+            special_fork,
             volume_header::read_volume_header,
         },
     },
@@ -222,7 +223,8 @@ struct HfsForks {
 impl HfsForks {
     fn open(dev: &mut Device) -> Result<Self> {
         let vh = read_volume_header(dev).map_err(fs_error)?;
-        let fork = ForkReader::from_inline(&vh.catalog_file, vh.block_size, "catalog")
+        // With its overflow extents, as BeeZip's copy of fstool reads it (docs/M11.md §6.3).
+        let fork = special_fork(dev, &vh, &vh.catalog_file, CATALOG_FILE_ID, "catalog")
             .map_err(fs_error)?;
         let catalog = Catalog::open(dev, fork, vh.is_hfsx()).map_err(fs_error)?;
         let overflow = if vh.extents_file.total_blocks > 0 {

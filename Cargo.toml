@@ -10,8 +10,8 @@ default-members = [
     "crates/beezip-mcp", "crates/beezip-cli", "crates/beezip-shell", "xtask",
 ]
 # cargo-fuzz needs nightly, so fuzz/ is its own workspace (docs/M1.md §7). The vendored
-# hadris-iso is a patched copy of a published crate, not a member.
-exclude = ["fuzz", "vendor/hadris-iso"]
+# hadris-iso and fstool are patched copies of published crates, not members.
+exclude = ["fuzz", "vendor/hadris-iso", "vendor/fstool"]
 
 [workspace.package]
 version = "0.5.0"
@@ -149,6 +149,8 @@ ico        = "0.6.0"
 # every suffix for every colliding name, so 20 000 files sharing a long prefix took 80 s.
 [patch.crates-io]
 hadris-iso = { path = "vendor/hadris-iso" }
+# fstool 0.5.2 with BeeZip's NTFS, HFS+ and APFS fixes (vendor/fstool/BEEZIP.md, docs/M11.md §6.3).
+fstool = { path = "vendor/fstool" }
 
 [workspace.lints.rust]
 unsafe_code = "deny"            # beezip-shell opts out with #![allow(unsafe_code)] in M4; core allows a few Windows calls (M6)

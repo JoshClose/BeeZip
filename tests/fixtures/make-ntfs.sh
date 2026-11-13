@@ -41,6 +41,11 @@
 # with LZX in 32 KiB chunks, which is laid out as WOF's stream is. Damaged ones: no-stream.bin
 # (LZX, no stream), bad-chunk.bin (XPRESS4K, a chunk of junk) and unknown.bin (algorithm 9).
 #
+# thirdparty/ntfs/c128k.img.xz and c2m.img.xz: volumes of 128 KiB and 2 MiB clusters, the
+# smallest mkntfs makes with them (48 and 640 MiB), xz-compressed: Windows writes such clusters
+# (`format /A:128K`-`2M`) in NTFS's negative form, which BeeZip's copy of fstool reads (docs/M11.md
+# §6.3). Each holds the same small tree; clusters.json has its files' sizes and SHA-256.
+#
 # malicious/ntfs-*.img, each refused cleanly or read within limits (crates/beezip-core/tests/
 # malicious/ntfs.rs); all but ntfs-sparse-100g.img are thirdparty/7zip/ntfs.img edited:
 #   ntfs-mft-recursion.img  $MFT's first record: its data has no runs, and an attribute list in
@@ -406,6 +411,35 @@ open(f'{M}/plain.txt', 'wb').write(b'not compressed\n')
 PY
     sync
     umount_ntfs
+
+    # Clusters of 128 KiB and 2 MiB, in the container's own file system, then xz-compressed.
+    for spec in c128k:48M:131072 c2m:640M:2097152; do
+        IFS=: read -r name size cluster <<< "$spec"
+        volume "/tmp/$name.img" "$size" "$cluster" BeeZipBig
+        mount_ntfs "/tmp/$name.img"
+        python3 -I - /mnt/n "$out/clusters.json" <<'PY'
+import hashlib, json, os, random, sys
+M, record = sys.argv[1:3]
+rnd = random.Random(2048)
+files = {
+    'small.txt': b'small\n',
+    'text.txt': b''.join(b'line %06d of text across several big clusters\n' % i for i in range(9000)),
+    'rand.bin': rnd.randbytes(20_000),
+    'sub/nested.txt': b'nested\n',
+}
+for p, d in files.items():
+    os.makedirs(os.path.dirname(f'{M}/{p}'), exist_ok=True)
+    open(f'{M}/{p}', 'wb').write(d)
+json.dump({p: {'size': len(d), 'sha256': hashlib.sha256(d).hexdigest()} for p, d in files.items()},
+          open(record, 'w'), indent=1)
+PY
+        sync
+        umount_ntfs
+        python3 -I -c 'import lzma, shutil, sys
+with open(sys.argv[1], "rb") as i, lzma.open(sys.argv[2], "wb", preset=9 | lzma.PRESET_EXTREME) as o:
+    shutil.copyfileobj(i, o, 1 << 20)' "/tmp/$name.img" "$out/$name.img.xz"
+        rm -f "/tmp/$name.img"
+    done
 
     volume "$mal/ntfs-sparse-100g.img" 1280K 4096 BeeZipSparse
     mount_ntfs "$mal/ntfs-sparse-100g.img"

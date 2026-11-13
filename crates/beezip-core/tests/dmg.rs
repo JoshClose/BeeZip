@@ -28,6 +28,7 @@ use beezip_core::{
     open, ops,
 };
 use filetime::FileTime;
+use sha2::Digest as _;
 
 fn spec() -> WriteSpec {
     WriteSpec::Dmg(DmgWriteOptions::default())
@@ -811,5 +812,48 @@ mod windows {
         for (p, d) in &want {
             assert!(got[p] == *d, "7-Zip's {p} differs");
         }
+    }
+}
+
+/// Every file's size and SHA-256 in the image at `rel` (under `tests/fixtures/thirdparty`), by
+/// path.
+fn files_of(rel: &str) -> std::collections::BTreeMap<String, (usize, String)> {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../tests/fixtures/thirdparty")
+        .join(rel);
+    let mut cx = SimpleCtx::new();
+    let mut opened = open(&path, &OpenOptions::default(), &mut cx).unwrap();
+    let entries = opened.reader.entries(&mut cx).unwrap().to_vec();
+    let mut out = std::collections::BTreeMap::new();
+    for e in entries.iter().filter(|e| e.kind == EntryKind::File) {
+        let mut v = Vec::new();
+        opened
+            .reader
+            .open_entry(e.id, &mut cx)
+            .unwrap()
+            .read_to_end(&mut v)
+            .unwrap();
+        let hash = sha2::Sha256::digest(&v)
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect();
+        out.insert(e.path.clone(), (v.len(), hash));
+    }
+    out
+}
+
+/// What fstool 0.5.2 didn't read, BeeZip's copy of it does (docs/M11.md §6.3): an HFS+ catalog
+/// in more extents than the volume header holds, and a sealed APFS volume, whose files' extents
+/// are only in its file-extent tree. Each is crafted from a committed volume
+/// (`make-apple-variants.py`, checked against 7-Zip there) and holds its files, byte for byte.
+#[test]
+fn an_overflowed_catalog_and_a_sealed_volume_read_as_their_sources() {
+    for (variant, source) in [
+        ("apple/hfs-catalog-overflow.hfs.xz", "7zip/dmg-hfs.hfs"),
+        ("apple/apfs-sealed.apfs.xz", "7zip/dmg-apfs.apfs"),
+    ] {
+        let want = files_of(source);
+        assert!(want.values().any(|d| d.0 > 1000), "{source}");
+        assert_eq!(files_of(variant), want, "{variant}");
     }
 }
