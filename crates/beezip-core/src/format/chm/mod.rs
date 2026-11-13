@@ -13,9 +13,13 @@
 //! - **The listing** is 7-Zip's (§4.1): folders first, then files in data order (section 0's,
 //!   then section 1's, by offset), without their leading `/`, and without the `::DataSpace`
 //!   streams. Extraction follows that order, so section 1 decodes once, forwards.
+//! - **Section 1 is read as 7-Zip reads it** (docs/M11.md §6.1): under whatever name
+//!   `::DataSpace/NameList` gives it (`MSCompressed`), as LZX whatever `Transform/List` says
+//!   (the control data's `LZXC` decides), and with `LZXC` and reset table version 3 read as
+//!   version 2. A file in a third section, which nothing is known to write, fails alone.
 //! - **Damage is `Corrupt`** (§5.2): a file cut after its directory still lists whole, and each
-//!   file fails only when its own data is gone. What BeeZip doesn't support goes to 7-Zip
-//!   (§5.3): another ITSF version, section, transform, `LZXC` version or reset table layout.
+//!   file fails only when its own data is gone. Another ITSF version, control data that isn't
+//!   `LZXC`, or a reset table of another layout is `UnsupportedOperation` (§5.3).
 //!
 //! Nothing here may panic, whatever the bytes.
 
@@ -51,14 +55,18 @@ const MAX_CHUNK: u64 = 1 << 20;
 const MAX_SYSTEM: u64 = 1 << 20;
 
 const NAMELIST: &[u8] = b"::DataSpace/NameList";
-const CONTROL: &[u8] = b"::DataSpace/Storage/MSCompressed/ControlData";
-const CONTENT: &[u8] = b"::DataSpace/Storage/MSCompressed/Content";
-const TRANSFORMS: &[u8] = b"::DataSpace/Storage/MSCompressed/Transform/List";
-const RESET_TABLE: &[u8] = b"::DataSpace/Storage/MSCompressed/Transform/\
-{7FC28940-9D31-11D0-9B27-00A0C91E9C7C}/InstanceData/ResetTable";
-/// The LZX transform's GUID as `Transform/List` holds it: the list's stated length (38) covers
-/// only these 19 UTF-16 characters.
-const LZX_TRANSFORM: &str = "{7FC28940-9D31-11D0";
+/// Section 1's name when `NameList` gives none.
+const COMPRESSED: &str = "MSCompressed";
+/// Section 1's streams, under `::DataSpace/Storage/<its name>/`.
+const CONTROL: &str = "ControlData";
+const CONTENT: &str = "Content";
+const RESET_TABLE: &str =
+    "Transform/{7FC28940-9D31-11D0-9B27-00A0C91E9C7C}/InstanceData/ResetTable";
+
+/// Section `name`'s stream `stream`, as the directory names it.
+fn storage(name: &str, stream: &str) -> Vec<u8> {
+    format!("::DataSpace/Storage/{name}/{stream}").into_bytes()
+}
 
 const NO_CHECKSUMS: &str = "A CHM help file stores no checksums of its files' data, so the test \
 shows that BeeZip can read every file, not that their contents are intact.";
@@ -360,8 +368,8 @@ impl Inner {
                     end,
                 }))
             }
-            n => Err(bad(format!(
-                "a file in section {n}, which the help file doesn't have"
+            n => Err(Error::unsupported(format!(
+                "chm: a file in section {n}; BeeZip reads one compressed section"
             ))),
         }
     }
@@ -535,20 +543,12 @@ impl Read for Failing {
     }
 }
 
-/// Section 1's description. `UnsupportedOperation` is something 7-Zip reads instead; other
-/// errors are damage, which fails section 1's files when they're read.
-fn sec1(inner: &mut Inner, raws: &[Raw]) -> Result<Sec1> {
-    if let Some(t) = inner.stream(raws, TRANSFORMS)? {
-        let list = utf16le(&t);
-        if !list.starts_with(LZX_TRANSFORM) {
-            return Err(Error::unsupported(format!(
-                "its compressed section uses a transform other than LZX (`{}`)",
-                list.trim_end_matches('\0')
-            )));
-        }
-    }
+/// Section 1's description, from the streams of the storage named `name`. `UnsupportedOperation`
+/// is a layout nothing reads; other errors are damage, which fails section 1's files when
+/// they're read. `Transform/List` isn't read: 7-Zip never reads it either, and `LZXC` decides.
+fn sec1(inner: &mut Inner, raws: &[Raw], name: &str) -> Result<Sec1> {
     let cd = inner
-        .stream(raws, CONTROL)?
+        .stream(raws, &storage(name, CONTROL))?
         .ok_or_else(|| bad("there's no LZX control data"))?;
     if cd.len() < 0x18 {
         return Err(bad("the LZX control data is cut short"));
@@ -560,9 +560,10 @@ fn sec1(inner: &mut Inner, raws: &[Raw]) -> Result<Sec1> {
         )));
     }
     let short = || bad("the LZX control data is cut short");
+    // Version 1 counts bytes, 2 frames; 3, which no writer is known for, is read as 2.
     let unit = match le32(&cd, 8).ok_or_else(short)? {
         1 => 1,
-        2 => FRAME,
+        2 | 3 => FRAME,
         v => {
             return Err(Error::unsupported(format!(
                 "its LZX control data is version {v}"
@@ -585,7 +586,7 @@ fn sec1(inner: &mut Inner, raws: &[Raw]) -> Result<Sec1> {
         return Err(bad(format!("a reset interval of {reset_interval} bytes")));
     }
     let rt = inner
-        .stream(raws, RESET_TABLE)?
+        .stream(raws, &storage(name, RESET_TABLE))?
         .ok_or_else(|| bad("there's no reset table"))?;
     let short = || bad("the reset table is cut short");
     if rt.len() < 0x28 {
@@ -598,7 +599,8 @@ fn sec1(inner: &mut Inner, raws: &[Raw]) -> Result<Sec1> {
     let len = le64(&rt, 16).ok_or_else(short)?;
     let packed = le64(&rt, 24).ok_or_else(short)?;
     let block = le64(&rt, 32).ok_or_else(short)?;
-    if version != 2 || entry_size != 8 || block != FRAME {
+    // Version 3, which no writer is known for, is read as 2.
+    if !(2..=3).contains(&version) || entry_size != 8 || block != FRAME {
         return Err(Error::unsupported(format!(
             "its reset table is version {version}, with {entry_size}-byte entries for blocks of \
              {block} bytes"
@@ -628,9 +630,10 @@ fn sec1(inner: &mut Inner, raws: &[Raw]) -> Result<Sec1> {
         last = start;
     }
     starts.push(packed);
+    let content_name = storage(name, CONTENT);
     let content = raws
         .iter()
-        .find(|r| r.name == CONTENT && r.section == 0)
+        .find(|r| r.name == content_name && r.section == 0)
         .ok_or_else(|| bad("there's no compressed content"))?;
     if packed > content.length {
         return Err(bad(format!(
@@ -651,34 +654,28 @@ fn sec1(inner: &mut Inner, raws: &[Raw]) -> Result<Sec1> {
     })
 }
 
-/// The section names, when `::DataSpace/NameList` holds any: only BeeZip's two are read.
-fn check_sections(inner: &mut Inner, raws: &[Raw]) -> Result<()> {
+/// Section 1's name, from `::DataSpace/NameList` when it holds one: any name reads, as 7-Zip
+/// reads it, from the storage of that name. `MSCompressed` when the list is missing or damaged.
+fn section_name(inner: &mut Inner, raws: &[Raw]) -> String {
     let Ok(Some(nl)) = inner.stream(raws, NAMELIST) else {
-        return Ok(());
+        return COMPRESSED.to_owned();
     };
     let count = le16(&nl, 2).unwrap_or(0);
     let mut p = 4usize;
-    for i in 0..count {
-        let Some(n) = le16(&nl, p) else {
-            return Ok(());
-        };
+    for i in 0..count.min(2) {
+        let Some(n) = le16(&nl, p) else { break };
         let Some(b) = nl.get(p + 2..p + 2 + 2 * usize::from(n)) else {
-            return Ok(());
+            break;
         };
         let name = utf16le(b);
-        let known = match i {
-            0 => name == "Uncompressed",
-            1 => name == "MSCompressed",
-            _ => false,
-        };
-        if !known {
-            return Err(Error::unsupported(format!(
-                "it has a section named `{name}`"
-            )));
+        let name = name.trim_end_matches('\0');
+        // A name that would leave the storage folder isn't one.
+        if i == 1 && !name.is_empty() && !name.contains(['/', '\\']) {
+            return name.to_owned();
         }
         p += 2 + 2 * usize::from(n) + 2;
     }
-    Ok(())
+    COMPRESSED.to_owned()
 }
 
 /// What `#SYSTEM` says, for Info: its title, default topic, compiler and language.
@@ -750,7 +747,7 @@ impl ChmReader {
             sec1: Err(bad("there's no compressed section")),
             frames: None,
         };
-        check_sections(&mut inner, &raws)?;
+        let compressed = section_name(&mut inner, &raws);
 
         // Folders first, then files in data order, as 7-Zip lists them (§4.1).
         let mut dirs = Vec::new();
@@ -770,7 +767,7 @@ impl ChmReader {
         }
         files.sort_by_key(|&(section, offset, k, _)| (section, offset, k));
         if files.iter().any(|f| f.0 == 1) {
-            match sec1(&mut inner, &raws) {
+            match sec1(&mut inner, &raws, &compressed) {
                 Ok(s) => inner.sec1 = Ok(s),
                 Err(e) if e.kind == ErrorKind::UnsupportedOperation => return Err(e),
                 Err(e) => inner.sec1 = Err(e),

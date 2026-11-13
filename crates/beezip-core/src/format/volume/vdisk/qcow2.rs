@@ -1,5 +1,6 @@
 //! QCOW2, versions 2 and 3, from qemu's format description (`docs/interop/qcow2.txt`,
-//! docs/M8.md §3.4): an L1 table of L2 tables mapping the disk's clusters.
+//! docs/M8.md §3.4): an L1 table of L2 tables mapping the disk's clusters; and QCOW version 1
+//! (qemu's `block/qcow.c`, docs/M11.md §6.1), whose tables map clusters the same way.
 //!
 //! - **Read:** the active L1 table (internal snapshots are counted in Info, not read); clusters
 //!   of 512 bytes to 2 MiB, any refcount width (refcounts aren't needed to read); standard, zero
@@ -11,9 +12,11 @@
 //!   than the disk reads zeros past its end. QCOW2 records no identity for it, so it's looked for
 //!   by its relative path and by its name beside the image only ([`Files`]), never at an absolute
 //!   path; a name that isn't a file (`json:{…}`, `nbd://`, a UNC path) is `Unsafe`.
+//! - **Version 1:** a 48-byte header, L2 tables of `2^l2_bits` entries, a compressed cluster
+//!   marked by bit 63 with its length in the bits above `63 - cluster_bits`, and a backing file
+//!   by name, plain, compressed or a child alike.
 //! - **Refused** (`UnsupportedOperation`): encryption, AES or LUKS ("BeeZip doesn't decrypt disk
-//!   images"); QCOW version 1, which 7-Zip reads when it's uncompressed; incompatible feature bits
-//!   or compression types BeeZip doesn't know.
+//!   images"); incompatible feature bits or compression types BeeZip doesn't know.
 //! - **Memory:** the L1 table is read only when the file holds it (at most [`MAX_L1`], as qemu
 //!   caps it); L2 tables and decoded clusters are cached a few at a time.
 
@@ -90,6 +93,10 @@ pub struct Qcow2 {
     dirty: bool,
     corrupt: bool,
     file_bytes: u64,
+    /// A QCOW version 1 image (qemu's `block/qcow.c`, docs/M11.md §6.1).
+    v1: bool,
+    /// An L2 table's bytes: a cluster in QCOW2, `2^l2_bits` entries in version 1.
+    l2_bytes: u64,
 }
 
 /// What an L2 entry maps a cluster (or subcluster) to.
@@ -118,11 +125,7 @@ impl Qcow2 {
         }
         let version = be32(&h, 4);
         match version {
-            1 => {
-                return Err(Error::unsupported(
-                    "qcow2: a QCOW version 1 image; BeeZip reads QCOW2, versions 2 and 3",
-                ));
-            }
+            1 => return Self::open_v1(file, &h, got),
             2 | 3 => {}
             v => {
                 return Err(Error::unsupported(format!(
@@ -329,7 +332,96 @@ impl Qcow2 {
             dirty: incompat & DIRTY != 0,
             corrupt: incompat & CORRUPT != 0,
             file_bytes,
+            v1: false,
+            l2_bytes: cluster,
         })
+    }
+
+    /// A QCOW version 1 image, as qemu-img still writes it (`-O qcow`). Its 48-byte header: the
+    /// backing file's name (offset, length), a time, the disk's size, cluster and L2 bits,
+    /// encryption, the L1 table's offset.
+    /// Entries are offsets; bit 63 marks a compressed cluster (raw deflate), its length in the
+    /// bits above `63 - cluster_bits`.
+    fn open_v1(file: Handle, h: &[u8], got: usize) -> Result<Self> {
+        if got < 48 {
+            return Err(Error::corrupt("qcow2: the file is shorter than its header"));
+        }
+        let (bits, l2_bits) = (u32::from(h[32]), u32::from(h[33]));
+        // qemu's limits.
+        if !(9..=16).contains(&bits) || !(6..=13).contains(&l2_bits) {
+            return Err(Error::corrupt(format!(
+                "qcow: clusters of 2^{bits} bytes and L2 tables of 2^{l2_bits} entries"
+            )));
+        }
+        if be32(h, 36) != 0 {
+            return Err(Error::corrupt(
+                "qcow: encrypted with AES; BeeZip doesn't decrypt disk images",
+            ));
+        }
+        let cluster = 1u64 << bits;
+        let l2_entries = 1u64 << l2_bits;
+        let size = be64(h, 24);
+        let needed = size.div_ceil(cluster * l2_entries);
+        let l1_off = be64(h, 40);
+        let mut file = file;
+        let raw = file.read_vec(l1_off, needed * 8, MAX_L1, "qcow: the L1 table")?;
+        let l1 = raw
+            .as_chunks::<8>()
+            .0
+            .iter()
+            .map(|c| u64::from_be_bytes(*c))
+            .collect();
+        let back_off = be64(h, 8);
+        let back_len = u64::from(be32(h, 16));
+        let backing = if back_off != 0 && back_len != 0 {
+            if back_len > 1023 {
+                return Err(Error::corrupt("qcow: the backing file's name is too long"));
+            }
+            let b = file.read_vec(back_off, back_len, 1023, "qcow: the backing file's name")?;
+            Some(
+                String::from_utf8(b)
+                    .map_err(|_| Error::corrupt("qcow: the backing file's name isn't UTF-8"))?,
+            )
+        } else {
+            None
+        };
+        let file_bytes = file.len;
+        let l2_bytes = l2_entries * 8;
+        Ok(Self {
+            len: size,
+            bits,
+            cluster,
+            l2_entries,
+            extended: false,
+            l1,
+            codec: Codec::Deflate,
+            v3: false,
+            io: RefCell::new(Io {
+                file,
+                data: None,
+                tables: Cache::new(n((L2_CACHE / l2_bytes).max(MIN_L2S))),
+                clusters: Cache::new(CLUSTER_CACHE),
+                dec: Decoders::default(),
+                src: Vec::new(),
+            }),
+            version: 1,
+            backing,
+            backing_format: None,
+            data_name: None,
+            data_raw: false,
+            snapshots: 0,
+            refcount_bits: 16,
+            dirty: false,
+            corrupt: false,
+            file_bytes,
+            v1: true,
+            l2_bytes,
+        })
+    }
+
+    /// Where L1 entry `l1e` puts its L2 table (0: none).
+    fn l2_at(&self, l1e: u64) -> u64 {
+        if self.v1 { l1e & !COPIED } else { l1e & OFFSET }
     }
 
     /// The L2 table at `off`, from the cache or the file.
@@ -337,6 +429,7 @@ impl Qcow2 {
         tables: &'a mut Cache,
         file: &mut Handle,
         cluster: u64,
+        size: u64,
         off: u64,
     ) -> Result<&'a [u8]> {
         if !off.is_multiple_of(cluster) {
@@ -345,7 +438,7 @@ impl Qcow2 {
             )));
         }
         if tables.get(off).is_none() {
-            tables.fill(off, n(cluster), |out| {
+            tables.fill(off, n(size), |out| {
                 file.read_exact_at(off, out, "qcow2: an L2 table")
             })?;
         }
@@ -356,6 +449,14 @@ impl Qcow2 {
 
     /// What entry `e` of an L2 table maps its cluster to (not extended).
     fn map(&self, e: u64, has_data: bool) -> Map {
+        if self.v1 {
+            // Version 1: bit 63 marks a compressed cluster; otherwise an offset or 0.
+            return match e {
+                0 => Map::Hole,
+                e if e & COPIED != 0 => Map::Packed(e),
+                e => Map::At(e),
+            };
+        }
         if e & COMPRESSED != 0 {
             return Map::Packed(e);
         }
@@ -389,10 +490,16 @@ impl Qcow2 {
                 "qcow2: a compressed cluster in an image with a data file",
             ));
         }
-        let x = 62 - (self.bits - 8);
-        let off = e & ((1u64 << x) - 1);
-        let sectors = (e >> x) & ((1u64 << (self.bits - 8)) - 1);
-        let len = (sectors + 1) * 512 - (off & 511);
+        let (off, len) = if self.v1 {
+            // Version 1: the offset below bit 63 - cluster_bits, the length in bytes above it.
+            let x = 63 - self.bits;
+            (e & ((1u64 << x) - 1), (e >> x) & (self.cluster - 1))
+        } else {
+            let x = 62 - (self.bits - 8);
+            let off = e & ((1u64 << x) - 1);
+            let sectors = (e >> x) & ((1u64 << (self.bits - 8)) - 1);
+            (off, (sectors + 1) * 512 - (off & 511))
+        };
         if io.clusters.get(off).is_none() {
             if off >= io.file.len {
                 return Err(Error::corrupt(format!(
@@ -440,7 +547,7 @@ impl Layer for Qcow2 {
             .l1
             .get(n(l1i))
             .ok_or_else(|| Error::corrupt("qcow2: a read past the L1 table"))?;
-        let l2 = l1e & OFFSET;
+        let l2 = self.l2_at(l1e);
         if l2 == 0 {
             let left = (self.l2_entries - first) * cs - within;
             return Ok((n(want.min(left)), Got::Hole));
@@ -472,9 +579,9 @@ impl Layer for Qcow2 {
                 break;
             };
             let base = t * span;
-            let l2 = l1e & OFFSET;
+            let l2 = self.l2_at(l1e);
             if l2 != 0 {
-                match Self::table(&mut io.tables, &mut io.file, cs, l2) {
+                match Self::table(&mut io.tables, &mut io.file, cs, self.l2_bytes, l2) {
                     Err(_) => held += overlap(base, base + span),
                     Ok(table) => {
                         for i in (start.max(base) - base) / cs..self.l2_entries {
@@ -575,7 +682,7 @@ impl Qcow2 {
         let want = buf.len() as u64;
         let cs = self.cluster;
         let has_data = io.data.is_some();
-        let table = Self::table(&mut io.tables, &mut io.file, cs, l2)?;
+        let table = Self::table(&mut io.tables, &mut io.file, cs, self.l2_bytes, l2)?;
         let width = if self.extended { 16 } else { 8 };
         let entry = |i: u64| be64(table, n(i * width));
         let e = entry(first);

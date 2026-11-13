@@ -44,13 +44,16 @@ const HDR_XPRESS: u32 = 0x2_0000;
 const HDR_LZX: u32 = 0x4_0000;
 /// Not in Microsoft's paper: set on ESDs and LZMS WIMs.
 const HDR_LZMS: u32 = 0x8_0000;
+/// "XPRESS 2" in later WIMGAPI headers: no writer is known, and wimlib and 7-Zip read it as
+/// XPRESS (docs/M11.md §6.1).
+const HDR_XPRESS2: u32 = 0x20_0000;
 /// The compression flags' byte: one method's bit, or none.
 const HDR_METHODS: u32 = 0x00FF_0000;
 
 const RES_FREE: u8 = 0x1;
 pub const RES_METADATA: u8 = 0x2;
 const RES_COMPRESSED: u8 = 0x4;
-const RES_SPANNED: u8 = 0x8;
+// 0x8, a resource spanning the parts of a split set, is ignored, as wimlib and 7-Zip ignore it.
 /// Not in Microsoft's paper: a solid resource, or a blob inside one.
 const RES_SOLID: u8 = 0x10;
 /// A solid resource's lookup entry gives this as its original size; its real one is in the
@@ -62,9 +65,10 @@ const LOOKUP_ENTRY: usize = 50;
 /// A solid resource's header: its size, chunk size and method.
 const SOLID_HEADER: u64 = 16;
 
-/// The largest chunk decoded (DISM's and wimlib's solid chunks are 64 MiB); larger ones that
-/// really hold more are `UnsupportedOperation`, for 7-Zip.
-pub const MAX_CHUNK: u64 = 64 << 20;
+/// The largest chunk decoded: LZMS's own limit, 1 GiB (DISM's and wimlib's solid chunks are
+/// 64 MiB, and wimlib writes up to 1 GiB on request); `decoder_memory` bounds what's in flight.
+/// Larger ones that really hold more are `UnsupportedOperation`.
+pub const MAX_CHUNK: u64 = 1 << 30;
 /// The largest LZX chunk: the decoder's window of 2²¹ bytes.
 const MAX_LZX_CHUNK: u64 = 2 << 20;
 /// The lookup table, held whole.
@@ -229,7 +233,7 @@ impl Header {
             return Ok(Method::None);
         }
         match self.flags & HDR_METHODS {
-            HDR_XPRESS => Ok(Method::Xpress),
+            HDR_XPRESS | HDR_XPRESS2 => Ok(Method::Xpress),
             HDR_LZX => Ok(Method::Lzx),
             HDR_LZMS => Ok(Method::Lzms),
             0 => Err(bad("it's compressed, and says with nothing")),
@@ -574,11 +578,8 @@ impl Container {
         if lk.size == 0 {
             return Ok(());
         }
-        // Stored, as WIMGAPI, DISM and wimlib write it (Microsoft's ESDs too): what it holds is
-        // then bytes of the file, not a few bytes decoding to 256 MiB of entries.
-        if lk.compressed() {
-            return Err(unsupported("a compressed lookup table"));
-        }
+        // Stored, as WIMGAPI, DISM and wimlib write it (Microsoft's ESDs too); a compressed one,
+        // which 7-Zip reads, decodes within MAX_LOOKUP (docs/M11.md §6.1).
         let table = self.read_res(p, &lk, MAX_LOOKUP, "the lookup table")?;
         if table.len() % LOOKUP_ENTRY != 0 {
             self.warnings.push(format!(
@@ -591,11 +592,6 @@ impl Container {
             let hash: Hash = e[30..50].try_into().unwrap_or(ZERO);
             if r.flags & RES_FREE != 0 {
                 continue;
-            }
-            if r.flags & RES_SPANNED != 0 {
-                return Err(unsupported(
-                    "a resource spanning the parts of a split set, which BeeZip doesn't read",
-                ));
             }
             if r.flags & RES_SOLID != 0 && r.original == SOLID_MARK {
                 self.add_solid(p, r)?;
@@ -662,7 +658,7 @@ impl Container {
         }
         if chunk > MAX_CHUNK && size > MAX_CHUNK {
             return Err(unsupported(format!(
-                "solid chunks of {chunk} bytes (BeeZip reads up to 64 MiB)"
+                "solid chunks of {chunk} bytes (WIM allows up to 1 GiB)"
             )));
         }
         if method == Method::Lzx && chunk > MAX_LZX_CHUNK {
@@ -758,12 +754,9 @@ impl Container {
 
     /// A chunked (or stored) resource's chunks, in order.
     pub fn chunks(&self, part: usize, r: &Res) -> Result<ChunkIter> {
+        // The spanned flag is ignored, as wimlib and 7-Zip ignore it: a resource that really ran
+        // past its part's end fails `check_res`.
         self.check_res(part, r, "a resource")?;
-        if r.flags & RES_SPANNED != 0 {
-            return Err(unsupported(
-                "a resource spanning the parts of a split set, which BeeZip doesn't read",
-            ));
-        }
         let mut it = ChunkIter {
             part,
             table: r.offset,
@@ -795,7 +788,7 @@ impl Container {
         }
         if self.chunk > MAX_CHUNK && r.original > MAX_CHUNK {
             return Err(unsupported(format!(
-                "chunks of {} bytes (BeeZip reads up to 64 MiB)",
+                "chunks of {} bytes (WIM allows up to 1 GiB)",
                 self.chunk
             )));
         }

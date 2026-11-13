@@ -82,9 +82,11 @@ fn wim_claims_are_refused_or_read_within_limits() {
     assert_eq!(e.kind, ErrorKind::Corrupt);
     assert!(e.message.contains("text.txt"), "{e}");
 
-    // Its solid resource says LZMS: on Windows, read and found damaged; elsewhere, left to 7-Zip.
+    // Its solid resource says LZMS: where LZMS reads, read and found damaged; elsewhere, refused,
+    // saying wimlib's library is missing.
+    let lzms = beezip_core::format::wim::lzms_available();
     let opened = native("wim-spike-panic.wim");
-    assert_eq!(opened.is_ok(), cfg!(windows), "{:?}", opened.as_ref().err());
+    assert_eq!(opened.is_ok(), lzms, "{:?}", opened.as_ref().err());
     match opened {
         Ok(mut r) => {
             let (report, _) = exercise("wim-spike-panic.wim", &mut *r);
@@ -100,9 +102,9 @@ fn wim_claims_are_refused_or_read_within_limits() {
         Err(e) => assert_eq!(e.kind, ErrorKind::UnsupportedOperation),
     }
 
-    // LZMS: on Windows, read and found damaged; elsewhere, left to 7-Zip.
+    // LZMS: where it reads, read and found damaged; elsewhere, refused.
     let opened = native("wim-spike-hang.wim");
-    assert_eq!(opened.is_ok(), cfg!(windows), "{:?}", opened.as_ref().err());
+    assert_eq!(opened.is_ok(), lzms, "{:?}", opened.as_ref().err());
     match opened {
         Ok(mut r) => {
             let (report, _) = exercise("wim-spike-hang.wim", &mut *r);

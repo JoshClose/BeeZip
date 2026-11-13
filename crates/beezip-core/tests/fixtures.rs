@@ -98,7 +98,7 @@ const MTIME: u64 = 1_767_225_600;
 #[test]
 fn every_fixture_reads_correctly() {
     let all = manifest();
-    assert_eq!(all.len(), 340, "the manifest lists every fixture");
+    assert_eq!(all.len(), 341, "the manifest lists every fixture");
     let mut failures = Vec::new();
     for fx in &all {
         let file = fx["file"].as_str().unwrap();
@@ -123,7 +123,32 @@ fn seven_zip_here() -> bool {
     }
 }
 
+/// Whether LZMS reads here: on Windows, and where wimlib's library is installed. With
+/// `BEEZIP_REQUIRE_LZMS` set to 1 (CI, which installs wimlib), a missing one fails.
+fn lzms_here() -> bool {
+    let here = beezip_core::format::wim::lzms_available();
+    if !here && std::env::var("BEEZIP_REQUIRE_LZMS").as_deref() == Ok("1") {
+        panic!("LZMS needs wimlib's library here (libwim15, or `brew install wimlib`)");
+    }
+    here
+}
+
 fn check(fx: &Value) -> Result<(), String> {
+    // Without wimlib, an LZMS image says how to install it (docs/M11.md §6.2).
+    if fx["lzms"] == true && fx["native"] == true && !lzms_here() {
+        let path = fixtures()
+            .join("thirdparty")
+            .join(fx["file"].as_str().unwrap());
+        return match open(&path, &options(fx), &mut SimpleCtx::new()) {
+            Err(e)
+                if e.kind == beezip_core::ErrorKind::UnsupportedOperation
+                    && e.message.contains("wimlib") =>
+            {
+                Ok(())
+            }
+            other => Err(format!("without wimlib: {:?}", other.err())),
+        };
+    }
     if fx["backend"] == "7-zip" && !seven_zip_here() {
         eprintln!(
             "skipping {}: no 7-Zip 25.01 or newer",

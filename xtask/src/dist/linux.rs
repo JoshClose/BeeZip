@@ -297,6 +297,10 @@ fn config(
     }
     // dpkg removes the folders it made; rpm only what the package lists, files only here.
     linux["rpm"]["postRemoveScript"] = json!(slashes(&root.join(RPM_POSTUN)));
+    // wimlib's library, which BeeZip loads to read LZMS (docs/M11.md §6.2): recommended, not
+    // required. Ubuntu 24.04 and Debian 13 name it libwim15t64; rpm finds it by its soname.
+    linux["deb"]["recommends"] = json!([WIMLIB_DEB]);
+    linux["rpm"]["recommends"] = json!([WIMLIB_RPM]);
     config["bundle"]["fileAssociations"] = Value::Array(associations);
     updater(root, &mut config, env)?;
     Ok(config)
@@ -311,6 +315,10 @@ struct Staged {
 }
 
 const NOTICES: &str = "THIRD_PARTY_NOTICES.md";
+
+/// The package that holds wimlib's library, by its Debian names, and its soname for rpm.
+const WIMLIB_DEB: &str = "libwim15t64 | libwim15";
+const WIMLIB_RPM: &str = "libwim.so.15()(64bit)";
 
 /// The rpm's `%postun`, which removes `/usr/share/doc/beezip`: Tauri's rpm owns the files in
 /// `bundle.linux.rpm.files` but not their folders (tauri-bundler 2.10.4).

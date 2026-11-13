@@ -236,8 +236,7 @@ pub struct Decoders {
     xpress: xpress::Decoder,
     /// LZX's decoder and its window's bits.
     lzx: Option<(u32, Box<Lzx>)>,
-    #[cfg(windows)]
-    lzms: Option<super::lzms_win::LzmsDecoder>,
+    lzms: Option<super::lzms::LzmsDecoder>,
 }
 
 impl Decoders {
@@ -299,11 +298,10 @@ impl Decoders {
                 }
                 Ok(out)
             }
-            #[cfg(windows)]
             Method::Lzms => {
                 let lzms = match &mut self.lzms {
                     Some(d) => d,
-                    slot => slot.insert(super::lzms_win::LzmsDecoder::new()?),
+                    slot => slot.insert(super::lzms::LzmsDecoder::new()?),
                 };
                 let mut out = vec![0u8; size];
                 lzms.decode(&input, &mut out).map_err(|e| {
@@ -315,10 +313,6 @@ impl Decoders {
                 })?;
                 Ok(out)
             }
-            #[cfg(not(windows))]
-            Method::Lzms => Err(super::container::unsupported(
-                "LZMS, which BeeZip decodes only on Windows (through its Compression API)",
-            )),
         }
     }
 }

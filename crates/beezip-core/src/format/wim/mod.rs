@@ -33,8 +33,15 @@
 
 mod container;
 mod listing;
+// LZMS: Windows' own decoder (cabinet.dll), and wimlib's library on Linux and macOS.
 #[cfg(windows)]
 mod lzms_win;
+#[cfg(windows)]
+use lzms_win as lzms;
+#[cfg(unix)]
+mod lzms_wimlib;
+#[cfg(unix)]
+use lzms_wimlib as lzms;
 mod meta;
 mod pipe;
 #[cfg(test)]
@@ -84,15 +91,10 @@ pub fn open(source: Source, cx: &mut dyn Ctx) -> Result<Box<dyn ArchiveReader>> 
     Ok(Box::new(WimReader::open(source, cx)?))
 }
 
-fn lzms_available() -> bool {
-    #[cfg(windows)]
-    {
-        lzms_win::available()
-    }
-    #[cfg(not(windows))]
-    {
-        false
-    }
+/// Whether LZMS can be decoded here: through Windows' own decoder, or wimlib's library on Linux
+/// and macOS when it's installed (docs/M11.md §6.2).
+pub fn lzms_available() -> bool {
+    lzms::available()
 }
 
 /// Errors that stop a whole job rather than one entry.
@@ -129,8 +131,12 @@ impl WimReader {
             return Err(container::unsupported(if cfg!(windows) {
                 "it's compressed with LZMS, which BeeZip reads through Windows' Compression API, \
                  and cabinet.dll can't be loaded"
+            } else if cfg!(target_os = "macos") {
+                "it's compressed with LZMS, which BeeZip reads through wimlib: install it \
+                 (`brew install wimlib`)"
             } else {
-                "it's compressed with LZMS, which BeeZip reads only on Windows"
+                "it's compressed with LZMS, which BeeZip reads through wimlib's library: install \
+                 it (on Debian and Ubuntu `apt install wimtools`, on Fedora `dnf install wimlib`)"
             }));
         }
         let threads = crate::codec::resolve_threads(source.threads) as usize;
