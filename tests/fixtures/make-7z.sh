@@ -1,7 +1,9 @@
 #!/bin/bash
-# Makes tests/fixtures/thirdparty/7zip/ and three files of tests/fixtures/malicious/ for the 7-Zip
-# backend (docs/M6.md §3, §10): file-system images, partitioned disks, virtual disks, WIM, NSIS,
-# CHM and MSI, each small, from one seeded tree; then merges their records into manifest.json.
+# Makes tests/fixtures/thirdparty/7zip/ and three files of tests/fixtures/malicious/, first for the
+# 7-Zip backend (docs/M6.md §3, §10), and since M11 for BeeZip's own readers with 7-Zip as the
+# oracle: file-system images, partitioned disks, virtual disks, WIM, NSIS, CHM and MSI, each small,
+# from one seeded tree; then merges 7-Zip's records into manifest.json (`"oracle": "7-zip"`), from
+# which native-records.py derives BeeZip's.
 # Run it from Windows, in the repository, with Docker Desktop running:
 #
 #   wsl -e bash tests/fixtures/make-7z.sh
@@ -808,7 +810,7 @@ def record(name, producer, command, note, check=None, kind=None):
     inner = levels[-1]['Type']
     if check:
         check(name, entries)
-    r = {'file': '7zip/' + name, 'producer': producer, 'command': command, 'chain': chain, 'backend': '7-zip',
+    r = {'file': '7zip/' + name, 'producer': producer, 'command': command, 'chain': chain, 'oracle': '7-zip',
          'levels': [WIRE[l['Type']] for l in levels], 'password': None, 'utc_mtimes': False, 'hardlinks': 0,
          'symlinks': sum(1 for e in entries if e['kind'] == 'symlink')}
     others = sum(1 for e in entries if e['kind'] == 'other')
@@ -966,10 +968,11 @@ def listed(name):
         k = {'c': 'character device', 'p': 'FIFO'}.get(mode[:1], kind)
         lines.append(f"| `{md(e['Path'])}` | {k} | {e.get('Size') or ''} | {'`' + md(target) + '`' if target else ''} |")
     return '\n'.join(lines)
-readme = f'''# Fixtures for the 7-Zip backend
+readme = f'''# Fixtures first made for the 7-Zip backend
 
-Made by `tests/fixtures/make-7z.sh` (docs/M6.md §10), which also writes this file and the records
-in `manifest.json`. Every image holds the same seeded tree, as far as its file system can: text, an
+Made by `tests/fixtures/make-7z.sh` (docs/M6.md §10), which also writes this file and 7-Zip's
+records in `manifest.json`: oracle data since M11, when BeeZip stopped running 7-Zip; BeeZip's own
+records of the same images come from `native-records.py`. Every image holds the same seeded tree, as far as its file system can: text, an
 empty file, 64 KiB of pseudo-random bytes, nested folders, names in CJK, an emoji, accents and a
 space, a folder with a non-ASCII name, a symlink, a symlink to a folder and a hard link, every time
 2026-01-01T00:00:00Z but `mtime.txt`'s (2024-05-06T07:08:09.123456789Z). A record's `levels` are the

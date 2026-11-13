@@ -19,8 +19,8 @@ use std::{
 };
 
 use beezip_commands::{
-    CancelToken, CmdError, Engine, EngineOptions, ErrorCode, Interactor, McpConfig, Policy,
-    config, partial, registry,
+    CancelToken, CmdError, Engine, EngineOptions, ErrorCode, Interactor, McpConfig, Policy, config,
+    partial, registry,
 };
 use beezip_mcp::{BeeZipServer, McpOptions};
 use clap::{Arg, ArgAction, ArgMatches, value_parser};

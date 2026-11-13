@@ -414,7 +414,9 @@ fn unknown_keys(table: &toml::Table) -> Vec<String> {
 fn walk_unknown(prefix: &str, table: &toml::Table, known: &[String], out: &mut Vec<String>) {
     for (key, value) in table {
         let path = format!("{prefix}{key}");
-        if MAP_SECTIONS.contains(&path.as_str()) || known.contains(&path) || obsolete(&path).is_some()
+        if MAP_SECTIONS.contains(&path.as_str())
+            || known.contains(&path)
+            || obsolete(&path).is_some()
         {
             continue;
         }
@@ -597,6 +599,16 @@ check = false
             w.is_empty(),
             "a wrong type is an error, not a warning: {w:?}"
         );
+    }
+
+    /// An old config's `[seven_zip]` (before 0.6.0) is ignored without a word (docs/M11.md §7).
+    #[test]
+    fn obsolete_sections_are_ignored_quietly() {
+        let (c, w) = parse("[seven_zip]\npath = 'C:\\Tools\\7z.exe'\nenabled = false\n");
+        assert!(c.is_ok());
+        assert!(w.is_empty(), "{w:?}");
+        assert_eq!(obsolete("seven_zip.path"), Some("0.6.0"));
+        assert_eq!(obsolete("extract.links"), None);
     }
 
     #[test]

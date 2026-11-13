@@ -42,8 +42,6 @@ Archive formats
   cab methods: store, mszip
   squashfs methods: gzip (1-9, 9), xz (0-9, 6), zstd (1-22, 15), lz4, lzo
 
-7-Zip 25.01 or newer, for what BeeZip doesn't read itself: turned off in Settings
-
 Codecs
   ID       NAME               LEVELS       THREADS  EXTENSIONS
   gzip     gzip               0-9 (6)      yes      .gz .tgz

@@ -628,6 +628,14 @@ theme = \"dark\"
             "{}",
             err.message
         );
+        // A setting BeeZip had before 0.6.0 says so (docs/M11.md §7).
+        let err = set(&engine, json!({ "set": { "seven_zip.path": "C:/7z.exe" } })).unwrap_err();
+        assert_eq!(err.code, ErrorCode::InvalidArgs);
+        assert!(
+            err.message.contains("removed in BeeZip 0.6.0"),
+            "{}",
+            err.message
+        );
         let err = set(&engine, json!({ "reset": ["telemetry"] })).unwrap_err();
         assert!(
             err.message.contains("settings get` lists them all"),

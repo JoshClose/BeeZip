@@ -114,20 +114,12 @@ jobs:
     env:
       BEEZIP_REQUIRE_GNU_TAR: "1"      # and without GNU tar
       BEEZIP_REQUIRE_LINUX_TOOLS: "1"  # gzip, lzop, uncompress, cpio, ar, xorriso and unsquashfs check BeeZip's output (docs/M5.md §10, docs/M6.md §10)
-      BEEZIP_REQUIRE_7Z_BACKEND: "1"   # the 7-Zip backend's tests fail instead of skipping without 7zz (docs/M6.md §3)
       BEEZIP_REQUIRE_LZMS: "1"         # the LZMS images fail instead of being refused without wimlib (docs/M11.md §6.2)
     steps:
       - uses: actions/checkout@v7
       - run: rustup toolchain install
       - name: The Linux tools the interop tests run, and wimlib's library for LZMS
         run: sudo apt-get update -q && sudo apt-get install -y -q --no-install-recommends lzop ncompress cpio binutils squashfs-tools xorriso libwim15t64
-      - name: 7-Zip's own Linux build, 26.00 (Ubuntu's 7zip is 23.01, too old for the backend)
-        run: |
-          curl -fsSL -o "$RUNNER_TEMP/7z.tar.xz" https://www.7-zip.org/a/7z2600-linux-x64.tar.xz
-          echo "c74dc4a48492cde43f5fec10d53fb2a66f520e4a62a69d630c44cb22c477edc6  $RUNNER_TEMP/7z.tar.xz" | sha256sum -c
-          mkdir -p "$RUNNER_TEMP/7zip"
-          tar -C "$RUNNER_TEMP/7zip" -xf "$RUNNER_TEMP/7z.tar.xz" 7zz
-          echo "$RUNNER_TEMP/7zip" >> "$GITHUB_PATH"
       - name: release.yml's choice of files, on made-up artifacts (before 1.0.0, no Windows installer)
         run: bash .github/scripts/release-files-test.sh
       - uses: Swatinem/rust-cache@v2

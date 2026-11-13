@@ -51,12 +51,6 @@ fn msi_claims_are_refused_or_read_within_caps() {
                     o.detection.format(),
                     Some(FormatId::External(beezip_core::External::Msi))
                 );
-                let info = o.reader.info(&mut cx).unwrap();
-                assert_eq!(
-                    info.external.unwrap().backend,
-                    None,
-                    "{name}: read natively"
-                );
                 let entries = o.reader.entries(&mut cx).unwrap();
                 assert!(entries.iter().all(|e| e.path.len() <= 4096), "{name}");
             }

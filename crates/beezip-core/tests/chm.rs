@@ -6,6 +6,9 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+#[path = "oracle/seven_zip.rs"]
+mod seven_zip;
+
 use std::{
     collections::BTreeMap,
     io::Read,
@@ -13,8 +16,8 @@ use std::{
 };
 
 use beezip_core::{
-    ArchiveReader, Ctx, Entry, EntryKind, EntrySink, ErrorKind, OpenOptions, Selection,
-    SevenZipOptions, SimpleCtx, format::chm, source::Source,
+    ArchiveReader, Ctx, Entry, EntryKind, EntrySink, ErrorKind, OpenOptions, Selection, SimpleCtx,
+    format::chm, source::Source,
 };
 use serde_json::Value;
 use sha2::{Digest, Sha256};
@@ -149,7 +152,7 @@ fn every_fixture_reads_as_7zip_extracts_it() {
         assert!(report.note.unwrap().contains("no checksums"), "{name}");
         let info = r.info(&mut SimpleCtx::new()).unwrap();
         let x = info.external.unwrap();
-        assert_eq!((x.backend, x.levels), (None, vec!["chm".to_owned()]));
+        assert_eq!(x.levels, ["chm"]);
         assert_eq!(info.methods, ["Copy", "LZX:16"], "{name}");
     }
 }
@@ -256,8 +259,7 @@ fn real_chms_read_as_7zip_extracts_them() {
     let Some(folder) = std::env::var_os("BEEZIP_CHM_SAMPLES") else {
         return;
     };
-    let seven = beezip_core::backend::find(&SevenZipOptions::default())
-        .expect("BEEZIP_CHM_SAMPLES needs 7-Zip");
+    let seven = seven_zip::find().expect("BEEZIP_CHM_SAMPLES needs 7-Zip");
     let mut paths: Vec<PathBuf> = std::fs::read_dir(&folder)
         .unwrap()
         .map(|e| e.unwrap().path())

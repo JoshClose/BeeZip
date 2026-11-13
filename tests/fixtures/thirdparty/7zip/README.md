@@ -1,7 +1,8 @@
-# Fixtures for the 7-Zip backend
+# Fixtures first made for the 7-Zip backend
 
-Made by `tests/fixtures/make-7z.sh` (docs/M6.md §10), which also writes this file and the records
-in `manifest.json`. Every image holds the same seeded tree, as far as its file system can: text, an
+Made by `tests/fixtures/make-7z.sh` (docs/M6.md §10), which also writes this file and 7-Zip's
+records in `manifest.json`: oracle data since M11, when BeeZip stopped running 7-Zip; BeeZip's own
+records of the same images come from `native-records.py`. Every image holds the same seeded tree, as far as its file system can: text, an
 empty file, 64 KiB of pseudo-random bytes, nested folders, names in CJK, an emoji, accents and a
 space, a folder with a non-ASCII name, a symlink, a symlink to a folder and a hard link, every time
 2026-01-01T00:00:00Z but `mtime.txt`'s (2024-05-06T07:08:09.123456789Z). A record's `levels` are the

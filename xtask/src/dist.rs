@@ -631,9 +631,9 @@ pub fn associations(os: Os) -> anyhow::Result<Vec<Value>> {
         }
     };
     for f in formats["formats"].as_array().into_iter().flatten() {
-        // The formats 7-Zip reads aren't associated (docs/M6.md §3.7), nor are those BeeZip
-        // reads but leaves out of Explorer's menu: `.img`, `.msi` (docs/M7.md §9).
-        if f["caps"]["list"] == true && f["backend"].is_null() && f["menu"] == true {
+        // The formats BeeZip reads but leaves out of Explorer's menu aren't associated: `.img`,
+        // `.msi`, `.exe` (docs/M6.md §3.7, docs/M7.md §9).
+        if f["caps"]["list"] == true && f["menu"] == true {
             // "ZIP archive", but "Apple disk image" and "Debian package" as they are.
             let name = f["name"].as_str().unwrap_or("");
             let what = if name.ends_with(" image") || name.ends_with(" package") {

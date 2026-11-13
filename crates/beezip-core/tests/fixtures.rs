@@ -29,20 +29,15 @@ fn manifest() -> Vec<Value> {
 }
 
 /// The options a fixture opens with: its `encoding`, on a US system's code pages (437, 1252).
-/// A record of what 7-Zip lists (`"backend": "7-zip"`) is read through 7-Zip, even for the
-/// formats BeeZip reads itself since M7, whose own records sit beside it (docs/M7.md §10).
 fn options(fx: &Value) -> OpenOptions {
     let encoding = fx["encoding"]
         .as_str()
         .map(|e| NameEncoding::from_name(e).unwrap())
         .unwrap_or_default();
-    OpenOptions {
-        native: fx["backend"] != "7-zip",
-        ..OpenOptions::default().with_names(NameDecoding {
-            encoding,
-            ..NameDecoding::default()
-        })
-    }
+    OpenOptions::default().with_names(NameDecoding {
+        encoding,
+        ..NameDecoding::default()
+    })
 }
 
 /// Four workers for reading, from the first file.
@@ -109,20 +104,6 @@ fn every_fixture_reads_correctly() {
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
-/// Whether a 7-Zip the backend can run is installed, for the fixtures it reads (docs/M6.md §3).
-/// With `BEEZIP_REQUIRE_7Z` or `BEEZIP_REQUIRE_7Z_BACKEND` set to 1 (CI), a missing one fails.
-fn seven_zip_here() -> bool {
-    let found = beezip_core::backend::find(&beezip_core::SevenZipOptions::default());
-    let required = ["BEEZIP_REQUIRE_7Z", "BEEZIP_REQUIRE_7Z_BACKEND"]
-        .iter()
-        .any(|v| std::env::var(v).as_deref() == Ok("1"));
-    match found {
-        Ok(_) => true,
-        Err(m) if required => panic!("the 7-Zip backend's fixtures need 7-Zip: {}", m.reason()),
-        Err(_) => false,
-    }
-}
-
 /// Whether LZMS reads here: on Windows, and where wimlib's library is installed. With
 /// `BEEZIP_REQUIRE_LZMS` set to 1 (CI, which installs wimlib), a missing one fails.
 fn lzms_here() -> bool {
@@ -149,11 +130,9 @@ fn check(fx: &Value) -> Result<(), String> {
             other => Err(format!("without wimlib: {:?}", other.err())),
         };
     }
-    if fx["backend"] == "7-zip" && !seven_zip_here() {
-        eprintln!(
-            "skipping {}: no 7-Zip 25.01 or newer",
-            fx["file"].as_str().unwrap_or("")
-        );
+    // What 7-Zip lists from an image (`"oracle": "7-zip"`) is oracle data since M11: BeeZip's
+    // own record of the same file sits beside it (`native-records.py`), and is what's read.
+    if fx["oracle"] == "7-zip" {
         return Ok(());
     }
     let path = fixtures()
@@ -188,14 +167,7 @@ fn check(fx: &Value) -> Result<(), String> {
             .map(String::as_str)
             .ne(levels.iter().filter_map(Value::as_str))
         {
-            return Err(format!("7-Zip opened {got:?}, expected {levels:?}"));
-        }
-    }
-    // A record of BeeZip's own reader is read by it, not handed to 7-Zip.
-    if fx["native"] == true {
-        let info = opened.reader.info(&mut cx).map_err(|e| e.to_string())?;
-        if let Some(backend) = info.external.and_then(|x| x.backend) {
-            return Err(format!("read by {backend:?}, not BeeZip's own reader"));
+            return Err(format!("opened {got:?}, expected {levels:?}"));
         }
     }
     let count = |pred: fn(&EntryKind) -> bool| entries.iter().filter(|e| pred(&e.kind)).count();
@@ -252,14 +224,13 @@ fn check(fx: &Value) -> Result<(), String> {
             ("file", EntryKind::File) => {
                 // 7-Zip lists an NSIS installer's sizes from its script, as estimates (the
                 // record has what `7z x` writes); BeeZip's own are exact (docs/M10.md §4.1).
-                if e.size != want["size"].as_u64() && !(chain == "nsis" && fx["backend"] == "7-zip")
-                {
+                if e.size != want["size"].as_u64() {
                     return Err(format!("`{p}` has size {:?}", e.size));
                 }
                 // The time 7-Zip lists, in UTC (`-slmu`).
                 // The record's RFC 3339 in 7-Zip's shape, with a space for the `T`.
                 if let Some(t) = want["mtime"].as_str()
-                    && e.modified != beezip_core::backend::slt::parse_time(&t.replacen('T', " ", 1))
+                    && e.modified != beezip_core::time::parse_utc(&t.replacen('T', " ", 1))
                 {
                     return Err(format!("`{p}` has time {:?}, not {t}", e.modified));
                 }

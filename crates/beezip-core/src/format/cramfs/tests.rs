@@ -635,7 +635,7 @@ fn info_says_what_the_superblock_does() {
     let info = r.info(&mut SimpleCtx::new()).unwrap();
     assert_eq!(info.methods, ["zlib"]);
     let x = info.external.unwrap();
-    assert_eq!((x.backend, x.levels), (None, vec!["cramfs".to_owned()]));
+    assert_eq!(x.levels, ["cramfs"]);
     let props: Vec<(String, String)> = x
         .properties
         .into_iter()
