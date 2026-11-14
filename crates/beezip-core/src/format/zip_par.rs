@@ -723,7 +723,13 @@ pub(super) fn write(
             }
             Ok(())
         })();
-        stop.store(true, Ordering::Relaxed);
+        // Under the window's lock: a worker looks at `stop` and then waits on `room` with the
+        // lock held, so a stop set without it could fall between the two, and its wake-up go to
+        // no one: the worker would wait for ever, and the scope with it.
+        {
+            let _st = lock(&window);
+            stop.store(true, Ordering::Relaxed);
+        }
         room.notify_all();
         result
     })
