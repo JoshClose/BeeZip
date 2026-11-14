@@ -54,6 +54,12 @@ using BeeZip will notice. Leave the date out: the Releases page dates each versi
   `backend` and `available`, and `archive.info` no longer has `backend`. They had been the same
   for every format BeeZip reads itself.
 
+### Fixes
+
+- **Making a zip always ends when it's cancelled or fails.** A zip is made on several threads,
+  and when it was cancelled, or a file couldn't be read part-way through, one of them could
+  miss being told to stop. Rarely, the job then never finished.
+
 ## 0.5.0
 
 ### NSIS installers without 7-Zip
