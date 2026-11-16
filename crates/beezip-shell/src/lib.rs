@@ -45,6 +45,7 @@ impl Class {
         match clsid {
             clsid::CLASSIC_ROOT => Some(Self::Root(Context::Classic)),
             clsid::MODERN_ROOT => Some(Self::Root(Context::Modern)),
+            clsid::STORE_ROOT => Some(Self::Root(Context::Store)),
             _ => Item::from_clsid(clsid).map(Self::Item),
         }
     }
@@ -72,7 +73,13 @@ impl IClassFactory_Impl for Factory_Impl {
             if !outer.is_null() {
                 return Err(CLASS_E_NOAGGREGATION.into());
             }
-            let settings = settings::read();
+            let mut settings = settings::read();
+            if let Class::Root(Context::Store) = self.class {
+                // The Store package's own app, beside this DLL in its install folder. An `App`
+                // in the settings is an installed copy's: the package sees the real HKCU too
+                // (docs/M12.md §3.2).
+                settings.app = invoke::beside_dll();
+            }
             log::line(|| format!("CreateInstance {:?}", self.class));
             let command: IExplorerCommand = match self.class {
                 Class::Root(context) => Root::new(context, settings).into(),

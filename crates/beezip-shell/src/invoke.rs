@@ -85,8 +85,9 @@ fn io_error(e: std::io::Error) -> windows_core::Error {
     }
 }
 
-/// `BeeZip.exe` in the DLL's folder: the installed layout, when the settings don't name the app.
-fn beside_dll() -> Option<PathBuf> {
+/// `BeeZip.exe` in the DLL's folder: the installed layout, when the settings don't name the app,
+/// and always for the Store package's root.
+pub(crate) fn beside_dll() -> Option<PathBuf> {
     let dll = dll_path()?;
     let app = dll.parent()?.join("BeeZip.exe");
     app.is_file().then_some(app)

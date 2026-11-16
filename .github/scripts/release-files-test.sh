@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # release-files.sh on made-up artifacts (CI's Linux job), so release.yml's choice of files is
-# checked before a tag needs it: before 1.0.0 the Windows installer and its latest.json entry
-# go, and the portable zip and the other platforms stay; from 1.0.0 everything stays; platforms
+# checked before a tag needs it: the Store package always goes; before 1.0.0 the Windows
+# installer and its latest.json entry go, and the portable zip and the other platforms stay;
+# from 1.0.0 everything else stays; platforms
 # naming different versions stop it; without any latest.json nothing is written.
 set -euo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
@@ -13,7 +14,8 @@ fail() { echo "::error::$*"; exit 1; }
 artifacts() {
   local d=$1 v=$2
   local base="https://github.com/JoshClose/BeeZip/releases/download/v$v"
-  mkdir -p "$d/windows" "$d/linux" "$d/macos"
+  mkdir -p "$d/windows" "$d/windows-store" "$d/linux" "$d/macos"
+  echo x > "$d/windows-store/BeeZip_${v}_x64.msix"
   for f in "BeeZip_${v}_x64-setup.exe" "BeeZip_${v}_x64-setup.exe.sig" \
     "BeeZip_${v}_x64-portable.zip" "BeeZip_${v}_x64-portable.zip.sig"; do
     echo x > "$d/windows/$f"
@@ -38,6 +40,7 @@ artifacts() {
 artifacts "$work/early" 0.2.0
 bash "$here/release-files.sh" "$work/early" 0.2.0 "$work/early.json" > /dev/null
 [ -z "$(find "$work/early" -name '*-setup.exe*')" ] || fail "0.2.0 kept the installer"
+[ -z "$(find "$work/early" -name '*.msix')" ] || fail "0.2.0 kept the Store package"
 [ -f "$work/early/windows/BeeZip_0.2.0_x64-portable.zip" ] || fail "0.2.0 lost the portable zip"
 [ -f "$work/early/windows/BeeZip_0.2.0_x64-portable.zip.sig" ] || fail "0.2.0 lost the portable zip's .sig"
 keys=$(jq -c '.platforms | keys' "$work/early.json")
@@ -50,6 +53,7 @@ keys=$(jq -c '.platforms | keys' "$work/early.json")
 artifacts "$work/one" 1.0.0
 bash "$here/release-files.sh" "$work/one" 1.0.0 "$work/one.json" > /dev/null
 [ -f "$work/one/windows/BeeZip_1.0.0_x64-setup.exe" ] || fail "1.0.0 lost the installer"
+[ -z "$(find "$work/one" -name '*.msix')" ] || fail "1.0.0 kept the Store package"
 keys=$(jq -c '.platforms | keys' "$work/one.json")
 [ "$keys" = '["darwin-aarch64-app","linux-x86_64-deb","windows-x86_64-nsis","windows-x86_64-portable"]' ] \
   || fail "1.0.0's latest.json names $keys"

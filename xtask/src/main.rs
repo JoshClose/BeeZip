@@ -11,6 +11,7 @@ mod release;
 mod shell;
 mod sign;
 mod sparse;
+mod store;
 mod winget;
 
 use std::process::ExitCode;

@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # The files a release carries (release.yml's `release` job), from the platforms' artifacts in
-# <dir>. Before 1.0.0 the Windows installer and its .sig are taken out: until then Windows gets
-# the portable zip only. The platforms' latest.json files are merged into <out>, naming only the
+# <dir>. The Microsoft Store package is always taken out: it goes to Partner Center, and nothing
+# can install it unsigned (docs/M12.md §5). Before 1.0.0 the Windows installer and its .sig are
+# taken out too: until then Windows gets the portable zip only. The platforms' latest.json files are merged into <out>, naming only the
 # files left. With no latest.json (no updater key), <out> isn't written.
 #
 # Usage: release-files.sh <dir> <version> <out>
@@ -10,6 +11,7 @@ dir=$1
 version=$2
 out=$3
 
+find "$dir" -name '*.msix' -print -delete
 if [ "${version%%.*}" -eq 0 ]; then
   find "$dir" \( -name '*-setup.exe' -o -name '*-setup.exe.sig' \) -print -delete
 fi

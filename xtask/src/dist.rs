@@ -19,6 +19,9 @@
 //!    replace the development `beezip.exe`, which Windows sees as the same file.
 //! 4. The portable copy, `bundle/portable/BeeZip_<V>_x64-portable.zip` ([`portable`]): the same
 //!    programs, to unzip and run. `latest.json` goes in `bundle/`, naming both.
+//! 5. The Microsoft Store package, `bundle/store/BeeZip_<V>_x64.msix` (`store.rs`, docs/M12.md
+//!    §2.3): the portable copy's programs with a full manifest, never signed, since Microsoft
+//!    signs it. Its layout stays in `bundle/store/layout` for `Add-AppxPackage -Register`.
 //!
 //! `--version V` builds the installer as version V (the workspace's otherwise), so the upgrade
 //! check can build 0.1.0 and 0.1.1 from one tree.
@@ -292,6 +295,12 @@ fn windows(root: &Path, debug: bool, version: &str, sign_dev: bool) -> anyhow::R
         mode,
         &dir.join("portable"),
         &bundles.join("portable"),
+    )?;
+    crate::store::build(
+        &root,
+        &dir.join("portable"),
+        version,
+        &bundles.join("store"),
     )?;
 
     write_latest_json(
