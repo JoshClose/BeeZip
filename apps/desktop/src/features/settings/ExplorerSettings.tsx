@@ -1,11 +1,14 @@
 // The settings page's Explorer menu section (docs/M4.md §7.4): what `shell.status` reports,
 // Install, Repair and Remove (each asked first, since they change Explorer), and `[shell]`'s
-// settings, which the backend passes on to an installed menu itself.
+// settings, which the backend passes on to an installed menu itself. In the Store copy the
+// package provides the menu, so there's nothing to install or remove, and a button opens
+// Windows' Default apps page instead (docs/M12.md §3.2). Another copy's menu is noted (§4).
 import { ask } from "@tauri-apps/plugin-dialog";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import { useCallback, useEffect, useState } from "react";
 import { Button } from "../../components/ui/button";
 import { Checkbox } from "../../components/ui/checkbox";
-import type { MenuItem, ShellConfig, ShellInstallInput, ShellStatusOutput } from "../../gen/commands";
+import type { MenuItem, OtherCopy, ShellConfig, ShellInstallInput, ShellStatusOutput } from "../../gen/commands";
 import { run } from "../../lib/engine";
 import { describeError } from "../../lib/format";
 import { CheckSetting, Section, Setting } from "./fields";
@@ -36,9 +39,24 @@ export function statusLine(s: ShellStatusOutput): string {
       return s.classic?.cascade === false ? "Installed: items at the top level" : 'Installed: a "BeeZip" submenu';
     case "modern":
       return s.package?.development ? "Installed: Windows 11's menu, as a development package" : "Installed: Windows 11's menu";
+    case "store":
+      return "Provided by the Microsoft Store package";
     default:
       return "Not installed";
   }
+}
+
+/** Why Explorer shows BeeZip twice: another copy's menu is there too. */
+export function otherLine(o: OtherCopy): string {
+  return o.kind === "store"
+    ? "BeeZip from the Microsoft Store is also installed, so Explorer shows two BeeZip menus. Uninstall one of them."
+    : "BeeZip from the installer or a portable copy also has a menu, so Explorer shows two BeeZip menus. Uninstall one of them, or remove its menu in its Settings.";
+}
+
+/** Windows' Default apps page: BeeZip's own on Windows 11, the whole page on Windows 10. */
+export function defaultAppsUrl(s: ShellStatusOutput): string {
+  const win11 = (s.windows_build ?? 0) >= 22000;
+  return win11 && s.store ? `ms-settings:defaultapps?registeredAUMID=${encodeURIComponent(s.store.aumid)}` : "ms-settings:defaultapps";
 }
 
 const ACTIONS = {
@@ -106,7 +124,9 @@ export function ExplorerSettings({
         // development package stays one rather than turning into the classic menu.
         const now = status.state === "known" ? status.status : undefined;
         const input: ShellInstallInput =
-          action === "repair" && now?.mode ? { mode: now.mode, ...(now.package?.development ? { dev: true } : {}) } : {};
+          action === "repair" && now?.mode && now.mode !== "store"
+            ? { mode: now.mode, ...(now.package?.development ? { dev: true } : {}) }
+            : {};
         const out = await run("shell.install", input);
         setNote(out.fallback ?? undefined);
       } else {
@@ -123,6 +143,7 @@ export function ExplorerSettings({
   const unsupported = status.state === "unsupported";
   const known = status.state === "known" ? status.status : undefined;
   const installed = known?.mode != null;
+  const store = known?.mode === "store";
 
   return (
     <Section title="Explorer menu" description="BeeZip's entries in Explorer's right-click menu, for your Windows account.">
@@ -141,8 +162,25 @@ export function ExplorerSettings({
               ))}
             </ul>
           )}
+          {known && known.others.length > 0 && (
+            <ul className="flex flex-col gap-0.5 text-[12px] text-muted">
+              {known.others.map((o) => (
+                <li key={o.detail} title={o.detail}>
+                  {otherLine(o)}
+                </li>
+              ))}
+            </ul>
+          )}
           <div className="flex gap-2">
-            {installed ? (
+            {store && known ? (
+              <Button
+                size="sm"
+                title="Windows' page where BeeZip becomes the app that opens archives"
+                onClick={() => void openUrl(defaultAppsUrl(known)).catch((e) => setActionError(describeError(e).message))}
+              >
+                Default apps
+              </Button>
+            ) : installed ? (
               <>
                 <Button size="sm" disabled={busy} onClick={() => void act("repair")}>
                   Repair
@@ -165,18 +203,20 @@ export function ExplorerSettings({
           {note && <p className="text-[12px] text-muted">{note}</p>}
         </div>
       </Setting>
-      <Setting
-        label="Layout"
-        hint={known?.mode === "modern" ? "Windows 11's own menu always shows a submenu." : "Off, each item is at the top of the menu."}
-        error={errors["shell.cascade"]}
-      >
-        <CheckSetting
-          checked={shell.cascade}
-          label='Show the items in a "BeeZip" submenu'
-          disabled={unsupported || known?.mode === "modern"}
-          onCommit={(v) => save("shell.cascade", v)}
-        />
-      </Setting>
+      {!store && (
+        <Setting
+          label="Layout"
+          hint={known?.mode === "modern" ? "Windows 11's own menu always shows a submenu." : "Off, each item is at the top of the menu."}
+          error={errors["shell.cascade"]}
+        >
+          <CheckSetting
+            checked={shell.cascade}
+            label='Show the items in a "BeeZip" submenu'
+            disabled={unsupported || known?.mode === "modern"}
+            onCommit={(v) => save("shell.cascade", v)}
+          />
+        </Setting>
+      )}
       <Setting label="Items" hint="Archive items show only for archives.">
         <div className="flex flex-col gap-1.5 pt-1">
           {MENU_ITEMS.map((i) => (

@@ -288,7 +288,8 @@ fn apply(path: &Path, edits: &[Edit]) -> Result<Applied, CmdError> {
     Ok(Applied {
         before,
         after: SettingsGetOutput {
-            path: Some(path.to_path_buf()),
+            // As `settings.get` reports it: where other programs find it (docs/M12.md §3.5).
+            path: Some(crate::shell::store::outside_path(path)),
             exists: exists || text != old_text,
             settings: after,
             warnings,

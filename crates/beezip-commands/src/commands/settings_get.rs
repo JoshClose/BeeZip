@@ -77,7 +77,9 @@ pub(crate) fn current(path: Option<&Path>) -> SettingsGetOutput {
         Err(e) => (Config::default(), Some(e.message)),
     };
     SettingsGetOutput {
-        path: loaded.path,
+        // Where other programs find it: in the Store copy, Windows may keep it in the package's
+        // own folder (docs/M12.md §3.5).
+        path: loaded.path.map(|p| crate::shell::store::outside_path(&p)),
         exists: loaded.exists,
         settings,
         warnings: loaded.warnings,

@@ -16,6 +16,8 @@
 //! - **A portable copy** (Windows: no `uninstall.exe` beside `BeeZip.exe`, as with the release's
 //!   zip) never installs one: the installer would put a second BeeZip beside it. It looks up the
 //!   zip's entry in `latest.json`, [`PORTABLE`], and the banner links to the new zip instead.
+//! - **The Store copy** (docs/M12.md §3.3) never checks or installs: the Microsoft Store updates
+//!   it. Its install folder is read-only, and it has no installer beside it either.
 
 use std::{
     path::{Path, PathBuf},
@@ -46,10 +48,18 @@ pub fn installed_at(exe: &Path) -> bool {
 }
 
 /// Whether this copy is a portable one: on Windows, one that wasn't installed. Elsewhere each
-/// bundle updates itself (the AppImage, deb, rpm and app).
+/// bundle updates itself (the AppImage, deb, rpm and app). The Store copy isn't one.
 fn portable() -> bool {
-    cfg!(windows) && !std::env::current_exe().is_ok_and(|exe| installed_at(&exe))
+    cfg!(windows) && !store() && !std::env::current_exe().is_ok_and(|exe| installed_at(&exe))
 }
+
+/// Whether this is the Store copy, which the Microsoft Store updates.
+fn store() -> bool {
+    beezip_commands::shell::store::running()
+}
+
+/// Why the Store copy never looks for updates.
+pub const STORE_UPDATES: &str = "The Microsoft Store keeps this copy of BeeZip up to date.";
 
 /// The update found, until it's installed.
 #[derive(Default)]
@@ -168,6 +178,11 @@ pub async fn cmd_update_check(
     force: bool,
 ) -> Result<Checked, String> {
     let version = app.package_info().version.to_string();
+    if store() {
+        return Ok(Checked::Off {
+            reason: STORE_UPDATES.into(),
+        });
+    }
     if !has_key(&app) {
         return Ok(Checked::Off {
             reason: "This build of BeeZip doesn't look for updates.".into(),
@@ -226,6 +241,9 @@ pub async fn cmd_update_install(
     updates: State<'_, Updates>,
     on_progress: Channel<Progress>,
 ) -> Result<(), String> {
+    if store() {
+        return Err(STORE_UPDATES.into());
+    }
     if portable() {
         return Err(
             "A portable copy of BeeZip doesn't install updates: download the new version from \

@@ -24,6 +24,36 @@ pub enum ShellMode {
     Classic,
     /// The sparse package: Windows 11's own menu.
     Modern,
+    /// The Microsoft Store package's own menu (docs/M12.md §3.2): this copy runs from it, and
+    /// `shell.install` and `shell.uninstall` leave it alone.
+    Store,
+}
+
+/// Which other copy of BeeZip has a menu in Explorer too.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "lowercase")]
+pub enum OtherKind {
+    /// The Microsoft Store package, seen from an installed or portable copy.
+    Store,
+    /// An installed or portable copy's menu, seen from the Store copy.
+    Installed,
+}
+
+/// The Microsoft Store package this copy runs from.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+pub struct StoreInfo {
+    /// The package's full name: `CloseConsultingInc.BeeZip_<version>_x64__<hash>`.
+    pub full_name: String,
+    /// The app's user model ID, `<family>!BeeZip`, which Windows 11's Default apps page takes.
+    pub aumid: String,
+}
+
+/// Another copy of BeeZip whose menu Explorer shows beside this one's (docs/M12.md §4).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+pub struct OtherCopy {
+    pub kind: OtherKind,
+    /// The Store package's full name, or the installed copy's menu: its DLL or its package.
+    pub detail: String,
 }
 
 /// The classic menu's keys.
@@ -74,6 +104,10 @@ pub struct ShellStatusOutput {
     pub cascade: bool,
     /// What is wrong, in words: a DLL or app that has gone, keys without settings.
     pub problems: Vec<String>,
+    /// The Microsoft Store package, when this copy runs from it (from M12).
+    pub store: Option<StoreInfo>,
+    /// Other copies of BeeZip with a menu in Explorer too, so Explorer shows two (from M12).
+    pub others: Vec<OtherCopy>,
 }
 
 pub struct ShellStatus;
@@ -102,8 +136,21 @@ impl Command for ShellStatus {
 
 #[cfg(windows)]
 pub(crate) fn status(hive: &Hive) -> Result<ShellStatusOutput, CmdError> {
-    use crate::shell::{classic, mirror, package, system};
+    use crate::shell::{classic, mirror, package, store, system};
 
+    if let Some(current) = store::current() {
+        return Ok(store_status(hive, &current));
+    }
+    // A lookup that fails only leaves the other copy unmentioned.
+    let others = package::find_store(hive)
+        .ok()
+        .flatten()
+        .map(|full_name| OtherCopy {
+            kind: OtherKind::Store,
+            detail: full_name,
+        })
+        .into_iter()
+        .collect();
     let keys = classic::read(hive);
     let mirror = mirror::read(hive);
     let mut problems = Vec::new();
@@ -191,7 +238,54 @@ pub(crate) fn status(hive: &Hive) -> Result<ShellStatusOutput, CmdError> {
         classic,
         package,
         problems,
+        store: None,
+        others,
     })
+}
+
+/// The Store copy's status: the package's own menu, served by the `BeeZip.exe` beside its DLL,
+/// with the items the mirror hides. What an installed or portable copy registered is another
+/// copy's menu, which the package also sees through the real HKCU (docs/M12.md §3.2, §4).
+#[cfg(windows)]
+fn store_status(hive: &Hive, current: &crate::shell::store::Current) -> ShellStatusOutput {
+    use crate::shell::{classic, install_dir, mirror, package, system};
+
+    let mut others = Vec::new();
+    if let Some(keys) = classic::read(hive) {
+        others.push(OtherCopy {
+            kind: OtherKind::Installed,
+            detail: keys.dll.map_or_else(
+                || "the classic menu".to_owned(),
+                |d| d.display().to_string(),
+            ),
+        });
+    }
+    for p in package::find(hive).unwrap_or_default() {
+        others.push(OtherCopy {
+            kind: OtherKind::Installed,
+            detail: p.full_name,
+        });
+    }
+    ShellStatusOutput {
+        windows_build: system::build(),
+        developer_mode: system::developer_mode(),
+        mode: Some(ShellMode::Store),
+        classic: None,
+        package: None,
+        app: install_dir().map(|d| d.join("BeeZip.exe")),
+        hidden: mirror::read(hive).map(|m| m.hidden).unwrap_or_default(),
+        cascade: true,
+        problems: Vec::new(),
+        store: Some(StoreInfo {
+            full_name: current.full_name.clone(),
+            aumid: format!(
+                "{}!{}",
+                crate::shell::store::FAMILY,
+                crate::shell::store::APP_ID
+            ),
+        }),
+        others,
+    }
 }
 
 #[cfg(not(windows))]
@@ -220,9 +314,13 @@ fn human(out: &ShellStatusOutput) -> String {
                 "Windows 11 (a development package)"
             }
             (Some(ShellMode::Modern), _) => "Windows 11",
+            (Some(ShellMode::Store), _) => "the Microsoft Store package's",
             (None, _) => "not installed",
         }
     ));
+    if let Some(store) = &out.store {
+        lines.push(format!("store      {}", store.full_name));
+    }
     if let Some(p) = &out.package {
         lines.push(format!("package    {}", p.full_name));
         let dll = p
@@ -258,5 +356,24 @@ fn human(out: &ShellStatusOutput) -> String {
     for p in &out.problems {
         lines.push(format!("problem    {p}"));
     }
+    for o in &out.others {
+        lines.push(format!("also       {}", other_words(o)));
+    }
     lines.join("\n")
+}
+
+/// Another copy's line in `beezip shell status`.
+fn other_words(o: &OtherCopy) -> String {
+    match o.kind {
+        OtherKind::Store => format!(
+            "BeeZip from the Microsoft Store ({}), so Explorer shows two BeeZip menus: uninstall \
+             one of the two copies",
+            o.detail
+        ),
+        OtherKind::Installed => format!(
+            "an installed or portable BeeZip's menu ({}), so Explorer shows two BeeZip menus: \
+             uninstall one of the two copies, or remove that copy's menu in its Settings",
+            o.detail
+        ),
+    }
 }

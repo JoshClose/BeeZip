@@ -7,6 +7,20 @@ Write a new section as `## X.Y.Z`, with `###` groups and `- ` items, describing 
 using BeeZip will notice. Leave the date out: the Releases page dates each version by its
 `vX.Y.Z` tag.
 
+## 0.7.0
+
+### BeeZip in the Microsoft Store
+
+- **A Microsoft Store copy of BeeZip,** signed by Microsoft, is on its way: this version is the
+  first one built for the Store. Once its listing is live, it's the same app, installed and
+  updated by the Store, with Explorer's menu on Windows 10 and 11 and `beezip` in any terminal.
+- **In the Store copy,** Settings has no update setting, since the Store updates BeeZip, and
+  the Explorer menu needs no install or repair. A **Default apps** button opens Windows' page
+  where BeeZip becomes the app for archives. Copy as CLI gives plain `beezip`.
+- **With two copies installed,** such as the Store's and the installer's, Settings and
+  `beezip shell status` say Explorer shows two BeeZip menus.
+- **A privacy page** on the website: BeeZip collects nothing.
+
 ## 0.6.0
 
 ### MSI patches, transforms and merge modules without 7-Zip
