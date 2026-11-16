@@ -327,7 +327,10 @@ mod tests {
         .unwrap();
         assert!(files.contains(&"BeeZip.exe".to_owned()));
         assert!(text.contains(r#"Executable="BeeZip.exe""#));
-        assert!(!files.iter().any(|f| f.starts_with("bin/")), "no command line");
+        assert!(
+            !files.iter().any(|f| f.starts_with("bin/")),
+            "no command line"
+        );
         assert!(!text.contains(r"bin\"));
         assert!(files.contains(&"beezip_shell_0.7.0.dll".to_owned()));
         assert!(!files.iter().any(|f| f == "README.txt"));
