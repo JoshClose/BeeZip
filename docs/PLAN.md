@@ -207,6 +207,7 @@ Every archive command names the archive file `archive`. The M1 inputs and output
     - `tauri-plugin-dialog` and `tauri-plugin-opener`;
     - NSIS installer that installs `BeeZip.exe` and `bin\beezip.exe` (the CLI is staged separately; see Naming), and adds `bin\` to PATH. NSIS only, no MSI (docs/M6.md §9.3);
     - from M6, `tauri-plugin-updater`: it checks GitHub Releases at most once a day, and installs only on a click (docs/M6.md §9.4);
+    - from M12, a **Microsoft Store package** beside the installer and the portable zip: the same programs in an MSIX with a full manifest (the menu, the file types, a console alias `beezip.exe` for the CLI), which Microsoft signs after certification. Inside it the updater is off and the Store updates BeeZip (docs/M12.md);
     - a **job mode**, `BeeZip.exe --job <request.json>`: Explorer writes a job request, and `shell.plan` expands it into steps. Each request gets one compact job window; dialogs ("Extract to…", "Compress to…") open in the main window. A second `BeeZip.exe` hands its request to the running one, and the process exits when its last window closes (docs/M4.md §6).
 
 ### Explorer context-menu integration (Windows 11 modern menu + classic menu)
@@ -218,6 +219,7 @@ Every archive command names the archive file `archive`. The M1 inputs and output
   - Processes the handler starts inherit the package's identity, so the manifest turns off file-system and registry write virtualization; otherwise their AppData writes land in the package's folder.
   - `BeeZip.exe` gets no `<msix …/>` identity element, so there's no `tauri_build` manifest change.
   - The Windows 11 menu shows one entry per package: items can be hidden there, but not moved to the top level.
+- **The Microsoft Store package** (M12) declares the menu itself, on Windows 10 and 11: the same DLL under its own class, the Store root, served from that package's COM surrogate, which always starts the `BeeZip.exe` beside it (docs/M12.md §2.1, §3.2). Windows 10's classic menu shows a package's menu too.
 - **Classic menu** (Windows 10, and Windows 11 when the package can't be registered). Registry keys under HKCU, so no admin is needed:
   - `Software\Classes\{*,Directory}\shell\BeeZip` with `ExplorerCommandHandler={CLSID}`;
   - `CLSID\{…}\InprocServer32` pointing at the same DLL, with `ThreadingModel=Apartment`.
@@ -357,6 +359,10 @@ After approval I implement **M0 + M1** and then stop for your review before goin
   - Patches and transforms listed as their compound file, as 7-Zip lists them; transforms detected for the first time.
   - The variants 7-Zip read for BeeZip read by BeeZip: NTFS clusters over 64 KiB, QCOW version 1, HFS+ overflow extents, sealed APFS volumes, large VHDX tables, WIM chunks up to 1 GiB, 7-Zip's CramFS variant and more; LZMS on Linux and macOS through wimlib's library.
   - The 7-Zip backend removed, with Settings' 7-Zip section, Install 7-Zip and `beezip 7zip install`.
+- **M12 — Microsoft Store.** Detailed plan: [`docs/M12.md`](M12.md), approved 2026-11-16. Ships in 0.7.0.
+  - A Store package (MSIX) built with every Windows release from the installer's programs; Microsoft signs it after certification. The user uploads it to Partner Center.
+  - Inside the package BeeZip knows it's the Store copy: the menu comes from the package, the updater is off, "Copy as CLI" names the `beezip` alias, and the settings file's path is the one other programs can open.
+  - Each copy says when the other is installed too (two Explorer menus); `BeeZip.exe` declares per-monitor DPI awareness.
 
 ---
 
@@ -397,6 +403,7 @@ After approval I implement **M0 + M1** and then stop for your review before goin
 - **Installers and a running BeeZip:** Tauri's installer closes a running BeeZip without asking in silent and passive mode (winget, the updater). The updater cancels running jobs first (docs/M6.md §9.3, §9.4).
 - **Solid archives and random access:** previews use the index cache plus a temp extraction cache, and `FormatCaps.random_access` tells the UI when a preview will be slow.
 - **Native drag-out to Explorer from the webview:** stretch goal (M6). The fallback is "Extract to…" plus dragging out a temp extraction.
+- **The Store copy:** certification can hold up a release's Store copy by up to three business days. A Store-only copy keeps its settings in the package's private folder, which goes when it's uninstalled (docs/M12.md decision 1).
 - **The Win11 menu needs package identity and a trusted signature.** Development registers the unsigned manifest under Developer Mode; an installer without a trusted certificate gives Windows 11 the classic menu. Releases need a real certificate (M6).
 - **A shell extension crashing takes Explorer down with it.** Mitigations: keep the DLL tiny and free of beezip-core, `catch_unwind` in every COM method (with `panic = "unwind"`), no file I/O in `GetState`, and fuzz the selection-to-items logic.
 - **The name:**

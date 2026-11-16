@@ -1,18 +1,24 @@
 fn main() {
     // Declaring the app's commands makes tauri-build generate `allow-cmd-*` permissions, which
-    // capabilities/default.json grants to the main window.
-    tauri_build::try_build(tauri_build::Attributes::new().app_manifest(
-        tauri_build::AppManifest::new().commands(&[
-            "cmd_run",
-            "cmd_cancel",
-            "cmd_respond",
-            "cmd_list",
-            "cmd_launched",
-            "cmd_drag_out",
-            "cmd_update_check",
-            "cmd_update_install",
-        ]),
-    ))
+    // capabilities/default.json grants to the main window. On Windows, BeeZip.exe's manifest is
+    // tauri-build's own with per-monitor DPI awareness added (docs/M12.md §3.6).
+    tauri_build::try_build(
+        tauri_build::Attributes::new()
+            .app_manifest(tauri_build::AppManifest::new().commands(&[
+                "cmd_run",
+                "cmd_cancel",
+                "cmd_respond",
+                "cmd_list",
+                "cmd_launched",
+                "cmd_drag_out",
+                "cmd_update_check",
+                "cmd_update_install",
+            ]))
+            .windows_attributes(
+                tauri_build::WindowsAttributes::new()
+                    .app_manifest(include_str!("windows-app-manifest.xml")),
+            ),
+    )
     .expect("failed to run tauri-build");
 
     // Integration tests build Tauri's mock runtime, which imports from Common Controls 6 and so

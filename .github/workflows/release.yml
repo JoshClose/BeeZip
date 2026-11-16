@@ -159,6 +159,8 @@ jobs:
       - name: The portable zip holds the installer's programs, and its CLI runs
         if: steps.sign.outputs.mode == 'none'
         run: pwsh -NoProfile -File .github/scripts/portable.ps1 target/dist/release/bundle/portable/*-portable.zip
+      - name: The Microsoft Store package is unsigned, with Partner Center's identity and the portable zip's programs (docs/M12.md §5)
+        run: pwsh -NoProfile -File .github/scripts/store-package.ps1 target/dist/release/bundle/store/*.msix target/dist/release/bundle/portable/*-portable.zip
       - name: Forget the certificate file
         if: always() && steps.sign.outputs.mode == 'pfx'
         shell: pwsh
@@ -174,6 +176,16 @@ jobs:
             target/dist/release/bundle/portable/*-portable.zip
             target/dist/release/bundle/portable/*-portable.zip.sig
             target/dist/release/bundle/latest.json
+          if-no-files-found: error
+          retention-days: 14
+      # For the user to upload to Partner Center, not for the GitHub release: nothing can install
+      # an unsigned .msix, and Microsoft signs this one after certification (docs/M12.md §5).
+      # release-files.sh drops it from the release's files.
+      - name: Keep the Store package
+        uses: actions/upload-artifact@v7
+        with:
+          name: windows-store
+          path: target/dist/release/bundle/store/*.msix
           if-no-files-found: error
           retention-days: 14
 

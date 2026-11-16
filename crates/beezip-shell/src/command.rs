@@ -38,6 +38,9 @@ pub const ROOT_TITLE: &str = "BeeZip";
 pub enum Context {
     Classic,
     Modern,
+    /// The Microsoft Store package's (docs/M12.md §2.1): as `Modern`, but always the `BeeZip.exe`
+    /// beside the DLL.
+    Store,
 }
 
 impl Context {
@@ -45,6 +48,7 @@ impl Context {
         match self {
             Self::Classic => clsid::CLASSIC_ROOT,
             Self::Modern => clsid::MODERN_ROOT,
+            Self::Store => clsid::STORE_ROOT,
         }
     }
 }

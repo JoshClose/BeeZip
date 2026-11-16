@@ -85,6 +85,8 @@ jobs:
           pwsh -NoProfile -File .github/scripts/winget-validate.ps1 "$(find target/winget/manifests -name CloseConsulting.BeeZip.yaml -printf '%h')"
       - name: Explorer's Windows 11 menu, end to end (docs/M4.md §10)
         run: pwsh -NoProfile -File .github/scripts/shell-modern.ps1
+      - name: The Microsoft Store package holds the portable zip's programs; registered, its alias and menu work (docs/M12.md §5)
+        run: pwsh -NoProfile -File .github/scripts/store-package.ps1 target/dist/debug/bundle/store/*.msix target/dist/debug/bundle/portable/*-portable.zip -Register
       - name: A reinstall and an uninstall while beezip mcp holds the CLI (docs/M6.md §9.3)
         run: pwsh -NoProfile -File .github/scripts/locked-cli.ps1
       - name: tauri-driver, for the end-to-end test
@@ -105,6 +107,13 @@ jobs:
         with:
           name: beezip-portable-debug
           path: target/dist/debug/bundle/portable/*-portable.zip
+          if-no-files-found: error
+          retention-days: 14
+      - name: Keep the Store package
+        uses: actions/upload-artifact@v7
+        with:
+          name: beezip-store-debug
+          path: target/dist/debug/bundle/store/*.msix
           if-no-files-found: error
           retention-days: 14
 

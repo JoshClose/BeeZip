@@ -7,6 +7,9 @@
 //! - **`app-icon-16.svg`** (the bee alone, cropped to fill the square) is the 16 px image in
 //!   `icon.ico`: at that size the cell's outline takes the edge pixels and leaves the bee about
 //!   7 px wide.
+//! - **The Microsoft Store package's logos** ([`STORE_ASSETS`], docs/M12.md §2.2), in
+//!   `packaging/windows/store/Assets`: each size Windows asks for, from the same sources, so the
+//!   taskbar and Start never scale one. The 16 px ones are the bee alone, as in `icon.ico`.
 //!
 //! With `--check`, nothing is written: it fails if a committed icon differs from what the sources
 //! make, as `codegen --check` does (CI runs it).
@@ -22,6 +25,31 @@ use crate::dist::{check, pnpm};
 const SOURCE: &str = "packaging/brand/app-icon.svg";
 const SOURCE_16: &str = "packaging/brand/app-icon-16.svg";
 const ICONS: &str = "apps/desktop/src-tauri/icons";
+/// Where the Store package's logos go (`store.rs` copies them into the package).
+pub const STORE_ASSETS_DIR: &str = "packaging/windows/store/Assets";
+
+/// The Store package's logos and their sizes in pixels. The manifest names the unqualified ones
+/// (`Assets\Square44x44Logo.png`), and `resources.pri` lets Windows pick among these: scales for
+/// Start and the Store, target sizes for the taskbar and Explorer, unplated so the taskbar shows
+/// the logo without a coloured plate behind it.
+pub const STORE_ASSETS: [(&str, u32); 16] = [
+    ("Square44x44Logo.scale-100.png", 44),
+    ("Square44x44Logo.scale-200.png", 88),
+    ("Square44x44Logo.targetsize-16.png", 16),
+    ("Square44x44Logo.targetsize-24.png", 24),
+    ("Square44x44Logo.targetsize-32.png", 32),
+    ("Square44x44Logo.targetsize-48.png", 48),
+    ("Square44x44Logo.targetsize-256.png", 256),
+    ("Square44x44Logo.targetsize-16_altform-unplated.png", 16),
+    ("Square44x44Logo.targetsize-24_altform-unplated.png", 24),
+    ("Square44x44Logo.targetsize-32_altform-unplated.png", 32),
+    ("Square44x44Logo.targetsize-48_altform-unplated.png", 48),
+    ("Square44x44Logo.targetsize-256_altform-unplated.png", 256),
+    ("Square150x150Logo.scale-100.png", 150),
+    ("Square150x150Logo.scale-200.png", 300),
+    ("StoreLogo.scale-100.png", 50),
+    ("StoreLogo.scale-200.png", 100),
+];
 
 /// The icons kept: what `tauri.conf.json`'s `bundle.icon` names, `icon.png`, and the Windows
 /// tiles (the sparse package takes `StoreLogo`, `Square44x44Logo` and `Square150x150Logo`).
@@ -50,11 +78,20 @@ pub fn run(check_only: bool) -> anyhow::Result<()> {
     if work.exists() {
         std::fs::remove_dir_all(&work).with_context(|| format!("emptying {}", work.display()))?;
     }
-    let (all, small) = (work.join("all"), work.join("16"));
-    std::fs::create_dir_all(&all)?;
-    std::fs::create_dir_all(&small)?;
-    tauri_icon(&root, &root.join(SOURCE), &all, None)?;
-    tauri_icon(&root, &root.join(SOURCE_16), &small, Some(16))?;
+    let (all, small, store) = (work.join("all"), work.join("16"), work.join("store"));
+    for dir in [&all, &small, &store] {
+        std::fs::create_dir_all(dir)?;
+    }
+    tauri_icon(&root, &root.join(SOURCE), &all, &[])?;
+    tauri_icon(&root, &root.join(SOURCE_16), &small, &[16])?;
+    let mut sizes: Vec<u32> = STORE_ASSETS
+        .iter()
+        .map(|&(_, size)| size)
+        .filter(|&size| size != 16)
+        .collect();
+    sizes.sort_unstable();
+    sizes.dedup();
+    tauri_icon(&root, &root.join(SOURCE), &store, &sizes)?;
 
     let ico = std::fs::read(all.join("icon.ico")).context("reading Tauri's icon.ico")?;
     let png16 = std::fs::read(small.join("16x16.png")).context("reading Tauri's 16x16.png")?;
@@ -62,12 +99,29 @@ pub fn run(check_only: bool) -> anyhow::Result<()> {
     let icns = std::fs::read(all.join("icon.icns")).context("reading Tauri's icon.icns")?;
     std::fs::write(all.join("icon.icns"), sorted_icns(&icns)?)?;
 
-    let dest = root.join(ICONS);
+    // Each icon: where Tauri made it, and where it goes, relative to the workspace.
+    let mut outputs: Vec<(std::path::PathBuf, String)> = FILES
+        .iter()
+        .map(|file| (all.join(file), format!("{ICONS}/{file}")))
+        .collect();
+    for (name, size) in STORE_ASSETS {
+        let made = if size == 16 {
+            small.join("16x16.png")
+        } else {
+            store.join(format!("{size}x{size}.png"))
+        };
+        outputs.push((made, format!("{STORE_ASSETS_DIR}/{name}")));
+    }
+    std::fs::create_dir_all(root.join(STORE_ASSETS_DIR))?;
     let mut differ = Vec::new();
-    for file in FILES {
-        let made = std::fs::read(all.join(file))
-            .with_context(|| format!("Tauri made no {file}: has `tauri icon` changed?"))?;
-        let path = dest.join(file);
+    for (made, file) in outputs {
+        let made = std::fs::read(&made).with_context(|| {
+            format!(
+                "Tauri made no {}: has `tauri icon` changed?",
+                made.display()
+            )
+        })?;
+        let path = root.join(&file);
         if std::fs::read(&path).ok().as_deref() == Some(made.as_slice()) {
             continue;
         }
@@ -75,7 +129,7 @@ pub fn run(check_only: bool) -> anyhow::Result<()> {
             differ.push(file);
         } else {
             std::fs::write(&path, &made).with_context(|| format!("writing {}", path.display()))?;
-            println!("wrote {ICONS}/{file}");
+            println!("wrote {file}");
         }
     }
     if !differ.is_empty() {
@@ -90,15 +144,16 @@ pub fn run(check_only: bool) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// `pnpm tauri icon` from `apps/desktop`: every icon, or with `size` only that PNG.
-fn tauri_icon(root: &Path, source: &Path, out: &Path, size: Option<u32>) -> anyhow::Result<()> {
+/// `pnpm tauri icon` from `apps/desktop`: every icon, or with `sizes` only those PNGs
+/// (`<n>x<n>.png`).
+fn tauri_icon(root: &Path, source: &Path, out: &Path, sizes: &[u32]) -> anyhow::Result<()> {
     let mut cmd = pnpm();
     cmd.current_dir(root.join("apps/desktop"))
         .args(["tauri", "icon"])
         .arg(source)
         .arg("-o")
         .arg(out);
-    if let Some(size) = size {
+    for size in sizes {
         cmd.args(["-p", &size.to_string()]);
     }
     check(cmd.status(), "pnpm tauri icon")

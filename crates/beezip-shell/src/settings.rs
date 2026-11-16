@@ -16,7 +16,7 @@ pub struct Settings {
     pub app: Option<PathBuf>,
     /// `Hidden`: the items left out.
     pub hidden: Vec<Item>,
-    /// `Log`: append every call to `%LOCALAPPDATA%\BeeZip\shell.log`.
+    /// `Log`: append every call to `%TEMP%\BeeZip\shell.log` (`log.rs`).
     pub log: bool,
     /// `Panic`, read in debug builds only: the method that panics on purpose (`tests/com.rs`).
     pub panic_in: Option<String>,

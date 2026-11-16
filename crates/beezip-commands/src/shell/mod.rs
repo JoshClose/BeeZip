@@ -4,6 +4,7 @@
 //! - [`mirror`]: `HKCU\Software\BeeZip\Shell`, the settings the DLL reads;
 //! - [`package`]: the Windows 11 menu's sparse package, through `PackageManager`;
 //! - [`files`]: DLLs an upgrade or uninstall left behind, which Explorer may still hold;
+//! - [`store`]: the Microsoft Store package's identity (docs/M12.md);
 //! - [`system`]: the Windows build and Developer Mode.
 //!
 //! Windows only, and safe Rust only (windows-registry, and windows' WinRT projection). Every key
@@ -18,6 +19,7 @@ pub(crate) mod files;
 pub(crate) mod mirror;
 #[cfg(windows)]
 pub(crate) mod package;
+pub mod store;
 #[cfg(windows)]
 pub(crate) mod system;
 

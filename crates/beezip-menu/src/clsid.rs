@@ -2,6 +2,8 @@
 //! serves all of them and tells the context from the CLSID:
 //! - the **classic root**, registered under `HKCU\Software\Classes\CLSID` for the classic menu;
 //! - the **modern root**, declared by the sparse package for the Windows 11 menu;
+//! - the **Store root**, declared by the Microsoft Store package for its menu on Windows 10 and 11
+//!   (docs/M12.md §2.1): served as the modern root is, but never by the installed copy's app;
 //! - **one per item**, used only when the classic menu isn't cascaded (`[shell] cascade = false`).
 //!
 //! They are `u128`s in the layout `windows_core::GUID::from_u128` takes, so this crate needs no
@@ -13,6 +15,9 @@ use crate::Item;
 pub const CLASSIC_ROOT: u128 = 0xB788B651_F40D_446D_A601_2D23F9E0C37B;
 /// The root of the Windows 11 menu, served from the package's COM surrogate.
 pub const MODERN_ROOT: u128 = 0x03CB0FA0_5D6C_4547_9B65_956DE58D1AF2;
+/// The root of the Microsoft Store package's menu, served from that package's COM surrogate. Its
+/// own class, so the Store package and the sparse package never declare the same one.
+pub const STORE_ROOT: u128 = 0xE6ACE5B2_5C8B_4F4B_AB86_8A29BE5AAB16;
 
 impl Item {
     /// The item's own CLSID: its top-level verb in the classic menu without the cascade, and its
@@ -65,7 +70,7 @@ mod tests {
     #[test]
     fn every_clsid_is_distinct_and_maps_back() {
         let mut all: Vec<u128> = Item::ALL.iter().map(|i| i.clsid()).collect();
-        all.extend([CLASSIC_ROOT, MODERN_ROOT]);
+        all.extend([CLASSIC_ROOT, MODERN_ROOT, STORE_ROOT]);
         let n = all.len();
         all.sort_unstable();
         all.dedup();
@@ -73,6 +78,8 @@ mod tests {
         for item in Item::ALL {
             assert_eq!(Item::from_clsid(item.clsid()), Some(item));
         }
-        assert_eq!(Item::from_clsid(CLASSIC_ROOT), None);
+        for root in [CLASSIC_ROOT, MODERN_ROOT, STORE_ROOT] {
+            assert_eq!(Item::from_clsid(root), None);
+        }
     }
 }

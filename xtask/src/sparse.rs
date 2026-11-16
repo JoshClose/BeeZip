@@ -106,7 +106,7 @@ pub fn pack(dir: &Path, msix: &Path) -> anyhow::Result<()> {
     .context("makeappx pack")
 }
 
-fn run(cmd: &mut Command) -> anyhow::Result<()> {
+pub(crate) fn run(cmd: &mut Command) -> anyhow::Result<()> {
     let out = cmd.output().context("starting it")?;
     if !out.status.success() {
         bail!(
@@ -120,7 +120,7 @@ fn run(cmd: &mut Command) -> anyhow::Result<()> {
 }
 
 /// A tool from the newest Windows SDK: `Windows Kits\10\bin\<version>\x64\<name>`.
-fn sdk_tool(name: &str) -> anyhow::Result<PathBuf> {
+pub(crate) fn sdk_tool(name: &str) -> anyhow::Result<PathBuf> {
     let base = std::env::var_os("ProgramFiles(x86)")
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from(r"C:\Program Files (x86)"))

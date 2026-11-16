@@ -397,6 +397,54 @@ fn a_panic_comes_back_as_e_unexpected() {
     assert!(can_unload());
 }
 
+/// The Store package's root (docs/M12.md §2.1) is the same menu, but it takes the app beside the
+/// DLL, never the `App` an installed copy wrote, which the package sees too. The root's icon is
+/// that app's, so it shows which one a click would start without starting anything.
+#[test]
+fn the_store_root_never_starts_an_installed_copy() {
+    let _turn = turn();
+    let stub = target_dir().join("examples").join("stub_app.exe");
+    settings()
+        .set_string("App", stub.to_string_lossy())
+        .unwrap();
+    {
+        let root = command(clsid::STORE_ROOT);
+        let array = items(&["a.zip"]);
+        // SAFETY: plain COM calls.
+        unsafe {
+            assert_eq!(root.GetFlags().unwrap(), ECF_HASSUBCOMMANDS.0 as u32);
+            assert_eq!(root.GetState(&array, true).unwrap(), ECS_ENABLED.0 as u32);
+            assert_eq!(
+                root.GetCanonicalName().unwrap(),
+                GUID::from_u128(clsid::STORE_ROOT)
+            );
+        }
+        // Beside the test's DLL, `BeeZip.exe` is the debug CLI when it's built (Windows' names
+        // ignore case), and nothing otherwise.
+        let beside = target_dir().join("BeeZip.exe");
+        match unsafe { root.GetIcon(&array) } {
+            Ok(icon) => {
+                let icon = text(icon);
+                assert!(beside.is_file(), "{icon}");
+                assert!(icon.to_lowercase().ends_with(r"\beezip.exe,0"), "{icon}");
+                assert!(!icon.contains("stub_app"), "{icon}");
+            }
+            Err(_) => assert!(!beside.is_file()),
+        }
+        let modern = command(clsid::MODERN_ROOT);
+        // SAFETY: as above; the selection's entries, as Explorer asks first.
+        unsafe { modern.GetState(&array, true) }.unwrap();
+        assert_eq!(
+            shown(&subcommands(&root, &array)),
+            shown(&subcommands(&modern, &array)),
+        );
+        // The modern root still takes the settings' app.
+        let icon = text(unsafe { modern.GetIcon(&array) }.unwrap());
+        assert!(icon.contains("stub_app"), "{icon}");
+    }
+    assert!(can_unload());
+}
+
 /// Waits for the stub's record of a launch.
 fn stub_record(dir: &Path) -> serde_json::Value {
     let end = Instant::now() + Duration::from_secs(20);
