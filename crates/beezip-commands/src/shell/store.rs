@@ -67,11 +67,11 @@ thread_local! {
     static TEST: std::cell::RefCell<Option<Option<Current>>> = const { std::cell::RefCell::new(None) };
 }
 
-/// While it lives, this thread is the Store copy (unit tests only).
-#[cfg(test)]
+/// While it lives, this thread is the Store copy (unit tests only; the shell's are Windows').
+#[cfg(all(test, windows))]
 pub(crate) struct AsStore;
 
-#[cfg(test)]
+#[cfg(all(test, windows))]
 impl AsStore {
     pub(crate) fn new() -> Self {
         TEST.with(|t| {
@@ -83,7 +83,7 @@ impl AsStore {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, windows))]
 impl Drop for AsStore {
     fn drop(&mut self) {
         TEST.with(|t| *t.borrow_mut() = None);
@@ -168,6 +168,8 @@ mod tests {
         assert_eq!(hash(), "x5m1y1n6e4ce4");
     }
 
+    /// Windows' paths: elsewhere `\` doesn't separate them, and nothing is redirected anyway.
+    #[cfg(windows)]
     #[test]
     fn redirected_paths_go_into_the_packages_local_cache() {
         let roaming = Path::new(r"C:\Users\u\AppData\Roaming");
