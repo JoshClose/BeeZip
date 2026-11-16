@@ -1,4 +1,5 @@
-// "Copy as CLI" on every dialog: the `beezip …` line `cli.line` builds, copied.
+// "Copy as CLI" on every dialog: the `beezip …` line `cli.line` builds, copied. Not in the Store
+// copy, which has no command line (docs/M12.md §14).
 import { Check, Terminal } from "lucide-react";
 import { useState } from "react";
 import { Button } from "../../components/ui/button";
@@ -8,7 +9,7 @@ import { describeError } from "../../lib/format";
 import { startup } from "../../lib/startup";
 
 export async function cliLine(command: string, args: object): Promise<CliLineOutput> {
-  return run("cli.line", { command, args: args as Record<string, unknown>, program: startup().cli });
+  return run("cli.line", { command, args: args as Record<string, unknown>, program: startup().cli ?? undefined });
 }
 
 export function CopyAsCli({ command, args, disabled }: { command: string; args: object; disabled?: boolean }) {
@@ -37,6 +38,7 @@ export function CopyAsCli({ command, args, disabled }: { command: string; args: 
     }
   };
 
+  if (startup().cli === null) return null;
   // In a dialog's footer: the button at the left, and the line on a row of its own above.
   return (
     <>

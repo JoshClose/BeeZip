@@ -149,4 +149,16 @@ describe("the create dialog", () => {
     expect(screen.queryByLabelText("Password")).toBeNull();
     expect(screen.getByLabelText("Threads")).toBeInTheDocument();
   });
+
+  it("has no Copy as CLI in the Store copy, which has no command line (docs/M12.md §14)", async () => {
+    window.__BEEZIP__ = { paths: [], cli: null, warnings: [], theme: "system", platform: "windows", store: true };
+    try {
+      render(<CreateDialog inputs={[String.raw`C:\work\src`]} onClose={() => {}} />);
+      await waitFor(() => expect(screen.getByRole("option", { name: "tar.zst" })).toBeInTheDocument());
+      expect(screen.getByRole("button", { name: "Create" })).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /copy as cli/i })).toBeNull();
+    } finally {
+      delete window.__BEEZIP__;
+    }
+  });
 });

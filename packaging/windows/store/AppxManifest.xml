@@ -10,20 +10,20 @@
   - Virtualization is left on (decision 1): Microsoft keeps the capability that turns it off for
     games. %TEMP% isn't virtualized, and folders that already exist in AppData are written in
     place.
-  - The CLI is a second application, so its alias can be a console one: `beezip` in any
-    terminal. A console alias needs SupportsMultipleInstances.
+  - No command line: one application, the app. The CLI's console alias needs an application of
+    its own, hidden from Start, and Partner Center refuses a hidden application without
+    Microsoft's HeadlessAppBypass waiver (docs/M12.md §14).
   - The menu is the same DLL the installer has, under its own class, the Store root: one verb
     for files and one for folders, as in the sparse package.
 -->
 <Package
   xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
   xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
-  xmlns:uap5="http://schemas.microsoft.com/appx/manifest/uap/windows10/5"
   xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
   xmlns:com="http://schemas.microsoft.com/appx/manifest/com/windows10"
   xmlns:desktop4="http://schemas.microsoft.com/appx/manifest/desktop/windows10/4"
   xmlns:desktop5="http://schemas.microsoft.com/appx/manifest/desktop/windows10/5"
-  IgnorableNamespaces="uap uap5 rescap com desktop4 desktop5">
+  IgnorableNamespaces="uap rescap com desktop4 desktop5">
   <Identity Name="{{NAME}}" Publisher="{{PUBLISHER}}" Version="{{VERSION}}" ProcessorArchitecture="x64" />
   <Properties>
     <DisplayName>BeeZip</DisplayName>
@@ -62,17 +62,6 @@
             </desktop5:ItemType>
           </desktop4:FileExplorerContextMenus>
         </desktop4:Extension>
-      </Extensions>
-    </Application>
-    <Application Id="Cli" Executable="bin\beezip.exe" EntryPoint="Windows.FullTrustApplication" desktop4:SupportsMultipleInstances="true">
-      <uap:VisualElements DisplayName="BeeZip command line" Description="The beezip command" AppListEntry="none"
-        BackgroundColor="transparent" Square150x150Logo="Assets\Square150x150Logo.png" Square44x44Logo="Assets\Square44x44Logo.png" />
-      <Extensions>
-        <uap5:Extension Category="windows.appExecutionAlias">
-          <uap5:AppExecutionAlias desktop4:Subsystem="console">
-            <uap5:ExecutionAlias Alias="beezip.exe" />
-          </uap5:AppExecutionAlias>
-        </uap5:Extension>
       </Extensions>
     </Application>
   </Applications>

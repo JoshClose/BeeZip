@@ -3,14 +3,15 @@
 # - it's named BeeZip_<V>_x64.msix, unsigned (Microsoft signs it), with Partner Center's identity
 #   and version <V>.0 in its manifest;
 # - its programs and documents are the portable zip's, byte for byte, so a signed build's
-#   programs are signed in it too.
+#   programs are signed in it too. The command line isn't one of them: its alias needs a hidden
+#   application, which Partner Center refuses without Microsoft's waiver (docs/M12.md §14).
 # With -Register (CI), its layout is also registered under Developer Mode, which the step turns
 # on:
-# - the `beezip` alias runs;
+# - it gives no `beezip` alias;
 # - the shell's own menu for a fixture zip lists "BeeZip >", served from the package;
 # - a click starts the BeeZip.exe beside the package's DLL, with the package's identity. A copy
 #   of the layout is registered, with the stub as its BeeZip.exe.
-# Then the package is removed, and its alias with it.
+# Then the package is removed.
 #
 # Usage: store-package.ps1 <BeeZip_V_x64.msix> <BeeZip_V_x64-portable.zip> [-Register]
 param(
@@ -61,7 +62,7 @@ if ($identity.Publisher -ne $publisher) { Fail "the package's publisher is $($id
 if ($identity.Version -ne "$version.0") { Fail "the package's version is $($identity.Version), not $version.0" }
 Write-Host "the package is $($identity.Name) $($identity.Version), published by $($identity.Publisher), unsigned"
 
-$programs = 'BeeZip.exe', 'bin/beezip.exe', "beezip_shell_$version.dll", 'LICENSE-MIT', 'LICENSE-APACHE', 'THIRD_PARTY_NOTICES.md'
+$programs = 'BeeZip.exe', "beezip_shell_$version.dll", 'LICENSE-MIT', 'LICENSE-APACHE', 'THIRD_PARTY_NOTICES.md'
 foreach ($f in $programs) {
   if (-not $inMsix.ContainsKey($f)) { Fail "the package holds no $f" }
   if ($inMsix[$f] -ne $inZip[$f]) { Fail "the package's $f isn't the portable zip's" }
@@ -108,11 +109,8 @@ try {
   Write-Host "registered $full"
 
   $alias = Join-Path $env:LOCALAPPDATA 'Microsoft\WindowsApps\beezip.exe'
-  if (-not (Test-Path $alias)) { Fail "no alias at $alias" }
-  $out = & $alias --version
-  if ($LASTEXITCODE) { Fail "the alias failed: exit $LASTEXITCODE" }
-  if ("$out" -notmatch [regex]::Escape($version)) { Fail "the alias said '$out', not $version" }
-  Write-Host "beezip --version through the alias: $out"
+  if (Test-Path $alias) { Fail "an alias at ${alias}: the package has no command line (docs/M12.md §14)" }
+  Write-Host 'no beezip alias: the package has no command line'
 
   $menu = @(& $dump $fixture)
   if ($LASTEXITCODE) { Fail "menu_dump failed: exit $LASTEXITCODE" }
@@ -142,5 +140,5 @@ try {
   Appx "Get-AppxPackage -Name $name | Remove-AppxPackage"
   Remove-Item -LiteralPath $copy -Recurse -Force -ErrorAction SilentlyContinue
 }
-if (Test-Path (Join-Path $env:LOCALAPPDATA 'Microsoft\WindowsApps\beezip.exe')) { Fail 'removing the package left its alias' }
-Write-Host 'the package and its alias are gone'
+if ("$(Appx "(Get-AppxPackage -Name $name).PackageFullName")".Trim()) { Fail 'the package is still registered' }
+Write-Host 'the package is gone'
