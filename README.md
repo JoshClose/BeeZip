@@ -57,12 +57,12 @@ pnpm tauri dev      # the desktop app, reloading as you edit
 - **Uninstalling** removes the PATH entry, the menu and the registrations, and leaves your file types as they were. An upgrade keeps the file types you had before BeeZip, too.
 - **A running `beezip`,** such as an MCP server an AI app started, doesn't stop an upgrade or an uninstall: it keeps running from `%TEMP%` until its app restarts it, and Windows deletes that copy at your next sign-in. A running BeeZip window is closed first; the silent (`/S`) and passive (`/P`) installers close it without asking.
 
-**The Microsoft Store copy** (from 0.7.0, once its listing is live) is the same app, signed by Microsoft:
+**The Microsoft Store copy** (from 0.7.1, once its listing is live) is the same app, signed by Microsoft:
 - **Updates:** the Microsoft Store installs them, so BeeZip never checks GitHub, and Settings has no update setting.
 - **Explorer's menu** comes with the package, on Windows 10 and 11, with no install or repair; Settings still chooses its items. **Default apps** in Settings opens Windows' page where BeeZip becomes the app for archives.
-- **The command line** is `beezip` in any terminal, through the package's alias in `%LOCALAPPDATA%\Microsoft\WindowsApps`.
+- **No command line yet:** the Store refuses the hidden part of the package that gives `beezip` to terminals until Microsoft allows it for BeeZip, so the Store copy has no `beezip`, no Copy as CLI and no MCP server. For those, use the portable copy's `bin\beezip.exe`.
 - **Settings:** a machine that never had BeeZip keeps `config.toml` in the package's own folder, which Windows removes when BeeZip is uninstalled; Settings' Open config.toml finds it there.
-- **Both copies installed** (the Store's, and the installer's or a portable one's menu) give Explorer two BeeZip menus, which Settings and `beezip shell status` point out: uninstall one of them. `beezip` in a terminal is then the Store's.
+- **Both copies installed** (the Store's, and the installer's or a portable one's menu) give Explorer two BeeZip menus, which Settings and `beezip shell status` point out: uninstall one of them.
 
 **On Linux and macOS** the app is the same, without Explorer's menu and its job windows:
 - **Linux** (x86-64, glibc 2.35 or newer: Ubuntu 22.04, Debian 12 and later): the deb (`sudo apt install ./beezip_<version>_amd64.deb`) or the rpm installs the app as `beezip-desktop` and the command line as `/usr/bin/beezip`, and offers BeeZip in the file manager's *Open With* for the archive types it reads; packages, snaps and disk images stay with the apps that install or mount them. The AppImage runs as it is on a desktop with GTK.

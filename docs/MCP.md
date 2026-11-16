@@ -6,7 +6,7 @@ It speaks MCP 2026-07-28, as well as 2025-11-25 and older through the `initializ
 
 ## Setting it up
 
-Give the full path to `beezip.exe`, and name the directories BeeZip may write to with `--root`. Without a root, the assistant can read archives but can't extract, create or change anything. BeeZip from the Microsoft Store is plain `beezip` (`"command": "beezip"`): its alias in `%LOCALAPPDATA%\Microsoft\WindowsApps` is on PATH, and the program inside the package isn't meant to be started by its path (docs/M12.md §3.4).
+Give the full path to `beezip.exe`, and name the directories BeeZip may write to with `--root`. Without a root, the assistant can read archives but can't extract, create or change anything. BeeZip from the Microsoft Store has no `beezip` yet (docs/M12.md §14): use the portable copy's `bin\beezip.exe`.
 
 **Claude Code:**
 ```powershell

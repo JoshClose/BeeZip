@@ -110,13 +110,10 @@ pub fn manifest(
 }
 
 /// The files `layout` copies from the portable copy's stage: the programs, at the paths the
-/// manifest names, and the documents.
+/// manifest names, and the documents. Not `bin/beezip.exe`: without its alias, which needs
+/// Microsoft's waiver for a hidden application, nothing could start it (docs/M12.md §14).
 pub fn program_files(version: &str) -> Vec<String> {
-    let mut files = vec![
-        "BeeZip.exe".to_owned(),
-        "bin/beezip.exe".to_owned(),
-        crate::dist::dll_name(version),
-    ];
+    let mut files = vec!["BeeZip.exe".to_owned(), crate::dist::dll_name(version)];
     files.extend(DOCUMENTS.iter().map(|d| (*d).to_owned()));
     files
 }
@@ -264,7 +261,11 @@ mod tests {
             !text.contains("03CB0FA0"),
             "never the sparse package's class"
         );
-        assert!(text.contains(r#"<uap5:ExecutionAlias Alias="beezip.exe" />"#));
+        assert_eq!(text.matches("<Application ").count(), 1, "the app alone");
+        assert!(
+            !text.contains("AppListEntry"),
+            "a hidden application needs Microsoft's waiver (docs/M12.md §14)"
+        );
         assert!(
             !text.contains(r#"Name="unvirtualizedResources""#),
             "decision 1"
@@ -326,8 +327,8 @@ mod tests {
         .unwrap();
         assert!(files.contains(&"BeeZip.exe".to_owned()));
         assert!(text.contains(r#"Executable="BeeZip.exe""#));
-        assert!(files.contains(&"bin/beezip.exe".to_owned()));
-        assert!(text.contains(r#"Executable="bin\beezip.exe""#));
+        assert!(!files.iter().any(|f| f.starts_with("bin/")), "no command line");
+        assert!(!text.contains(r"bin\"));
         assert!(files.contains(&"beezip_shell_0.7.0.dll".to_owned()));
         assert!(!files.iter().any(|f| f == "README.txt"));
     }

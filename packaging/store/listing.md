@@ -4,6 +4,13 @@ The text for Partner Center (docs/M12.md §5), for the user to enter. Partner Ce
 listing, not this file: change both together. The product is reserved as "BeeZip", an MSIX app,
 Store ID 9P9HHSVMM3M3.
 
+The Store copy has no command line until Microsoft grants the HeadlessAppBypass waiver
+(docs/M12.md §14), so the listing doesn't offer `beezip`, MCP or Copy as CLI. When a package
+with the command line goes in, put back what the 0.7.0 draft had: the short description's last
+sentence, the "For the command line and AI assistants" paragraph, features 8 and 9 with Copy as
+CLI in the themes line, the certification notes' `beezip --help`, and the alias in the
+`runFullTrust` justification.
+
 ## Properties
 
 - **Category:** Utilities & tools. **Subcategory:** File managers.
@@ -33,8 +40,7 @@ anyone. Expect the lowest rating everywhere (IARC 3+ / Everyone).
 **Short description** (up to 1,000 characters):
 
 > Open, extract and create archives from Explorer's right-click menu or a fast desktop app: zip,
-> 7z, RAR, tar, ISO, CAB, MSI, WIM, virtual disks and dozens more. A `beezip` command line and an
-> MCP server for AI assistants come with it.
+> 7z, RAR, tar, ISO, CAB, MSI, WIM, virtual disks and dozens more.
 
 **Description** (up to 10,000 characters):
 
@@ -69,11 +75,6 @@ anyone. Expect the lowest rating everywhere (IARC 3+ / Everyone).
 > removed when a job is cancelled, files you download keep Windows' mark of the web when they're
 > extracted, and limits you can change stop archives that expand out of all proportion.
 >
-> **For the command line and AI assistants**
-> `beezip` works in any terminal: list, extract, create, test and convert, with JSON output for
-> scripts. `beezip mcp` serves the same commands to AI assistants such as Claude, writing only
-> under the folders you allow.
->
 > BeeZip is open source, under the MIT and Apache 2.0 licenses.
 
 **Product features** (up to 20, 200 characters each):
@@ -85,14 +86,12 @@ anyone. Expect the lowest rating everywhere (IARC 3+ / Everyone).
 5. A desktop app with tabs, a folder tree, previews and a million entries without a pause
 6. Edit zip, 7z and tar archives: add, delete and rename entries in place
 7. Drag entries out onto Explorer, or open one in its app and put your changes back
-8. The `beezip` command line in any terminal, with JSON output for scripts
-9. An MCP server for AI assistants, confined to the folders you allow
-10. Safe by default: escaping paths refused, the mark of the web kept, cancelled jobs cleaned up
-11. Light and dark themes, a command palette, and Copy as CLI on every dialog
-12. Open source, with no ads, no accounts and no data collected
+8. Safe by default: escaping paths refused, the mark of the web kept, cancelled jobs cleaned up
+9. Light and dark themes, and a command palette
+10. Open source, with no ads, no accounts and no data collected
 
-**What's new in this version:** the first release in the Microsoft Store. Use 0.7.0's section of
-`CHANGELOG.md` for later versions.
+**What's new in this version:** the first release in the Microsoft Store. For later versions,
+use that version's section of `CHANGELOG.md`.
 
 **Search terms** (up to 7): zip, 7z, rar, archive, extract, compress, unzip
 
@@ -113,12 +112,11 @@ anyone. Expect the lowest rating everywhere (IARC 3+ / Everyone).
 > BeeZip is an archive manager (a Rust and Tauri desktop app on WebView2). To try it: open any
 > .zip with BeeZip (File Explorer → right-click → Open with → BeeZip), or right-click a file or
 > folder and use the BeeZip submenu (on Windows 11 it's in the main menu; Extract here and Add to
-> "<name>.zip" show what it does). The `beezip` command runs in any terminal (`beezip --help`). No
-> account or network connection is needed.
+> "<name>.zip" show what it does). No account or network connection is needed.
 
 **Restricted capability, `runFullTrust`:**
 
 > BeeZip is a full-trust desktop app. It reads and writes archives and files wherever the user
 > chooses, provides File Explorer's context-menu commands through its COM server (the
-> windows.comServer and desktop4:FileExplorerContextMenus extensions), and offers a
-> command-line tool through an app execution alias. None of this runs in an AppContainer.
+> windows.comServer and desktop4:FileExplorerContextMenus extensions), and opens archive entries
+> in their default apps. None of this runs in an AppContainer.

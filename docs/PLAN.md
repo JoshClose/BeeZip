@@ -207,7 +207,7 @@ Every archive command names the archive file `archive`. The M1 inputs and output
     - `tauri-plugin-dialog` and `tauri-plugin-opener`;
     - NSIS installer that installs `BeeZip.exe` and `bin\beezip.exe` (the CLI is staged separately; see Naming), and adds `bin\` to PATH. NSIS only, no MSI (docs/M6.md §9.3);
     - from M6, `tauri-plugin-updater`: it checks GitHub Releases at most once a day, and installs only on a click (docs/M6.md §9.4);
-    - from M12, a **Microsoft Store package** beside the installer and the portable zip: the same programs in an MSIX with a full manifest (the menu, the file types, a console alias `beezip.exe` for the CLI), which Microsoft signs after certification. Inside it the updater is off and the Store updates BeeZip (docs/M12.md);
+    - from M12, a **Microsoft Store package** beside the installer and the portable zip: the same programs in an MSIX with a full manifest (the menu, the file types; a console alias `beezip.exe` for the CLI once Microsoft grants the waiver it needs, docs/M12.md §14), which Microsoft signs after certification. Inside it the updater is off and the Store updates BeeZip (docs/M12.md);
     - a **job mode**, `BeeZip.exe --job <request.json>`: Explorer writes a job request, and `shell.plan` expands it into steps. Each request gets one compact job window; dialogs ("Extract to…", "Compress to…") open in the main window. A second `BeeZip.exe` hands its request to the running one, and the process exits when its last window closes (docs/M4.md §6).
 
 ### Explorer context-menu integration (Windows 11 modern menu + classic menu)
@@ -359,9 +359,9 @@ After approval I implement **M0 + M1** and then stop for your review before goin
   - Patches and transforms listed as their compound file, as 7-Zip lists them; transforms detected for the first time.
   - The variants 7-Zip read for BeeZip read by BeeZip: NTFS clusters over 64 KiB, QCOW version 1, HFS+ overflow extents, sealed APFS volumes, large VHDX tables, WIM chunks up to 1 GiB, 7-Zip's CramFS variant and more; LZMS on Linux and macOS through wimlib's library.
   - The 7-Zip backend removed, with Settings' 7-Zip section, Install 7-Zip and `beezip 7zip install`.
-- **M12 — Microsoft Store.** Detailed plan: [`docs/M12.md`](M12.md), approved 2026-11-16. Ships in 0.7.0.
+- **M12 — Microsoft Store.** Detailed plan: [`docs/M12.md`](M12.md), approved 2026-11-16. Ships in 0.7.0; the first package the Store takes is 0.7.1's, without the command line (§14).
   - A Store package (MSIX) built with every Windows release from the installer's programs; Microsoft signs it after certification. The user uploads it to Partner Center.
-  - Inside the package BeeZip knows it's the Store copy: the menu comes from the package, the updater is off, "Copy as CLI" names the `beezip` alias, and the settings file's path is the one other programs can open.
+  - Inside the package BeeZip knows it's the Store copy: the menu comes from the package, the updater is off, there's no command line (no "Copy as CLI" or MCP settings) until Microsoft allows its hidden app, and the settings file's path is the one other programs can open.
   - Each copy says when the other is installed too (two Explorer menus); `BeeZip.exe` declares per-monitor DPI awareness.
 
 ---

@@ -49,8 +49,9 @@ pub struct Startup {
     /// Archives to open, absolute.
     pub paths: Vec<PathBuf>,
     /// How "Copy as CLI" starts its line: `beezip`, or the full path of a `beezip.exe` that
-    /// isn't on PATH.
-    pub cli: String,
+    /// isn't on PATH. None in the Store copy, which has no command line (docs/M12.md §14), so
+    /// the page leaves the button out.
+    pub cli: Option<String>,
     /// Problems with `config.toml`, shown once, by the first main window.
     pub warnings: Vec<String>,
     /// `[desktop] theme`, as the window opened with it.
@@ -212,24 +213,6 @@ pub fn cli_program(exe: &Path, path_var: Option<&std::ffi::OsStr>) -> String {
     "beezip".into()
 }
 
-/// The Store copy's `beezip`: the package's alias in `%LOCALAPPDATA%\Microsoft\WindowsApps`,
-/// which is on PATH by default, so plain `beezip`; otherwise the alias's full path. Never
-/// `bineezip.exe` in the package's install folder, which other programs aren't meant to start
-/// (docs/M12.md §3.4).
-pub fn store_cli_program(local: Option<&Path>, path_var: Option<&std::ffi::OsStr>) -> String {
-    let Some(local) = local else {
-        return "beezip".into();
-    };
-    let aliases = local.join("Microsoft").join("WindowsApps");
-    let on_path =
-        path_var.is_some_and(|p| std::env::split_paths(p).any(|d| same_dir(&d, &aliases)));
-    if on_path {
-        "beezip".into()
-    } else {
-        aliases.join("beezip.exe").display().to_string()
-    }
-}
-
 fn same_dir(a: &Path, b: &Path) -> bool {
     match (std::fs::canonicalize(a), std::fs::canonicalize(b)) {
         (Ok(a), Ok(b)) => a == b,
@@ -260,16 +243,7 @@ pub fn startup_script(
     let exe = std::env::current_exe().unwrap_or_default();
     let store = beezip_commands::shell::store::running();
     let path_var = std::env::var_os("PATH");
-    let cli = if store {
-        store_cli_program(
-            std::env::var_os("LOCALAPPDATA")
-                .map(PathBuf::from)
-                .as_deref(),
-            path_var.as_deref(),
-        )
-    } else {
-        cli_program(&exe, path_var.as_deref())
-    };
+    let cli = (!store).then(|| cli_program(&exe, path_var.as_deref()));
     let startup = Startup {
         paths,
         cli,
@@ -644,22 +618,6 @@ mod tests {
         assert_eq!(cli_program(&exe, None), installed);
         let path = std::env::join_paths([dir.path().join("bin")]).unwrap();
         assert_eq!(cli_program(&exe, Some(&path)), "beezip", "bin is on PATH");
-    }
-
-    /// The Store copy names its alias, never the program in its install folder (docs/M12.md
-    /// §3.4): plain `beezip` when the alias folder is on PATH, as it is by default.
-    #[test]
-    fn the_store_copy_names_its_alias() {
-        let local = tempfile::tempdir().unwrap();
-        let aliases = local.path().join("Microsoft").join("WindowsApps");
-        std::fs::create_dir_all(&aliases).unwrap();
-        assert_eq!(
-            store_cli_program(Some(local.path()), None),
-            aliases.join("beezip.exe").display().to_string()
-        );
-        let path = std::env::join_paths([&aliases]).unwrap();
-        assert_eq!(store_cli_program(Some(local.path()), Some(&path)), "beezip");
-        assert_eq!(store_cli_program(None, None), "beezip");
     }
 
     /// Settings' "Open config.toml" may open the Store copy's redirected file: the capability
