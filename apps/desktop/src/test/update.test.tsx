@@ -90,6 +90,18 @@ describe("updates", () => {
 });
 
 describe("About", () => {
+  it("in the Store copy, says the Store updates BeeZip, with no button (docs/M12.md §3.3)", async () => {
+    window.__BEEZIP__ = { paths: [], cli: "beezip", warnings: [], theme: "system", platform: "windows", store: true };
+    try {
+      render(<About onClose={() => {}} />);
+      expect(screen.getByText("The Microsoft Store keeps this copy of BeeZip up to date.")).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Check for updates" })).toBeNull();
+      expect(invoke).not.toHaveBeenCalled();
+    } finally {
+      delete window.__BEEZIP__;
+    }
+  });
+
   it("checks for updates now, and says what it found", async () => {
     vi.mocked(invoke).mockResolvedValueOnce({ status: "up_to_date", version: "0.1.0" });
     render(<About onClose={() => {}} />);

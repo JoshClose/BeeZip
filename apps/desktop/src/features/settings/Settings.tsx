@@ -110,6 +110,7 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
   const theme = useTheme((s) => s.theme);
   const formats = useFormats();
   const platform = startup().platform;
+  const store = startup().store;
   const mark = motw(platform);
   // One save at a time, in order, so a slow answer can't overwrite a newer one.
   const queue = useRef(Promise.resolve());
@@ -303,11 +304,20 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
             </Section>
           )}
 
-          <Section title="Updates" description="BeeZip asks GitHub for its newest release. An update is downloaded and installed only when you click it.">
-            <Setting label="Look for updates" error={errors["updates.check"]}>
-              <CheckSetting checked={s.updates.check} label="When BeeZip starts, at most once a day" onCommit={(v) => save("updates.check", v)} />
-            </Setting>
-          </Section>
+          {store ? (
+            <Section
+              title="Microsoft Store"
+              description={`The Microsoft Store keeps this copy of BeeZip up to date.${
+                path?.includes("\\LocalCache\\") ? " These settings are in the Store package's own folder, which Windows removes when BeeZip is uninstalled." : ""
+              }`}
+            />
+          ) : (
+            <Section title="Updates" description="BeeZip asks GitHub for its newest release. An update is downloaded and installed only when you click it.">
+              <Setting label="Look for updates" error={errors["updates.check"]}>
+                <CheckSetting checked={s.updates.check} label="When BeeZip starts, at most once a day" onCommit={(v) => save("updates.check", v)} />
+              </Setting>
+            </Section>
+          )}
 
           {platform === "windows" && <ExplorerSettings shell={s.shell} errors={errors} save={save} />}
 

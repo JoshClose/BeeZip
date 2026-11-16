@@ -452,7 +452,7 @@ ${main}
 ${mark("comb-rosette", "foot-mark")}
 <p>BeeZip is free and open source, under the MIT or Apache 2.0 license. It reads RAR with UnRAR, which has its own license.</p>
 <nav aria-label="More">
-<a href="${root}download.html">Download</a><a href="${root}docs/index.html">Docs</a><a href="${root}releases.html">Releases</a><a href="${GITHUB}">Source code</a><a href="${GITHUB}/issues">Report a problem</a><a href="${GITHUB}/blob/master/THIRD_PARTY_NOTICES.md">Third-party notices</a>
+<a href="${root}download.html">Download</a><a href="${root}docs/index.html">Docs</a><a href="${root}releases.html">Releases</a><a href="${GITHUB}">Source code</a><a href="${GITHUB}/issues">Report a problem</a><a href="${GITHUB}/blob/master/THIRD_PARTY_NOTICES.md">Third-party notices</a><a href="${root}privacy.html">Privacy</a>
 </nav>
 </div>
 </footer>

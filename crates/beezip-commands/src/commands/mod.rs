@@ -63,7 +63,10 @@ pub use shell_install::{
     ShellUninstallInput, ShellUninstallOutput,
 };
 pub use shell_plan::{Existing, ShellPlan, ShellPlanOutput, Step};
-pub use shell_status::{ClassicKeys, ShellMode, ShellStatus, ShellStatusInput, ShellStatusOutput};
+pub use shell_status::{
+    ClassicKeys, OtherCopy, OtherKind, ShellMode, ShellStatus, ShellStatusInput, ShellStatusOutput,
+    StoreInfo,
+};
 pub use stream_compress::{StreamCompress, StreamCompressInput, StreamCompressOutput};
 pub use stream_decompress::{StreamDecompress, StreamDecompressInput, StreamDecompressOutput};
 

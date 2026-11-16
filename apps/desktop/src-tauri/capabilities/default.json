@@ -14,7 +14,14 @@
     "core:app:allow-set-app-theme",
     {
       "identifier": "opener:allow-open-path",
-      "allow": [{ "path": "$CONFIG/BeeZip/config.toml" }]
+      "allow": [
+        { "path": "$CONFIG/BeeZip/config.toml" },
+        { "path": "$LOCALDATA/Packages/CloseConsultingInc.BeeZip_x5m1y1n6e4ce4/LocalCache/Roaming/BeeZip/config.toml" }
+      ]
+    },
+    {
+      "identifier": "opener:allow-open-url",
+      "allow": [{ "url": "ms-settings:defaultapps*" }]
     },
     "allow-cmd-run",
     "allow-cmd-cancel",

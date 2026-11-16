@@ -132,9 +132,15 @@ pub fn default_dll(dir: &Path) -> Option<PathBuf> {
 
 /// After `settings.set` changed `[shell]`: the mirror follows, and so do the classic menu's
 /// verbs when the cascade changed, or the items without the cascade. Nothing happens when the
-/// menu isn't installed. Returns what it did.
+/// menu isn't installed, except in the Store copy, whose package always has its menu: there the
+/// mirror is written, into the package's private hive, where its DLL reads it (docs/M12.md §3.2).
+/// Returns what it did.
 #[cfg(windows)]
 pub fn follow(hive: &Hive, shell: &crate::config::ShellConfig) -> Result<Vec<String>, CmdError> {
+    if store::running() {
+        mirror::set_menu(hive, &shell.items.hidden(), shell.cascade)?;
+        return Ok(Vec::new());
+    }
     let Some(before) = mirror::read(hive) else {
         return Ok(Vec::new());
     };

@@ -23,6 +23,8 @@ export type Startup = {
   theme: Theme;
   /** Rust's `std::env::consts::OS`: the page leaves out what this platform doesn't have (docs/M6.md §8.3). */
   platform: "windows" | "macos" | "linux" | (string & {});
+  /** Running from the Microsoft Store package: the Store updates BeeZip and provides its menu (docs/M12.md §3). */
+  store?: boolean;
   /** A dialog to open at once (main window). */
   dialog?: OpenDialog;
   /** Set in a job window, which shows only its job (docs/M4.md §6.3). */
@@ -36,7 +38,7 @@ declare global {
 }
 
 export function startup(): Startup {
-  return { paths: [], cli: "beezip", warnings: [], theme: "system", platform: "windows", ...window.__BEEZIP__ };
+  return { paths: [], cli: "beezip", warnings: [], theme: "system", platform: "windows", store: false, ...window.__BEEZIP__ };
 }
 
 /** Archives and a dialog forwarded before the main window listened (src-tauri/src/open.rs). */

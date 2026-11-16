@@ -274,6 +274,19 @@ describe("the settings page", () => {
       expect(screen.queryByLabelText("Downloaded mark")).not.toBeInTheDocument();
       expect(screen.getByRole("heading", { name: "Updates" })).toBeInTheDocument();
     });
+
+    it("the Store copy has no update setting, and says where a redirected file goes (docs/M12.md §3.3, §3.5)", async () => {
+      fake.handlers.set("settings.get", () =>
+        got({ path: "C:\\Users\\me\\AppData\\Local\\Packages\\CloseConsultingInc.BeeZip_x5m1y1n6e4ce4\\LocalCache\\Roaming\\BeeZip\\config.toml" }),
+      );
+      window.__BEEZIP__ = { paths: [], cli: "beezip", warnings: [], theme: "system", platform: "windows", store: true };
+      render(<SettingsDialog onClose={() => {}} />);
+      await screen.findByLabelText("A file is already there");
+      expect(screen.queryByRole("heading", { name: "Updates" })).not.toBeInTheDocument();
+      expect(screen.queryByText("Look for updates")).not.toBeInTheDocument();
+      expect(screen.getByRole("heading", { name: "Microsoft Store" })).toBeInTheDocument();
+      expect(await screen.findByText(/Windows removes when BeeZip is uninstalled/)).toBeInTheDocument();
+    });
   });
 });
 

@@ -1,5 +1,6 @@
 import { ask } from "@tauri-apps/plugin-dialog";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { openUrl } from "@tauri-apps/plugin-opener";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { SettingsDialog } from "../features/settings/Settings";
@@ -8,7 +9,7 @@ import { fake } from "./fakeEngine";
 
 vi.mock("../lib/engine", () => import("./fakeEngine"));
 vi.mock("@tauri-apps/api/app", () => ({ setTheme: vi.fn(async () => {}) }));
-vi.mock("@tauri-apps/plugin-opener", () => ({ openPath: vi.fn(async () => {}), revealItemInDir: vi.fn(async () => {}) }));
+vi.mock("@tauri-apps/plugin-opener", () => ({ openPath: vi.fn(async () => {}), revealItemInDir: vi.fn(async () => {}), openUrl: vi.fn(async () => {}) }));
 vi.mock("@tauri-apps/plugin-dialog", () => ({ ask: vi.fn(async () => true) }));
 
 const settings: Config = {
@@ -57,8 +58,20 @@ const notInstalled = (patch: Partial<ShellStatusOutput> = {}): ShellStatusOutput
   hidden: [],
   cascade: true,
   problems: [],
+  store: null,
+  others: [],
   ...patch,
 });
+
+/** The Store copy's status (docs/M12.md §3.2). */
+const fromStore = (patch: Partial<ShellStatusOutput> = {}): ShellStatusOutput =>
+  notInstalled({
+    windows_build: 26100,
+    mode: "store",
+    app: "C:\Program Files\WindowsApps\CloseConsultingInc.BeeZip_0.7.0.0_x64__x5m1y1n6e4ce4\BeeZip.exe",
+    store: { full_name: "CloseConsultingInc.BeeZip_0.7.0.0_x64__x5m1y1n6e4ce4", aumid: "CloseConsultingInc.BeeZip_x5m1y1n6e4ce4!BeeZip" },
+    ...patch,
+  });
 
 const installed = (cascade = true): ShellStatusOutput =>
   notInstalled({
@@ -251,6 +264,38 @@ describe("the settings page's Explorer menu section", () => {
     await waitFor(() => expect(fake.calls).toContainEqual({ name: "settings.set", args: { set: { "shell.cascade": false } } }));
     await waitFor(() => expect(shellCalls().length).toBe(before + 1));
     expect(shellCalls().at(-1)).toBe("shell.status");
+  });
+
+  it("in the Store copy, leaves the menu to the package and opens Windows 11's Default apps for BeeZip", async () => {
+    fake.handlers.set("shell.status", () => fromStore());
+    const section = await explorer();
+    expect(await section.findByText("Provided by the Microsoft Store package")).toBeInTheDocument();
+    for (const name of ["Install", "Repair", "Remove"]) expect(section.queryByRole("button", { name })).toBeNull();
+    expect(section.queryByRole("checkbox", { name: /submenu/ })).toBeNull();
+    expect(section.getByRole("checkbox", { name: "Test archive" })).toBeEnabled();
+    await userEvent.click(section.getByRole("button", { name: "Default apps" }));
+    expect(openUrl).toHaveBeenCalledWith("ms-settings:defaultapps?registeredAUMID=CloseConsultingInc.BeeZip_x5m1y1n6e4ce4!BeeZip");
+    expect(shellCalls()).toEqual(["shell.status"]);
+  });
+
+  it("opens Windows 10's Default apps page as it is", async () => {
+    fake.handlers.set("shell.status", () => fromStore({ windows_build: 19045 }));
+    const section = await explorer();
+    await userEvent.click(await section.findByRole("button", { name: "Default apps" }));
+    expect(openUrl).toHaveBeenLastCalledWith("ms-settings:defaultapps");
+  });
+
+  it("says when another copy's menu is there too (docs/M12.md §4)", async () => {
+    fake.handlers.set("shell.status", () => ({
+      ...installed(),
+      others: [{ kind: "store", detail: "CloseConsultingInc.BeeZip_0.7.0.0_x64__x5m1y1n6e4ce4" }],
+    }));
+    let section = await explorer();
+    expect(await section.findByText(/BeeZip from the Microsoft Store is also installed, so Explorer shows two BeeZip menus/)).toBeInTheDocument();
+    cleanup();
+    fake.handlers.set("shell.status", () => fromStore({ others: [{ kind: "installed", detail: "C:\Users\me\AppData\Local\BeeZip\beezip_shell_0.6.0.dll" }] }));
+    section = await explorer();
+    expect(await section.findByText(/BeeZip from the installer or a portable copy also has a menu/)).toBeInTheDocument();
   });
 
   it("leaves the submenu to Windows 11's own menu", async () => {

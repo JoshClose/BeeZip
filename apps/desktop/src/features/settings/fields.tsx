@@ -10,7 +10,7 @@ import { cn } from "../../lib/cn";
 /** How long text waits after the last keystroke before it saves. */
 export const TEXT_DELAY_MS = 600;
 
-export function Section({ title, description, children }: { title: string; description?: string; children: ReactNode }) {
+export function Section({ title, description, children }: { title: string; description?: string; children?: ReactNode }) {
   return (
     <section className="flex flex-col gap-3 border-b border-rule py-4 first:pt-1 last:border-b-0">
       <div>

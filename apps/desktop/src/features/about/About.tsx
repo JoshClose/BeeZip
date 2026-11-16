@@ -6,6 +6,7 @@ import { Dialog } from "../../components/ui/dialog";
 import type { AppVersionOutput } from "../../gen/commands";
 import { run } from "../../lib/engine";
 import { useFormats } from "../../lib/formats";
+import { startup } from "../../lib/startup";
 import { useUpdate } from "../../lib/updates";
 
 function yes(v: boolean) {
@@ -26,7 +27,8 @@ function Notices() {
   );
 }
 
-/** "Check for updates": asks GitHub now, whatever the setting and the day (docs/M6.md §8.2). */
+/** "Check for updates": asks GitHub now, whatever the setting and the day (docs/M6.md §8.2). The
+ * Store copy says who updates it instead (docs/M12.md §3.3). */
 function UpdateCheck() {
   const checked = useUpdate((s) => s.checked);
   const checking = useUpdate((s) => s.checking);
@@ -40,6 +42,7 @@ function UpdateCheck() {
   else if (asked && checked?.status === "available")
     answer = `BeeZip ${checked.version} is available: the banner below the tabs ${checked.download_url ? "downloads" : "installs"} it.`;
   else if (asked && checked?.status === "off") answer = checked.reason;
+  if (startup().store) return <p className="text-muted">The Microsoft Store keeps this copy of BeeZip up to date.</p>;
   return (
     <div className="flex items-center gap-3">
       <Button

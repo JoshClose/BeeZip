@@ -1348,6 +1348,20 @@ export type NamesConfig = {
  */
 encoding: NameEncoding, };
 
+/**
+ * Another copy of BeeZip whose menu Explorer shows beside this one's (docs/M12.md §4).
+ */
+export type OtherCopy = { kind: OtherKind,
+/**
+ * The Store package's full name, or the installed copy's menu: its DLL or its package.
+ */
+detail: string, };
+
+/**
+ * Which other copy of BeeZip has a menu in Explorer too.
+ */
+export type OtherKind = "store" | "installed";
+
 export type OverwriteChoice = "Replace" | "ReplaceAll" | "Skip" | "SkipAll" | "Rename";
 
 /**
@@ -1613,7 +1627,7 @@ test: boolean,
 /**
  * One way of registering the menu.
  */
-export type ShellMode = "classic" | "modern";
+export type ShellMode = "classic" | "modern" | "store";
 
 /**
  * How `cli.line` quotes.
@@ -1668,7 +1682,15 @@ cascade: boolean,
 /**
  * What is wrong, in words: a DLL or app that has gone, keys without settings.
  */
-problems: Array<string>, };
+problems: Array<string>,
+/**
+ * The Microsoft Store package, when this copy runs from it (from M12).
+ */
+store: StoreInfo | null,
+/**
+ * Other copies of BeeZip with a menu in Explorer too, so Explorer shows two (from M12).
+ */
+others: Array<OtherCopy>, };
 
 /**
  * Remove BeeZip from Explorer's right-click menu: both registrations, the settings the menu
@@ -1715,6 +1737,19 @@ title: string, command: string, args: JsonValue,
  * to it (`archive.add`, when `can_add`), replace it (`overwrite`) or keep both.
  */
 existing?: Existing, } | { "kind": "open", paths: Array<string>, } | { "kind": "extract_dialog", archive: string, } | { "kind": "create_dialog", inputs: Array<string>, } | { "kind": "failed", title: string, error: CmdError, };
+
+/**
+ * The Microsoft Store package this copy runs from.
+ */
+export type StoreInfo = {
+/**
+ * The package's full name: `CloseConsultingInc.BeeZip_<version>_x64__<hash>`.
+ */
+full_name: string,
+/**
+ * The app's user model ID, `<family>!BeeZip`, which Windows 11's Default apps page takes.
+ */
+aumid: string, };
 
 /**
  * Compress one file with a single-stream codec (`a.txt` → `a.txt.zst`). The output keeps the

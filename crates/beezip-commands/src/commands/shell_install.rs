@@ -102,6 +102,9 @@ impl Command for ShellInstall {
     type Output = ShellInstallOutput;
 
     fn run(input: ShellInstallInput, cx: &mut JobCtx) -> Result<ShellInstallOutput, CmdError> {
+        if crate::shell::store::running() {
+            return Err(crate::shell::store::menu_refusal());
+        }
         let shell = cx.config().map(|c| c.shell.clone()).unwrap_or_default();
         install(cx.shell_hive(), input, &shell, cx.shell_app())
     }
@@ -139,6 +142,9 @@ impl Command for ShellUninstall {
     type Output = ShellUninstallOutput;
 
     fn run(_: ShellUninstallInput, cx: &mut JobCtx) -> Result<ShellUninstallOutput, CmdError> {
+        if crate::shell::store::running() {
+            return Err(crate::shell::store::menu_refusal());
+        }
         uninstall(cx.shell_hive())
     }
 
@@ -522,6 +528,71 @@ mod tests {
         assert!(s.problems.is_empty());
         assert!(uninstall(&hive).unwrap().actions.is_empty());
         let _ = windows_registry::CURRENT_USER.remove_tree(hive.base());
+    }
+
+    /// The Store copy (docs/M12.md §3.2, §4): its status is the package's menu, an installed
+    /// copy's classic menu is another copy, and `follow` writes the mirror the package's DLL
+    /// reads though no menu is registered in it.
+    #[test]
+    fn the_store_copy_has_the_packages_menu() {
+        use super::super::shell_status::{OtherKind, ShellMode};
+
+        let hive = Hive::test("store");
+        {
+            let _store = crate::shell::store::AsStore::new();
+            let s = status(&hive).unwrap();
+            assert_eq!(s.mode, Some(ShellMode::Store));
+            let store = s.store.as_ref().unwrap();
+            assert!(
+                store.full_name.starts_with("CloseConsultingInc.BeeZip_"),
+                "{s:?}"
+            );
+            assert_eq!(
+                store.aumid,
+                "CloseConsultingInc.BeeZip_x5m1y1n6e4ce4!BeeZip"
+            );
+            assert!(s.classic.is_none() && s.package.is_none() && s.problems.is_empty());
+            assert!(s.others.is_empty(), "{:?}", s.others);
+            let shell = ShellConfig {
+                cascade: true,
+                items: ShellItems {
+                    add_7z: false,
+                    ..ShellItems::default()
+                },
+            };
+            crate::shell::follow(&hive, &shell).unwrap();
+            assert_eq!(status(&hive).unwrap().hidden, [beezip_menu::Item::Add7z]);
+        }
+
+        // An installed copy's classic menu, which the package sees in the real HKCU.
+        let (_dir, input) = layout();
+        let dll = input.dll.clone().unwrap();
+        let input = ShellInstallInput {
+            mode: Some(InstallMode::Classic),
+            ..input
+        };
+        install(&hive, input, &ShellConfig::default(), None).unwrap();
+        {
+            let _store = crate::shell::store::AsStore::new();
+            let s = status(&hive).unwrap();
+            assert_eq!(s.mode, Some(ShellMode::Store));
+            assert!(s.classic.is_none(), "not this copy's menu");
+            assert_eq!(s.others.len(), 1, "{:?}", s.others);
+            assert_eq!(s.others[0].kind, OtherKind::Installed);
+            assert_eq!(s.others[0].detail, dll.display().to_string());
+        }
+        let s = status(&hive).unwrap();
+        assert_eq!(s.mode, Some(ShellMode::Classic));
+        assert!(s.others.is_empty(), "a test hive has no Store package");
+        uninstall(&hive).unwrap();
+        let _ = windows_registry::CURRENT_USER.remove_tree(hive.base());
+    }
+
+    #[test]
+    fn the_store_copy_refuses_to_install_or_remove_the_menu() {
+        let err = crate::shell::store::menu_refusal();
+        assert_eq!(err.code, ErrorCode::UnsupportedOperation);
+        assert!(err.message.contains("uninstall BeeZip"), "{}", err.message);
     }
 
     /// A DLL and an app in a temporary install folder.

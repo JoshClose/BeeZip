@@ -110,6 +110,35 @@ pub fn find(hive: &Hive) -> Result<Vec<Installed>, CmdError> {
     Ok(out)
 }
 
+/// The Microsoft Store package's full name, when it's installed for this user (docs/M12.md §4).
+/// A test's hive finds none, as with [`find`].
+pub fn find_store(hive: &Hive) -> Result<Option<String>, CmdError> {
+    use super::store::{NAME, PUBLISHER};
+
+    if hive.package_name().is_none() {
+        return Ok(None);
+    }
+    let doing = "looking for BeeZip's Store package";
+    let pm = PackageManager::new().map_err(|e| win_error(doing, &e))?;
+    let found = pm
+        .FindPackagesByUserSecurityIdNamePublisher(
+            &HSTRING::new(),
+            &HSTRING::from(NAME),
+            &HSTRING::from(PUBLISHER),
+        )
+        .map_err(|e| win_error(doing, &e))?;
+    found
+        .into_iter()
+        .next()
+        .map(|p| {
+            p.Id()
+                .and_then(|id| id.FullName())
+                .map(|n| n.to_string())
+                .map_err(|e| win_error(doing, &e))
+        })
+        .transpose()
+}
+
 fn describe(p: &Package) -> windows_core::Result<Installed> {
     let full_name = p.Id()?.FullName()?.to_string();
     let external = p
