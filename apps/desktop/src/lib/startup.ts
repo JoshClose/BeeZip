@@ -15,8 +15,8 @@ export type JobStartup = {
 export type Startup = {
   /** Archives to open, absolute. */
   paths: string[];
-  /** How "Copy as CLI" starts its line; null in the Store copy, which has no command line (docs/M12.md §14). */
-  cli: string | null;
+  /** How "Copy as CLI" starts its line. */
+  cli: string;
   /** Problems with config.toml. */
   warnings: string[];
   /** `[desktop] theme`, which the window opened with. */
