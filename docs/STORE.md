@@ -60,11 +60,11 @@ parts of the NSIS install that don't apply:
 |---|---|
 | Explorer menu: the sparse package on Windows 11 and registry verbs in HKCU (`shell.install`) | The package's own manifest declares the `windows.comServer` and `desktop4:FileExplorerContextMenus` entries the sparse manifest has now; `shell.install` does nothing |
 | File associations written by `packaging/windows/hooks.nsh`, with the old default backed up and restored | `uap:FileTypeAssociation` entries in the manifest, generated from `formats.list`; Windows lets the user choose the default |
-| `bin\` added to the user's PATH by `hooks.nsh` | A `uap5:AppExecutionAlias` named `beezip.exe` (console) in `%LOCALAPPDATA%\Microsoft\WindowsApps`, which is on PATH. Not until Microsoft grants the HeadlessAppBypass waiver: from 0.7.1 the package has no command line (M12.md §14) |
+| `bin\` added to the user's PATH by `hooks.nsh` | A `uap5:AppExecutionAlias` named `beezip.exe` (console) in `%LOCALAPPDATA%\Microsoft\WindowsApps`, which is on PATH |
 | `tauri-plugin-updater` | Off: the install folder under `WindowsApps` is read-only and the Store delivers updates |
 | `config.toml`, partial files and WebView2 data in the usual AppData folders | New AppData folders go to the package's private folder; `%TEMP%` and folders that already exist aren't redirected (spike results below) |
 | NSIS installs WebView2 when it's missing | Uses the WebView2 runtime already there: always on Windows 11, almost always on Windows 10 |
-| MCP clients run `...\bin\beezip.exe` | MCP clients run the alias, since programs under `WindowsApps` aren't meant to be started by their own path (once there is one: M12.md §14) |
+| MCP clients run `...\bin\beezip.exe` | MCP clients run the alias, since programs under `WindowsApps` aren't meant to be started by their own path |
 
 ### Spike results (2026-11-16, on the host)
 
@@ -188,8 +188,8 @@ Microsoft Store onboarding".
   declares two to four applications (`python`, `pythonw`, `pip`, `idle`, each with its own
   alias; CPython's `PC/layout/support/appxmanifest.py`), so the Store accepts it. Confirm on the
   first submission. **It didn't:** Python's hidden apps (`AppListEntry="none"`) have Microsoft's
-  HeadlessAppBypass waiver, and Partner Center refused 0.7.0's package for its hidden CLI app
-  (M12.md §14).
+  HeadlessAppBypass waiver, and Partner Center refused 0.7.0's package for its hidden CLI app.
+  From 0.7.2 the alias belongs to the app itself, and this test passes (M12.md §14).
 - **Blocked executables: FAIL, optional.** It checks for Windows 10 S mode. It flags
   `CreateProcessW` and `ShellExecute(Ex)W` in all three binaries, and the strings `cmd.exe`,
   `powershell` and `bash` in `BeeZip.exe` and the DLL. Two of the matches, `cDb` and `dnX`, are
@@ -201,6 +201,10 @@ Microsoft Store onboarding".
   tauri-build a manifest with `<dpiAwareness>PerMonitorV2</dpiAwareness>`, keeping the Common
   Controls 6 dependency (`WindowsAttributes::app_manifest`). The kit also couldn't process
   `bin\beezip.exe`, a console program with no manifest.
+
+Run `appcert.exe reset` before each `appcert.exe test`. The kit keeps its last run's state in
+`%LOCALAPPDATA%\Microsoft\AppCertKit\global_data.xml`, and a later run can test the manifest at
+the earlier package's path: most tests then fail with "Could not find a part of the path".
 
 ## The other route: the Artifact-signed NSIS setup in the Store
 

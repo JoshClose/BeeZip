@@ -321,17 +321,14 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
 
           {platform === "windows" && <ExplorerSettings shell={s.shell} errors={errors} save={save} />}
 
-          {/* The Store copy has no command line, so no `beezip mcp` (docs/M12.md §14). */}
-          {!store && (
-            <Section title="MCP server" description="For beezip mcp, which AI assistants use. Its --root and --read-only flags win over these.">
-              <Setting label="May write under" htmlFor="mcp-roots" hint="One folder per line. With none, assistants can read archives but write nothing." error={errors["mcp.roots"]}>
-                <PathsSetting id="mcp-roots" value={s.mcp.roots} onCommit={(v) => save("mcp.roots", v.length > 0 ? v : null)} />
-              </Setting>
-              <Setting label="Read only" error={errors["mcp.read_only"]}>
-                <CheckSetting checked={s.mcp.read_only} label="Offer only the commands that don't write" onCommit={(v) => save("mcp.read_only", v)} />
-              </Setting>
-            </Section>
-          )}
+          <Section title="MCP server" description="For beezip mcp, which AI assistants use. Its --root and --read-only flags win over these.">
+            <Setting label="May write under" htmlFor="mcp-roots" hint="One folder per line. With none, assistants can read archives but write nothing." error={errors["mcp.roots"]}>
+              <PathsSetting id="mcp-roots" value={s.mcp.roots} onCommit={(v) => save("mcp.roots", v.length > 0 ? v : null)} />
+            </Setting>
+            <Setting label="Read only" error={errors["mcp.read_only"]}>
+              <CheckSetting checked={s.mcp.read_only} label="Offer only the commands that don't write" onCommit={(v) => save("mcp.read_only", v)} />
+            </Setting>
+          </Section>
         </>
       )}
     </Dialog>

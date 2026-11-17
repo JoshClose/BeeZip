@@ -91,7 +91,7 @@ describe("updates", () => {
 
 describe("About", () => {
   it("in the Store copy, says the Store updates BeeZip, with no button (docs/M12.md §3.3)", async () => {
-    window.__BEEZIP__ = { paths: [], cli: null, warnings: [], theme: "system", platform: "windows", store: true };
+    window.__BEEZIP__ = { paths: [], cli: "beezip", warnings: [], theme: "system", platform: "windows", store: true };
     try {
       render(<About onClose={() => {}} />);
       expect(screen.getByText("The Microsoft Store keeps this copy of BeeZip up to date.")).toBeInTheDocument();

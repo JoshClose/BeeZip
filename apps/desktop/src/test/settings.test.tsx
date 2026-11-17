@@ -1,5 +1,5 @@
 import { setTheme } from "@tauri-apps/api/app";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { levelTargets, SettingsDialog } from "../features/settings/Settings";
@@ -279,24 +279,13 @@ describe("the settings page", () => {
       fake.handlers.set("settings.get", () =>
         got({ path: "C:\\Users\\me\\AppData\\Local\\Packages\\CloseConsultingInc.BeeZip_x5m1y1n6e4ce4\\LocalCache\\Roaming\\BeeZip\\config.toml" }),
       );
-      window.__BEEZIP__ = { paths: [], cli: null, warnings: [], theme: "system", platform: "windows", store: true };
+      window.__BEEZIP__ = { paths: [], cli: "beezip", warnings: [], theme: "system", platform: "windows", store: true };
       render(<SettingsDialog onClose={() => {}} />);
       await screen.findByLabelText("A file is already there");
       expect(screen.queryByRole("heading", { name: "Updates" })).not.toBeInTheDocument();
       expect(screen.queryByText("Look for updates")).not.toBeInTheDocument();
       expect(screen.getByRole("heading", { name: "Microsoft Store" })).toBeInTheDocument();
       expect(await screen.findByText(/Windows removes when BeeZip is uninstalled/)).toBeInTheDocument();
-    });
-
-    it("the Store copy, which has no command line, has no MCP server (docs/M12.md §14)", async () => {
-      await page("windows");
-      expect(screen.getByRole("heading", { name: "MCP server" })).toBeInTheDocument();
-      cleanup();
-      window.__BEEZIP__ = { paths: [], cli: null, warnings: [], theme: "system", platform: "windows", store: true };
-      render(<SettingsDialog onClose={() => {}} />);
-      await screen.findByLabelText("A file is already there");
-      expect(screen.queryByRole("heading", { name: "MCP server" })).not.toBeInTheDocument();
-      expect(screen.queryByLabelText("May write under")).not.toBeInTheDocument();
     });
   });
 });

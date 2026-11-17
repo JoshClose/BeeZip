@@ -7,6 +7,14 @@ Write a new section as `## X.Y.Z`, with `###` groups and `- ` items, describing 
 using BeeZip will notice. Leave the date out: the Releases page dates each version by its
 `vX.Y.Z` tag.
 
+## 0.7.2
+
+### The Microsoft Store copy
+
+- **The command line is back in the Microsoft Store copy:** `beezip` in any terminal, Copy as
+  CLI on every dialog, and the MCP server's settings. The package now gives `beezip` through the
+  app itself instead of a hidden part, which the Store refused in 0.7.0.
+
 ## 0.7.1
 
 ### The Microsoft Store copy
