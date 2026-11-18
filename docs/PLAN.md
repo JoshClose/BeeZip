@@ -359,7 +359,7 @@ After approval I implement **M0 + M1** and then stop for your review before goin
   - Patches and transforms listed as their compound file, as 7-Zip lists them; transforms detected for the first time.
   - The variants 7-Zip read for BeeZip read by BeeZip: NTFS clusters over 64 KiB, QCOW version 1, HFS+ overflow extents, sealed APFS volumes, large VHDX tables, WIM chunks up to 1 GiB, 7-Zip's CramFS variant and more; LZMS on Linux and macOS through wimlib's library.
   - The 7-Zip backend removed, with Settings' 7-Zip section, Install 7-Zip and `beezip 7zip install`.
-- **M12 — Microsoft Store.** Detailed plan: [`docs/M12.md`](M12.md), approved 2026-11-16. Ships in 0.7.0. The first package the Store takes is 0.7.1's, without the command line; 0.7.2 puts it back as the app's own alias (§14).
+- **M12 — Microsoft Store.** Detailed plan: [`docs/M12.md`](M12.md), approved 2026-11-16. Ships in 0.7.0. The first package the Store takes is 0.7.1's, without the command line; 0.8.0 puts it back as the app's own alias (§14; planned as 0.7.2, which was never released and shipped in 0.8.0).
   - A Store package (MSIX) built with every Windows release from the installer's programs; Microsoft signs it after certification. The user uploads it to Partner Center.
   - Inside the package BeeZip knows it's the Store copy: the menu comes from the package, the updater is off, "Copy as CLI" names the `beezip` alias, and the settings file's path is the one other programs can open.
   - Each copy says when the other is installed too (two Explorer menus); `BeeZip.exe` declares per-monitor DPI awareness.
