@@ -15,6 +15,7 @@ use std::{
 use beezip_core::{
     CodecId, CreateOptions, EncodeOpts, FsOptions, OpenOptions, Selection, SimpleCtx, WriteSpec,
     format::{
+        bhive::{BhiveWriteOptions, Level},
         cab::{CabMethod, CabWriteOptions},
         dmg::DmgWriteOptions,
         sevenz::{SevenZMethod, SevenZWriteOptions},
@@ -232,8 +233,9 @@ fn round_trip_with(
     prop_assert_eq!(secs(&out), 1_700_000_000);
     no_partials(root.path())?;
 
-    // A zip again on four workers: the same tree and the same report (docs/M6.md §10).
-    if ext == "zip" {
+    // A zip or a .bhive again on four workers: the same tree and the same report
+    // (docs/M6.md §10, docs/M13.md §8).
+    if ext == "zip" || ext == "bhive" {
         let dest = root.path().join("x4");
         let mut cx = match password {
             Some(pw) => SimpleCtx::new().with_password(pw),
@@ -598,10 +600,38 @@ proptest! {
     }
 }
 
+/// A `.bhive` in cells of 16 KiB, which these trees fill several of.
+fn bhive(level: Level) -> WriteSpec {
+    WriteSpec::Bhive(BhiveWriteOptions {
+        level,
+        threads: 3,
+        memory: None,
+        cell_size: Some(16 << 10),
+    })
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(cases()))]
+    #[test]
+    fn bhive_none(tree in tree()) {
+        round_trip("bhive", &bhive(Level::None), None, &tree)?;
+    }
+
+    #[test]
+    fn bhive_balanced(tree in tree()) {
+        round_trip("bhive", &bhive(Level::Balanced), None, &tree)?;
+    }
+
+    #[test]
+    fn bhive_high(tree in tree()) {
+        round_trip("bhive", &bhive(Level::High), None, &tree)?;
+    }
+}
+
 /// Every writable kind is covered above.
 #[test]
 fn every_kind_is_tested() {
-    assert_eq!(beezip_core::ArchiveKind::all().count(), 31);
+    assert_eq!(beezip_core::ArchiveKind::all().count(), 32);
 }
 
 #[test]

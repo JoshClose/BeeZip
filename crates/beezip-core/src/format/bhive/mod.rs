@@ -51,12 +51,16 @@ impl ArchiveFormat for Bhive {
         }
     }
 
-    /// Listing and extracting. Creating and editing come through the commands in M13's second
-    /// part; core's own `ops::create` already writes one.
+    /// Everything but encryption, which version 1 leaves out (docs/M13.md decision 11). An
+    /// edit copies the cells it keeps as they are.
     fn caps(&self) -> FormatCaps {
         FormatCaps {
             list: true,
             extract: true,
+            create: true,
+            append: true,
+            delete: true,
+            rename: true,
             random_access: true,
             ..FormatCaps::default()
         }

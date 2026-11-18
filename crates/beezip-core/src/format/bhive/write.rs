@@ -28,11 +28,14 @@ use super::{
     coder::{self, Level},
     layout::{self, Cell, Extent, IndexHead, ItemRef, Kind, MAX_CELL, Record, checksum, stamp},
     mem,
+    read::BhiveReader,
 };
 use crate::{
     Ctx, Error, ErrorKind, Result,
     codec::resolve_threads,
-    format::{ArchiveWriter, NewEntry, NewKind, Opener, normalize},
+    format::{
+        ArchiveReader, ArchiveWriter, Copied, EntryKind, Keep, NewEntry, NewKind, Opener, normalize,
+    },
     io::{WriteSeek, read_error, write_error},
 };
 
@@ -505,18 +508,25 @@ impl BhiveWriter {
             NewKind::Dir => (Kind::Folder, ""),
             NewKind::Symlink { target } => (Kind::Link, target.as_str()),
         };
-        let item = ItemRef {
-            kind,
-            path: path.as_bytes(),
-            modified: entry.modified.map(stamp),
-            created: entry.created.map(stamp),
-            mode: entry.unix_mode,
-            attrs: entry.dos_attrs.map(|a| a & 0xFFFF),
-            extents,
-            target: target.as_bytes(),
-        };
+        self.journal_item(
+            &ItemRef {
+                kind,
+                path: path.as_bytes(),
+                modified: entry.modified.map(stamp),
+                created: entry.created.map(stamp),
+                mode: entry.unix_mode,
+                attrs: entry.dos_attrs.map(|a| a & 0xFFFF),
+                extents,
+                target: target.as_bytes(),
+            },
+            cx,
+        )
+    }
+
+    /// An item into the journal of the cell being filled, and into the index.
+    fn journal_item(&mut self, item: &ItemRef<'_>, cx: &mut dyn Ctx) -> Result<()> {
         let at = self.journal.len();
-        layout::put_item(&mut self.journal, &item);
+        layout::put_item(&mut self.journal, item);
         self.items.extend_from_slice(&self.journal[at..]);
         self.journal_items += 1;
         self.entries += 1;
@@ -656,6 +666,89 @@ fn push_extent(extents: &mut Vec<Extent>, e: Extent) {
             last.len += e.len;
         }
         _ => extents.push(e),
+    }
+}
+
+/// What becomes of a cell of the archive entries are kept from.
+enum Fate {
+    /// No kept entry has bytes in it.
+    Gone,
+    /// Copied as it is stored, under this number.
+    Copy(u32),
+    /// Decoded, and its runs that are still used stored again: each run's start and end in the
+    /// old cell, and where it went.
+    Repack(Vec<(u32, u32, Vec<Extent>)>),
+}
+
+/// Whether any of `extents` is in a cell that is stored again.
+fn repacked(fates: &[Fate], extents: &[Extent]) -> bool {
+    extents
+        .iter()
+        .any(|x| matches!(fates[x.cell as usize], Fate::Repack(_)))
+}
+
+/// Where an extent of the old archive is in the new one, added to `out`.
+fn moved(fates: &[Fate], x: &Extent, out: &mut Vec<Extent>) -> Result<()> {
+    match &fates[x.cell as usize] {
+        Fate::Copy(number) => push_extent(
+            out,
+            Extent {
+                cell: *number,
+                ..*x
+            },
+        ),
+        Fate::Repack(runs) => {
+            // The run that holds it: runs are whole extents joined, so one does.
+            let i = runs.partition_point(|(_, end, _)| *end <= x.offset);
+            let Some((start, _, to)) = runs.get(i).filter(|(start, _, _)| *start <= x.offset)
+            else {
+                return Err(Error::new(ErrorKind::Io, "bhive: an extent lost its cell"));
+            };
+            let (mut skip, mut left) = (x.offset - start, x.len);
+            for e in to {
+                if skip >= e.len {
+                    skip -= e.len;
+                    continue;
+                }
+                let take = (e.len - skip).min(left);
+                push_extent(
+                    out,
+                    Extent {
+                        cell: e.cell,
+                        offset: e.offset + skip,
+                        len: take,
+                    },
+                );
+                left -= take;
+                skip = 0;
+                if left == 0 {
+                    break;
+                }
+            }
+        }
+        Fate::Gone => return Err(Error::new(ErrorKind::Io, "bhive: an extent lost its cell")),
+    }
+    Ok(())
+}
+
+/// The item of a kept entry: as it was, under the path it is kept as, with its new extents.
+fn kept<'a>(r: &'a BhiveReader, k: &'a Keep, extents: &'a [Extent]) -> ItemRef<'a> {
+    let e = &r.entries[k.id];
+    let (kind, target) = match &e.kind {
+        EntryKind::Dir => (Kind::Folder, ""),
+        EntryKind::Symlink { target } => (Kind::Link, target.as_str()),
+        _ => (Kind::File, ""),
+    };
+    let (modified, created) = r.stamps[k.id];
+    ItemRef {
+        kind,
+        path: k.path.trim_end_matches('/').as_bytes(),
+        modified,
+        created,
+        mode: e.unix_mode,
+        attrs: e.dos_attrs,
+        extents,
+        target: target.as_bytes(),
     }
 }
 
@@ -864,6 +957,150 @@ impl ArchiveWriter for BhiveWriter {
             }
             tasks.room.notify_all();
             result
+        })
+    }
+
+    /// Keeps entries of another `.bhive` without decoding them (docs/M13.md §5): the cells
+    /// they have bytes in are copied as they are stored, under new numbers, each behind a new
+    /// record; a cell that has lost more than half its bytes is decoded, and what is left of
+    /// it stored again. Only into an archive that holds nothing yet, and from an archive that
+    /// has its index.
+    fn copy_from(
+        &mut self,
+        source: &mut dyn ArchiveReader,
+        keep: &[Keep],
+        cx: &mut dyn Ctx,
+    ) -> Result<Copied> {
+        let empty = self.sealed == 0 && self.cell.is_empty() && self.entries == 0;
+        let Some(r) = source.as_any_mut().downcast_mut::<BhiveReader>() else {
+            return Ok(Copied::nothing(keep));
+        };
+        if !empty || r.recovered().is_some() || keep.iter().any(|k| k.id >= r.entries.len()) {
+            return Ok(Copied::nothing(keep));
+        }
+
+        // What is left of each cell: the bytes the kept entries have, as runs in order.
+        let mut live: Vec<Vec<(u32, u32)>> = vec![Vec::new(); r.cells.len()];
+        for k in keep {
+            for x in r.extents_of(k.id) {
+                live[x.cell as usize].push((x.offset, x.offset + x.len));
+            }
+        }
+        for runs in &mut live {
+            runs.sort_unstable();
+            let mut joined: Vec<(u32, u32)> = Vec::with_capacity(runs.len());
+            for &(start, end) in runs.iter() {
+                match joined.last_mut() {
+                    Some(last) if start <= last.1 => last.1 = last.1.max(end),
+                    _ => joined.push((start, end)),
+                }
+            }
+            *runs = joined;
+        }
+        // A cell goes as it is, under a new number, while at least half of it is still used.
+        let mut fates = Vec::with_capacity(r.cells.len());
+        let mut copies = 0u32;
+        for (cell, runs) in r.cells.iter().zip(&live) {
+            let left: u64 = runs.iter().map(|(a, b)| u64::from(b - a)).sum();
+            fates.push(if left == 0 {
+                Fate::Gone
+            } else if left * 2 >= u64::from(cell.raw) {
+                copies += 1;
+                Fate::Copy(copies - 1)
+            } else {
+                Fate::Repack(Vec::new())
+            });
+        }
+
+        // An entry whose cells are all copied goes into the journal of the last of them, or of
+        // the last cell an entry before it went into: journals list entries in order. From the
+        // first entry with bytes in a cell that is stored again, entries wait for that.
+        let early = match copies {
+            0 => 0,
+            _ => keep
+                .iter()
+                .position(|k| repacked(&fates, r.extents_of(k.id)))
+                .unwrap_or(keep.len()),
+        };
+        let mut journals: Vec<(Vec<u8>, u32)> = vec![(Vec::new(), 0); copies as usize];
+        let mut at = 0u32;
+        let mut extents = Vec::new();
+        for k in &keep[..early] {
+            extents.clear();
+            for x in r.extents_of(k.id) {
+                moved(&fates, x, &mut extents)?;
+            }
+            at = extents.iter().map(|x| x.cell).fold(at, u32::max);
+            let (journal, count) = &mut journals[at as usize];
+            let from = journal.len();
+            layout::put_item(journal, &kept(r, k, &extents));
+            self.items.extend_from_slice(&journal[from..]);
+            *count += 1;
+            self.entries += 1;
+        }
+
+        // The cells that go as they are, in the order they were in.
+        for (n, fate) in fates.iter().enumerate() {
+            let Fate::Copy(number) = *fate else {
+                continue;
+            };
+            cx.check()?;
+            let cell = r.cells[n];
+            let data = r.stored(n)?;
+            let (journal, journal_items) = std::mem::take(&mut journals[number as usize]);
+            let journal_raw = journal.len();
+            let (journal, journal_zstd) = pack_small(journal, self.level)?;
+            let len =
+                |n: usize| u32::try_from(n).map_err(|_| Error::limit("bhive: a journal too large"));
+            self.write_packed(Packed {
+                record: Record {
+                    number,
+                    raw: cell.raw,
+                    stored: cell.stored,
+                    coder: cell.coder,
+                    param: cell.param,
+                    journal_zstd,
+                    journal_items,
+                    journal_raw: len(journal_raw)?,
+                    journal_stored: len(journal.len())?,
+                    checksum: cell.checksum,
+                },
+                journal,
+                data,
+                cost: 0,
+            })?;
+        }
+        self.sealed = copies;
+
+        // What is left of the others, stored again in cells of this writer's.
+        for (n, fate) in fates.iter_mut().enumerate() {
+            if !matches!(fate, Fate::Repack(_)) {
+                continue;
+            }
+            cx.check()?;
+            let raw = r.raw(n as u32)?;
+            let mut runs = Vec::with_capacity(live[n].len());
+            for &(start, end) in &live[n] {
+                let mut to = Vec::new();
+                self.store(&raw[start as usize..end as usize], &mut to, cx)?;
+                runs.push((start, end, to));
+            }
+            *fate = Fate::Repack(runs);
+        }
+        let mut recompressed = 0;
+        for k in &keep[early..] {
+            extents.clear();
+            for x in r.extents_of(k.id) {
+                moved(&fates, x, &mut extents)?;
+            }
+            recompressed += u64::from(repacked(&fates, r.extents_of(k.id)));
+            let item = kept(r, k, &extents);
+            self.journal_item(&item, cx)?;
+        }
+        Ok(Copied {
+            rest: Vec::new(),
+            copied: keep.len() as u64 - recompressed,
+            recompressed,
         })
     }
 
