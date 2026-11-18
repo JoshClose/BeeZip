@@ -27,12 +27,13 @@ use super::{
     coder,
     layout::{
         self, CELL_TAG, Cell, Coder, Extent, FOOTER_LEN, HEADER_LEN, INDEX_HEAD_LEN, INDEX_TAG,
-        Index, IndexHead, Items, Kind, RECORD_LEN, Record, bad, checksum, sums,
+        Index, IndexHead, Items, Kind, RECORD_LEN, Record, Stamp, bad, checksum, sums,
     },
     mem, par,
 };
 use crate::{
     Ctx, Error, ErrorKind, Limits, Meter, MeteredCtx, Result, TestReport,
+    backend::{ExternalInfo, LevelProperty},
     codec::resolve_threads,
     format::{
         ArchiveInfo, ArchiveReader, Encryption, Entry, EntryKind, EntrySink, FormatId, Selection,
@@ -512,6 +513,9 @@ pub struct BhiveReader {
     input: Option<Input>,
     /// For the reads of [`ArchiveReader::open_entry`].
     touched: Counter,
+    /// Each entry's times as its item has them: a system's own time can't hold every one
+    /// (Windows keeps 100 ns, and nothing before 1601), and an edit must keep them all.
+    pub(super) stamps: Vec<(Option<Stamp>, Option<Stamp>)>,
 }
 
 impl BhiveReader {
@@ -540,13 +544,20 @@ impl BhiveReader {
             }
             Err(e) if e.kind == ErrorKind::Corrupt => {
                 return Err(Error::corrupt(format!(
-                    "{}: the archive is incomplete or damaged",
+                    "{}: the archive is incomplete or damaged. Opened with `recover`, it lists \
+                     what is left of it.",
                     e.message
                 )));
             }
             Err(e) => return Err(e),
         };
         let (entries, spans) = entries_of(&index.items, &index.cells);
+        let stamps = index
+            .items
+            .items
+            .iter()
+            .map(|i| (i.modified, i.created))
+            .collect();
         // Half the memory a job's cells may take, within reason: the rest is for the cells
         // being decoded.
         let budget = (mem::budget() / 2).clamp(128 << 20, 2 << 30);
@@ -561,6 +572,7 @@ impl BhiveReader {
             cache: Cache::new(budget),
             input: Some(input),
             touched: Counter::new(),
+            stamps,
         })
     }
 
@@ -578,6 +590,81 @@ impl BhiveReader {
     /// The cells, as the index lists them.
     pub fn cells(&self) -> &[Cell] {
         &self.cells
+    }
+
+    /// What `archive.info` says of the archive (docs/M13.md §5): the level it was made at, its
+    /// cells, and what storing repeated content once saved.
+    fn properties(&self) -> ExternalInfo {
+        let property = |name: &str, value: String| LevelProperty {
+            level: "bhive".to_owned(),
+            name: name.to_owned(),
+            value,
+        };
+        let mut properties = Vec::new();
+        if let Some(level) = self.level() {
+            properties.push(property("Level", level.name().to_owned()));
+        }
+        properties.push(property("Cells", self.cells.len().to_string()));
+        let largest = self.cells.iter().map(|c| c.raw).max().unwrap_or(0);
+        properties.push(property("Cell Size", largest.to_string()));
+        // The entries' bytes, and the bytes of the cells they use, each counted once.
+        let total = self
+            .entries
+            .iter()
+            .fold(0u64, |n, e| n.saturating_add(e.size.unwrap_or(0)));
+        let mut runs: Vec<(u32, u32, u32)> = self
+            .extents
+            .iter()
+            .map(|x| (x.cell, x.offset, x.offset + x.len))
+            .collect();
+        runs.sort_unstable();
+        let mut used = 0u64;
+        let mut last: Option<(u32, u32)> = None;
+        for (cell, start, end) in runs {
+            let from = match last {
+                Some((c, e)) if c == cell => start.max(e),
+                _ => start,
+            };
+            used += u64::from(end.saturating_sub(from));
+            last = Some((cell, end.max(from)));
+        }
+        properties.push(property(
+            "Stored Once",
+            total.saturating_sub(used).to_string(),
+        ));
+        let notes = match &self.recovered {
+            Some(why) => vec![format!(
+                "The archive is incomplete ({why}): these are the entries the records before \
+                 its cells still list."
+            )],
+            None => Vec::new(),
+        };
+        ExternalInfo {
+            levels: vec!["bhive".to_owned()],
+            properties,
+            notes,
+        }
+    }
+
+    /// Cell `n`'s bytes as they are stored, for a writer that copies the cell without
+    /// decoding it.
+    pub(super) fn stored(&mut self, n: usize) -> Result<Vec<u8>> {
+        let cell = self.cells[n];
+        read_at(self.input()?, cell.offset, cell.stored as usize)
+    }
+
+    /// Cell `n`'s raw bytes, decoded and checked.
+    pub(super) fn raw(&mut self, n: u32) -> Result<Arc<Vec<u8>>> {
+        self.input()?;
+        let Some(input) = self.input.as_mut() else {
+            return Err(Error::new(ErrorKind::Io, "bhive: no input"));
+        };
+        let mut io = CellIo {
+            input,
+            limits: &self.source.limits,
+            progress: &self.source.counter,
+        };
+        self.cache.get(&self.cells, n, &mut io)
     }
 
     pub(super) fn extents_of(&self, id: usize) -> &[Extent] {
@@ -760,7 +847,7 @@ impl ArchiveReader for BhiveReader {
             encrypted_headers: false,
             locked: false,
             recovery_record: false,
-            external: None,
+            external: Some(self.properties()),
         })
     }
 

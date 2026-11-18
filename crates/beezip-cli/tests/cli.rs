@@ -212,3 +212,110 @@ fn shell_plan_turns_a_click_into_steps() {
         serde_json::json!({ "kind": "open", "paths": [zip] })
     );
 }
+
+/// A `.bhive` from the command line (docs/M13.md §5): made at a level by number or name, listed,
+/// tested, extracted, edited, and opened with `--recover` when it is cut short.
+#[test]
+fn bhive_from_the_command_line() {
+    let dir = tempfile::tempdir().unwrap();
+    let src = dir.path().join("src");
+    std::fs::create_dir(&src).unwrap();
+    std::fs::write(src.join("a.txt"), "honey ".repeat(3000)).unwrap();
+    std::fs::write(src.join("b.txt"), "comb").unwrap();
+    let archive = dir.path().join("a.bhive");
+    let path = |p: &std::path::Path| p.display().to_string();
+
+    beezip()
+        .args(["create", &path(&archive), &path(&src), "--level", "max"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("(bhive): 2 files, 1 folders"));
+    let info = stdout_json(beezip().args(["info", &path(&archive), "--output", "json"]));
+    assert_eq!(info["format"], "bhive");
+    assert_eq!(info["methods"][0], "LZMA2");
+    assert_eq!(info["properties"][0]["value"], "max");
+    beezip()
+        .args(["list", &path(&archive), "--flat"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("src/a.txt").and(predicate::str::contains("LZMA2")));
+    beezip().args(["test", &path(&archive)]).assert().success();
+
+    // A level by number, a level that isn't one, and a name that only a .bhive has.
+    let fast = dir.path().join("fast.bhive");
+    beezip()
+        .args(["create", &path(&fast), &path(&src), "-l", "1"])
+        .assert()
+        .success();
+    beezip()
+        .args([
+            "create",
+            &path(&dir.path().join("x.bhive")),
+            &path(&src),
+            "-l",
+            "5",
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("0 to 4"));
+    beezip()
+        .args([
+            "create",
+            &path(&dir.path().join("x.zip")),
+            &path(&src),
+            "-l",
+            "high",
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("level of a .bhive"));
+    beezip()
+        .args([
+            "create",
+            &path(&dir.path().join("y.bhive")),
+            &path(&src),
+            "-l",
+            "highest",
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("isn't a level"));
+
+    // Edits, then everything out again.
+    beezip()
+        .args(["rename", &path(&archive), "src/b.txt", "src/c.txt"])
+        .assert()
+        .success();
+    beezip()
+        .args(["remove", &path(&archive), "src/a.txt"])
+        .assert()
+        .success();
+    let out = dir.path().join("out");
+    beezip()
+        .args(["extract", &path(&archive), "-o", &path(&out)])
+        .assert()
+        .success();
+    assert_eq!(std::fs::read(out.join("src/c.txt")).unwrap(), b"comb");
+    assert!(!out.join("src/a.txt").exists());
+
+    // Cut short: an error that names the way out, and `--recover` takes it.
+    let bytes = std::fs::read(&fast).unwrap();
+    let cut = dir.path().join("cut.bhive");
+    std::fs::write(&cut, &bytes[..bytes.len() - 30]).unwrap();
+    beezip()
+        .args(["list", &path(&cut)])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("recover"));
+    beezip()
+        .args(["list", &path(&cut), "--flat", "--recover"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("src/b.txt"));
+    let saved = dir.path().join("saved");
+    beezip()
+        .args(["extract", &path(&cut), "-o", &path(&saved), "--recover"])
+        .assert()
+        .success();
+    assert_eq!(std::fs::read(saved.join("src/b.txt")).unwrap(), b"comb");
+}

@@ -28,9 +28,9 @@ const levels = (min: number, max: number, d: number) => ({ min, max, default: d 
 const caps = { list: true, extract: true, create: true, append: true, delete: true, rename: true, encrypt: true, encrypt_headers: false, solid: false, volumes: true, random_access: true };
 const formats: FormatsListOutput = {
   formats: [
-    { id: "zip", name: "Zip", extensions: [".zip"], caps, methods: [{ id: "store", levels: null }, { id: "deflate", levels: levels(1, 9, 6) }], encryption: ["aes256", "zipcrypto"], menu: true },
-    { id: "7z", name: "7z", extensions: [".7z"], caps: { ...caps, encrypt_headers: true, solid: true }, methods: [{ id: "lzma2", levels: levels(0, 9, 5) }], encryption: ["aes256"], menu: true },
-    { id: "tar", name: "Tar", extensions: [".tar"], caps: { ...caps, encrypt: false }, methods: [], encryption: [], menu: true },
+    { id: "zip", name: "Zip", extensions: [".zip"], caps, methods: [{ id: "store", levels: null }, { id: "deflate", levels: levels(1, 9, 6) }], encryption: ["aes256", "zipcrypto"], menu: true, levels: null, level_names: [] },
+    { id: "7z", name: "7z", extensions: [".7z"], caps: { ...caps, encrypt_headers: true, solid: true }, methods: [{ id: "lzma2", levels: levels(0, 9, 5) }], encryption: ["aes256"], menu: true, levels: null, level_names: [] },
+    { id: "tar", name: "Tar", extensions: [".tar"], caps: { ...caps, encrypt: false }, methods: [], encryption: [], menu: true, levels: null, level_names: [] },
   ],
   codecs: [{ id: "zstd", name: "Zstandard", extensions: [".zst", ".tzst"], levels: levels(1, 22, 3), threads: true, detected: true }],
   create: ["zip", "7z", "tar", "tar.zst"],

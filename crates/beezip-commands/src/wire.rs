@@ -68,6 +68,11 @@ pub enum ArchiveFormatName {
     #[serde(rename = "zip")]
     #[value(name = "zip")]
     Zip,
+    // BeeZip's own format (docs/M13.md). Not a doc comment: clap would list every value on a
+    // line of its own to show it.
+    #[serde(rename = "bhive")]
+    #[value(name = "bhive")]
+    Bhive,
     #[serde(rename = "7z")]
     #[value(name = "7z")]
     SevenZ,
@@ -166,6 +171,7 @@ impl ArchiveFormatName {
         let cpio = |c| ArchiveKind::Cpio(Some(c));
         match self {
             Self::Zip => ArchiveKind::Zip,
+            Self::Bhive => ArchiveKind::Bhive,
             Self::SevenZ => ArchiveKind::SevenZ,
             Self::Tar => ArchiveKind::Tar(None),
             Self::TarGz => tar(CodecId::Gzip),
@@ -209,6 +215,86 @@ impl ArchiveFormatName {
 
     pub fn name(self) -> String {
         self.kind().name()
+    }
+}
+
+/// A `.bhive` level by its name (docs/M13.md decision 2).
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS, clap::ValueEnum,
+)]
+#[serde(rename_all = "kebab-case")]
+#[value(rename_all = "kebab-case")]
+pub enum LevelName {
+    /// A bundle: nothing compressed, nothing shared.
+    None,
+    Fast,
+    /// The default.
+    Balanced,
+    High,
+    Max,
+}
+
+impl LevelName {
+    pub const ALL: [LevelName; 5] = [
+        Self::None,
+        Self::Fast,
+        Self::Balanced,
+        Self::High,
+        Self::Max,
+    ];
+
+    pub fn level(self) -> beezip_core::format::bhive::Level {
+        use beezip_core::format::bhive::Level;
+        match self {
+            Self::None => Level::None,
+            Self::Fast => Level::Fast,
+            Self::Balanced => Level::Balanced,
+            Self::High => Level::High,
+            Self::Max => Level::Max,
+        }
+    }
+
+    pub fn name(self) -> &'static str {
+        self.level().name()
+    }
+}
+
+/// A compression level: a number, or for a `.bhive` one of its five names.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(untagged)]
+pub enum LevelArg {
+    Number(i32),
+    Name(LevelName),
+}
+
+impl LevelArg {
+    pub fn number(self) -> Option<i32> {
+        match self {
+            Self::Number(n) => Some(n),
+            Self::Name(_) => None,
+        }
+    }
+
+    pub fn name(self) -> Option<LevelName> {
+        match self {
+            Self::Number(_) => None,
+            Self::Name(n) => Some(n),
+        }
+    }
+}
+
+impl std::str::FromStr for LevelArg {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, String> {
+        if let Ok(n) = s.parse::<i32>() {
+            return Ok(Self::Number(n));
+        }
+        <LevelName as clap::ValueEnum>::from_str(s, true)
+            .map(Self::Name)
+            .map_err(|_| {
+                format!("`{s}` isn't a level: a number, or none, fast, balanced, high or max")
+            })
     }
 }
 

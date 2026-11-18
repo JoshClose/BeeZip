@@ -21,6 +21,7 @@ use beezip_core::{
     EncodeOpts, Entry, EntryKind, EntrySink, ErrorKind, OpenOptions, OverwriteChoice,
     OverwritePolicy, Selection, SimpleCtx, WriteSpec,
     format::{
+        bhive::BhiveWriteOptions,
         sevenz::SevenZWriteOptions,
         zip::{ZipEncryption, ZipMethod, ZipReader, ZipWriteOptions},
     },
@@ -28,8 +29,9 @@ use beezip_core::{
 };
 use proptest::prelude::*;
 
-const KINDS: [ArchiveKind; 8] = [
+const KINDS: [ArchiveKind; 9] = [
     ArchiveKind::Zip,
+    ArchiveKind::Bhive,
     ArchiveKind::SevenZ,
     ArchiveKind::Tar(None),
     ArchiveKind::Tar(Some(CodecId::Zstd)),
@@ -50,6 +52,13 @@ fn ext(kind: ArchiveKind) -> String {
 fn spec(kind: ArchiveKind) -> WriteSpec {
     match kind {
         ArchiveKind::Zip => WriteSpec::Zip(ZipWriteOptions::default()),
+        // Cells of a few hundred bytes, so these small trees fill several: edits then copy
+        // some cells as they are and store what is left of others again.
+        ArchiveKind::Bhive => WriteSpec::Bhive(BhiveWriteOptions {
+            threads: 2,
+            cell_size: Some(700),
+            ..BhiveWriteOptions::default()
+        }),
         ArchiveKind::SevenZ => WriteSpec::SevenZ(SevenZWriteOptions::default()),
         ArchiveKind::Tar(codec) => WriteSpec::Tar {
             codec,

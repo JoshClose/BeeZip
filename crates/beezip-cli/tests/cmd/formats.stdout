@@ -1,6 +1,6 @@
 Archive formats
   ID       NAME                      LIST  EXTRACT CREATE ENCRYPT  RANDOM  EXTENSIONS
-  bhive    BeeZip                    yes   yes     -      -        yes     .bhive
+  bhive    BeeZip                    yes   yes     yes    -        yes     .bhive
   zip      ZIP                       yes   yes     yes    yes      yes     .zip .cbz .jar .war .apk .aab .ipa .xpi .vsix .nupkg .whl .docx .xlsx .pptx .odt .ods .odp .epub .appx .msix
   tar      TAR                       yes   yes     yes    -        yes     .tar
   7z       7z                        yes   yes     yes    yes      -       .7z .cb7
@@ -59,4 +59,4 @@ Codecs
   compress Unix compress (.Z) -            -        .z .taz
   lzop     lzop               -            yes      .lzo .tzo
 
-Create as: zip, 7z, tar, tar.gz, tar.bz2, tar.xz, tar.lzma, tar.lz, tar.zst, tar.lz4, tar.br, tar.sz, tar.Z, tar.lzo, cpio, cpio.gz, cpio.bz2, cpio.xz, cpio.lzma, cpio.lz, cpio.zst, cpio.lz4, cpio.br, cpio.sz, cpio.Z, cpio.lzo, ar, cab, iso, squashfs, dmg
+Create as: zip, bhive, 7z, tar, tar.gz, tar.bz2, tar.xz, tar.lzma, tar.lz, tar.zst, tar.lz4, tar.br, tar.sz, tar.Z, tar.lzo, cpio, cpio.gz, cpio.bz2, cpio.xz, cpio.lzma, cpio.lz, cpio.zst, cpio.lz4, cpio.br, cpio.sz, cpio.Z, cpio.lzo, ar, cab, iso, squashfs, dmg

@@ -17,7 +17,9 @@ use crate::{
     CodecId, Ctx, Error, ErrorKind, Meter, MeteredCtx, OverwriteChoice, Result,
     format::{
         ArchiveReader, ArchiveWriter, Encryption, Entry, EntryKind, FormatId, Keep, NewEntry,
-        NewKind, Selection, caps_for, link_target, normalize,
+        NewKind, Selection,
+        bhive::BhiveReader,
+        caps_for, link_target, normalize,
         sevenz::SevenZReader,
         zip::{ZipReader, ZipWriter},
     },
@@ -375,6 +377,7 @@ pub fn editable(name: &str, opened: &mut Opened, cx: &mut dyn Ctx) -> Result<Arc
     }
     let kind = match (format, codecs.as_slice()) {
         (FormatId::Zip, []) => ArchiveKind::Zip,
+        (FormatId::Bhive, []) => ArchiveKind::Bhive,
         (FormatId::SevenZ, []) => ArchiveKind::SevenZ,
         (FormatId::Tar, []) => ArchiveKind::Tar(None),
         (FormatId::Tar, [c]) if TAR_CODECS.contains(c) => ArchiveKind::Tar(Some(*c)),
@@ -390,6 +393,14 @@ pub fn editable(name: &str, opened: &mut Opened, cx: &mut dyn Ctx) -> Result<Arc
             )));
         }
     };
+    if let Some(b) = opened.reader.as_any_mut().downcast_mut::<BhiveReader>()
+        && b.recovered().is_some()
+    {
+        return Err(Error::unsupported(format!(
+            "{name} is incomplete: it is listed from what is left of it. Extract that, and \
+             create the archive again."
+        )));
+    }
     if let Some(z) = opened.reader.as_any_mut().downcast_mut::<ZipReader>()
         && z.has_duplicate_names()
     {

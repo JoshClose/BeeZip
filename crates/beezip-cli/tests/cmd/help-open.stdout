@@ -25,6 +25,12 @@ Options:
           cp950, cp1250, cp1251, cp1252, cp1253, cp1254, cp1255, cp1256, cp1257, cp1258, koi8-r,
           koi8-u, iso-8859-1, iso-8859-2, iso-8859-5, iso-8859-7, euc-jp, gb18030]
 
+      --recover[=<RECOVER>]
+          Open a .bhive whose index is missing or damaged (a download cut short) from the records
+          before its cells, with the entries they still hold
+          
+          [possible values: true, false]
+
       --launch[=<LAUNCH>]
           Open the extracted file; `false` only extracts it, for the caller to open [default: true]
           

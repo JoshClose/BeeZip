@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 use beezip_core::{
     Action, ArchiveKind, EditOp, EditOptions, EditReport, EncodeOpts, WriteSpec,
     format::{
+        bhive::{BhiveWriteOptions, Level as BhiveLevel},
         cab::{CabMethod, CabWriteOptions},
         sevenz::{SevenZMethod, SevenZWriteOptions},
         squashfs::{SquashfsMethod, SquashfsWriteOptions},
@@ -23,8 +24,8 @@ use crate::{
     commands::util::{absolute, open_options},
     config::Config,
     wire::{
-        ArchiveFormatName, EncryptionName, MethodName, NameEncoding, Secret, SevenZMethodName,
-        ZipMethodName, human_size,
+        ArchiveFormatName, EncryptionName, LevelName, MethodName, NameEncoding, Secret,
+        SevenZMethodName, ZipMethodName, human_size,
     },
 };
 
@@ -33,6 +34,8 @@ use crate::{
 pub struct SpecArgs {
     pub method: Option<MethodName>,
     pub level: Option<i32>,
+    /// A level given by name, which only a `.bhive` has.
+    pub level_name: Option<LevelName>,
     pub threads: Option<u32>,
     pub password: Option<String>,
     pub encryption: Option<EncryptionName>,
@@ -61,7 +64,49 @@ pub fn spec_for(
     };
     only_7z("solid", args.solid.is_some())?;
     only_7z("encrypt_headers", args.encrypt_headers.is_some())?;
+    if let Some(name) = args.level_name
+        && kind != ArchiveKind::Bhive
+    {
+        return Err(CmdError::invalid_args(format!(
+            "`{}` is a level of a .bhive; a {}'s levels are numbers (`formats.list` shows them)",
+            name.name(),
+            kind.name()
+        )));
+    }
     match kind {
+        ArchiveKind::Bhive => {
+            if args.method.is_some() {
+                return Err(CmdError::invalid_args(
+                    "`method` is for zip, 7z, cab and squashfs; a .bhive has levels: 0 to 4, or \
+                     none, fast, balanced, high and max",
+                ));
+            }
+            if args.password.is_some() || args.encryption.is_some() {
+                return Err(CmdError::invalid_args(
+                    "a .bhive isn't encrypted: version 1 of the format has no encryption. Use \
+                     zip or 7z for an archive with a password.",
+                ));
+            }
+            let level = match (
+                args.level_name,
+                args.level.or_else(|| config.level("bhive")),
+            ) {
+                (Some(name), _) => name.level(),
+                (None, Some(n)) => BhiveLevel::from_number(i64::from(n)).ok_or_else(|| {
+                    CmdError::invalid_args(format!(
+                        "a .bhive's levels are 0 to 4 (none, fast, balanced, high, max), \
+                             not {n}"
+                    ))
+                })?,
+                (None, None) => BhiveLevel::default(),
+            };
+            Ok(WriteSpec::Bhive(BhiveWriteOptions {
+                level,
+                threads,
+                memory: None,
+                cell_size: None,
+            }))
+        }
         ArchiveKind::SevenZ => {
             let method = match args.method {
                 None => SevenZMethod::Lzma2,

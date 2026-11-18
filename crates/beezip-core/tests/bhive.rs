@@ -1117,3 +1117,404 @@ fn index_of(data: &[u8]) -> Option<(Vec<u8>, u64)> {
     };
     Some((raw, offset))
 }
+
+// Editing (docs/M13.md §5, decision 14): an edit writes a new archive, copying the cells it
+// keeps as they are stored and storing again what is left of a cell that lost most of its bytes.
+
+fn edit_spec(cell_size: u32) -> WriteSpec {
+    spec(Level::Balanced, 2, Some(cell_size))
+}
+
+fn edit(archive: &Path, op: &beezip_core::EditOp, cell_size: u32) -> beezip_core::EditReport {
+    ops::edit(
+        archive,
+        op,
+        &mut |_| Ok(edit_spec(cell_size)),
+        &beezip_core::EditOptions::default(),
+        &mut SimpleCtx::new(),
+    )
+    .unwrap()
+}
+
+fn remove(paths: &[&str]) -> beezip_core::EditOp {
+    let paths: Vec<String> = paths.iter().map(|p| (*p).to_owned()).collect();
+    beezip_core::EditOp::Remove(Selection::new(&paths, &[], &[]).unwrap())
+}
+
+fn rename(from: &str, to: &str) -> beezip_core::EditOp {
+    beezip_core::EditOp::Rename {
+        from: from.into(),
+        to: to.into(),
+    }
+}
+
+/// Every file of an archive, by path.
+fn contents(archive: &Path) -> BTreeMap<String, Vec<u8>> {
+    let mut r = reader(archive, &OpenOptions::default());
+    let mut cx = SimpleCtx::new();
+    let entries = r.entries(&mut cx).unwrap().to_vec();
+    let mut out = BTreeMap::new();
+    for e in entries.iter().filter(|e| e.kind == EntryKind::File) {
+        let mut data = Vec::new();
+        r.open_entry(e.id, &mut cx)
+            .unwrap()
+            .read_to_end(&mut data)
+            .unwrap();
+        out.insert(e.path.clone(), data);
+    }
+    out
+}
+
+/// Each cell's stored bytes, by its checksum.
+fn stored_cells(archive: &Path) -> BTreeMap<u64, Vec<u8>> {
+    let bytes = fs::read(archive).unwrap();
+    reader(archive, &OpenOptions::default())
+        .cells()
+        .iter()
+        .map(|c| {
+            let at = c.offset as usize;
+            (c.checksum, bytes[at..at + c.stored as usize].to_vec())
+        })
+        .collect()
+}
+
+/// A tree of ten files of 3,000 bytes in cells of 8 KiB: two to a cell and a bit.
+fn ten(root: &Path) -> (PathBuf, BTreeMap<String, Vec<u8>>) {
+    let input = root.join("in");
+    fs::create_dir(&input).unwrap();
+    let files: Vec<_> = (0..10)
+        .map(|i| file(&format!("f{i}.bin"), noise(3000, 40 + i)))
+        .collect();
+    write_tree(&input, &files);
+    let archive = root.join("ten.bhive");
+    create(&archive, &input, &edit_spec(8 << 10));
+    let want = files
+        .into_iter()
+        .map(|(path, data)| (format!("in/{path}"), data))
+        .collect();
+    (archive, want)
+}
+
+/// A rename decodes nothing: every cell goes into the new archive as it was stored.
+#[test]
+fn a_rename_copies_every_cell_byte_for_byte() {
+    let root = tempfile::tempdir().unwrap();
+    let (archive, mut want) = ten(root.path());
+    let before = stored_cells(&archive);
+    assert!(before.len() >= 4, "{}", before.len());
+
+    let r = edit(&archive, &rename("in/f3.bin", "in/renamed.bin"), 8 << 10);
+    assert_eq!((r.renamed, r.recompressed), (1, 0));
+    assert_eq!(r.copied, r.entries);
+    assert_eq!(stored_cells(&archive), before);
+    let data = want.remove("in/f3.bin").unwrap();
+    want.insert("in/renamed.bin".into(), data);
+    assert_eq!(contents(&archive), want);
+    let test = ops::test(
+        &archive,
+        &Selection::all(),
+        &threads(4),
+        &mut SimpleCtx::new(),
+    )
+    .unwrap();
+    assert!(test.ok(), "{:?}", test.errors);
+}
+
+/// A cell that keeps at least half its bytes is copied with the dead ones; one that keeps less
+/// is decoded and what is left stored again; one that keeps nothing is dropped.
+#[test]
+fn a_remove_copies_drops_or_stores_again() {
+    let root = tempfile::tempdir().unwrap();
+    let (archive, mut want) = ten(root.path());
+    let before = stored_cells(&archive);
+    let size = fs::metadata(&archive).unwrap().len();
+    // Cells hold f0 f1 | f2 f3 | f4 f5 | f6 f7 | f8 f9. Losing one of two files, a cell still
+    // has half; losing both, nothing.
+    let r = edit(
+        &archive,
+        &remove(&["in/f1.bin", "in/f4.bin", "in/f5.bin"]),
+        8 << 10,
+    );
+    assert_eq!(r.removed, 3);
+    for gone in ["in/f1.bin", "in/f4.bin", "in/f5.bin"] {
+        want.remove(gone);
+    }
+    assert_eq!(contents(&archive), want);
+    let after = stored_cells(&archive);
+    assert_eq!(after.len(), before.len() - 1, "the emptied cell is gone");
+    assert!(
+        after
+            .iter()
+            .all(|(sum, data)| before.get(sum) == Some(data))
+    );
+    assert_eq!(r.recompressed, 0);
+    let smaller = fs::metadata(&archive).unwrap().len();
+    assert!(smaller < size - 5000, "{smaller} of {size}");
+
+    // A big file and a small one in one cell: without the big one, the small one's bytes are
+    // a sliver of the cell, and are stored again.
+    let input = root.path().join("two");
+    fs::create_dir(&input).unwrap();
+    write_tree(
+        &input,
+        &[
+            file("a big.bin", noise(6000, 1)),
+            file("b small.txt", words(700, 2)),
+            file("c other.bin", noise(5000, 3)),
+        ],
+    );
+    let archive = root.path().join("two.bhive");
+    create(&archive, &input, &edit_spec(8 << 10));
+    let before = stored_cells(&archive);
+    let r = edit(&archive, &remove(&["two/a big.bin"]), 8 << 10);
+    assert_eq!((r.removed, r.recompressed), (1, 1), "{r:?}");
+    let after = stored_cells(&archive);
+    assert!(after.len() == before.len() && after != before);
+    let got = contents(&archive);
+    assert_eq!(got.len(), 2);
+    assert_eq!(got["two/b small.txt"], words(700, 2));
+    assert_eq!(got["two/c other.bin"], noise(5000, 3));
+    assert!(fs::metadata(&archive).unwrap().len() < 6500);
+}
+
+/// A copy's bytes are the first file's: removing the first keeps them for the copy.
+#[test]
+fn removing_a_file_keeps_the_bytes_its_copies_use() {
+    let root = tempfile::tempdir().unwrap();
+    let input = root.path().join("in");
+    fs::create_dir(&input).unwrap();
+    let shared = noise(5000, 9);
+    write_tree(
+        &input,
+        &[
+            file("a first.bin", shared.clone()),
+            file("b copy.bin", shared.clone()),
+            file("c other.txt", words(4000, 1)),
+        ],
+    );
+    let archive = root.path().join("out.bhive");
+    create(&archive, &input, &edit_spec(8 << 10));
+    let size = fs::metadata(&archive).unwrap().len();
+    assert!(size < 9000, "the copy is stored once: {size}");
+    edit(&archive, &remove(&["in/a first.bin"]), 8 << 10);
+    let got = contents(&archive);
+    assert_eq!(got.len(), 2);
+    assert_eq!(got["in/b copy.bin"], shared);
+}
+
+/// Added files go into new cells after the copied ones; the old cells are untouched.
+#[test]
+fn an_add_appends_cells() {
+    let root = tempfile::tempdir().unwrap();
+    let (archive, mut want) = ten(root.path());
+    let before = stored_cells(&archive);
+    let extra = root.path().join("extra.bin");
+    fs::write(&extra, noise(20_000, 77)).unwrap();
+    let r = edit(
+        &archive,
+        &beezip_core::EditOp::Add(beezip_core::AddOptions {
+            inputs: vec![extra],
+            dir: "in".into(),
+            ..beezip_core::AddOptions::default()
+        }),
+        8 << 10,
+    );
+    assert_eq!((r.added, r.recompressed), (1, 0));
+    want.insert("in/extra.bin".into(), noise(20_000, 77));
+    assert_eq!(contents(&archive), want);
+    let after = stored_cells(&archive);
+    assert!(after.len() > before.len());
+    assert!(
+        before
+            .iter()
+            .all(|(sum, data)| after.get(sum) == Some(data))
+    );
+}
+
+/// An edit keeps every time as the archive has it, those a system's own clock can't hold too.
+#[test]
+fn an_edit_keeps_times_exactly() {
+    use beezip_core::format::bhive::layout;
+    let root = tempfile::tempdir().unwrap();
+    let archive = root.path().join("times.bhive");
+    fs::copy(fixture_dir().join("times.bhive"), &archive).unwrap();
+    let items = |path: &Path| {
+        let (raw, offset) = index_of(&fs::read(path).unwrap()).unwrap();
+        layout::parse_index(&raw, offset, None).unwrap().items.items
+    };
+    let before = items(&archive);
+    edit(
+        &archive,
+        &rename("no time.txt", "still no time.txt"),
+        4 << 20,
+    );
+    let after = items(&archive);
+    assert_eq!(after.len(), before.len());
+    for (a, b) in after.iter().zip(&before) {
+        assert_eq!((a.modified, a.created), (b.modified, b.created));
+        assert_eq!((a.mode, a.attrs, a.size), (b.mode, b.attrs, b.size));
+    }
+    assert_eq!(after[4].path, b"still no time.txt");
+    assert_eq!(after[1].modified, Some((-28_500_000_000, 0)));
+    assert_eq!(after[3].modified, Some((1_767_225_600, 1)));
+}
+
+/// After edits the records still list every entry, in order, each in a record no earlier than
+/// its bytes: cut anywhere, the edited archive recovers a first part of its entries, whole.
+#[test]
+fn an_edited_archive_still_recovers() {
+    let root = tempfile::tempdir().unwrap();
+    let (archive, _) = ten(root.path());
+    edit(
+        &archive,
+        &remove(&["in/f1.bin", "in/f4.bin", "in/f5.bin"]),
+        8 << 10,
+    );
+    edit(&archive, &rename("in/f8.bin", "in/a.bin"), 8 << 10);
+    let extra = root.path().join("extra.bin");
+    fs::write(&extra, noise(9000, 5)).unwrap();
+    edit(
+        &archive,
+        &beezip_core::EditOp::Add(beezip_core::AddOptions {
+            inputs: vec![extra],
+            ..beezip_core::AddOptions::default()
+        }),
+        8 << 10,
+    );
+    let whole = contents(&archive);
+    let all: Vec<String> = reader(&archive, &OpenOptions::default())
+        .entries(&mut SimpleCtx::new())
+        .unwrap()
+        .iter()
+        .map(|e| e.path.clone())
+        .collect();
+    let bytes = fs::read(&archive).unwrap();
+    let ends: Vec<u64> = reader(&archive, &OpenOptions::default())
+        .cells()
+        .iter()
+        .map(|c| c.offset + u64::from(c.stored))
+        .collect();
+    let cut = root.path().join("cut.bhive");
+    let recover = OpenOptions {
+        recover: true,
+        ..OpenOptions::default()
+    };
+    let mut most = 0;
+    for &end in &ends {
+        fs::write(&cut, &bytes[..end as usize]).unwrap();
+        let mut r = reader(&cut, &recover);
+        let mut cx = SimpleCtx::new();
+        let entries = r.entries(&mut cx).unwrap().to_vec();
+        let paths: Vec<&str> = entries.iter().map(|e| e.path.as_str()).collect();
+        assert_eq!(paths, all[..paths.len()], "cut at {end}");
+        for e in entries.iter().filter(|e| e.kind == EntryKind::File) {
+            let mut data = Vec::new();
+            r.open_entry(e.id, &mut cx)
+                .unwrap()
+                .read_to_end(&mut data)
+                .unwrap();
+            assert!(data == whole[&e.path], "{} cut at {end}", e.path);
+        }
+        most = most.max(paths.len());
+    }
+    assert_eq!(
+        most,
+        all.len(),
+        "the last cell's record lists the last entries"
+    );
+    // And the Python reader reads the edited archive.
+    if let Some(python) = python() {
+        let out = std::process::Command::new(python)
+            .arg("-I")
+            .arg(repo().join("docs/bhive_reader.py"))
+            .arg("test")
+            .arg(&archive)
+            .output()
+            .unwrap();
+        assert!(
+            out.status.success(),
+            "{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+    }
+}
+
+/// An archive listed from its records isn't edited: what is left is to be extracted.
+#[test]
+fn a_recovered_archive_is_not_edited() {
+    let root = tempfile::tempdir().unwrap();
+    let archive = root.path().join("cut.bhive");
+    fs::copy(fixture_dir().join("cut.bhive"), &archive).unwrap();
+    let e = ops::edit(
+        &archive,
+        &rename("one.txt", "1.txt"),
+        &mut |_| Ok(edit_spec(4 << 20)),
+        &beezip_core::EditOptions::default(),
+        &mut SimpleCtx::new(),
+    )
+    .unwrap_err();
+    assert_eq!(e.kind, ErrorKind::Corrupt, "{e}");
+    let opts = beezip_core::EditOptions {
+        open: OpenOptions {
+            recover: true,
+            ..OpenOptions::default()
+        },
+        ..beezip_core::EditOptions::default()
+    };
+    let e = ops::edit(
+        &archive,
+        &rename("one.txt", "1.txt"),
+        &mut |_| Ok(edit_spec(4 << 20)),
+        &opts,
+        &mut SimpleCtx::new(),
+    )
+    .unwrap_err();
+    assert_eq!(e.kind, ErrorKind::UnsupportedOperation, "{e}");
+    assert!(e.message.contains("incomplete"), "{e}");
+}
+
+fn convert(source: &Path, output: &Path, kind: beezip_core::ArchiveKind, spec: &WriteSpec) {
+    let r = ops::convert(
+        source,
+        output,
+        kind,
+        spec,
+        &beezip_core::ConvertOptions::default(),
+        &OpenOptions::default(),
+        &mut SimpleCtx::new(),
+    )
+    .unwrap();
+    assert!(r.skipped.is_empty(), "{:?}", r.skipped);
+}
+
+/// Converting to another level decodes every file and packs it again; converting a zip makes a
+/// `.bhive` of it.
+#[test]
+fn converting_changes_the_level_and_the_format() {
+    use beezip_core::ArchiveKind;
+    let root = tempfile::tempdir().unwrap();
+    let (archive, want) = ten(root.path());
+    let high = root.path().join("high.bhive");
+    convert(
+        &archive,
+        &high,
+        ArchiveKind::Bhive,
+        &spec(Level::High, 2, Some(8 << 10)),
+    );
+    assert_eq!(contents(&high), want);
+    assert_eq!(
+        reader(&high, &OpenOptions::default()).level(),
+        Some(Level::High)
+    );
+
+    let zip = root.path().join("out.zip");
+    convert(
+        &high,
+        &zip,
+        ArchiveKind::Zip,
+        &WriteSpec::Zip(Default::default()),
+    );
+    let back = root.path().join("back.bhive");
+    convert(&zip, &back, ArchiveKind::Bhive, &spec(Level::Fast, 3, None));
+    assert_eq!(contents(&back), want);
+}

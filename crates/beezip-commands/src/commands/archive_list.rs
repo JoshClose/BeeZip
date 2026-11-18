@@ -65,6 +65,11 @@ pub struct ArchiveListInput {
     #[arg(long, value_enum, value_name = "ENCODING")]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name_encoding: Option<NameEncoding>,
+    /// Open a .bhive whose index is missing or damaged (a download cut short) from the
+    /// records before its cells, with the entries they still hold.
+    #[arg(long, num_args = 0..=1, require_equals = true, default_missing_value = "true")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub recover: Option<bool>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
@@ -156,7 +161,7 @@ impl Command for ArchiveList {
         with_archive(
             &input.archive,
             input.password.as_ref(),
-            input.name_encoding,
+            crate::commands::util::Opening::new(input.name_encoding, input.recover),
             cx,
             |a, cx| {
                 let entries = a.opened.reader.entries(cx)?;

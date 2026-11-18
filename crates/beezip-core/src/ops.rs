@@ -32,11 +32,13 @@ use crate::{
 
 pub use crate::edit::{convert, edit, rewrite};
 
-/// The archive kinds BeeZip writes: zip, 7z, tar and cpio, each of those two under one codec too,
-/// ar and CAB, and the disk images ISO, squashfs and DMG.
+/// The archive kinds BeeZip writes: zip, its own `.bhive`, 7z, tar and cpio, each of those two
+/// under one codec too, ar and CAB, and the disk images ISO, squashfs and DMG.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ArchiveKind {
     Zip,
+    /// BeeZip's own format (docs/M13.md).
+    Bhive,
     SevenZ,
     Tar(Option<CodecId>),
     /// newc, as initramfs images are: plain or under a codec (`.cpio.gz`).
@@ -67,7 +69,7 @@ pub const TAR_CODECS: [CodecId; 11] = [
 
 impl ArchiveKind {
     pub fn all() -> impl Iterator<Item = ArchiveKind> {
-        [Self::Zip, Self::SevenZ, Self::Tar(None)]
+        [Self::Zip, Self::Bhive, Self::SevenZ, Self::Tar(None)]
             .into_iter()
             .chain(TAR_CODECS.map(|c| Self::Tar(Some(c))))
             .chain([Self::Cpio(None)])
@@ -75,12 +77,13 @@ impl ArchiveKind {
             .chain([Self::Ar, Self::Cab, Self::Iso, Self::Squashfs, Self::Dmg])
     }
 
-    /// `zip`, `7z`, `tar`, `tar.gz`, `tar.bz2`, `tar.xz`, `tar.lzma`, `tar.lz`, `tar.zst`,
+    /// `zip`, `bhive`, `7z`, `tar`, `tar.gz`, `tar.bz2`, `tar.xz`, `tar.lzma`, `tar.lz`, `tar.zst`,
     /// `tar.lz4`, `tar.br`, `tar.sz`, `tar.Z`, `tar.lzo`, `cpio` and `cpio.gz` and the rest, `ar`,
     /// `cab`, `iso`, `squashfs`, `dmg`.
     pub fn name(self) -> String {
         match self {
             Self::Zip => "zip".into(),
+            Self::Bhive => "bhive".into(),
             Self::SevenZ => "7z".into(),
             Self::Tar(None) => "tar".into(),
             Self::Tar(Some(c)) => format!("tar{}", c.extension()),
@@ -98,13 +101,14 @@ impl ArchiveKind {
         Self::all().find(|k| k.name() == name)
     }
 
-    /// From an output file name: `.zip`, `.7z`, `.tar`, `.tar.<codec>` or a shorthand such as
+    /// From an output file name: `.zip`, `.bhive`, `.7z`, `.tar`, `.tar.<codec>` or a shorthand such as
     /// `.tgz`, `.cpio` or `.cpio.<codec>`, `.ar`, `.cab`, `.iso`, `.squashfs` (`.sqfs`, `.snap`),
     /// `.dmg`.
     pub fn from_file_name(name: &str) -> Option<Self> {
         let lower = name.to_lowercase();
         for (ext, kind) in [
             (".zip", Self::Zip),
+            (".bhive", Self::Bhive),
             (".7z", Self::SevenZ),
             (".tar", Self::Tar(None)),
             (".cpio", Self::Cpio(None)),
@@ -141,6 +145,7 @@ impl ArchiveKind {
     pub fn format(self) -> FormatId {
         match self {
             Self::Zip => FormatId::Zip,
+            Self::Bhive => FormatId::Bhive,
             Self::SevenZ => FormatId::SevenZ,
             Self::Tar(_) => FormatId::Tar,
             Self::Cpio(_) => FormatId::Cpio,
@@ -174,8 +179,7 @@ pub enum WriteSpec {
     Iso(IsoWriteOptions),
     Squashfs(SquashfsWriteOptions),
     Dmg(DmgWriteOptions),
-    /// A `.bhive` (docs/M13.md). The commands offer it from M13's second part on
-    /// ([`ArchiveKind`] has no kind for it yet).
+    /// A `.bhive` (docs/M13.md).
     Bhive(BhiveWriteOptions),
 }
 
@@ -699,7 +703,7 @@ mod tests {
             ArchiveKind::from_name("cpio.lzo"),
             Some(ArchiveKind::Cpio(Some(CodecId::Lzop)))
         );
-        assert_eq!(ArchiveKind::all().count(), 31);
+        assert_eq!(ArchiveKind::all().count(), 32);
         for k in ArchiveKind::all() {
             assert_eq!(ArchiveKind::from_name(&k.name()), Some(k));
         }
@@ -716,6 +720,7 @@ mod tests {
         assert_eq!(f("a.tar.br"), Some(ArchiveKind::Tar(Some(CodecId::Brotli))));
         assert_eq!(f("a.gz"), None);
         assert_eq!(f("a.7z"), Some(ArchiveKind::SevenZ));
+        assert_eq!(f("A.BHive"), Some(ArchiveKind::Bhive));
         assert_eq!(
             f("a.tar.Z"),
             Some(ArchiveKind::Tar(Some(CodecId::Compress)))

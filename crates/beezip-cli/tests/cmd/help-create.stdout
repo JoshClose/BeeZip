@@ -1,7 +1,9 @@
 Create an archive from files and folders. Each input is stored under its own name (`src/`
-becomes `src/…`). The format comes from `format` or the output's extension (`.zip`, `.7z`,
-`.tar`, `.tar.zst`, `.tgz`, `.cpio.gz`, `.ar`, `.cab`, `.iso`, `.squashfs`, `.dmg`…); ar
-and cab hold files only. An ISO has Joliet and Rock Ridge, a DMG is an HFS+ volume in a
+becomes `src/…`). The format comes from `format` or the output's extension (`.zip`,
+`.bhive`, `.7z`, `.tar`, `.tar.zst`, `.tgz`, `.cpio.gz`, `.ar`, `.cab`, `.iso`, `.squashfs`,
+`.dmg`…); ar and cab hold files only. A `.bhive` is BeeZip's own format: it stores
+repeated content once, reads any file without decoding the rest, and uses every core. An ISO has
+Joliet and Rock Ridge, a DMG is an HFS+ volume in a
 zlib-compressed image. The archive is written to a temporary file and renamed into place,
 so a failed or cancelled create leaves nothing behind.
 
@@ -18,7 +20,7 @@ Options:
   -f, --format <FORMAT>
           The archive format [default: from the output's extension]
           
-          [possible values: zip, 7z, tar, tar.gz, tar.bz2, tar.xz, tar.lzma, tar.lz, tar.zst,
+          [possible values: zip, bhive, 7z, tar, tar.gz, tar.bz2, tar.xz, tar.lzma, tar.lz, tar.zst,
           tar.lz4, tar.br, tar.sz, tar.Z, tar.lzo, cpio, cpio.gz, cpio.bz2, cpio.xz, cpio.lzma,
           cpio.lz, cpio.zst, cpio.lz4, cpio.br, cpio.sz, cpio.Z, cpio.lzo, ar, cab, iso, squashfs,
           dmg]
@@ -33,7 +35,8 @@ Options:
           lz4, lzo]
 
   -l, --level <LEVEL>
-          The compression level; `formats.list` shows each codec's and method's range
+          The compression level; `formats.list` shows each codec's and method's range. A .bhive's is
+          0 to 4, or its name: `none`, `fast`, `balanced` (the default), `high` or `max`
 
       --threads <THREADS>
           Compression threads for codecs that have them; 0 is one per core [default: from config]

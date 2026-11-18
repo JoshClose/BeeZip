@@ -75,6 +75,11 @@ pub struct ArchiveExtractInput {
     #[arg(long, value_enum, value_name = "ENCODING")]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name_encoding: Option<NameEncoding>,
+    /// Open a .bhive whose index is missing or damaged (a download cut short) from the
+    /// records before its cells, with the entries they still hold.
+    #[arg(long, num_args = 0..=1, require_equals = true, default_missing_value = "true")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub recover: Option<bool>,
     /// Show what would be extracted, and where, without writing anything.
     #[arg(long, num_args = 0..=1, require_equals = true, default_missing_value = "true")]
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -199,7 +204,10 @@ impl Command for ArchiveExtract {
             input.glob.as_deref().unwrap_or_default(),
             input.exclude.as_deref().unwrap_or_default(),
         )?;
-        let open_opts = open_options(input.name_encoding, cx);
+        let open_opts = open_options(
+            crate::commands::util::Opening::new(input.name_encoding, input.recover),
+            cx,
+        );
         let mut opened =
             open_archive_with(&input.archive, input.password.as_ref(), &open_opts, cx)?;
         let links = input.links.unwrap_or(config.extract.links);

@@ -30,8 +30,8 @@ platform: string,
 profile: string, };
 
 /**
- * Add files and folders to an archive (zip, 7z, tar, cpio and ar, and tar and cpio under any
- * codec). Each input is stored under its own name, as `archive.create` stores them, in `dir` if
+ * Add files and folders to an archive (zip, bhive, 7z, tar, cpio and ar, and tar and cpio
+ * under any codec). Each input is stored under its own name, as `archive.create` stores them, in `dir` if
  * given; an ar holds files only. The archive
  * isn't written in place: a new one is written beside it and swapped in, so a failed or
  * cancelled add leaves it as it was. Entries that stay are copied without decoding. An archive
@@ -63,9 +63,10 @@ overwrite?: OverwritePolicy,
  */
 method?: MethodName,
 /**
- * The compression level, for the new files, or a compressed tar's stream.
+ * The compression level, for the new files, or a compressed tar's stream. A .bhive's is
+ * 0 to 4, or its name: `none`, `fast`, `balanced`, `high` or `max`.
  */
-level?: number,
+level?: LevelArg,
 /**
  * Compression threads for codecs that have them; 0 is one per core [default: from config].
  */
@@ -107,7 +108,7 @@ dry_run?: boolean, };
 
 /**
  * Write an archive's entries to a new archive in another format, or with other options: zip,
- * 7z, tar, cpio, ar, cab, ISO, squashfs or DMG, tar and cpio under a codec too, from any archive
+ * bhive, 7z, tar, cpio, ar, cab, ISO, squashfs or DMG, tar and cpio under a codec too, from any archive
  * BeeZip reads (RAR, packages, disk images and split archives included). The source isn't changed. Entries are copied without decoding when the formats
  * match and no option asks for something else (`a.tar.gz` → `a.tar.zst` keeps every tar
  * entry, encoding the stream again). An encrypted source needs `new_password` or `decrypt`:
@@ -144,9 +145,10 @@ format?: ArchiveFormatName,
  */
 method?: MethodName,
 /**
- * The compression level; `formats.list` shows each codec's and method's range.
+ * The compression level; `formats.list` shows each codec's and method's range. A .bhive's
+ * is 0 to 4, or its name: `none`, `fast`, `balanced` (the default), `high` or `max`.
  */
-level?: number,
+level?: LevelArg,
 /**
  * Compression threads for codecs that have them; 0 is one per core [default: from config].
  */
@@ -188,6 +190,11 @@ overwrite?: boolean,
  */
 name_encoding?: NameEncoding,
 /**
+ * Open a .bhive whose index is missing or damaged (a download cut short) from the
+ * records before its cells, with the entries they still hold.
+ */
+recover?: boolean,
+/**
  * Show what would be written without writing anything.
  */
 dry_run?: boolean, };
@@ -224,9 +231,10 @@ volumes: Array<string> | null, };
 
 /**
  * Create an archive from files and folders. Each input is stored under its own name (`src/`
- * becomes `src/…`). The format comes from `format` or the output's extension (`.zip`, `.7z`,
- * `.tar`, `.tar.zst`, `.tgz`, `.cpio.gz`, `.ar`, `.cab`, `.iso`, `.squashfs`, `.dmg`…); ar
- * and cab hold files only. An ISO has Joliet and Rock Ridge, a DMG is an HFS+ volume in a
+ * becomes `src/…`). The format comes from `format` or the output's extension (`.zip`,
+ * `.bhive`, `.7z`, `.tar`, `.tar.zst`, `.tgz`, `.cpio.gz`, `.ar`, `.cab`, `.iso`, `.squashfs`,
+ * `.dmg`…); ar and cab hold files only. A `.bhive` is BeeZip's own format: it stores
+ * repeated content once, reads any file without decoding the rest, and uses every core. An ISO has Joliet and Rock Ridge, a DMG is an HFS+ volume in a
  * zlib-compressed image. The archive is written to a temporary file and renamed into place,
  * so a failed or cancelled create leaves nothing behind.
  */
@@ -251,9 +259,10 @@ format?: ArchiveFormatName,
  */
 method?: MethodName,
 /**
- * The compression level; `formats.list` shows each codec's and method's range.
+ * The compression level; `formats.list` shows each codec's and method's range. A .bhive's
+ * is 0 to 4, or its name: `none`, `fast`, `balanced` (the default), `high` or `max`.
  */
-level?: number,
+level?: LevelArg,
 /**
  * Compression threads for codecs that have them; 0 is one per core [default: from config].
  */
@@ -370,6 +379,11 @@ password?: Secret,
  */
 name_encoding?: NameEncoding,
 /**
+ * Open a .bhive whose index is missing or damaged (a download cut short) from the
+ * records before its cells, with the entries they still hold.
+ */
+recover?: boolean,
+/**
  * Show what would be extracted, and where, without writing anything.
  */
 dry_run?: boolean, };
@@ -391,7 +405,7 @@ plan: Array<PlannedEntry> | null, };
 /**
  * The archive kinds `archive.create` writes.
  */
-export type ArchiveFormatName = "zip" | "7z" | "tar" | "tar.gz" | "tar.bz2" | "tar.xz" | "tar.lzma" | "tar.lz" | "tar.zst" | "tar.lz4" | "tar.br" | "tar.sz" | "tar.Z" | "tar.lzo" | "cpio" | "cpio.gz" | "cpio.bz2" | "cpio.xz" | "cpio.lzma" | "cpio.lz" | "cpio.zst" | "cpio.lz4" | "cpio.br" | "cpio.sz" | "cpio.Z" | "cpio.lzo" | "ar" | "cab" | "iso" | "squashfs" | "dmg";
+export type ArchiveFormatName = "zip" | "bhive" | "7z" | "tar" | "tar.gz" | "tar.bz2" | "tar.xz" | "tar.lzma" | "tar.lz" | "tar.zst" | "tar.lz4" | "tar.br" | "tar.sz" | "tar.Z" | "tar.lzo" | "cpio" | "cpio.gz" | "cpio.bz2" | "cpio.xz" | "cpio.lzma" | "cpio.lz" | "cpio.zst" | "cpio.lz4" | "cpio.br" | "cpio.sz" | "cpio.Z" | "cpio.lzo" | "ar" | "cab" | "iso" | "squashfs" | "dmg";
 
 /**
  * Summarise an archive: its format chain, entry counts, sizes and compression ratio, methods,
@@ -411,7 +425,12 @@ password?: Secret,
  * pax records, cpio, ar, LHA, ARJ, ACE, ZOO, ARC and squashfs names, CAB names without the
  * UTF-8 flag, ISO names outside Joliet [default: from config, `auto`].
  */
-name_encoding?: NameEncoding, };
+name_encoding?: NameEncoding,
+/**
+ * Open a .bhive whose index is missing or damaged (a download cut short) from the
+ * records before its cells, with the entries they still hold.
+ */
+recover?: boolean, };
 
 export type ArchiveInfoOutput = { archive: string,
 /**
@@ -532,7 +551,12 @@ password?: Secret,
  * pax records, cpio, ar, LHA, ARJ, ACE, ZOO, ARC and squashfs names, CAB names without the
  * UTF-8 flag, ISO names outside Joliet [default: from config, `auto`].
  */
-name_encoding?: NameEncoding, };
+name_encoding?: NameEncoding,
+/**
+ * Open a .bhive whose index is missing or damaged (a download cut short) from the
+ * records before its cells, with the entries they still hold.
+ */
+recover?: boolean, };
 
 export type ArchiveListOutput = { entries: Array<EntryInfo>,
 /**
@@ -546,11 +570,12 @@ total: number,
 size: number, offset: number, has_more: boolean, };
 
 /**
- * Remove entries from an archive (zip, 7z, tar, cpio and ar, and tar and cpio under any
- * codec). A folder takes
+ * Remove entries from an archive (zip, bhive, 7z, tar, cpio and ar, and tar and cpio under
+ * any codec). A folder takes
  * everything under it. A new archive is written beside the old one and swapped in, so a failed
  * or cancelled removal leaves it as it was; the entries that stay are copied without decoding,
- * except the rest of a 7z solid block that loses one, which is encoded again. Fails with
+ * except the rest of a 7z solid block that loses one, and what is left of a .bhive cell
+ * that lost more than half its bytes, which are encoded again. Fails with
  * `NotFound` when nothing matches.
  */
 export type ArchiveRemoveInput = {
@@ -587,8 +612,8 @@ name_encoding?: NameEncoding,
 dry_run?: boolean, };
 
 /**
- * Rename an entry of an archive, or a folder and everything under it (zip, 7z, tar, cpio and
- * ar, and tar and cpio under any codec). `to` is the new full path, so a rename can also move an entry. The new
+ * Rename an entry of an archive, or a folder and everything under it (zip, bhive, 7z, tar,
+ * cpio and ar, and tar and cpio under any codec). `to` is the new full path, so a rename can also move an entry. The new
  * name mustn't be taken, unless only its case differs. Entries are copied without decoding,
  * encrypted ones included; renamed names are stored in UTF-8. A new archive is written beside
  * the old one and swapped in.
@@ -639,7 +664,12 @@ password?: Secret,
  * pax records, cpio, ar, LHA, ARJ, ACE, ZOO, ARC and squashfs names, CAB names without the
  * UTF-8 flag, ISO names outside Joliet [default: from config, `auto`].
  */
-name_encoding?: NameEncoding, };
+name_encoding?: NameEncoding,
+/**
+ * Open a .bhive whose index is missing or damaged (a download cut short) from the
+ * records before its cells, with the entries they still hold.
+ */
+recover?: boolean, };
 
 export type ArchiveTestOutput = { archive: string, entries: number,
 /**
@@ -1010,6 +1040,11 @@ password?: Secret,
  */
 name_encoding?: NameEncoding,
 /**
+ * Open a .bhive whose index is missing or damaged (a download cut short) from the
+ * records before its cells, with the entries they still hold.
+ */
+recover?: boolean,
+/**
  * Open the extracted file; `false` only extracts it, for the caller to open [default:
  * true].
  */
@@ -1059,7 +1094,12 @@ password?: Secret,
  * pax records, cpio, ar, LHA, ARJ, ACE, ZOO, ARC and squashfs names, CAB names without the
  * UTF-8 flag, ISO names outside Joliet [default: from config, `auto`].
  */
-name_encoding?: NameEncoding, };
+name_encoding?: NameEncoding,
+/**
+ * Open a .bhive whose index is missing or damaged (a download cut short) from the
+ * records before its cells, with the entries they still hold.
+ */
+recover?: boolean, };
 
 export type EntryReadOutput = { entry: string, index: number, data: string, encoding: TextEncoding, offset: number, bytes_read: number,
 /**
@@ -1163,6 +1203,15 @@ methods: Array<MethodInfo>,
  */
 encryption: Array<string>,
 /**
+ * The levels of a format that has them itself, not through a method: a `.bhive`'s 0
+ * to 4.
+ */
+levels: LevelRange | null,
+/**
+ * Those levels' names, lowest first: `none`, `fast`, `balanced`, `high`, `max`.
+ */
+level_names: Array<string>,
+/**
  * Explorer's menu offers BeeZip's items on its extensions. The disk images' and
  * installers' `.img`, `.exe` and `.msi` are left out (docs/M6.md §3.7).
  */
@@ -1263,6 +1312,16 @@ id: string,
  * extension only).
  */
 confidence: string, };
+
+/**
+ * A compression level: a number, or for a `.bhive` one of its five names.
+ */
+export type LevelArg = number | LevelName;
+
+/**
+ * A `.bhive` level by its name (docs/M13.md decision 2).
+ */
+export type LevelName = "none" | "fast" | "balanced" | "high" | "max";
 
 /**
  * A level range.
@@ -1846,8 +1905,8 @@ export type CommandMap = {
   /** Show the BeeZip version and build information. */
   "app.version": { input: AppVersionInput; output: AppVersionOutput };
   /**
-   * Add files and folders to an archive (zip, 7z, tar, cpio and ar, and tar and cpio under any
-   * codec). Each input is stored under its own name, as `archive.create` stores them, in `dir` if
+   * Add files and folders to an archive (zip, bhive, 7z, tar, cpio and ar, and tar and cpio
+   * under any codec). Each input is stored under its own name, as `archive.create` stores them, in `dir` if
    * given; an ar holds files only. The archive
    * isn't written in place: a new one is written beside it and swapped in, so a failed or
    * cancelled add leaves it as it was. Entries that stay are copied without decoding. An archive
@@ -1856,7 +1915,7 @@ export type CommandMap = {
   "archive.add": { input: ArchiveAddInput; output: EditOutput };
   /**
    * Write an archive's entries to a new archive in another format, or with other options: zip,
-   * 7z, tar, cpio, ar, cab, ISO, squashfs or DMG, tar and cpio under a codec too, from any archive
+   * bhive, 7z, tar, cpio, ar, cab, ISO, squashfs or DMG, tar and cpio under a codec too, from any archive
    * BeeZip reads (RAR, packages, disk images and split archives included). The source isn't changed. Entries are copied without decoding when the formats
    * match and no option asks for something else (`a.tar.gz` → `a.tar.zst` keeps every tar
    * entry, encoding the stream again). An encrypted source needs `new_password` or `decrypt`:
@@ -1866,9 +1925,10 @@ export type CommandMap = {
   "archive.convert": { input: ArchiveConvertInput; output: ArchiveConvertOutput };
   /**
    * Create an archive from files and folders. Each input is stored under its own name (`src/`
-   * becomes `src/…`). The format comes from `format` or the output's extension (`.zip`, `.7z`,
-   * `.tar`, `.tar.zst`, `.tgz`, `.cpio.gz`, `.ar`, `.cab`, `.iso`, `.squashfs`, `.dmg`…); ar
-   * and cab hold files only. An ISO has Joliet and Rock Ridge, a DMG is an HFS+ volume in a
+   * becomes `src/…`). The format comes from `format` or the output's extension (`.zip`,
+   * `.bhive`, `.7z`, `.tar`, `.tar.zst`, `.tgz`, `.cpio.gz`, `.ar`, `.cab`, `.iso`, `.squashfs`,
+   * `.dmg`…); ar and cab hold files only. A `.bhive` is BeeZip's own format: it stores
+   * repeated content once, reads any file without decoding the rest, and uses every core. An ISO has Joliet and Rock Ridge, a DMG is an HFS+ volume in a
    * zlib-compressed image. The archive is written to a temporary file and renamed into place,
    * so a failed or cancelled create leaves nothing behind.
    */
@@ -1891,17 +1951,18 @@ export type CommandMap = {
    */
   "archive.list": { input: ArchiveListInput; output: ArchiveListOutput };
   /**
-   * Remove entries from an archive (zip, 7z, tar, cpio and ar, and tar and cpio under any
-   * codec). A folder takes
+   * Remove entries from an archive (zip, bhive, 7z, tar, cpio and ar, and tar and cpio under
+   * any codec). A folder takes
    * everything under it. A new archive is written beside the old one and swapped in, so a failed
    * or cancelled removal leaves it as it was; the entries that stay are copied without decoding,
-   * except the rest of a 7z solid block that loses one, which is encoded again. Fails with
+   * except the rest of a 7z solid block that loses one, and what is left of a .bhive cell
+   * that lost more than half its bytes, which are encoded again. Fails with
    * `NotFound` when nothing matches.
    */
   "archive.remove": { input: ArchiveRemoveInput; output: EditOutput };
   /**
-   * Rename an entry of an archive, or a folder and everything under it (zip, 7z, tar, cpio and
-   * ar, and tar and cpio under any codec). `to` is the new full path, so a rename can also move an entry. The new
+   * Rename an entry of an archive, or a folder and everything under it (zip, bhive, 7z, tar,
+   * cpio and ar, and tar and cpio under any codec). `to` is the new full path, so a rename can also move an entry. The new
    * name mustn't be taken, unless only its case differs. Entries are copied without decoding,
    * encrypted ones included; renamed names are stored in UTF-8. A new archive is written beside
    * the old one and swapped in.

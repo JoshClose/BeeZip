@@ -307,6 +307,11 @@ None of this is needed to read a file; it describes what BeeZip writes.
 - **Cells that barely shrink** are stored, so that reading them back is a copy: below Max, a
   cell that isn't smaller by a sixty-fourth. At High, a cell is first tried with Zstandard 3,
   and stored if that saves under 2 %, without LZMA2's time being spent on it.
+- **Edits** (add, remove, rename) write a new file and swap it in. A cell is copied as it
+  is stored, under its new number and behind a new record, while at least half its raw
+  bytes are still used; one that keeps less is decoded and what is left stored again; one
+  that nothing uses is dropped. Each kept entry goes into the journal of a cell no earlier
+  than its bytes, in the entries' order, so the records list the archive as before.
 - **The same input gives the same bytes** on any number of threads: files are placed in order
   on one thread, and only reading, hashing and compressing are shared out.
 
