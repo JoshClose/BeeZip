@@ -8,6 +8,7 @@ pub mod ace;
 pub mod ar;
 pub mod arc;
 pub mod arj;
+pub mod bhive;
 pub mod cab;
 pub mod chm;
 pub mod cpio;
@@ -52,6 +53,8 @@ use crate::{
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum FormatId {
+    /// BeeZip's own format (docs/M13.md, docs/bhive.md).
+    Bhive,
     Zip,
     Tar,
     SevenZ,
@@ -85,7 +88,8 @@ pub enum FormatId {
 
 impl FormatId {
     /// BeeZip's own formats first, so they win a tie with a 7-Zip one.
-    pub const ALL: [FormatId; 37] = [
+    pub const ALL: [FormatId; 38] = [
+        Self::Bhive,
         Self::Zip,
         Self::Tar,
         Self::SevenZ,
@@ -128,6 +132,7 @@ impl FormatId {
 
     pub const fn name(self) -> &'static str {
         match self {
+            Self::Bhive => "bhive",
             Self::Zip => "zip",
             Self::Tar => "tar",
             Self::Stream => "stream",
@@ -154,6 +159,7 @@ impl FormatId {
 
     pub const fn display_name(self) -> &'static str {
         match self {
+            Self::Bhive => "BeeZip",
             Self::Zip => "ZIP",
             Self::Tar => "TAR",
             Self::Stream => "compressed file",
@@ -184,6 +190,7 @@ impl FormatId {
 
     pub fn format(self) -> &'static dyn ArchiveFormat {
         match self {
+            Self::Bhive => &bhive::Bhive,
             Self::Zip => &zip::Zip,
             Self::Tar => &tar::Tar,
             Self::Stream => &stream::Stream,
@@ -293,6 +300,8 @@ pub struct Entry {
     pub size: Option<u64>,
     pub packed_size: Option<u64>,
     pub modified: Option<SystemTime>,
+    /// When the file was created, for the formats that say (`.bhive`).
+    pub created: Option<SystemTime>,
     pub crc32: Option<u32>,
     /// The compression method's name. 7-Zip's (`LZX:15`) are owned, the rest static.
     pub method: Option<Cow<'static, str>>,
@@ -311,6 +320,7 @@ impl Entry {
             size: None,
             packed_size: None,
             modified: None,
+            created: None,
             crc32: None,
             method: None,
             encrypted: false,
@@ -570,6 +580,8 @@ pub struct NewEntry {
     /// The data size, for files; tar writes it up front and fails if the file changes size.
     pub size: u64,
     pub modified: Option<SystemTime>,
+    /// When the file was created, where the system says; only `.bhive` stores it.
+    pub created: Option<SystemTime>,
     pub unix_mode: Option<u32>,
     pub dos_attrs: Option<u32>,
     /// The file on disk the entry comes from, when there is one (`ops::plan`'s); `None` for

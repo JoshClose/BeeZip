@@ -17,10 +17,10 @@ use crate::{
     detect::{Detection, detect_path},
     format::{
         ArchiveReader, FormatId, ace::AceReader, ar::ArReader, arc::ArcReader, arj::ArjReader,
-        cab::CabReader, chm, cpio::CpioReader, cramfs, deb::DebReader, dmg::DmgReader,
-        iso::IsoReader, lzh::LzhReader, msi, nsis, pkg::PkgReader, rar::RarReader, rpm::RpmReader,
-        sevenz::SevenZReader, squashfs::SquashfsReader, stream::StreamReader, tar::TarReader,
-        volume::DiskReader, wim, xar::XarReader, zip::ZipReader, zoo::ZooReader,
+        bhive::BhiveReader, cab::CabReader, chm, cpio::CpioReader, cramfs, deb::DebReader,
+        dmg::DmgReader, iso::IsoReader, lzh::LzhReader, msi, nsis, pkg::PkgReader, rar::RarReader,
+        rpm::RpmReader, sevenz::SevenZReader, squashfs::SquashfsReader, stream::StreamReader,
+        tar::TarReader, volume::DiskReader, wim, xar::XarReader, zip::ZipReader, zoo::ZooReader,
     },
     io::{BUF_SIZE, Counter, CountingReader},
     limits::{Budget, Guarded, RatioGuard},
@@ -42,6 +42,9 @@ pub struct OpenOptions {
     /// A zip with fewer files than this to extract is extracted on the job's thread: workers
     /// cost more than they save on a few files. 64; tests lower it.
     pub min_parallel_files: usize,
+    /// Open a `.bhive` whose index is missing or damaged from the records before its cells,
+    /// listing what they still hold (docs/bhive.md §8). Without it such an archive is `Corrupt`.
+    pub recover: bool,
 }
 
 impl Default for OpenOptions {
@@ -52,6 +55,7 @@ impl Default for OpenOptions {
             names: NameDecoding::default(),
             threads: 1,
             min_parallel_files: 64,
+            recover: false,
         }
     }
 }
@@ -181,6 +185,8 @@ pub struct Source {
     /// Workers for reading, as [`OpenOptions::threads`] gives them.
     pub threads: u32,
     pub min_parallel_files: usize,
+    /// As [`OpenOptions::recover`] says.
+    pub recover: bool,
     /// Bytes of the input read so far in the current pass: progress and the ratio limit.
     pub counter: Counter,
     /// The input's size: the whole set's for a volume set.
@@ -226,6 +232,7 @@ impl Source {
             names: opts.names,
             threads: opts.threads,
             min_parallel_files: opts.min_parallel_files,
+            recover: opts.recover,
             counter: Counter::new(),
             size,
             modified: meta.modified().ok(),
@@ -355,6 +362,7 @@ pub fn open(path: &Path, opts: &OpenOptions, cx: &mut dyn Ctx) -> Result<Opened>
     let joined = source.joined;
     let opened = (|| -> Result<Box<dyn ArchiveReader>> {
         Ok(match format {
+            FormatId::Bhive => Box::new(BhiveReader::open(source, cx)?),
             FormatId::Zip => Box::new(ZipReader::open(source, detection.sfx, cx)?),
             FormatId::Tar => Box::new(TarReader::new(source)),
             FormatId::Stream => Box::new(StreamReader::open(source)?),

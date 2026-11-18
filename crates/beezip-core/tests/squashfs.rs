@@ -304,6 +304,7 @@ fn a_split_image_reads_back() {
 
 fn entry(path: &str, kind: NewKind) -> NewEntry {
     NewEntry {
+        created: None,
         path: path.into(),
         kind,
         size: 0,
@@ -338,6 +339,7 @@ fn links_missing_folders_and_odd_paths() {
     let file = |p: &str, data: &'static [u8]| {
         (
             NewEntry {
+                created: None,
                 size: data.len() as u64,
                 ..entry(p, NewKind::File)
             },
@@ -448,6 +450,7 @@ fn a_file_that_changes_size_is_corrupt() {
         .unwrap();
         let mut cx = SimpleCtx::new();
         let e = NewEntry {
+            created: None,
             size: 10_000,
             source: Some(f.clone()),
             ..entry("f.bin", NewKind::File)

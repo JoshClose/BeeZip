@@ -457,6 +457,7 @@ impl ArReader {
 
 pub(crate) fn entry_for(id: usize, m: &Member, names: &crate::NameDecoding) -> Entry {
     Entry {
+        created: None,
         id,
         path: names.decode(&m.name, false, SystemPage::Ansi),
         raw_path: m.name.clone(),
@@ -834,6 +835,7 @@ mod tests {
             let out = finisher(&mut buf, |w: &mut Vec<u8>| w.flush());
             let mut w = Box::new(ArWriter::new(out));
             let file = |path: &str, size| NewEntry {
+                created: None,
                 path: path.into(),
                 kind: NewKind::File,
                 size,

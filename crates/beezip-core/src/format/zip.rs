@@ -353,6 +353,7 @@ impl ZipReader {
             });
             zipcrypto.push(f.encrypted() && f.get_metadata().aes_settings().is_none());
             entries.push(Entry {
+                created: None,
                 id: i,
                 raw_path: raw.to_vec(),
                 path,

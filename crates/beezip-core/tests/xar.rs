@@ -855,6 +855,7 @@ fn cpio(members: Members<'_>, gzip: bool) -> Vec<u8> {
                 Some(d) => (NewKind::File, *d),
             };
             let e = NewEntry {
+                created: None,
                 path: (*path).into(),
                 kind,
                 size: data.len() as u64,

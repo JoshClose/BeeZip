@@ -46,6 +46,9 @@ pub struct Write1 {
 #[derive(Debug, Clone)]
 pub struct Meta {
     pub modified: Option<SystemTime>,
+    /// When it was created, which Windows and macOS let a file be given (`.bhive` stores it).
+    #[cfg_attr(not(any(windows, target_vendor = "apple")), allow(dead_code))]
+    pub created: Option<SystemTime>,
     #[cfg_attr(not(unix), allow(dead_code))]
     pub unix_mode: Option<u32>,
     #[cfg_attr(not(windows), allow(dead_code))]

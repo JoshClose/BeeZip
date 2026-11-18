@@ -4,6 +4,8 @@
 *.ico binary
 *.icns binary
 *.png binary
+# BeeZip's own archives: their magic holds a CR LF, there to show a transfer that rewrote one.
+*.bhive binary
 
 # Archives used as test data: never touch their bytes.
 tests/fixtures/malicious/** binary

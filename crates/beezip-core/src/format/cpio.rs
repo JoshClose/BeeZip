@@ -517,6 +517,7 @@ pub(crate) fn entry_for(id: usize, h: &Header, names: &NameDecoding, target: Str
     };
     let is_file = kind == EntryKind::File;
     Entry {
+        created: None,
         id,
         path,
         raw_path: h.name.clone(),
@@ -1322,6 +1323,7 @@ mod tests {
             let mut w = Box::new(CpioWriter::new(out));
             let mut cx = SimpleCtx::new();
             let file = |path: &str, size| NewEntry {
+                created: None,
                 path: path.into(),
                 kind: NewKind::File,
                 size,
@@ -1331,6 +1333,7 @@ mod tests {
                 source: None,
             };
             let big = NewEntry {
+                created: None,
                 size: 5 << 30,
                 ..file("big", 0)
             };
@@ -1338,11 +1341,13 @@ mod tests {
             w.add(&file("a.txt", 5), &mut &b"hello"[..], &mut cx)
                 .unwrap();
             let dir = NewEntry {
+                created: None,
                 kind: NewKind::Dir,
                 ..file("d", 0)
             };
             w.add(&dir, &mut io::empty(), &mut cx).unwrap();
             let link = NewEntry {
+                created: None,
                 kind: NewKind::Symlink {
                     target: "a.txt".into(),
                 },

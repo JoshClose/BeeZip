@@ -256,6 +256,7 @@ fn zip64_counts_match_one_thread() {
     let n = 70_000;
     let entries: Vec<NewEntry> = (0..n)
         .map(|i| NewEntry {
+            created: None,
             path: format!("d{}/f{i}", i % 100),
             kind: NewKind::File,
             size: 8,

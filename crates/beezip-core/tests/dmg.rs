@@ -233,6 +233,7 @@ fn a_tree_round_trips() {
 
 fn entry(path: &str, kind: NewKind, size: u64) -> NewEntry {
     NewEntry {
+        created: None,
         path: path.into(),
         kind,
         size,

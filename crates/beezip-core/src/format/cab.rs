@@ -1897,6 +1897,7 @@ mod tests {
 
     fn new_entry(path: &str, size: usize) -> NewEntry {
         NewEntry {
+            created: None,
             path: path.to_owned(),
             kind: NewKind::File,
             size: size as u64,
@@ -2148,6 +2149,7 @@ mod tests {
         assert!(!w.holds(&NewKind::Dir));
         assert!(!w.holds(&NewKind::Symlink { target: "x".into() }));
         let link = NewEntry {
+            created: None,
             kind: NewKind::Symlink { target: "x".into() },
             ..new_entry("l", 0)
         };

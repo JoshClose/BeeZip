@@ -348,6 +348,7 @@ fn convert<R: Read>(
     let is_file = kind == EntryKind::File;
     let size = sparse.as_ref().map_or_else(|| e.size(), |s| s.size);
     let entry = Entry {
+        created: None,
         id,
         path,
         raw_path: raw,

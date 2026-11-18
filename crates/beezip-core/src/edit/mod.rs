@@ -120,6 +120,7 @@ pub fn rewrite(
                 kind,
                 size,
                 modified: e.modified,
+                created: e.created,
                 unix_mode: e.unix_mode,
                 dos_attrs: e.dos_attrs,
                 source: None,
@@ -828,7 +829,8 @@ pub fn edit(
         | WriteSpec::Cab(_)
         | WriteSpec::Iso(_)
         | WriteSpec::Squashfs(_)
-        | WriteSpec::Dmg(_) => {}
+        | WriteSpec::Dmg(_)
+        | WriteSpec::Bhive(_) => {}
     }
     if unencrypted && encrypted {
         report.unencrypted = new_files;
@@ -933,7 +935,8 @@ pub fn convert(
         | WriteSpec::Cab(_)
         | WriteSpec::Iso(_)
         | WriteSpec::Squashfs(_)
-        | WriteSpec::Dmg(_) => false,
+        | WriteSpec::Dmg(_)
+        | WriteSpec::Bhive(_) => false,
     };
     if info.encryption != Encryption::None && !raw && !encrypts && !opts.decrypt {
         return Err(Error::invalid_args(format!(

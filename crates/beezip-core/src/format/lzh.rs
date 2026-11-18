@@ -220,6 +220,7 @@ fn entry_for(id: usize, h: &LhaHeader, nd: &NameDecoding, clock: &mut DosClock) 
         path
     };
     Entry {
+        created: None,
         id,
         path,
         raw_path: raw,

@@ -393,6 +393,7 @@ impl RpmReader {
             };
             let is_file = kind == EntryKind::File;
             let mut e = Entry {
+                created: None,
                 id,
                 path: if kind == EntryKind::Dir {
                     format!("{path}/")
