@@ -17,14 +17,21 @@ fn titles(entries: &[Entry]) -> Vec<&str> {
     entries.iter().map(|e| e.title.as_str()).collect()
 }
 
-const ADD: [&str; 4] = ["add-zip", "add-7z", "add-tar-zst", "compress-to"];
-const ALL: [&str; 9] = [
+const ADD: [&str; 5] = [
+    "add-zip",
+    "add-bhive",
+    "add-7z",
+    "add-tar-zst",
+    "compress-to",
+];
+const ALL: [&str; 10] = [
     "open",
     "extract-here",
     "extract-folder",
     "extract-to",
     "test",
     "add-zip",
+    "add-bhive",
     "add-7z",
     "add-tar-zst",
     "compress-to",
@@ -46,6 +53,7 @@ fn one_archive_gets_everything() {
             "Extract to…",
             "Test archive",
             r#"Add to "photos.zip""#,
+            r#"Add to "photos.bhive""#,
             r#"Add to "photos.7z""#,
             r#"Add to "photos.tar.zst""#,
             "Compress to…",
@@ -54,7 +62,9 @@ fn one_archive_gets_everything() {
     let separators: Vec<bool> = m.iter().map(|e| e.separator_before).collect();
     assert_eq!(
         separators,
-        [false, false, false, false, false, true, false, false, false]
+        [
+            false, false, false, false, false, true, false, false, false, false
+        ]
     );
 }
 
@@ -72,6 +82,7 @@ fn several_archives_get_each_and_no_dialog() {
             "extract-folder",
             "test",
             "add-zip",
+            "add-bhive",
             "add-7z",
             "add-tar-zst",
             "compress-to"
@@ -142,6 +153,7 @@ fn hidden_items_go_and_the_separator_follows() {
             "extract-here",
             "extract-folder",
             "extract-to",
+            "add-bhive",
             "add-7z",
             "add-tar-zst",
             "compress-to"
@@ -297,7 +309,8 @@ fn long_names_are_cut() {
     }
     assert_eq!(m[2].title, format!(r#"Extract to "{}…\""#, "a".repeat(25)));
     assert!(m[5].title.ends_with("….zip\""), "{}", m[5].title);
-    assert!(m[7].title.ends_with("….tar.zst\""), "{}", m[7].title);
+    assert!(m[6].title.ends_with("….bhive\""), "{}", m[6].title);
+    assert!(m[8].title.ends_with("….tar.zst\""), "{}", m[8].title);
 }
 
 #[test]

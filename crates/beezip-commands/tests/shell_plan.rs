@@ -159,6 +159,10 @@ fn add_items_name_the_archive_as_the_menu_does() {
     // One folder: its name.
     let steps = plan("add-7z", &[&b]).unwrap();
     assert_eq!(steps[0]["args"]["output"], p(&work.join("pics.7z")));
+    // BeeZip's own format (docs/M13.md).
+    let steps = plan("add-bhive", &[&a]).unwrap();
+    assert_eq!(steps[0]["title"], "Creating a.bhive");
+    assert_eq!(steps[0]["args"]["output"], p(&work.join("a.bhive")));
     // Several: their folder's name.
     let steps = plan("add-tar-zst", &[&a, &b]).unwrap();
     assert_eq!(steps[0]["title"], "Creating work.tar.zst");

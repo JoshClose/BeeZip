@@ -105,6 +105,8 @@ pub fn spec_for(
                 threads,
                 memory: None,
                 cell_size: None,
+                // An edit with no level given keeps the archive's own, whatever the config's.
+                inherit: args.level.is_none() && args.level_name.is_none(),
             }))
         }
         ArchiveKind::SevenZ => {

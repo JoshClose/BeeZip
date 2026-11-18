@@ -30,6 +30,7 @@ impl Item {
             Self::ExtractTo => 0xDC32BBAF_BE4F_4D27_AE56_9D12A74D127B,
             Self::Test => 0xCB0400CB_D815_4866_8B34_408E8A24E878,
             Self::AddZip => 0x58BEA0CF_36C1_4B73_9B1C_2B4D4DC3D889,
+            Self::AddBhive => 0x40BADEF3_362E_48B9_8DC5_E2AE24CFC316,
             Self::Add7z => 0xC664F93E_D79E_4D21_8819_7DE8E4E0DBD5,
             Self::AddTarZst => 0x137CEA41_C0CA_4C0F_8319_618AFA9B147F,
             Self::CompressTo => 0x87CFBAE8_22F4_4031_800D_BD90298CCCA4,

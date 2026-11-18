@@ -45,6 +45,8 @@ pub enum Item {
     Test,
     /// "Add to "a.zip"", beside the selection.
     AddZip,
+    /// "Add to "a.bhive"": BeeZip's own format (docs/M13.md).
+    AddBhive,
     /// "Add to "a.7z"".
     #[serde(rename = "add-7z")]
     #[cfg_attr(feature = "wire", value(name = "add-7z"))]
@@ -57,13 +59,14 @@ pub enum Item {
 
 impl Item {
     /// Every item, in menu order: the archive items, then the add items.
-    pub const ALL: [Self; 9] = [
+    pub const ALL: [Self; 10] = [
         Self::Open,
         Self::ExtractHere,
         Self::ExtractFolder,
         Self::ExtractTo,
         Self::Test,
         Self::AddZip,
+        Self::AddBhive,
         Self::Add7z,
         Self::AddTarZst,
         Self::CompressTo,
@@ -78,6 +81,7 @@ impl Item {
             Self::ExtractTo => "extract-to",
             Self::Test => "test",
             Self::AddZip => "add-zip",
+            Self::AddBhive => "add-bhive",
             Self::Add7z => "add-7z",
             Self::AddTarZst => "add-tar-zst",
             Self::CompressTo => "compress-to",
@@ -97,10 +101,11 @@ impl Item {
         )
     }
 
-    /// The extension an add item gives its archive: `.zip`, `.7z`, `.tar.zst`.
+    /// The extension an add item gives its archive: `.zip`, `.bhive`, `.7z`, `.tar.zst`.
     pub const fn add_extension(self) -> Option<&'static str> {
         match self {
             Self::AddZip => Some(".zip"),
+            Self::AddBhive => Some(".bhive"),
             Self::Add7z => Some(".7z"),
             Self::AddTarZst => Some(".tar.zst"),
             _ => None,
@@ -240,7 +245,7 @@ fn title_for(item: Item, selection: &[Selected], kind: &Kind<'_>) -> String {
         Item::ExtractTo => "Extract to…".into(),
         Item::Test if kind.sets > 1 => "Test archives".into(),
         Item::Test => "Test archive".into(),
-        Item::AddZip | Item::Add7z | Item::AddTarZst => {
+        Item::AddZip | Item::AddBhive | Item::Add7z | Item::AddTarZst => {
             let ext = item.add_extension().unwrap_or_default();
             quoted("Add to \"", &add_name(selection), &format!("{ext}\""))
         }

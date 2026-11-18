@@ -133,7 +133,7 @@ fn formats_list_has_everything() {
     assert_eq!(own["id"], "bhive");
     assert_eq!(own["caps"]["list"], true);
     assert_eq!(own["caps"]["random_access"], true);
-    assert_eq!(own["menu"], false);
+    assert_eq!(own["menu"], true);
     assert_eq!(own["caps"]["create"], true);
     assert_eq!(own["caps"]["rename"], true);
     assert_eq!(own["caps"]["encrypt"], false);

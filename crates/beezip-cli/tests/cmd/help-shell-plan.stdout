@@ -16,6 +16,7 @@ Arguments:
           - extract-to:     "Extract to…": the main window's extract dialog
           - test:           "Test archive"
           - add-zip:        "Add to "a.zip"", beside the selection
+          - add-bhive:      "Add to "a.bhive"": BeeZip's own format (docs/M13.md)
           - add-7z:         "Add to "a.7z""
           - add-tar-zst:    "Add to "a.tar.zst""
           - compress-to:    "Compress to…": the main window's create dialog, with the selection as

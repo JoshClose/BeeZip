@@ -6,9 +6,15 @@
 //! Software\Classes\Directory\shell\BeeZip                 ExplorerCommandHandler = {classic root}
 //! ```
 //!
-//! Without the cascade each visible item gets a verb of its own, `BeeZip.<n>-<id>`, with its own
-//! CLSID. Explorer orders static verbs by key name (checked on Windows 10), so `<n>`, the item's
-//! place in the menu, keeps them in menu order. Explorer re-reads the keys for every menu.
+//! Without the cascade each visible item gets a verb of its own, `BeeZip.<nn>-<id>`, with its own
+//! CLSID. Explorer orders static verbs by key name (checked on Windows 10), so `<nn>`, the item's
+//! place in the menu in two digits, keeps them in menu order. Explorer re-reads the keys for
+//! every menu.
+//!
+//! Before 0.8.0 the number had one digit (`BeeZip.7-add-7z`), which nine items fit and ten
+//! don't (`BeeZip.10-…` sorts before `BeeZip.2-…`), and an item added in the middle renumbers
+//! the ones after it. So the verbs in place are found by their form, under any number, and a
+//! copy that registers the menu removes an older copy's.
 
 use std::path::{Path, PathBuf};
 
@@ -25,7 +31,42 @@ const ROOT_VERB: &str = "BeeZip";
 /// An item's top-level verb when the menu isn't cascaded.
 pub fn flat_verb(item: Item) -> String {
     let n = Item::ALL.iter().position(|i| *i == item).unwrap_or(0) + 1;
-    format!("{ROOT_VERB}.{n}-{}", item.id())
+    format!("{ROOT_VERB}.{n:02}-{}", item.id())
+}
+
+/// The item a top-level verb is for, under any number: `BeeZip.08-add-7z`, and `BeeZip.7-add-7z`
+/// as it was before 0.8.0.
+fn flat_item(verb: &str) -> Option<Item> {
+    let (n, id) = verb
+        .strip_prefix(ROOT_VERB)?
+        .strip_prefix('.')?
+        .split_once('-')?;
+    if n.is_empty() || !n.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    Item::from_id(id)
+}
+
+/// The menu's verbs under a type's `shell` key, in the order Explorer shows them, each with the
+/// class it names: the root, and every item's under whatever number it was given.
+fn verbs_of(hive: &Hive, ty: &str) -> Vec<(String, u128)> {
+    let Ok(shell) = CURRENT_USER.open(hive.key(&format!(r"Classes\{ty}\shell"))) else {
+        return Vec::new();
+    };
+    let Ok(keys) = shell.keys() else {
+        return Vec::new();
+    };
+    let mut found: Vec<(String, u128)> = keys
+        .filter_map(|name| {
+            if name == ROOT_VERB {
+                Some((name, clsid::CLASSIC_ROOT))
+            } else {
+                flat_item(&name).map(|item| (name, item.clsid()))
+            }
+        })
+        .collect();
+    found.sort();
+    found
 }
 
 fn verb_key(hive: &Hive, ty: &str, verb: &str) -> String {
@@ -53,14 +94,10 @@ pub fn read(hive: &Hive) -> Option<Keys> {
     let mut cascade = false;
     let mut clsids = Vec::new();
     for ty in TYPES {
-        let all = std::iter::once((ROOT_VERB.to_owned(), clsid::CLASSIC_ROOT))
-            .chain(Item::ALL.into_iter().map(|i| (flat_verb(i), i.clsid())));
-        for (verb, id) in all {
-            if CURRENT_USER.open(verb_key(hive, ty, &verb)).is_ok() {
-                cascade |= id == clsid::CLASSIC_ROOT;
-                verbs.push(format!(r"{ty}\shell\{verb}"));
-                clsids.push(id);
-            }
+        for (verb, id) in verbs_of(hive, ty) {
+            cascade |= id == clsid::CLASSIC_ROOT;
+            verbs.push(format!(r"{ty}\shell\{verb}"));
+            clsids.push(id);
         }
     }
     if verbs.is_empty() {
@@ -135,14 +172,14 @@ pub fn register(
 /// Removes every verb and CLSID key the classic menu can have. Returns what it removed.
 pub fn unregister(hive: &Hive) -> Result<Vec<String>, CmdError> {
     let mut removed = Vec::new();
-    let all = std::iter::once((ROOT_VERB.to_owned(), clsid::CLASSIC_ROOT))
-        .chain(Item::ALL.into_iter().map(|i| (flat_verb(i), i.clsid())));
-    for (verb, id) in all {
-        for ty in TYPES {
+    for ty in TYPES {
+        for (verb, _) in verbs_of(hive, ty) {
             if remove_tree(&verb_key(hive, ty, &verb))? {
                 removed.push(format!(r"removed {ty}\shell\{verb}"));
             }
         }
+    }
+    for id in std::iter::once(clsid::CLASSIC_ROOT).chain(Item::ALL.into_iter().map(Item::clsid)) {
         remove_tree(&clsid_key(hive, id))?;
     }
     // The parents, when only BeeZip's keys were in them: `*\shell`, `*`, `Directory\shell`…
@@ -195,7 +232,66 @@ mod tests {
         let mut sorted = verbs.clone();
         sorted.sort();
         assert_eq!(verbs, sorted);
-        assert_eq!(verbs[0], "BeeZip.1-open");
+        assert_eq!(verbs[0], "BeeZip.01-open");
+        assert_eq!(verbs[9], "BeeZip.10-compress-to");
+        for item in Item::ALL {
+            assert_eq!(flat_item(&flat_verb(item)), Some(item));
+        }
+        // As they were numbered before 0.8.0, and what isn't BeeZip's.
+        assert_eq!(flat_item("BeeZip.7-add-7z"), Some(Item::Add7z));
+        assert_eq!(flat_item("BeeZip.9-compress-to"), Some(Item::CompressTo));
+        for not in [
+            "BeeZip",
+            "BeeZip.",
+            "BeeZip.x-open",
+            "BeeZip.1-nope",
+            "BeeZipper.1-open",
+        ] {
+            assert_eq!(flat_item(not), None, "{not}");
+        }
+    }
+
+    /// A menu an older copy registered, numbered as it was then, is seen and replaced whole.
+    #[test]
+    fn an_older_copys_verbs_are_replaced() {
+        let hive = Hive::test("classic-older");
+        let _cleanup = Cleanup(hive.clone());
+        let dll = Path::new(r"C:\BeeZip\beezip_shell_0.8.0.dll");
+        let older = ["BeeZip.1-open", "BeeZip.7-add-7z", "BeeZip.9-compress-to"];
+        for ty in TYPES {
+            for verb in older {
+                CURRENT_USER
+                    .create(verb_key(&hive, ty, verb))
+                    .unwrap()
+                    .set_string("ExplorerCommandHandler", "{x}")
+                    .unwrap();
+            }
+            // Someone else's verb stays.
+            CURRENT_USER
+                .create(verb_key(&hive, ty, "Other.1-open"))
+                .unwrap();
+        }
+        let keys = read(&hive).unwrap();
+        assert!(!keys.cascade);
+        assert_eq!(keys.verbs.len(), 6);
+
+        register(&hive, dll, false, &[]).unwrap();
+        let keys = read(&hive).unwrap();
+        assert_eq!(keys.verbs.len(), 2 * Item::ALL.len());
+        for verb in older {
+            assert!(!keys.verbs.iter().any(|v| v.ends_with(verb)), "{verb}");
+        }
+        assert!(keys.verbs.contains(&r"*\shell\BeeZip.08-add-7z".to_owned()));
+
+        assert_eq!(unregister(&hive).unwrap().len(), 2 * Item::ALL.len());
+        assert_eq!(read(&hive), None);
+        for ty in TYPES {
+            assert!(
+                CURRENT_USER
+                    .open(verb_key(&hive, ty, "Other.1-open"))
+                    .is_ok()
+            );
+        }
     }
 
     #[test]
@@ -226,13 +322,13 @@ mod tests {
         register(&hive, dll, false, &[Item::Test]).unwrap();
         let keys = read(&hive).unwrap();
         assert!(!keys.cascade);
-        assert_eq!(keys.verbs.len(), 2 * 8);
+        assert_eq!(keys.verbs.len(), 2 * 9);
         assert!(!keys.verbs.iter().any(|v| v.ends_with(r"\BeeZip")));
         assert!(!keys.verbs.iter().any(|v| v.ends_with("-test")));
         assert_eq!(keys.dll.as_deref(), Some(dll));
 
         let removed = unregister(&hive).unwrap();
-        assert_eq!(removed.len(), 16);
+        assert_eq!(removed.len(), 18);
         assert_eq!(read(&hive), None);
         // Nothing but the empty CLSID folder is left under Classes.
         assert!(CURRENT_USER.open(hive.key(r"Classes\*")).is_err());
