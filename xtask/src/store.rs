@@ -364,4 +364,25 @@ mod tests {
             );
         }
     }
+
+    /// The taskbar shows a logo without a plate of the accent colour only when the package has
+    /// the unplated form for the mode Windows is in: `altform-unplated` in dark mode,
+    /// `altform-lightunplated` in light mode. 0.8.0 had the first alone, and in light mode its
+    /// taskbar icon sat on a blue square.
+    #[test]
+    fn every_unplated_logo_has_its_light_mode_twin() {
+        let names: Vec<&str> = STORE_ASSETS.iter().map(|(n, _)| *n).collect();
+        let dark: Vec<&&str> = names
+            .iter()
+            .filter(|n| n.contains("_altform-unplated."))
+            .collect();
+        assert_eq!(dark.len(), 5, "{dark:?}");
+        for name in dark {
+            let light = name.replace("_altform-unplated.", "_altform-lightunplated.");
+            assert!(names.contains(&light.as_str()), "{light} is missing");
+            // The same picture: the logo is its own on either taskbar.
+            let read = |n: &str| std::fs::read(workspace_root().join(STORE_ASSETS_DIR).join(n));
+            assert_eq!(read(name).unwrap(), read(&light).unwrap(), "{light}");
+        }
+    }
 }

@@ -31,8 +31,10 @@ pub const STORE_ASSETS_DIR: &str = "packaging/windows/store/Assets";
 /// The Store package's logos and their sizes in pixels. The manifest names the unqualified ones
 /// (`Assets\Square44x44Logo.png`), and `resources.pri` lets Windows pick among these: scales for
 /// Start and the Store, target sizes for the taskbar and Explorer, unplated so the taskbar shows
-/// the logo without a coloured plate behind it.
-pub const STORE_ASSETS: [(&str, u32); 16] = [
+/// the logo without a coloured plate behind it. `altform-unplated` is only for Windows' dark
+/// mode: in light mode the taskbar wants `altform-lightunplated`, and without it puts the logo
+/// on a plate of the accent colour (blue, unless someone changed it).
+pub const STORE_ASSETS: [(&str, u32); 21] = [
     ("Square44x44Logo.scale-100.png", 44),
     ("Square44x44Logo.scale-200.png", 88),
     ("Square44x44Logo.targetsize-16.png", 16),
@@ -45,6 +47,26 @@ pub const STORE_ASSETS: [(&str, u32); 16] = [
     ("Square44x44Logo.targetsize-32_altform-unplated.png", 32),
     ("Square44x44Logo.targetsize-48_altform-unplated.png", 48),
     ("Square44x44Logo.targetsize-256_altform-unplated.png", 256),
+    (
+        "Square44x44Logo.targetsize-16_altform-lightunplated.png",
+        16,
+    ),
+    (
+        "Square44x44Logo.targetsize-24_altform-lightunplated.png",
+        24,
+    ),
+    (
+        "Square44x44Logo.targetsize-32_altform-lightunplated.png",
+        32,
+    ),
+    (
+        "Square44x44Logo.targetsize-48_altform-lightunplated.png",
+        48,
+    ),
+    (
+        "Square44x44Logo.targetsize-256_altform-lightunplated.png",
+        256,
+    ),
     ("Square150x150Logo.scale-100.png", 150),
     ("Square150x150Logo.scale-200.png", 300),
     ("StoreLogo.scale-100.png", 50),
