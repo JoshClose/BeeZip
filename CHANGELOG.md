@@ -7,6 +7,14 @@ Write a new section as `## X.Y.Z`, with `###` groups and `- ` items, describing 
 using BeeZip will notice. Leave the date out: the Releases page dates each version by its
 `vX.Y.Z` tag.
 
+## 0.8.1
+
+### The Microsoft Store copy
+
+- **No blue square behind the taskbar icon.** With Windows in light mode, the Store copy's
+  icon on the taskbar sat on a square of your accent colour. It is the bee alone now, as in
+  dark mode.
+
 ## 0.8.0
 
 ### .bhive, BeeZip's own archive format
