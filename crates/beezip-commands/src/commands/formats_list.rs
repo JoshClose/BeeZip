@@ -173,10 +173,9 @@ pub fn level_uses(name: &str) -> Vec<(String, beezip_core::Levels)> {
 
 /// Whether Explorer's menu offers BeeZip's items on a format's extensions, and installing
 /// BeeZip associates them. The disk images' and installers' `.img`, `.exe` and `.msi` are left
-/// out (docs/M6.md §3.7). So is `.bhive` for now: it joins the menu and the associations with
-/// its icon, in M13's third part (docs/M13.md §9); until then BeeZip reads one it is handed.
+/// out (docs/M6.md §3.7).
 pub fn in_menu(f: FormatId) -> bool {
-    f != FormatId::Bhive && f.external().is_none_or(beezip_core::External::in_menu)
+    f.external().is_none_or(beezip_core::External::in_menu)
 }
 
 pub struct FormatsList;

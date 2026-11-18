@@ -607,6 +607,7 @@ fn bhive(level: Level) -> WriteSpec {
         threads: 3,
         memory: None,
         cell_size: Some(16 << 10),
+        inherit: false,
     })
 }
 

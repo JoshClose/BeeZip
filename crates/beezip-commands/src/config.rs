@@ -211,6 +211,8 @@ pub struct ShellItems {
     pub test: bool,
     /// "Add to "a.zip"".
     pub add_zip: bool,
+    /// "Add to "a.bhive"".
+    pub add_bhive: bool,
     /// "Add to "a.7z"".
     pub add_7z: bool,
     /// "Add to "a.tar.zst"".
@@ -230,6 +232,7 @@ impl ShellItems {
             Item::ExtractTo => self.extract_to,
             Item::Test => self.test,
             Item::AddZip => self.add_zip,
+            Item::AddBhive => self.add_bhive,
             Item::Add7z => self.add_7z,
             Item::AddTarZst => self.add_tar_zst,
             Item::CompressTo => self.compress_to,
@@ -254,6 +257,7 @@ impl Default for ShellItems {
             extract_to: true,
             test: true,
             add_zip: true,
+            add_bhive: true,
             add_7z: true,
             add_tar_zst: true,
             compress_to: true,

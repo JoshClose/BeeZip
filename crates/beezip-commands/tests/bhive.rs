@@ -314,18 +314,13 @@ fn recover_opens_an_archive_without_its_index() {
 fn the_config_sets_the_level() {
     let dir = tempfile::tempdir().unwrap();
     let src = tree(dir.path());
-    let with = |config: &str, args: Value| {
+    let with = |config: &str, command: &str, args: Value| {
         let config: beezip_commands::Config = toml::from_str(config).unwrap();
         Engine::with_options(
             registry(),
             EngineOptions::from_config(Ok(config), Policy::unrestricted()),
         )
-        .invoke(
-            "archive.create",
-            args,
-            Arc::new(NonInteractive),
-            Arc::new(|_| {}),
-        )
+        .invoke(command, args, Arc::new(NonInteractive), Arc::new(|_| {}))
         .unwrap()
         .join()
     };
@@ -336,6 +331,7 @@ fn the_config_sets_the_level() {
     let a = dir.path().join("a.bhive");
     with(
         "[levels]\nbhive = 1\n",
+        "archive.create",
         json!({ "output": s(&a), "inputs": [s(&src)] }),
     )
     .unwrap();
@@ -343,6 +339,7 @@ fn the_config_sets_the_level() {
     let b = dir.path().join("b.bhive");
     with(
         "[levels]\nbhive = 1\n",
+        "archive.create",
         json!({ "output": s(&b), "inputs": [s(&src)], "level": "max" }),
     )
     .unwrap();
@@ -350,9 +347,38 @@ fn the_config_sets_the_level() {
     let c = dir.path().join("c.bhive");
     let e = with(
         "[levels]\nbhive = 9\n",
+        "archive.create",
         json!({ "output": s(&c), "inputs": [s(&src)] }),
     )
     .unwrap_err();
     assert_eq!(e.code, ErrorCode::InvalidArgs);
     assert!(!c.exists());
+
+    // An edit that names no level keeps the archive's own, whatever the config's; one that
+    // names a level sets it.
+    with(
+        "[levels]\nbhive = 1\n",
+        "archive.rename",
+        json!({ "archive": s(&b), "from": "src/a.txt", "to": "src/z.txt" }),
+    )
+    .unwrap();
+    assert_eq!(level(&b), "max");
+    let more = dir.path().join("more.txt");
+    std::fs::write(&more, "more honey\n").unwrap();
+    with(
+        "[levels]\nbhive = 1\n",
+        "archive.add",
+        json!({ "archive": s(&b), "inputs": [s(&more)] }),
+    )
+    .unwrap();
+    assert_eq!(level(&b), "max");
+    let again = dir.path().join("again.txt");
+    std::fs::write(&again, "and again\n").unwrap();
+    with(
+        "[levels]\nbhive = 1\n",
+        "archive.add",
+        json!({ "archive": s(&b), "inputs": [s(&again)], "level": "high" }),
+    )
+    .unwrap();
+    assert_eq!(level(&b), "high");
 }

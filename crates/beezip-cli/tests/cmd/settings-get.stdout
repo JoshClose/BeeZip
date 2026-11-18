@@ -18,6 +18,7 @@ mcp.roots                   []
 names.encoding              auto
 shell.cascade               true
 shell.items.add-7z          true
+shell.items.add-bhive       true
 shell.items.add-tar-zst     true
 shell.items.add-zip         true
 shell.items.compress-to     true

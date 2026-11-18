@@ -13,6 +13,7 @@ import type {
   ArchiveFormatName,
   EncryptionName,
   FormatsListOutput,
+  LevelName,
   LevelRange,
   MethodName,
 } from "../../gen/commands";
@@ -44,23 +45,55 @@ export function applies(f: Pick<CreateForm, "format" | "method">, formats?: Form
   const methods = formats ? methodsOf(formats, f.format) : [];
   const codec = formats ? codecOfTar(formats, f.format) : undefined;
   const method = methods.find((m) => m.id === (f.method ?? defaultMethod(f.format)));
-  // zip's, 7z's and squashfs's levels are their methods'; a compressed tar's or cpio's, its codec's.
+  // A .bhive's levels are its own, and have names (docs/M13.md §4). zip's, 7z's and squashfs's
+  // are their methods'; a compressed tar's or cpio's, its codec's.
+  const own = formats?.formats.find((x) => x.id === f.format);
   const byMethod = f.format === "zip" || f.format === "7z" || f.format === "squashfs";
-  const level: LevelRange | null = byMethod ? (method?.levels ?? null) : (codec?.levels ?? null);
+  const level: LevelRange | null = own?.levels ?? (byMethod ? (method?.levels ?? null) : (codec?.levels ?? null));
   // The `[levels]` name that sets its default, as the engine looks it up.
-  const levelKey = (byMethod ? method?.id : codec?.id) ?? null;
+  const levelKey = own?.levels ? f.format : ((byMethod ? method?.id : codec?.id) ?? null);
   const archive = f.format === "zip" || f.format === "7z";
   const stored = f.method === "store" || f.method === "copy";
   return {
     methods,
     level,
     levelKey,
+    /** The levels' names, lowest first, when they have them: `none` … `max`. */
+    levelNames: own?.levels ? own.level_names : [],
     password: archive,
     encryption: f.format === "zip",
     solid: f.format === "7z",
     encryptHeaders: f.format === "7z",
-    threads: f.format === "7z" || f.format === "zip" ? !stored : (codec?.threads ?? false),
+    threads: f.format === "7z" || f.format === "zip" ? !stored : f.format === "bhive" || (codec?.threads ?? false),
   };
+}
+
+/** What each of a .bhive's levels does, beside the slider (docs/M13.md §4). */
+const LEVEL_NOTES: Record<string, string> = {
+  none: "No compression",
+  fast: "zstd 3: the quickest",
+  balanced: "zstd 6: quick and small",
+  high: "LZMA2: smaller, much slower",
+  max: "LZMA2: the smallest, the slowest",
+};
+
+/** What a level is called: its number, or its name when the format's levels have names. */
+export function levelLabel(a: Pick<ReturnType<typeof applies>, "levelNames">, value: number): string {
+  const name = a.levelNames[value];
+  return name ? `${name[0].toUpperCase()}${name.slice(1)}` : String(value);
+}
+
+/** What stands beside the slider: what a named level does, or which end is which. */
+export function levelNote(a: Pick<ReturnType<typeof applies>, "level" | "levelNames">, value: number): string {
+  const name = a.levelNames[value];
+  if (name) return LEVEL_NOTES[name] ?? "";
+  return a.level ? `${a.level.min} is fastest, ${a.level.max} smallest` : "";
+}
+
+/** A level as a command takes it: a named one by its name, so a copied command line reads
+ * `--level high`. */
+export function levelArg(a: Pick<ReturnType<typeof applies>, "levelNames">, value: number): number | LevelName {
+  return (a.levelNames[value] as LevelName | undefined) ?? value;
 }
 
 /** The method a format is written with when none is chosen, as the engine picks it. */
@@ -94,15 +127,15 @@ export function defaultLevel(
   return configured === undefined ? { value: a.level.default, configured: false } : { value: configured, configured: true };
 }
 
-/** "Default 6.", or "Default 19, from the settings." */
-export function levelHint(d: { value: number; configured: boolean }): string {
-  return d.configured ? `Default ${d.value}, from the settings.` : `Default ${d.value}.`;
+/** "Default 6.", "Default 19, from the settings." or, for a named level, "Default Balanced." */
+export function levelHint(d: { value: number; configured: boolean }, label: string = String(d.value)): string {
+  return d.configured ? `Default ${label}, from the settings.` : `Default ${label}.`;
 }
 
 /** Archive extensions a name may already end with, longest first. */
 const KNOWN = [
   ...["tar", "cpio"].flatMap((a) => ["gz", "bz2", "xz", "lzma", "lz", "zst", "lz4", "br", "sz", "z", "lzo"].map((c) => `${a}.${c}`)),
-  ...["tgz", "tbz2", "txz", "tzst", "taz", "tzo", "zip", "7z", "tar", "cpio", "ar", "cab"],
+  ...["tgz", "tbz2", "txz", "tzst", "taz", "tzo", "zip", "bhive", "7z", "tar", "cpio", "ar", "cab"],
   ...["iso", "squashfs", "sqfs", "snap", "dmg"],
 ];
 
@@ -169,7 +202,7 @@ export function createArgs(f: CreateForm, formats?: FormatsListOutput): ArchiveC
     inputs: f.inputs,
     format: f.format,
     ...(a.methods.length > 0 && f.method ? { method: f.method } : {}),
-    ...(a.level && f.level !== undefined ? { level: f.level } : {}),
+    ...(a.level && f.level !== undefined ? { level: levelArg(a, f.level) } : {}),
     ...(a.threads && f.threads !== undefined ? { threads: f.threads } : {}),
     ...(a.password && f.password ? { password: f.password } : {}),
     ...(a.encryption && f.password && f.encryption !== "aes256" ? { encryption: f.encryption } : {}),
@@ -368,7 +401,11 @@ export function CreateDialog({
           </Field>
         )}
         {a.level && shownLevel && (
-          <Field label="Level" htmlFor="level" hint={form.level === undefined ? levelHint(shownLevel) : undefined}>
+          <Field
+            label="Level"
+            htmlFor="level"
+            hint={form.level === undefined ? levelHint(shownLevel, levelLabel(a, shownLevel.value)) : undefined}
+          >
             <div className="flex items-center gap-3">
               <input
                 id="level"
@@ -376,13 +413,12 @@ export function CreateDialog({
                 min={a.level.min}
                 max={a.level.max}
                 value={form.level ?? shownLevel.value}
+                aria-valuetext={levelLabel(a, form.level ?? shownLevel.value)}
                 onChange={(e) => set({ level: Number(e.target.value) })}
-                className="w-56 accent-[var(--amber)]"
+                className="w-56 shrink-0 accent-[var(--amber)]"
               />
-              <span className="tabular w-6">{form.level ?? shownLevel.value}</span>
-              <span className="text-[12px] text-muted">
-                {a.level.min} is fastest, {a.level.max} smallest
-              </span>
+              <span className={a.levelNames.length > 0 ? "w-16 shrink-0" : "tabular w-6 shrink-0"}>{levelLabel(a, form.level ?? shownLevel.value)}</span>
+              <span className="text-[12px] text-muted">{levelNote(a, form.level ?? shownLevel.value)}</span>
             </div>
           </Field>
         )}

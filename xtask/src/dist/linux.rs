@@ -63,6 +63,7 @@ const MIME: &[(&str, &str)] = &[
     ("ar", "application/x-archive"),
     ("arc", "application/x-arc"),
     ("arj", "application/x-arj"),
+    ("bhive", "application/x-bhive"),
     ("br", "application/x-brotli"),
     ("bz2", "application/x-bzip2"),
     ("cab", "application/vnd.ms-cab-compressed"),
@@ -109,13 +110,15 @@ const MIME: &[(&str, &str)] = &[
 /// (`/usr/share/mime/packages/beezip.xml`) adds: to shared-mime-info's own type for the format
 /// where it has one (ARC, squashfs, zlib, Zstandard, XAR), otherwise to one of [`NEW_TYPES`].
 const GLOBS: &[&str] = &[
-    "arc", "br", "cba", "mpkg", "sqfs", "squashfs", "sz", "zlib", "zstd",
+    "arc", "bhive", "br", "cba", "mpkg", "sqfs", "squashfs", "sz", "zlib", "zstd",
 ];
 
 /// The types BeeZip's MIME package defines, which shared-mime-info doesn't have: the type, its
 /// description, and the type it's a kind of. `file --mime-type` names Snappy's framed format so
-/// (libmagic knows no Brotli: it has no signature); `x-cba` follows shared-mime-info's `x-cb7`.
+/// (libmagic knows no Brotli: it has no signature); `x-cba` follows shared-mime-info's `x-cb7`;
+/// `x-bhive` is BeeZip's own format (docs/bhive.md), which has no registered type.
 const NEW_TYPES: &[(&str, &str, Option<&str>)] = &[
+    ("application/x-bhive", "BeeZip archive", None),
     ("application/x-brotli", "Brotli compressed file", None),
     (
         "application/x-cba",
@@ -465,7 +468,7 @@ mod tests {
             assert!(!exts.contains(not), ".{not} shouldn't be associated");
         }
         for want in [
-            "zip", "7z", "rar", "tar", "tgz", "tlz", "zst", "cbz", "xar", "dmg",
+            "zip", "bhive", "7z", "rar", "tar", "tgz", "tlz", "zst", "cbz", "xar", "dmg",
         ] {
             assert!(exts.contains(&want), ".{want} is missing from {exts:?}");
         }

@@ -64,6 +64,9 @@ pub struct BhiveWriteOptions {
     /// The most raw bytes of a cell, instead of the level's: for tests, which want many cells
     /// from little data. At most 256 MiB.
     pub cell_size: Option<u32>,
+    /// In an edit, write at the level the archive was made at, when it says, instead of
+    /// `level`: nobody chose one, and an archive keeps its own.
+    pub inherit: bool,
 }
 
 /// A chunk's BLAKE3, hashed for the table by its first eight bytes: it is a hash already.

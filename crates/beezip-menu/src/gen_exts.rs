@@ -11,6 +11,7 @@ pub const FORMATS: &[&str] = &[
     ".ar",
     ".arc",
     ".arj",
+    ".bhive",
     ".cab",
     ".cb7",
     ".cba",

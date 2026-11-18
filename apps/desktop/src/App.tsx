@@ -72,7 +72,7 @@ export async function openDialog(d: OpenDialog) {
 }
 
 async function chooseArchives() {
-  let extensions = ["zip", "7z", "rar", "tar", "gz", "tgz", "zst", "xz", "bz2", "001"];
+  let extensions = ["zip", "bhive", "7z", "rar", "tar", "gz", "tgz", "zst", "xz", "bz2", "001"];
   try {
     extensions = readableExtensions(await loadFormats());
   } catch {

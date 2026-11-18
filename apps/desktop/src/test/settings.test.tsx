@@ -29,6 +29,7 @@ const settings: Config = {
       "extract-to": true,
       test: true,
       "add-zip": true,
+      "add-bhive": true,
       "add-7z": true,
       "add-tar-zst": true,
       "compress-to": true,

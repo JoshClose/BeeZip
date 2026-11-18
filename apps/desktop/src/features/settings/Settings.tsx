@@ -50,10 +50,12 @@ export type LevelTarget = {
   applies: string;
   /** The formats whose own default isn't `own`: "SquashFS's default is 15." */
   others: string | null;
+  /** The levels' names, lowest first, when they have them: a .bhive's `none` … `max`. */
+  names?: string[];
 };
 
 /** How the levels name a format that has methods. */
-const ARCHIVE_NAMES: Record<string, string> = { zip: "zip", "7z": "7z", squashfs: "SquashFS" };
+const ARCHIVE_NAMES: Record<string, string> = { zip: "zip", "7z": "7z", squashfs: "SquashFS", bhive: ".bhive" };
 
 /** "a", "a and b", "a, b and c". */
 function list(items: string[]): string {
@@ -62,7 +64,7 @@ function list(items: string[]): string {
 
 /** Every codec and method with levels, once by the name `[levels]` takes, with what it applies to. */
 export function levelTargets(f: FormatsListOutput): LevelTarget[] {
-  type Uses = { codec?: { files: string[]; name: string; levels: LevelRange }; archives: { name: string; levels: LevelRange }[] };
+  type Uses = { codec?: { files: string[]; name: string; levels: LevelRange }; archives: { name: string; levels: LevelRange }[]; names?: string[] };
   const all = new Map<string, Uses>();
   const uses = (name: string) => all.get(name) ?? all.set(name, { archives: [] }).get(name)!;
   for (const c of f.codecs) {
@@ -73,10 +75,16 @@ export function levelTargets(f: FormatsListOutput): LevelTarget[] {
     uses(c.id).codec = { files, name: c.name, levels: c.levels };
   }
   for (const format of f.formats) {
+    // A format with levels of its own, under its own name: `[levels] bhive`.
+    if (format.levels) {
+      const own = uses(format.id);
+      own.archives.push({ name: ARCHIVE_NAMES[format.id] ?? format.name, levels: format.levels });
+      if (format.level_names.length > 0) own.names = format.level_names;
+    }
     for (const m of format.methods) if (m.levels) uses(m.id).archives.push({ name: ARCHIVE_NAMES[format.id] ?? format.name, levels: m.levels });
   }
   return [...all]
-    .map(([name, { codec, archives }]) => {
+    .map(([name, { codec, archives, names }]) => {
       const ranges = [...(codec ? [codec.levels] : []), ...archives.map((a) => a.levels)];
       const own = codec?.levels.default ?? archives[0].levels.default;
       const parts = [
@@ -92,6 +100,7 @@ export function levelTargets(f: FormatsListOutput): LevelTarget[] {
         own,
         applies: `For ${parts.join(", and ")}.`,
         others: others.length > 0 ? `${others.join("; ")}.` : null,
+        ...(names ? { names } : {}),
       };
     })
     .sort((a, b) => a.name.localeCompare(b.name));
@@ -263,6 +272,7 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
                   own={l.own}
                   applies={l.applies}
                   others={l.others}
+                  names={l.names}
                   value={s.levels[l.name]}
                   error={errors[`levels.${l.name}`]}
                   onCommit={(v) => save(`levels.${l.name}`, v)}

@@ -15,7 +15,7 @@
 <ul>
   <li><strong>Open:</strong> <strong>Open</strong> in the tab strip, <strong>Open archive…</strong> on the welcome screen, or <kbd>Ctrl</kbd>+<kbd>O</kbd>. You can pick several archives at once; each opens in its own tab.</li>
   <li><strong>Drag and drop:</strong> drop one archive on the welcome screen or the tab strip and it opens. Several files, or a file that isn't an archive, go into the <a href="#creating">New archive</a> dialog instead. Dropped on an open archive's entries, files are <a href="#adding">added to that archive</a>.</li>
-  <li><strong>Double-click in Explorer:</strong> once BeeZip is installed, it's offered for zip, 7z, rar, tar and the compressed and split formats. Windows asks which app to use the first time you open each kind of file. The portable copy leaves file types alone. See <a href="../download.html">Download</a>.</li>
+  <li><strong>Double-click in Explorer:</strong> once BeeZip is installed, it's offered for zip, .bhive, 7z, rar, tar and the compressed and split formats. Windows asks which app to use the first time you open each kind of file. The portable copy leaves file types alone. See <a href="../download.html">Download</a>.</li>
   <li><strong>From Explorer's menu:</strong> <strong>Open with BeeZip</strong> opens each selected archive in a tab, <strong>Extract to…</strong> opens the Extract dialog, and <strong>Compress to…</strong> opens New archive with the selection. See <a href="explorer.html">Explorer's menu</a>.</li>
 </ul>
 <p>Launching BeeZip again, such as by double-clicking another archive, opens that archive in the window that's already running, rather than in a second window. An archive that's already open switches to its tab.</p>
@@ -93,9 +93,9 @@
   <tbody>
     <tr><td><strong>Files and folders</strong></td><td>What goes in. <strong>Add files…</strong> and <strong>Add folder…</strong> add more, and so does dropping them on the window while the dialog is open. Each has a <strong>×</strong> to take it out.</td></tr>
     <tr><td><strong>Save as</strong></td><td>The new archive's path. It starts beside the first item, named after it (one item) or after the folder they're in (several). <strong>Browse…</strong> picks another.</td></tr>
-    <tr><td><strong>Format</strong></td><td>Every format BeeZip writes: zip, 7z, tar and cpio (plain or compressed, such as <code>tar.zst</code>), ar, cab, iso, squashfs and dmg. Changing it changes the extension in <strong>Save as</strong>. See <a href="formats.html">Formats</a>.</td></tr>
+    <tr><td><strong>Format</strong></td><td>Every format BeeZip writes: zip, .bhive (<a href="formats.html#bhive">BeeZip's own</a>), 7z, tar and cpio (plain or compressed, such as <code>tar.zst</code>), ar, cab, iso, squashfs and dmg. Changing it changes the extension in <strong>Save as</strong>. See <a href="formats.html">Formats</a>.</td></tr>
     <tr><td><strong>Method</strong></td><td>For formats with more than one, such as zip and 7z. The first choice, marked <strong>(default)</strong>, is <code>deflate</code> for zip, <code>lzma2</code> for 7z, <code>mszip</code> for cab and <code>gzip</code> for squashfs.</td></tr>
-    <tr><td><strong>Level</strong></td><td>A slider over the method's or codec's levels, the lowest fastest and the highest smallest. Leave it alone and the job uses your default level for that codec or method, which Settings → Compression levels sets; the slider starts there, and says so.</td></tr>
+    <tr><td><strong>Level</strong></td><td>A slider over the method's or codec's levels, the lowest fastest and the highest smallest. Leave it alone and the job uses your default level for that codec or method, which Settings → Compression levels sets; the slider starts there, and says so. A .bhive's five levels have names, None, Fast, Balanced, High and Max, and the slider says what each does.</td></tr>
     <tr><td><strong>Solid</strong></td><td>7z only, on by default: compresses files together, which is smaller but slower when you read one file.</td></tr>
     <tr><td><strong>Threads</strong></td><td>For formats and codecs that compress on several threads. Empty uses the setting in Settings; 0 is one per core.</td></tr>
     <tr><td><strong>Password</strong></td><td>zip and 7z only. Leave it empty for no encryption. For zip, choose <strong>AES-256</strong> or <strong>ZipCrypto (weak, for old tools)</strong>. For 7z, <strong>Encrypt file names too</strong> is on, so nobody can list the archive without the password.</td></tr>
@@ -106,7 +106,7 @@
 <p><strong>Create</strong> starts the job. BeeZip doesn't write over an existing file: when <strong>Save as</strong> names one that's there, the job fails and says so.</p>
 
 <h2 id="editing">Editing an archive</h2>
-<p>You can add to, delete from and rename entries in zip, 7z, tar, cpio and ar archives, tar and cpio compressed or not. Each edit runs as a job, and when it ends the tab lists the same folder again, with the same entries selected.</p>
+<p>You can add to, delete from and rename entries in zip, .bhive, 7z, tar, cpio and ar archives, tar and cpio compressed or not. Each edit runs as a job, and when it ends the tab lists the same folder again, with the same entries selected.</p>
 
 <h3 id="adding">Adding files</h3>
 <p><strong>Add files…</strong> and <strong>Add folder…</strong> in the toolbar pick what to add, then open the add dialog. Dropping files on the entries opens it too, with the dropped files: the dialog is the confirmation, so a stray drop changes nothing. While you drag over the window, it says what a drop there will do.</p>
@@ -134,7 +134,7 @@
 <p>RAR archives, split and self-extracting archives, read-only files, and the formats BeeZip only reads (or writes but doesn't edit, such as CAB and the disk images) can't be edited. For those, the add, rename and delete buttons are disabled: hover one, or look at the status line, for the reason. Files dropped on such an archive's entries open New archive instead, saying why. <a href="#convert">Convert</a> turns a split or self-extracting archive into one you can edit.</p>
 
 <h3 id="how-edits-are-written">How an edit is written</h3>
-<p>BeeZip never writes into the archive. It writes a new one beside it and swaps it in, so an edit that fails, or that you cancel, leaves the archive as it was. Entries that stay are copied without being decoded: zip entries byte for byte, whole 7z blocks, and tar, cpio and ar members. A solid 7z block that loses an entry is encoded again, and so is a compressed tar's or cpio's stream. The archive keeps its downloaded mark, hidden attribute and creation time.</p>
+<p>BeeZip never writes into the archive. It writes a new one beside it and swaps it in, so an edit that fails, or that you cancel, leaves the archive as it was. Entries that stay are copied without being decoded: zip entries byte for byte, whole 7z blocks, .bhive cells, and tar, cpio and ar members. A solid 7z block that loses an entry is encoded again, and so are a .bhive cell that lost more than half its bytes and a compressed tar's or cpio's stream. A .bhive keeps the level it was made at unless you choose another. The archive keeps its downloaded mark, hidden attribute and creation time.</p>
 
 <h2 id="opening-entries">Opening an entry</h2>
 <p>Double-click a file, or press <kbd>Enter</kbd> on it, and BeeZip extracts it to its temp folder and opens it:</p>

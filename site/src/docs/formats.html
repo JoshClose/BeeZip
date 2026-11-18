@@ -1,10 +1,37 @@
 <!-- {"title": "Formats", "description": "The archive formats and compressors BeeZip reads, writes, edits and encrypts, the disks, file systems, installers and help files it reads, and what it doesn't.", "layout": "docs"} -->
 <h1>Formats</h1>
-<p class="lede">BeeZip reads <!-- beezip:format-count --> archive formats and a dozen compressors, writes the common ones, and changes zip, 7z, tar, cpio and ar archives in place. This table comes from <code>beezip formats</code>, which shows the same on your machine.</p>
+<p class="lede">BeeZip reads <!-- beezip:format-count --> archive formats and a dozen compressors, writes the common ones and <a href="#bhive">its own</a>, and changes zip, .bhive, 7z, tar, cpio and ar archives in place. This table comes from <code>beezip formats</code>, which shows the same on your machine.</p>
 
 <h2 id="archives">Archives</h2>
 <p><strong>Edit</strong> means adding, removing and renaming entries. <strong>Split</strong> means writing volumes (<code>a.7z.001</code>, <code>a.7z.002</code>…); BeeZip reads split archives of every kind.</p>
 <!-- beezip:formats -->
+
+<h2 id="bhive">.bhive, BeeZip's own format</h2>
+<p>A <code>.bhive</code> is built for the machines archives are made on now. Files are packed into independent <em>cells</em>, and each cell is compressed on its own, with zstd or LZMA2. That one choice gives the rest:</p>
+<ul>
+  <li><strong>Every core works,</strong> making an archive and extracting or testing one.</li>
+  <li><strong>One file reads without the rest:</strong> opening a file decodes the cells it is in, not the archive before it.</li>
+  <li><strong>What repeats is stored once.</strong> Files are cut into pieces where their content says, and a piece the archive already holds isn't stored again: copies, versions of a file, the same library in ten folders.</li>
+  <li><strong>Damage stays where it is.</strong> Every cell has a checksum, a damaged one costs only the files in it, and each cell is preceded by a record of the files finished so far. A download cut short still gives those files: <code>beezip x a.bhive --recover</code>.</li>
+  <li><strong>Edits copy cells as they are,</strong> so renaming, removing or adding files doesn't compress the archive again.</li>
+</ul>
+<table>
+  <thead><tr><th>Level</th><th>What it does</th></tr></thead>
+  <tbody>
+    <tr><td><strong>None</strong> (0)</td><td>No compression: the files end to end, each one a plain run of bytes, with checksums.</td></tr>
+    <tr><td><strong>Fast</strong> (1)</td><td>zstd 3 in 4 MiB cells. The quickest.</td></tr>
+    <tr><td><strong>Balanced</strong> (2), the default</td><td>zstd 6 in 8 MiB cells.</td></tr>
+    <tr><td><strong>High</strong> (3)</td><td>LZMA2 in 16 MiB cells: about a fifth smaller than Balanced, and many times slower to make. Cells that barely compress (photos, video) are stored as they are.</td></tr>
+    <tr><td><strong>Max</strong> (4)</td><td>LZMA2 in 64 MiB cells: the smallest, the slowest, and the most memory.</td></tr>
+  </tbody>
+</table>
+<p>Measured while the format was designed, on a 193 MiB folder of JavaScript packages: a zip came to 29 % of the original and a <code>.tar.zst</code> to 21 %; a <code>.bhive</code> came to 20 % at Fast, 18 % at Balanced, 14 % at High and 13 % at Max. Your files will differ, and files that are already compressed gain little at any level.</p>
+<ul>
+  <li><strong>It stores</strong> files, folders, symbolic links, modification and creation times, Unix modes and DOS attributes. It doesn't store extended attributes, alternate data streams or ACLs.</li>
+  <li><strong>No encryption yet.</strong> Version 1 has none, so <code>-p</code> is refused; use zip or 7z for a password.</li>
+  <li><strong>Only BeeZip reads one today,</strong> which is why zip stays the default. The format is open all the same: its <a href="https://github.com/JoshClose/BeeZip/blob/master/docs/bhive.md">specification</a> is complete, every compressed part is a standard zstd or LZMA2 stream, and a <a href="https://github.com/JoshClose/BeeZip/blob/master/docs/bhive_reader.py">second reader</a>, a short Python script using only Python's standard library, is checked against BeeZip's archives on every change.</li>
+  <li><strong>Version 1 is frozen:</strong> every later BeeZip reads the archives this one writes.</li>
+</ul>
 
 <h2 id="recognising">How BeeZip recognises a file</h2>
 <p>BeeZip looks at what's inside a file, not at its name, so <code>download.bin</code> that's really a <code>.tar.zst</code> opens as one, and so does an archive with no extension at all. It unwraps compressors layer by layer (<code>zstd → tar</code>), and finds a self-extracting 7z, RAR, zip, CAB or LHA inside a program. <code>beezip detect <var>file</var></code> says what it found, or what the file is when it isn't an archive.</p>

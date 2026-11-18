@@ -251,7 +251,7 @@ mod tests {
         let list = c["bundle"]["fileAssociations"].as_array().unwrap();
         let exts: Vec<&str> = list.iter().map(|a| a["ext"][0].as_str().unwrap()).collect();
         for want in [
-            "zip", "7z", "rar", "tar", "gz", "xz", "zst", "cab", "xar", "001",
+            "zip", "bhive", "7z", "rar", "tar", "gz", "xz", "zst", "cab", "xar", "001",
         ] {
             assert!(exts.contains(&want), "{want} is missing");
         }

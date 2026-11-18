@@ -229,7 +229,12 @@ fn plan(req: &JobRequest, cx: &JobCtx) -> Result<Vec<Step>, CmdError> {
                 None => {}
             }
         }
-        Item::Open | Item::AddZip | Item::Add7z | Item::AddTarZst | Item::CompressTo => {
+        Item::Open
+        | Item::AddZip
+        | Item::AddBhive
+        | Item::Add7z
+        | Item::AddTarZst
+        | Item::CompressTo => {
             let (present, missing): (Vec<&PathBuf>, Vec<&PathBuf>) =
                 req.paths.iter().partition(|p| exists(p));
             steps.extend(missing.into_iter().map(|p| gone(p)));

@@ -21,6 +21,7 @@ export const MENU_ITEMS: { id: MenuItem; label: string }[] = [
   { id: "extract-to", label: "Extract to…" },
   { id: "test", label: "Test archive" },
   { id: "add-zip", label: 'Add to "a.zip"' },
+  { id: "add-bhive", label: 'Add to "a.bhive"' },
   { id: "add-7z", label: 'Add to "a.7z"' },
   { id: "add-tar-zst", label: 'Add to "a.tar.zst"' },
   { id: "compress-to", label: "Compress to…" },

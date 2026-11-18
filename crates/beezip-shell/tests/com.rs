@@ -250,6 +250,7 @@ fn the_root_cascades_for_an_archive() {
                 "Test archive",
                 "-----",
                 "Add to \"a.zip\"",
+                "Add to \"a.bhive\"",
                 "Add to \"a.7z\"",
                 "Add to \"a.tar.zst\"",
                 "Compress to…",
@@ -275,6 +276,7 @@ fn selections_get_their_items() {
             &["notes.txt"],
             &[
                 "Add to \"notes.zip\"",
+                "Add to \"notes.bhive\"",
                 "Add to \"notes.7z\"",
                 "Add to \"notes.tar.zst\"",
                 "Compress to…",
@@ -284,6 +286,7 @@ fn selections_get_their_items() {
             &["photos"],
             &[
                 "Add to \"photos.zip\"",
+                "Add to \"photos.bhive\"",
                 "Add to \"photos.7z\"",
                 "Add to \"photos.tar.zst\"",
                 "Compress to…",
@@ -297,6 +300,7 @@ fn selections_get_their_items() {
             "Test archives".into(),
             "-----".into(),
             format!("Add to \"{folder}.zip\""),
+            format!("Add to \"{folder}.bhive\""),
             format!("Add to \"{folder}.7z\""),
             format!("Add to \"{folder}.tar.zst\""),
             "Compress to…".into(),
@@ -326,7 +330,7 @@ fn enumerating_first_still_hides_what_a_selection_lacks() {
         let array = items(&["notes.txt"]);
         let subs = subcommands(&root, &array);
         assert_eq!(subs.len(), Item::ALL.len());
-        assert_eq!(subs.iter().filter(|s| s.2).count(), 4);
+        assert_eq!(subs.iter().filter(|s| s.2).count(), 5);
     }
     assert!(can_unload());
 }
@@ -347,7 +351,7 @@ fn hidden_items_stay_out() {
             !titles.iter().any(|t| t.ends_with(".tar.zst\"")),
             "{titles:?}"
         );
-        assert_eq!(titles.len(), 8, "{titles:?}");
+        assert_eq!(titles.len(), 9, "{titles:?}");
         // Everything hidden: the root itself goes.
         let ids: Vec<&str> = Item::ALL.iter().map(|i| i.id()).collect();
         settings().set_multi_string("Hidden", &ids).unwrap();

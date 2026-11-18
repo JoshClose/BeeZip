@@ -24,7 +24,7 @@ import { useFormats } from "../../lib/formats";
 import { loadSettings } from "../../lib/settings";
 import { toastError } from "../../lib/toasts";
 import { CopyAsCli } from "../cli/CopyAsCli";
-import { applies, defaultLevel, defaultMethod, InputsField, levelHint, useConfiguredLevels } from "../create/CreateDialog";
+import { applies, defaultLevel, defaultMethod, InputsField, levelArg, levelHint, levelLabel, levelNote, useConfiguredLevels } from "../create/CreateDialog";
 
 export type AddForm = {
   inputs: string[];
@@ -61,6 +61,14 @@ export function editFormat(info: ArchiveInfoOutput | undefined, formats?: Format
   return (name ?? info.format) as ArchiveFormatName;
 }
 
+/** The level a .bhive was made at, which an add keeps unless one is chosen: its place among
+ * the format's named levels, from `archive.info`'s properties. */
+export function ownLevel(info: ArchiveInfoOutput | undefined, names: string[]): number | undefined {
+  const name = info?.properties?.find((p) => p.name === "Level")?.value;
+  const at = name === undefined ? -1 : names.indexOf(name);
+  return at < 0 ? undefined : at;
+}
+
 /** How the archive's own encryption shapes the new files'. */
 export function encryptionOf(info: ArchiveInfoOutput | undefined) {
   return {
@@ -94,7 +102,7 @@ export function addArgs(tab: Tab, f: AddForm, formats?: FormatsListOutput): Arch
     ...(dir ? { dir } : {}),
     ...(f.overwrite ? { overwrite: f.overwrite } : {}),
     ...(a.methods.length > 0 && f.method ? { method: f.method } : {}),
-    ...(a.level && f.level !== undefined ? { level: f.level } : {}),
+    ...(a.level && f.level !== undefined ? { level: levelArg(a, f.level) } : {}),
     ...(encrypt && f.password ? { password: f.password } : {}),
     ...(encrypt && a.encryption && f.password && f.encryption !== "aes256" ? { encryption: f.encryption } : {}),
     ...(encrypted && !encrypt ? { unencrypted: true } : {}),
@@ -136,7 +144,9 @@ export function AddDialog({ tab, inputs: given, dir, onClose }: { tab: Tab; inpu
   const format = editFormat(tab.info, formats);
   const a = applies({ format, method: form.method }, formats);
   const levels = useConfiguredLevels();
-  const shownLevel = defaultLevel(a, levels);
+  // A .bhive keeps the level it was made at; the others start at the settings' or their own.
+  const kept = ownLevel(tab.info, a.levelNames);
+  const shownLevel = kept === undefined ? defaultLevel(a, levels) : { value: kept, configured: false };
   const { encrypted, headers } = encryptionOf(tab.info);
   const args = useMemo(() => addArgs(tab, form, formats), [tab, form, formats]);
   const ready = addReady(tab, form, formats);
@@ -207,7 +217,15 @@ export function AddDialog({ tab, inputs: given, dir, onClose }: { tab: Tab; inpu
           <Field
             label="Level"
             htmlFor="add-level"
-            hint={format.startsWith("tar.") ? "The whole archive is compressed again at this level." : form.level === undefined ? levelHint(shownLevel) : undefined}
+            hint={
+              format.startsWith("tar.")
+                ? "The whole archive is compressed again at this level."
+                : form.level !== undefined
+                  ? undefined
+                  : kept !== undefined
+                    ? `The archive's own level, ${levelLabel(a, kept)}.`
+                    : levelHint(shownLevel, levelLabel(a, shownLevel.value))
+            }
           >
             <div className="flex items-center gap-3">
               <input
@@ -216,10 +234,12 @@ export function AddDialog({ tab, inputs: given, dir, onClose }: { tab: Tab; inpu
                 min={a.level.min}
                 max={a.level.max}
                 value={form.level ?? shownLevel.value}
+                aria-valuetext={levelLabel(a, form.level ?? shownLevel.value)}
                 onChange={(e) => set({ level: Number(e.target.value) })}
-                className="w-56 accent-[var(--amber)]"
+                className="w-56 shrink-0 accent-[var(--amber)]"
               />
-              <span className="tabular w-6">{form.level ?? shownLevel.value}</span>
+              <span className={a.levelNames.length > 0 ? "w-16 shrink-0" : "tabular w-6 shrink-0"}>{levelLabel(a, form.level ?? shownLevel.value)}</span>
+              {a.levelNames.length > 0 && <span className="text-[12px] text-muted">{levelNote(a, form.level ?? shownLevel.value)}</span>}
             </div>
           </Field>
         )}

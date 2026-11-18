@@ -163,14 +163,18 @@ fn edits(input: SettingsSetInput) -> Result<Vec<Edit>, CmdError> {
     Ok(out)
 }
 
-/// The names `levels.<name>` takes: every codec and every zip and 7z method.
+/// The names `levels.<name>` takes: every codec, every zip and 7z method, and `bhive`, whose
+/// levels are the format's own.
 fn level_names() -> BTreeSet<String> {
     fn names<T: ValueEnum + 'static>() -> impl Iterator<Item = String> {
         T::value_variants()
             .iter()
             .filter_map(|v| v.to_possible_value().map(|p| p.get_name().to_owned()))
     }
-    names::<CodecName>().chain(names::<MethodName>()).collect()
+    names::<CodecName>()
+        .chain(names::<MethodName>())
+        .chain(["bhive".to_owned()])
+        .collect()
 }
 
 /// A default level must suit everything it applies to, so `levels.deflate = 0` is refused:
@@ -625,7 +629,7 @@ theme = \"dark\"
         assert_eq!(err.details.as_ref().unwrap()["key"], "extract.colour");
         let err = set(&engine, json!({ "set": { "shell.items.nope": 1 } })).unwrap_err();
         assert!(
-            err.message.contains("has add-7z, add-tar-zst"),
+            err.message.contains("has add-7z, add-bhive, add-tar-zst"),
             "{}",
             err.message
         );
@@ -646,7 +650,7 @@ theme = \"dark\"
         let err = set(&engine, json!({ "set": { "levels.nope": 1 } })).unwrap_err();
         assert_eq!(err.code, ErrorCode::InvalidArgs);
         assert!(
-            err.message.contains("takes one of brotli, bzip2"),
+            err.message.contains("takes one of bhive, brotli, bzip2"),
             "{}",
             err.message
         );
@@ -703,6 +707,22 @@ theme = \"dark\"
         .unwrap();
         assert_eq!(out.current.settings.levels["deflate"], 1);
         assert_eq!(out.current.settings.levels["zstd"], 22);
+
+        // A .bhive's level is the format's own: 0 (none) to 4 (max).
+        let out = set(&engine, json!({ "set": { "levels.bhive": 4 } })).unwrap();
+        assert_eq!(out.current.settings.levels["bhive"], 4);
+        let err = set(&engine, json!({ "set": { "levels.bhive": 5 } })).unwrap_err();
+        assert_eq!(
+            err.message,
+            "`levels.bhive` can't be 5: bhive takes 0–4. Nothing was written."
+        );
+        let err = set(&engine, json!({ "set": { "levels.hive": 1 } })).unwrap_err();
+        assert!(
+            err.message.starts_with("`hive` isn't a codec or method"),
+            "{}",
+            err.message
+        );
+        assert!(err.message.contains("bhive, brotli"), "{}", err.message);
     }
 
     #[test]

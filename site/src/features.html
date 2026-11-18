@@ -5,7 +5,7 @@
 <h2 id="explorer">Explorer's right-click menu</h2>
 <ul>
   <li><strong>In Windows 11's own menu,</strong> not under Show more options, once BeeZip is installed with the signed installer (from 1.0.0). On Windows 10, and from the portable copy, it's in the classic menu.</li>
-  <li><strong>The items:</strong> Open with BeeZip, Extract here, Extract to "a\", Extract to…, Test archive, Add to "a.zip", Add to "a.7z", Add to "a.tar.zst" and Compress to…, on files and folders, one or many.</li>
+  <li><strong>The items:</strong> Open with BeeZip, Extract here, Extract to "a\", Extract to…, Test archive, Add to "a.zip", Add to "a.bhive", Add to "a.7z", Add to "a.tar.zst" and Compress to…, on files and folders, one or many.</li>
   <li><strong>Extract here is smart:</strong> an archive holding more than one item goes into a folder named after it, as Explorer does.</li>
   <li><strong>A small window for each job,</strong> with its progress, the password when one is needed, and what to do with files already there. It closes itself when everything went well.</li>
   <li><strong>When the archive you're making exists,</strong> add to it, replace it, keep both or skip.</li>
@@ -20,8 +20,8 @@
   <li><strong>Big archives are fine:</strong> a million entries list without a pause. Click a column to sort; the keyboard moves and selects as in Explorer.</li>
   <li><strong>Open archives</strong> with Ctrl+O, by dropping them on the window, by double-clicking one once BeeZip is installed, or by launching BeeZip again, which opens them in the window already running.</li>
   <li><strong>Extract</strong> everything or the entries you selected, choosing where, what to do with files already there, whether to drop leading folders, and whether to make symbolic links.</li>
-  <li><strong>New archives</strong> from files you pick or drop: zip, 7z, tar and the rest, with the method, level, password, solid blocks and volumes you want.</li>
-  <li><strong>Edit</strong> zip, 7z, tar, cpio and ar archives: add files and folders, delete entries, rename in place.</li>
+  <li><strong>New archives</strong> from files you pick or drop: zip, .bhive, 7z, tar and the rest, with the method, level, password, solid blocks and volumes you want.</li>
+  <li><strong>Edit</strong> zip, .bhive, 7z, tar, cpio and ar archives: add files and folders, delete entries, rename in place.</li>
   <li><strong>Open an entry</strong> in its app; change it, come back, and BeeZip offers to update the archive. An archive inside an archive opens in a tab.</li>
   <li><strong>Drag entries out</strong> onto Explorer or the desktop; they're extracted as you let go. Ctrl copies.</li>
   <li><strong>Test, Info, Convert and Benchmark,</strong> and a name encoding for archives made on another system.</li>
@@ -37,6 +37,7 @@
 
 <h2 id="formats">Formats</h2>
 <ul>
+  <li><strong>Its own format, <code>.bhive</code>:</strong> every core at work in both directions, content that repeats stored once, one file read without the rest, and what a cut-off archive still holds recovered. Open by a <a href="docs/formats.html#bhive">specification</a> and a second reader.</li>
   <li><strong>Reads and writes</strong> zip, 7z, tar, cpio, ar, CAB, ISO 9660 (with Joliet and Rock Ridge), squashfs and DMG, and tar and cpio under any compressor.</li>
   <li><strong>Reads</strong> RAR 1.5 to 7, Debian packages, RPMs, LHA, UDF, XAR and macOS packages, and ARJ, ACE, ZOO and ARC from the DOS days.</li>
   <li><strong>Reads disks and installers:</strong> the virtual disks VHD, VHDX, VMDK, QCOW2 and VDI with their snapshots, GPT and MBR disks, FAT, NTFS, ext2/3/4, HFS+ and APFS volumes, and MSI installers, whose files are listed where they install, with their patches, transforms and merge modules.</li>
@@ -57,6 +58,7 @@
 <ul>
   <li><strong>Zip</strong> with store, deflate, bzip2, Zstandard, xz or PPMd, and AES-256 encryption, or ZipCrypto for old tools.</li>
   <li><strong>7z</strong> with LZMA2, LZMA, PPMd, bzip2 or deflate, solid or not, and AES-256 that hides the file names too.</li>
+  <li><strong>.bhive</strong> at five levels, None, Fast, Balanced, High and Max: zstd for the quick ones, LZMA2 for the small ones.</li>
   <li><strong>tar and cpio</strong> under any compressor, ar, CAB, ISO, squashfs and DMG.</li>
   <li><strong>Split into volumes</strong> of any size, in every format.</li>
   <li><strong>Leave out</strong> files by pattern, such as <code>*.tmp</code> or <code>node_modules</code>.</li>
@@ -66,8 +68,8 @@
 
 <h2 id="changing">Changing archives</h2>
 <ul>
-  <li><strong>Add, delete and rename</strong> in zip, 7z, tar, cpio and ar archives, compressed or not. A rename can move entries, and a folder takes everything in it.</li>
-  <li><strong>What stays is copied as it is:</strong> zip entries byte for byte, whole 7z blocks, tar, cpio and ar members. Only a 7z solid block that loses an entry, or a compressed tar's stream, is encoded again.</li>
+  <li><strong>Add, delete and rename</strong> in zip, .bhive, 7z, tar, cpio and ar archives, compressed or not. A rename can move entries, and a folder takes everything in it.</li>
+  <li><strong>What stays is copied as it is:</strong> zip entries byte for byte, whole 7z blocks, .bhive cells, tar, cpio and ar members. Only a 7z solid block that loses an entry, a .bhive cell that lost more than half its bytes, or a compressed tar's stream, is encoded again.</li>
   <li><strong>Never in place:</strong> a new archive is written beside the old one and swapped in, keeping its Mark of the Web, hidden attribute and creation time.</li>
   <li><strong>Convert</strong> any archive BeeZip reads (RAR, packages, disk images, split and self-extracting archives) into one it writes. The original stays.</li>
   <li><strong>Encryption stays:</strong> adding to an encrypted archive needs a password for the new files, and converting one needs a new password or your say-so to decrypt.</li>

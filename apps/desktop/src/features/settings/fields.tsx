@@ -268,6 +268,7 @@ export function LevelSetting({
   own,
   applies,
   others,
+  names,
   value,
   error,
   onCommit,
@@ -279,10 +280,13 @@ export function LevelSetting({
   applies: string;
   /** The formats whose own default differs, shown while none is set. */
   others: string | null;
+  /** The levels' names, lowest first, when they have them. */
+  names?: string[];
   value: number | undefined;
   error?: string;
   onCommit: (value: number | null) => void;
 }) {
+  const label = (level: number) => names?.[level] ?? String(level);
   const [shown, setShown] = useState(value);
   const { schedule, flush, isPending } = useDelayedCommit(onCommit);
   useEffect(() => {
@@ -303,6 +307,7 @@ export function LevelSetting({
             max={range.max}
             value={shown ?? own}
             aria-describedby={`${id}-applies`}
+            aria-valuetext={label(shown ?? own)}
             onChange={(e) => {
               setShown(Number(e.target.value));
               schedule(Number(e.target.value));
@@ -311,13 +316,15 @@ export function LevelSetting({
             onKeyUp={flush}
             className={cn("w-48 accent-[var(--amber)]", shown === undefined && "opacity-60")}
           />
-          <span className={cn("tabular w-20 text-[12px]", shown === undefined && "text-muted")}>{shown === undefined ? `${own} (default)` : shown}</span>
+          <span className={cn("tabular text-[12px]", names ? "w-32" : "w-20", shown === undefined && "text-muted")}>
+            {shown === undefined ? `${label(own)} (default)` : label(shown)}
+          </span>
           {shown !== undefined && (
             <Button
               size="sm"
               variant="ghost"
               aria-label={`Put ${name} back to its default`}
-              title={others ? "Back to the defaults" : `Back to the default, ${own}`}
+              title={others ? "Back to the defaults" : `Back to the default, ${label(own)}`}
               onClick={() => {
                 setShown(undefined);
                 onCommit(null);
