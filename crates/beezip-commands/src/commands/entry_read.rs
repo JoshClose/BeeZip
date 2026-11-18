@@ -49,6 +49,11 @@ pub struct EntryReadInput {
     #[arg(long, value_enum, value_name = "ENCODING")]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name_encoding: Option<NameEncoding>,
+    /// Open a .bhive whose index is missing or damaged (a download cut short) from the
+    /// records before its cells, with the entries they still hold.
+    #[arg(long, num_args = 0..=1, require_equals = true, default_missing_value = "true")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub recover: Option<bool>,
 }
 
 pub const DEFAULT_MAX_BYTES: u64 = 64 * 1024;
@@ -103,7 +108,7 @@ impl Command for EntryRead {
         let (path, id, size, skipped, mut buf, eof) = with_archive(
             &given,
             input.password.as_ref(),
-            input.name_encoding,
+            crate::commands::util::Opening::new(input.name_encoding, input.recover),
             cx,
             |a, cx| {
                 let opened = &mut a.opened;

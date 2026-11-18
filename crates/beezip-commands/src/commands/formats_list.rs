@@ -1,7 +1,8 @@
 use beezip_core::{
     CodecId, FormatCaps, FormatId,
     format::{
-        cab::CabMethod, caps_for, sevenz::SevenZMethod, squashfs::SquashfsMethod, zip::ZipMethod,
+        bhive::Level as BhiveLevel, cab::CabMethod, caps_for, sevenz::SevenZMethod,
+        squashfs::SquashfsMethod, zip::ZipMethod,
     },
     ops::ArchiveKind,
 };
@@ -89,6 +90,11 @@ pub struct FormatInfo {
     pub methods: Vec<MethodInfo>,
     /// Encryption for new archives.
     pub encryption: Vec<String>,
+    /// The levels of a format that has them itself, not through a method: a `.bhive`'s 0
+    /// to 4.
+    pub levels: Option<LevelRange>,
+    /// Those levels' names, lowest first: `none`, `fast`, `balanced`, `high`, `max`.
+    pub level_names: Vec<String>,
     /// Explorer's menu offers BeeZip's items on its extensions. The disk images' and
     /// installers' `.img`, `.exe` and `.msi` are left out (docs/M6.md §3.7).
     pub menu: bool,
@@ -137,6 +143,15 @@ fn methods(f: FormatId) -> Vec<(&'static str, Option<beezip_core::Levels>)> {
     }
 }
 
+/// A `.bhive`'s levels as a range: None to Max, Balanced the default (docs/M13.md §4).
+fn bhive_levels() -> beezip_core::Levels {
+    beezip_core::Levels {
+        min: i32::from(BhiveLevel::None.number()),
+        max: i32::from(BhiveLevel::Max.number()),
+        default: i32::from(BhiveLevel::default().number()),
+    }
+}
+
 /// Everything `[levels] NAME` sets the default level of: the codec of that name (`zstd`) and
 /// each format's method of it (`squashfs zstd`), with the levels each takes. They don't all
 /// take the same ones: zip's deflate starts at 1 where raw deflate starts at 0.
@@ -151,7 +166,9 @@ pub fn level_uses(name: &str) -> Vec<(String, beezip_core::Levels)> {
             .filter(|(m, _)| *m == name)
             .filter_map(move |(m, l)| Some((format!("{} {m}", f.name()), l?)))
     });
-    codec.chain(methods).collect()
+    // `[levels] bhive` is the level of new `.bhive` archives.
+    let own = (name == "bhive").then(|| (name.to_owned(), bhive_levels()));
+    codec.chain(methods).chain(own).collect()
 }
 
 /// Whether Explorer's menu offers BeeZip's items on a format's extensions, and installing
@@ -196,6 +213,11 @@ impl Command for FormatsList {
                         levels: levels.map(Into::into),
                     })
                     .collect(),
+                levels: (f == FormatId::Bhive).then(|| bhive_levels().into()),
+                level_names: match f {
+                    FormatId::Bhive => BhiveLevel::ALL.iter().map(|l| l.name().into()).collect(),
+                    _ => Vec::new(),
+                },
                 encryption: match f {
                     FormatId::Zip => vec!["aes256".into(), "zipcrypto".into()],
                     FormatId::SevenZ => vec!["aes256".into()],

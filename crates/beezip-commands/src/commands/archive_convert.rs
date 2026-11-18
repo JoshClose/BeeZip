@@ -12,13 +12,13 @@ use crate::{
         util::{absolute, open_options},
     },
     wire::{
-        ArchiveFormatName, ByteSize, EncryptionName, MethodName, NameEncoding, Secret, human_size,
-        ratio,
+        ArchiveFormatName, ByteSize, EncryptionName, LevelArg, MethodName, NameEncoding, Secret,
+        human_size, ratio,
     },
 };
 
 /// Write an archive's entries to a new archive in another format, or with other options: zip,
-/// 7z, tar, cpio, ar, cab, ISO, squashfs or DMG, tar and cpio under a codec too, from any archive
+/// bhive, 7z, tar, cpio, ar, cab, ISO, squashfs or DMG, tar and cpio under a codec too, from any archive
 /// BeeZip reads (RAR, packages, disk images and split archives included). The source isn't changed. Entries are copied without decoding when the formats
 /// match and no option asks for something else (`a.tar.gz` → `a.tar.zst` keeps every tar
 /// entry, encoding the stream again). An encrypted source needs `new_password` or `decrypt`:
@@ -51,10 +51,11 @@ pub struct ArchiveConvertInput {
     #[arg(short, long, value_enum)]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub method: Option<MethodName>,
-    /// The compression level; `formats.list` shows each codec's and method's range.
+    /// The compression level; `formats.list` shows each codec's and method's range. A .bhive's
+    /// is 0 to 4, or its name: `none`, `fast`, `balanced` (the default), `high` or `max`.
     #[arg(short, long, allow_negative_numbers = true)]
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub level: Option<i32>,
+    pub level: Option<LevelArg>,
     /// Compression threads for codecs that have them; 0 is one per core [default: from config].
     #[arg(long)]
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -95,6 +96,11 @@ pub struct ArchiveConvertInput {
     #[arg(long, value_enum, value_name = "ENCODING")]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name_encoding: Option<NameEncoding>,
+    /// Open a .bhive whose index is missing or damaged (a download cut short) from the
+    /// records before its cells, with the entries they still hold.
+    #[arg(long, num_args = 0..=1, require_equals = true, default_missing_value = "true")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub recover: Option<bool>,
     /// Show what would be written without writing anything.
     #[arg(long, num_args = 0..=1, require_equals = true, default_missing_value = "true")]
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -178,7 +184,8 @@ impl Command for ArchiveConvert {
         }
         let args = SpecArgs {
             method: input.method,
-            level: input.level,
+            level: input.level.and_then(LevelArg::number),
+            level_name: input.level.and_then(LevelArg::name),
             threads: input.threads,
             password: input.new_password.as_ref().map(|p| p.expose().to_owned()),
             encryption: input.encryption,
@@ -208,7 +215,10 @@ impl Command for ArchiveConvert {
             dry_run: input.dry_run.unwrap_or(false),
         };
         cx.set_password(input.password.as_ref());
-        let open_opts = open_options(input.name_encoding, cx);
+        let open_opts = open_options(
+            crate::commands::util::Opening::new(input.name_encoding, input.recover),
+            cx,
+        );
         let r = beezip_core::ops::convert(
             &absolute(&input.archive),
             &output,

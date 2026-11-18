@@ -11,11 +11,12 @@ use crate::{
     wire::{NameEncoding, Secret},
 };
 
-/// Remove entries from an archive (zip, 7z, tar, cpio and ar, and tar and cpio under any
-/// codec). A folder takes
+/// Remove entries from an archive (zip, bhive, 7z, tar, cpio and ar, and tar and cpio under
+/// any codec). A folder takes
 /// everything under it. A new archive is written beside the old one and swapped in, so a failed
 /// or cancelled removal leaves it as it was; the entries that stay are copied without decoding,
-/// except the rest of a 7z solid block that loses one, which is encoded again. Fails with
+/// except the rest of a 7z solid block that loses one, and what is left of a .bhive cell
+/// that lost more than half its bytes, which are encoded again. Fails with
 /// `NotFound` when nothing matches.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, clap::Args, TS)]
 #[serde(deny_unknown_fields)]

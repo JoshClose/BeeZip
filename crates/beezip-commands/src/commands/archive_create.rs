@@ -14,13 +14,17 @@ use crate::{
         edit::{SpecArgs, spec_for},
         util::absolute,
     },
-    wire::{ArchiveFormatName, ByteSize, EncryptionName, MethodName, Secret, human_size, ratio},
+    wire::{
+        ArchiveFormatName, ByteSize, EncryptionName, LevelArg, MethodName, Secret, human_size,
+        ratio,
+    },
 };
 
 /// Create an archive from files and folders. Each input is stored under its own name (`src/`
-/// becomes `src/…`). The format comes from `format` or the output's extension (`.zip`, `.7z`,
-/// `.tar`, `.tar.zst`, `.tgz`, `.cpio.gz`, `.ar`, `.cab`, `.iso`, `.squashfs`, `.dmg`…); ar
-/// and cab hold files only. An ISO has Joliet and Rock Ridge, a DMG is an HFS+ volume in a
+/// becomes `src/…`). The format comes from `format` or the output's extension (`.zip`,
+/// `.bhive`, `.7z`, `.tar`, `.tar.zst`, `.tgz`, `.cpio.gz`, `.ar`, `.cab`, `.iso`, `.squashfs`,
+/// `.dmg`…); ar and cab hold files only. A `.bhive` is BeeZip's own format: it stores
+/// repeated content once, reads any file without decoding the rest, and uses every core. An ISO has Joliet and Rock Ridge, a DMG is an HFS+ volume in a
 /// zlib-compressed image. The archive is written to a temporary file and renamed into place,
 /// so a failed or cancelled create leaves nothing behind.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, clap::Args, TS)]
@@ -43,10 +47,11 @@ pub struct ArchiveCreateInput {
     #[arg(short, long, value_enum)]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub method: Option<MethodName>,
-    /// The compression level; `formats.list` shows each codec's and method's range.
+    /// The compression level; `formats.list` shows each codec's and method's range. A .bhive's
+    /// is 0 to 4, or its name: `none`, `fast`, `balanced` (the default), `high` or `max`.
     #[arg(short, long, allow_negative_numbers = true)]
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub level: Option<i32>,
+    pub level: Option<LevelArg>,
     /// Compression threads for codecs that have them; 0 is one per core [default: from config].
     #[arg(long)]
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -122,7 +127,8 @@ impl ArchiveCreate {
     ) -> Result<WriteSpec, CmdError> {
         let args = SpecArgs {
             method: input.method,
-            level: input.level,
+            level: input.level.and_then(LevelArg::number),
+            level_name: input.level.and_then(LevelArg::name),
             threads: input.threads,
             password: input.password.as_ref().map(|p| p.expose().to_owned()),
             encryption: input.encryption,

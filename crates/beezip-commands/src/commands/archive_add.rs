@@ -11,11 +11,11 @@ use crate::{
         edit::{EditOutput, SpecArgs, human, run_edit},
         util::absolute,
     },
-    wire::{EncryptionName, MethodName, NameEncoding, OverwritePolicy, Secret},
+    wire::{EncryptionName, LevelArg, MethodName, NameEncoding, OverwritePolicy, Secret},
 };
 
-/// Add files and folders to an archive (zip, 7z, tar, cpio and ar, and tar and cpio under any
-/// codec). Each input is stored under its own name, as `archive.create` stores them, in `dir` if
+/// Add files and folders to an archive (zip, bhive, 7z, tar, cpio and ar, and tar and cpio
+/// under any codec). Each input is stored under its own name, as `archive.create` stores them, in `dir` if
 /// given; an ar holds files only. The archive
 /// isn't written in place: a new one is written beside it and swapped in, so a failed or
 /// cancelled add leaves it as it was. Entries that stay are copied without decoding. An archive
@@ -45,10 +45,11 @@ pub struct ArchiveAddInput {
     #[arg(short, long, value_enum)]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub method: Option<MethodName>,
-    /// The compression level, for the new files, or a compressed tar's stream.
+    /// The compression level, for the new files, or a compressed tar's stream. A .bhive's is
+    /// 0 to 4, or its name: `none`, `fast`, `balanced`, `high` or `max`.
     #[arg(short, long, allow_negative_numbers = true)]
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub level: Option<i32>,
+    pub level: Option<LevelArg>,
     /// Compression threads for codecs that have them; 0 is one per core [default: from config].
     #[arg(long)]
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -129,7 +130,8 @@ impl Command for ArchiveAdd {
         }
         let args = SpecArgs {
             method: input.method,
-            level: input.level,
+            level: input.level.and_then(LevelArg::number),
+            level_name: input.level.and_then(LevelArg::name),
             threads: input.threads,
             password: input.password.as_ref().map(|p| p.expose().to_owned()),
             encryption: input.encryption,

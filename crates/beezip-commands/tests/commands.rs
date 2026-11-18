@@ -105,7 +105,7 @@ fn formats_list_has_everything() {
     // and installers.
     assert_eq!(out["formats"].as_array().unwrap().len(), 38);
     assert_eq!(out["codecs"].as_array().unwrap().len(), 13);
-    assert_eq!(out["create"].as_array().unwrap().len(), 31);
+    assert_eq!(out["create"].as_array().unwrap().len(), 32);
     let cab = out["formats"]
         .as_array()
         .unwrap()
@@ -134,6 +134,12 @@ fn formats_list_has_everything() {
     assert_eq!(own["caps"]["list"], true);
     assert_eq!(own["caps"]["random_access"], true);
     assert_eq!(own["menu"], false);
+    assert_eq!(own["caps"]["create"], true);
+    assert_eq!(own["caps"]["rename"], true);
+    assert_eq!(own["caps"]["encrypt"], false);
+    assert_eq!(own["levels"]["default"], 2);
+    assert_eq!(own["level_names"][4], "max");
+    assert_eq!(out["create"][1], "bhive");
     let sz = &out["formats"][3];
     assert_eq!(sz["id"], "7z");
     assert_eq!(sz["methods"][0]["id"], "lzma2");

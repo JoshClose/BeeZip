@@ -31,25 +31,55 @@ pub fn as_given(given: &Path, parts: &[PathBuf]) -> Vec<PathBuf> {
         .collect()
 }
 
+/// How an input asks for its archive to be opened: how its names are read, and whether a
+/// `.bhive` without its index is opened from the records before its cells (docs/M13.md §7).
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Opening {
+    pub encoding: Option<NameEncoding>,
+    pub recover: bool,
+}
+
+impl Opening {
+    pub fn new(encoding: Option<NameEncoding>, recover: Option<bool>) -> Self {
+        Self {
+            encoding,
+            recover: recover.unwrap_or(false),
+        }
+    }
+}
+
+impl From<Option<NameEncoding>> for Opening {
+    fn from(encoding: Option<NameEncoding>) -> Self {
+        Self {
+            encoding,
+            recover: false,
+        }
+    }
+}
+
 /// Opens an archive under the job's limits, with the input's password set.
 pub fn open_archive(
     path: &Path,
     password: Option<&Secret>,
-    encoding: Option<NameEncoding>,
+    opening: impl Into<Opening>,
     cx: &mut JobCtx,
 ) -> Result<Opened, CmdError> {
-    let opts = open_options(encoding, cx);
+    let opts = open_options(opening, cx);
     open_archive_with(path, password, &opts, cx)
 }
 
 /// The job's open options, reading names in `encoding` (else the config's). Keep them to share
 /// their budget with an `FsSink`.
-pub fn open_options(encoding: Option<NameEncoding>, cx: &JobCtx) -> OpenOptions {
+pub fn open_options(opening: impl Into<Opening>, cx: &JobCtx) -> OpenOptions {
+    let opening = opening.into();
     // A config that can't be read gives one per core, the default.
     let threads = cx.config().ok().map_or(0, |c| c.extract.threads);
-    OpenOptions::new(cx.policy().limits.clone())
-        .with_names(names(encoding, cx))
-        .with_threads(threads)
+    OpenOptions {
+        recover: opening.recover,
+        ..OpenOptions::new(cx.policy().limits.clone())
+            .with_names(names(opening.encoding, cx))
+            .with_threads(threads)
+    }
 }
 
 /// How names are read: in `encoding`, else in `[names] encoding`, on this system's code pages.
@@ -104,11 +134,11 @@ impl Drop for Lent {
 pub fn with_archive<T>(
     path: &Path,
     password: Option<&Secret>,
-    encoding: Option<NameEncoding>,
+    opening: impl Into<Opening>,
     cx: &mut JobCtx,
     f: impl FnOnce(&mut OpenArchive, &mut JobCtx) -> Result<T, CmdError>,
 ) -> Result<T, CmdError> {
-    let mut lent = open_lent(path, password, encoding, cx)?;
+    let mut lent = open_lent(path, password, opening.into(), cx)?;
     let Some(archive) = lent.archive.as_mut() else {
         return Err(CmdError::internal("the archive was lent twice"));
     };
@@ -129,14 +159,16 @@ pub fn with_archive<T>(
 fn open_lent(
     path: &Path,
     password: Option<&Secret>,
-    encoding: Option<NameEncoding>,
+    opening: Opening,
     cx: &mut JobCtx,
 ) -> Result<Lent, CmdError> {
     cx.set_password(password);
     let path = absolute(path);
     let limits = cx.policy().limits.clone();
-    let names = names(encoding, cx);
-    let cache = cx.cache().cloned();
+    let names = names(opening.encoding, cx);
+    // An archive opened from its records is this job's alone: the cache keeps archives as
+    // they open without it.
+    let cache = cx.cache().filter(|_| !opening.recover).cloned();
     let canonical = std::fs::canonicalize(&path).ok();
     if let (Some(cache), Some(canonical)) = (&cache, &canonical)
         && let Some((archive, key)) = cache.lend(canonical, &limits, &names)
@@ -146,7 +178,10 @@ fn open_lent(
             home: Some((Arc::clone(cache), key)),
         });
     }
-    let opts = OpenOptions::new(limits.clone()).with_names(names);
+    let opts = OpenOptions {
+        recover: opening.recover,
+        ..OpenOptions::new(limits.clone()).with_names(names)
+    };
     let started = std::time::Instant::now();
     let opened = open(&path, &opts, cx)?;
     let opening = started.elapsed();
