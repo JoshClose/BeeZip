@@ -840,3 +840,82 @@ async fn edits_are_destructive_tools_confined_to_the_roots() {
         .unwrap();
     assert_eq!(error(&r).0, "PasswordRequired");
 }
+
+/// A `.bhive` through the tools (docs/M13.md §5): made at a level by its name, described, and
+/// one without its index opened with `recover`.
+#[tokio::test]
+async fn bhive_is_made_described_and_recovered() {
+    let (_dir, root) = sandbox();
+    let h = connect(rooted(&root), TestClient::new(), false).await;
+    let src = root.join("src");
+    std::fs::create_dir(&src).unwrap();
+    std::fs::write(src.join("a.txt"), "honey ".repeat(2000)).unwrap();
+    std::fs::write(src.join("b.txt"), "honey ".repeat(2000)).unwrap();
+    let archive = root.join("a.bhive");
+
+    let r = h
+        .client
+        .call_tool(call(
+            "archive_create",
+            json!({ "output": archive, "inputs": [src], "level": "fast" }),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(output(&r)["format"], "bhive");
+    let r = h
+        .client
+        .call_tool(call("archive_info", json!({ "archive": archive })))
+        .await
+        .unwrap();
+    let info = output(&r);
+    let property = |name: &str| {
+        info["properties"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|p| p["name"] == name)
+            .map(|p| p["value"].as_str().unwrap().to_owned())
+    };
+    assert_eq!(property("Level").as_deref(), Some("fast"));
+    // The second file is the first's bytes: 12,000 of them stored once.
+    assert_eq!(property("Stored Once").as_deref(), Some("12000"));
+
+    // A level that isn't one, and a password, are refused.
+    for extra in [json!({ "level": 9 }), json!({ "password": "pw" })] {
+        let mut args = json!({ "output": root.join("b.bhive"), "inputs": [src] });
+        for (k, v) in extra.as_object().unwrap() {
+            args[k] = v.clone();
+        }
+        let r = h
+            .client
+            .call_tool(call("archive_create", args))
+            .await
+            .unwrap();
+        assert_eq!(error(&r).0, "InvalidArgs", "{extra}");
+    }
+
+    // Cut short, it is Corrupt; with `recover` it lists what its records still hold.
+    let bytes = std::fs::read(&archive).unwrap();
+    let cut = root.join("cut.bhive");
+    std::fs::write(&cut, &bytes[..bytes.len() - 20]).unwrap();
+    let r = h
+        .client
+        .call_tool(call(
+            "archive_list",
+            json!({ "archive": cut, "flat": true }),
+        ))
+        .await
+        .unwrap();
+    let (code, message) = error(&r);
+    assert_eq!(code, "Corrupt");
+    assert!(message.contains("recover"), "{message}");
+    let r = h
+        .client
+        .call_tool(call(
+            "archive_list",
+            json!({ "archive": cut, "flat": true, "recover": true }),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(output(&r)["total"], 3);
+}
