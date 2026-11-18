@@ -840,8 +840,18 @@ pub fn edit(
         | WriteSpec::Cab(_)
         | WriteSpec::Iso(_)
         | WriteSpec::Squashfs(_)
-        | WriteSpec::Dmg(_)
-        | WriteSpec::Bhive(_) => {}
+        | WriteSpec::Dmg(_) => {}
+        WriteSpec::Bhive(o) => {
+            // No level was chosen: the archive keeps the one it was made at.
+            let own = opened
+                .reader
+                .as_any_mut()
+                .downcast_mut::<BhiveReader>()
+                .and_then(|r| r.level());
+            if let (true, Some(level)) = (o.inherit, own) {
+                o.level = level;
+            }
+        }
     }
     if unencrypted && encrypted {
         report.unencrypted = new_files;

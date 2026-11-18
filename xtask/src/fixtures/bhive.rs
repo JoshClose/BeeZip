@@ -220,6 +220,7 @@ fn written(entries: &[Planted], level: Level, cell_size: Option<u32>) -> anyhow:
         threads: 1,
         memory: None,
         cell_size,
+        inherit: false,
     };
     let mut cx = SimpleCtx::new();
     let mut w: Box<dyn ArchiveWriter> = Box::new(BhiveWriter::new(Box::new(out.clone()), &opts)?);

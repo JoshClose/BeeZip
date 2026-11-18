@@ -60,6 +60,7 @@ fn spec(level: Level, threads: u32, cell_size: Option<u32>) -> WriteSpec {
         threads,
         memory: None,
         cell_size,
+        inherit: false,
     })
 }
 
@@ -1218,6 +1219,73 @@ fn a_rename_copies_every_cell_byte_for_byte() {
     )
     .unwrap();
     assert!(test.ok(), "{:?}", test.errors);
+}
+
+/// An edit that names no level keeps the archive's own: the cells it stores again and the level
+/// the index gives are the archive's, not the writer's default.
+#[test]
+fn an_edit_keeps_the_archives_level() {
+    let root = tempfile::tempdir().unwrap();
+    let input = root.path().join("in");
+    fs::create_dir(&input).unwrap();
+    let files: Vec<_> = (0..6)
+        .map(|i| {
+            // About 2,000 bytes of text each, so four share a cell and LZMA2 is worth its time.
+            let lines: String = (0..125)
+                .map(|j| {
+                    format!(
+                        "file {i} line {j}
+"
+                    )
+                })
+                .collect();
+            file(&format!("f{i}.txt"), lines.into_bytes())
+        })
+        .collect();
+    write_tree(&input, &files);
+    let archive = root.path().join("high.bhive");
+    create(&archive, &input, &spec(Level::High, 2, Some(8 << 10)));
+    let level = |archive: &Path| reader(archive, &OpenOptions::default()).level();
+    assert_eq!(level(&archive), Some(Level::High));
+
+    let keeping = |inherit: bool| {
+        move |_: beezip_core::ArchiveKind| {
+            Ok(WriteSpec::Bhive(BhiveWriteOptions {
+                level: Level::Fast,
+                threads: 2,
+                memory: None,
+                cell_size: Some(8 << 10),
+                inherit,
+            }))
+        }
+    };
+    // Half of a cell goes, so what is left of it is stored again: at High, as LZMA2.
+    let r = ops::edit(
+        &archive,
+        &remove(&["in/f0.txt", "in/f1.txt", "in/f2.txt"]),
+        &mut keeping(true),
+        &beezip_core::EditOptions::default(),
+        &mut SimpleCtx::new(),
+    )
+    .unwrap();
+    assert_eq!(r.removed, 3);
+    assert_eq!(level(&archive), Some(Level::High));
+    let mut cx = SimpleCtx::new();
+    let mut opened = reader(&archive, &OpenOptions::default());
+    let methods = opened.info(&mut cx).unwrap().methods;
+    assert_eq!(methods, ["LZMA2"], "{methods:?}");
+    drop(opened);
+
+    // A level that was chosen is the archive's from then on.
+    ops::edit(
+        &archive,
+        &rename("in/f5.txt", "in/g5.txt"),
+        &mut keeping(false),
+        &beezip_core::EditOptions::default(),
+        &mut SimpleCtx::new(),
+    )
+    .unwrap();
+    assert_eq!(level(&archive), Some(Level::Fast));
 }
 
 /// A cell that keeps at least half its bytes is copied with the dead ones; one that keeps less
