@@ -21,6 +21,8 @@ mod ace;
 mod arc;
 #[path = "malicious/arj.rs"]
 mod arj;
+#[path = "malicious/bhive.rs"]
+mod bhive;
 #[path = "malicious/chm.rs"]
 mod chm;
 #[path = "malicious/cramfs.rs"]
