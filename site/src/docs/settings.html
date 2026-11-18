@@ -55,7 +55,7 @@ beezip settings set --reset limits.max_ratio               # back to the default
 </table></div>
 
 <h2 id="levels">Compression levels</h2>
-<p><code>levels</code> holds the level BeeZip compresses at when a job doesn't choose one: Explorer's menu, a command without <code>--level</code>, and the slider New archive and Add files start at. Each name is a compressor such as <code>zstd</code>, <code>xz</code> or <code>gzip</code>, or a method such as zip's <code>deflate</code> or 7z's <code>lzma2</code>, and covers everything that compresses with it: <code>zstd = 19</code> is for <code>.zst</code> and <code>.tar.zst</code> files, and for zstd in zip and SquashFS archives.</p>
+<p><code>levels</code> holds the level BeeZip compresses at when a job doesn't choose one: Explorer's menu, a command without <code>--level</code>, and the slider New archive and Add files start at. Each name is a compressor such as <code>zstd</code>, <code>xz</code> or <code>gzip</code>, or a method such as zip's <code>deflate</code> or 7z's <code>lzma2</code>, and covers everything that compresses with it: <code>zstd = 19</code> is for <code>.zst</code> and <code>.tar.zst</code> files, and for zstd in zip and SquashFS archives. <code>bhive</code> is the level of new <a href="formats.html#bhive">.bhive</a> archives, 0 (None) to 4 (Max).</p>
 <p>A level has to suit all of them, so some ranges are narrower than one format's: zip's and 7z's deflate start at 1 where raw deflate starts at 0, so <code>deflate = 0</code> is refused. A name you leave out keeps each format's own default, and those can differ: SquashFS's zstd defaults to 15, the others' to 3. <code>beezip formats</code> lists every range and default.</p>
 <pre><code>[levels]
 zstd = 19
@@ -93,6 +93,7 @@ lzma2 = 7</code></pre>
     <tr><td><code>shell.items.extract-to</code></td><td><code>true</code></td><td>Extract to…</td></tr>
     <tr><td><code>shell.items.test</code></td><td><code>true</code></td><td>Test archive</td></tr>
     <tr><td><code>shell.items.add-zip</code></td><td><code>true</code></td><td>Add to "<var>name</var>.zip"</td></tr>
+    <tr><td><code>shell.items.add-bhive</code></td><td><code>true</code></td><td>Add to "<var>name</var>.bhive"</td></tr>
     <tr><td><code>shell.items.add-7z</code></td><td><code>true</code></td><td>Add to "<var>name</var>.7z"</td></tr>
     <tr><td><code>shell.items.add-tar-zst</code></td><td><code>true</code></td><td>Add to "<var>name</var>.tar.zst"</td></tr>
     <tr><td><code>shell.items.compress-to</code></td><td><code>true</code></td><td>Compress to…</td></tr>

@@ -18,6 +18,7 @@
     <tr><td><strong>Extract to…</strong></td><td>One archive</td><td>Opens BeeZip's <a href="app.html#extract-dialog">Extract dialog</a>, to choose where and how.</td></tr>
     <tr><td><strong>Test archive</strong></td><td>Archives</td><td>Reads everything back and checks it, writing nothing.</td></tr>
     <tr><td><strong>Add to "a.zip"</strong></td><td>Any files and folders</td><td>Packs the selection into a zip beside it.</td></tr>
+    <tr><td><strong>Add to "a.bhive"</strong></td><td>Any files and folders</td><td>The same, as a <a href="formats.html#bhive">.bhive</a>, BeeZip's own format.</td></tr>
     <tr><td><strong>Add to "a.7z"</strong></td><td>Any files and folders</td><td>The same, as a 7z.</td></tr>
     <tr><td><strong>Add to "a.tar.zst"</strong></td><td>Any files and folders</td><td>The same, as a tar compressed with zstd.</td></tr>
     <tr><td><strong>Compress to…</strong></td><td>Any files and folders</td><td>Opens BeeZip's <a href="app.html#new-archive-dialog">New archive dialog</a> with the selection, to choose the format, password, volumes and the rest.</td></tr>
@@ -127,7 +128,7 @@ cascade = true             # classic menu: false puts each item at the top level
 [shell.items]              # every item shows unless set to false
 test = false
 add-tar-zst = false</code></pre>
-<p>The items' keys are <code>open</code>, <code>extract-here</code>, <code>extract-folder</code>, <code>extract-to</code>, <code>test</code>, <code>add-zip</code>, <code>add-7z</code>, <code>add-tar-zst</code> and <code>compress-to</code>. The command line sets them too:</p>
+<p>The items' keys are <code>open</code>, <code>extract-here</code>, <code>extract-folder</code>, <code>extract-to</code>, <code>test</code>, <code>add-zip</code>, <code>add-bhive</code>, <code>add-7z</code>, <code>add-tar-zst</code> and <code>compress-to</code>. The command line sets them too:</p>
 <pre><code>beezip settings set shell.items.test=false shell.cascade=false</code></pre>
 <p><a href="settings.html">Settings</a> lists every setting.</p>
 

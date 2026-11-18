@@ -72,12 +72,14 @@ beezip c initrd.cpio.gz rootfs
 beezip c drivers.cab inf -m mszip
 beezip c disc.iso photos                   # ISO 9660 with Joliet and Rock Ridge
 beezip c rootfs.squashfs rootfs -m zstd
-beezip c app.dmg build/App                 # an HFS+ volume in a compressed image</code></pre>
+beezip c app.dmg build/App                 # an HFS+ volume in a compressed image
+beezip c project.bhive src                 # BeeZip's own format
+beezip c project.bhive src -l max          # none, fast, balanced, high or max</code></pre>
 <ul>
   <li><strong>Each input keeps its own name:</strong> <code>src</code> goes in as <code>src/…</code>.</li>
-  <li><strong>The format</strong> comes from the output's extension (<code>.zip</code>, <code>.7z</code>, <code>.tar</code>, <code>.tar.zst</code>, <code>.tgz</code>, <code>.cpio.gz</code>, <code>.ar</code>, <code>.cab</code>, <code>.iso</code>, <code>.squashfs</code>, <code>.dmg</code>…), or from <code>-f</code>.</li>
+  <li><strong>The format</strong> comes from the output's extension (<code>.zip</code>, <code>.bhive</code>, <code>.7z</code>, <code>.tar</code>, <code>.tar.zst</code>, <code>.tgz</code>, <code>.cpio.gz</code>, <code>.ar</code>, <code>.cab</code>, <code>.iso</code>, <code>.squashfs</code>, <code>.dmg</code>…), or from <code>-f</code>.</li>
   <li><strong>Methods with <code>-m</code>:</strong> for zip, <code>store</code>, <code>deflate</code> (the default), <code>bzip2</code>, <code>zstd</code>, <code>xz</code> or <code>ppmd</code>; for 7z, <code>lzma2</code> (the default), <code>lzma</code>, <code>ppmd</code>, <code>bzip2</code>, <code>deflate</code> or <code>copy</code>; for CAB, <code>mszip</code> or <code>store</code>; for squashfs, <code>gzip</code>, <code>xz</code>, <code>zstd</code>, <code>lz4</code> or <code>lzo</code>. A tar's compressor comes from its extension.</li>
-  <li><strong>Levels with <code>-l</code>:</strong> each compressor has its own range; <code>beezip formats</code> shows them, and <code>[levels]</code> in <a href="settings.html#levels">Settings</a> sets your defaults.</li>
+  <li><strong>Levels with <code>-l</code>:</strong> each compressor has its own range; <code>beezip formats</code> shows them, and <code>[levels]</code> in <a href="settings.html#levels">Settings</a> sets your defaults. A <a href="formats.html#bhive">.bhive</a> has five, by number or by name: <code>-l 0</code> to <code>4</code>, or <code>none</code>, <code>fast</code>, <code>balanced</code> (the default), <code>high</code> and <code>max</code>. It takes no <code>-m</code> and no <code>-p</code>.</li>
   <li><strong>Encryption:</strong> zip and 7z, with <code>-p</code>. Zip uses AES-256 unless you ask for <code>--encryption zipcrypto</code>, which is weak but opens in old tools. A 7z with a password encrypts its file names too, unless <code>--encrypt-headers=false</code>.</li>
   <li><strong>Solid 7z</strong> compresses files together, which is smaller but slower to read one file from. It's on unless <code>--solid=false</code>.</li>
   <li><strong>Volumes with <code>-v</code>:</strong> a size such as <code>100m</code>, <code>4g</code> or <code>700MB</code> (powers of 1024), in every format. The parts are <code><var>name</var>.001</code>, <code>.002</code>…</li>
@@ -93,7 +95,7 @@ beezip remove backup.7z --glob "*.tmp" --dry-run
 beezip rename backup.zip docs papers         # a folder and everything in it
 beezip rename backup.zip a.txt notes/a.txt   # renaming can move, too</code></pre>
 <ul>
-  <li><strong>Which archives:</strong> zip, 7z, tar, cpio and ar, and tar and cpio under any compressor. Others (RAR, CAB, the disk images, packages, split and self-extracting archives) can't be changed; <code>convert</code> makes one that can.</li>
+  <li><strong>Which archives:</strong> zip, .bhive, 7z, tar, cpio and ar, and tar and cpio under any compressor. Others (RAR, CAB, the disk images, packages, split and self-extracting archives) can't be changed; <code>convert</code> makes one that can.</li>
   <li><strong>Entries already there:</strong> <code>add</code> asks, or follows <code>--overwrite</code>.</li>
   <li><strong>Encrypted archives:</strong> adding to one needs <code>-p</code> for the new files, or <code>--unencrypted</code> to add them in the clear.</li>
   <li><strong>Nothing is changed in place:</strong> a new archive is written beside the old one and swapped in, so a failed or cancelled change leaves it as it was. What stays is copied without being compressed again.</li>

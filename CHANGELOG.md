@@ -7,6 +7,34 @@ Write a new section as `## X.Y.Z`, with `###` groups and `- ` items, describing 
 using BeeZip will notice. Leave the date out: the Releases page dates each version by its
 `vX.Y.Z` tag.
 
+## 0.8.0
+
+### .bhive, BeeZip's own archive format
+
+- **A new format, `.bhive`,** made for today's machines. Files are packed into independent
+  cells, so every core works when you make an archive and when you extract or test one, and
+  opening one file doesn't decode the rest.
+- **What repeats is stored once:** copies of a file, versions of it, the same library in ten
+  folders.
+- **Five levels:** None, Fast, Balanced (the default), High and Max. Fast and Balanced use
+  zstd; High and Max use LZMA2, for the smallest archives.
+- **A download cut short still opens.** BeeZip says the archive is incomplete, and
+  `--recover` (or `recover` in the MCP tools) lists and extracts the files that arrived.
+- **Editing without compressing again:** add, remove and rename copy the archive's cells as
+  they are, and the archive keeps the level it was made at.
+- **Everywhere BeeZip is:** New archive and Convert offer it, with the levels by name;
+  Explorer's menu has **Add to "a.bhive"**; `beezip create a.bhive src -l high`; and the MCP
+  tools take it like any format. Installing BeeZip registers it for `.bhive` files.
+- **Open, though only BeeZip reads it today:** the format has a complete specification
+  (`docs/bhive.md`) and a second reader in Python, checked on every change. zip stays the
+  default format. Version 1 has no encryption.
+
+### Explorer's menu
+
+- **Items at the top level stay in order** now that there are ten: they are numbered with two
+  digits. If you had turned the submenu off, BeeZip replaces the old items the next time it
+  registers the menu (Settings → Explorer menu → Repair does it at once).
+
 ## 0.7.2
 
 ### The Microsoft Store copy

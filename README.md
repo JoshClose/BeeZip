@@ -4,7 +4,7 @@ An archive manager for Windows, also built for Linux and macOS, with a desktop a
 
 **Website, downloads and documentation:** <https://joshclose.github.io/BeeZip/>. What's new in each version is in [CHANGELOG.md](CHANGELOG.md).
 
-> **Status:** milestones M0 to M12 are done: the engine, the command line, the MCP server and the desktop app read dozens of archive and disk-image formats and write and edit the common ones, Explorer's right-click menu reaches them, and BeeZip ships as an installer, a portable copy, Linux and macOS packages and a Microsoft Store package. See [`docs/PLAN.md`](docs/PLAN.md) for the architecture, the roadmap and each milestone's plan.
+> **Status:** milestones M0 to M13 are done: the engine, the command line, the MCP server and the desktop app read dozens of archive and disk-image formats, write and edit the common ones and BeeZip's own `.bhive`, Explorer's right-click menu reaches them, and BeeZip ships as an installer, a portable copy, Linux and macOS packages and a Microsoft Store package. See [`docs/PLAN.md`](docs/PLAN.md) for the architecture, the roadmap and each milestone's plan.
 
 ## Building
 
@@ -35,9 +35,9 @@ pnpm tauri dev      # the desktop app, reloading as you edit
 `BeeZip.exe` opens archives in tabs: a folder tree, the entries (a million is fine; click a column to sort), and a preview of text, hex or images. Drag the edges between them to resize the tree and the preview, and the top edge of the jobs list to make it taller (double-click an edge for the default); BeeZip keeps the sizes for next time. A job's Copy button puts its result and its whole log on the clipboard.
 
 - **Opening:** Open (Ctrl+O), drag an archive onto the welcome screen or the tabs, or double-click one once BeeZip is installed. Launching BeeZip again opens the archive in the running window.
-- **Extract** (Ctrl+E) everything or the selected entries. **New archive** (Ctrl+N) packs files and folders, or files dropped on the welcome screen or the tabs, as zip, 7z or tar, encrypted and split as you choose. **Test** checks every CRC. **Convert** writes the archive again in another format, or with other options.
+- **Extract** (Ctrl+E) everything or the selected entries. **New archive** (Ctrl+N) packs files and folders, or files dropped on the welcome screen or the tabs, as zip, `.bhive` (BeeZip's own format), 7z or tar, encrypted and split as you choose. **Test** checks every CRC. **Convert** writes the archive again in another format, or with other options.
 - **Dragging out** (Windows): drag selected entries onto Explorer or the desktop. They're extracted when you let go, as with 7-Zip, so Explorer waits until they're out. Ctrl copies instead of moving them out of BeeZip's temp folder; nothing leaves the archive. More than 2 GiB opens Extract instead, saying why.
-- **Editing** a zip, 7z or tar: **Add files** and **Add folder** (or drop files on the entries) open the add dialog, with the folder they go into and what to do about entries already there. **Delete** (Del) asks first; **Rename** (F2) edits the name in place. Afterwards the tab lists again with the same selection. An archive that can't be edited (RAR, a split or self-extracting archive, a read-only file) says why, and files dropped on it go into a new archive.
+- **Editing** a zip, `.bhive`, 7z or tar: **Add files** and **Add folder** (or drop files on the entries) open the add dialog, with the folder they go into and what to do about entries already there. **Delete** (Del) asks first; **Rename** (F2) edits the name in place. Afterwards the tab lists again with the same selection. An archive that can't be edited (RAR, a split or self-extracting archive, a read-only file) says why, and files dropped on it go into a new archive.
 - **Opening an entry** (double-click or Enter) opens it in its app; an archive inside opens in a tab, and a program asks first. Change the file, come back to BeeZip, and it offers to update the archive.
 - **Progress:** the jobs panel shows each job's progress, with Cancel, its log and its result. Cancelling removes any partly written files.
 - **Passwords and overwrites** are asked as they come up. A password stays in memory for its tab, until you close it, and is never saved.
@@ -51,7 +51,7 @@ pnpm tauri dev      # the desktop app, reloading as you edit
 
 **The installer** works per user, with no admin rights:
 - **Files:** it puts `BeeZip.exe` in `%LOCALAPPDATA%\BeeZip`, and adds its `bin` folder (holding `beezip.exe`) to your PATH.
-- **File types:** it registers BeeZip for zip, 7z, rar, tar and the compressed and split formats, but not for zip-based documents such as `.docx` or `.jar`. Windows asks which app to use the first time you open each kind of file, with BeeZip offered. An app you've already chosen for a type (Windows sets Explorer's zip folder for `.zip` on many machines) stays until you pick BeeZip under *Open with → Choose another app*.
+- **File types:** it registers BeeZip for zip, `.bhive`, 7z, rar, tar and the compressed and split formats, but not for zip-based documents such as `.docx` or `.jar`. Windows asks which app to use the first time you open each kind of file, with BeeZip offered. An app you've already chosen for a type (Windows sets Explorer's zip folder for `.zip` on many machines) stays until you pick BeeZip under *Open with → Choose another app*.
 - **Explorer's menu:** a "BeeZip" submenu on files and folders, with Extract here, Extract to "a\", Test archive, Add to "a.zip" and the rest. A click opens a small window for the job, or BeeZip's own dialogs for Extract to… and Compress to…. When `a.zip` is already there, the window offers to add to it, replace it, keep both or skip. Settings → Explorer menu chooses the items and removes or repairs the menu; so do `beezip shell status`, `beezip shell install` and `beezip shell uninstall`.
 - **On Windows 11** the menu needs BeeZip's signed package to be in Windows 11's own menu. Until releases are signed, the installer puts it under *Show more options*. With Developer Mode on, `beezip shell install --mode modern --dev` moves it into the Windows 11 menu, and `beezip shell install --mode classic` moves it back. Only one of the two is registered at a time.
 - **Uninstalling** removes the PATH entry, the menu and the registrations, and leaves your file types as they were. An upgrade keeps the file types you had before BeeZip, too.
@@ -72,6 +72,8 @@ pnpm tauri dev      # the desktop app, reloading as you edit
 ## Command line
 
 `beezip` reads and writes ZIP, 7z, TAR, cpio (newc, as initramfs images are), ar, CAB, ISO 9660 (with Joliet and Rock Ridge), squashfs and DMG, `tar` and `cpio` under any codec (`.tar.gz`, `.tar.zst`, `.tgz`, `.cpio.gz`…), and bare compressed files (`.gz`, `.bz2`, `.xz`, `.lzma`, `.lz`, `.zst`, `.lz4`, `.br`, `.sz`, `.zz`, Unix `.Z`, `.lzo`). It reads RAR 1.5–7, through UnRAR, but never writes it, and reads Debian packages (listed as `dpkg-deb -R` unpacks them: the files, and the control files under `DEBIAN/`), RPMs, and LHA/LZH. cpio reads every header format (newc, crc, odc, old binary); CAB reads none, MSZIP and LZX, and cabinet sets; ar reads GNU and BSD archives. ISOs list their Rock Ridge, Joliet or plain names, or their UDF tree when it has more (Windows' ISOs); zisofs files are listed but not extracted, and El Torito boot images aren't listed. squashfs reads every compressor (gzip, xz, lzma, lzo, lz4, zstd). DMGs (zlib, bzip2, LZFSE, LZMA, ADC or raw) list the HFS+, HFSX or APFS volume inside, Apple-compressed files decoded (on APFS, not those compressed into a resource fork), or their partitions when there's no volume; encrypted and sparse images aren't read. Split archives (`a.7z.001`, `a.zip.001`, `a.part1.rar`, `a.rar` with `a.r00`…, `a.arj` with `a.a01`…, `a.ace` with `a.c00`…) open from any part, and self-extracting 7z, RAR, zip, CAB and LHA executables open like archives. It detects formats by content, not by extension.
+
+**`.bhive` is BeeZip's own format** ([`docs/bhive.md`](docs/bhive.md) is its specification). Files are packed into independent cells, compressed on every core with zstd or LZMA2; content that repeats anywhere in the archive is stored once; one file reads without decoding the rest; and an archive cut short still gives the files its records hold (`--recover`). It has five levels: `none`, `fast`, `balanced` (the default), `high` and `max`, or `-l 0` to `4`. It has no encryption yet. Only BeeZip reads one today, so zip stays the default; [`docs/bhive_reader.py`](docs/bhive_reader.py) is a second reader, in Python's standard library alone, that CI runs against BeeZip's archives.
 
 It also reads the old DOS-era formats ARJ (garbled archives too, but not GOST40 encryption), ACE 1.0 and 2.0 (but not ACE 2.0's EXE, DELTA, SOUND and PIC modes), ZOO and ARC (but not PAK's crushed and distilled methods), with names in the OEM code page, and XAR archives and macOS packages. A package is listed as `pkgutil --expand-full` unpacks it: its `Payload` and `Scripts` are folders of their contents, gzip'd or pbzx; a payload in Apple Archive format stays one file. None of these is written.
 
@@ -111,6 +113,9 @@ beezip c drivers.cab inf -m mszip                # or -m store; files only, as i
 beezip c disc.iso photos                         # ISO 9660 level 3, Joliet and Rock Ridge
 beezip c rootfs.squashfs rootfs -m zstd          # gzip (the default), xz, zstd, lz4 or lzo
 beezip c app.dmg build/App                       # an HFS+ volume, zlib-compressed (UDZO)
+beezip c project.bhive src                       # BeeZip's own format: every core, repeats stored once
+beezip c project.bhive src -l max                # none, fast, balanced (the default), high, max; or 0-4
+beezip x cut-short.bhive -o out --recover        # what a .bhive without its index still holds
 beezip list python3-six_1.17.0-1_all.deb         # DEBIAN/ and usr/, as dpkg-deb -R unpacks it
 
 beezip add backup.zip notes.txt --dir docs      # alias a; asks about an entry already there
@@ -130,7 +135,7 @@ beezip bench -g zstd:3,zstd:19:0,xz:6 # codec[:level[:threads]]; threads 0 is on
 ```
 
 - **Safety:** extraction never writes outside the destination. Paths with `..`, and links leading out, are skipped. The rest is extracted, then the command fails with exit code 14. Absolute paths, drive letters, reserved names such as `CON` and characters Windows can't store are rewritten, and reported. Symlinks are off by default (`--links` turns them on); hard links are extracted as copies. Zip bombs hit a 10 000:1 ratio limit.
-- **Editing:** `add`, `remove` and `rename` change zip, 7z, tar, cpio and ar archives (tar and cpio compressed or not). They never write into the archive: a new one is written beside it and swapped in, so a failed or cancelled change leaves it as it was, and the Mark of the Web, hidden attribute and creation time carry over. Entries that stay are copied without decoding: zip entries byte for byte, whole 7z blocks (a solid block that loses an entry is encoded again), tar, cpio and ar members (a compressed tar's or cpio's stream is encoded again). An ar's symbol table is left out of an edit, since it would be stale (`ranlib` makes it again). CAB, the disk images, packages, LHA, ARJ, ACE, ZOO, ARC and XAR aren't edited. Adding to an archive with encrypted entries needs a password for the new files, or `--unencrypted`. Split and self-extracting archives aren't edited; `convert` makes one file of them. `convert` of an encrypted archive needs `--new-password` or `--decrypt`.
+- **Editing:** `add`, `remove` and `rename` change zip, `.bhive`, 7z, tar, cpio and ar archives (tar and cpio compressed or not). They never write into the archive: a new one is written beside it and swapped in, so a failed or cancelled change leaves it as it was, and the Mark of the Web, hidden attribute and creation time carry over. Entries that stay are copied without decoding: zip entries byte for byte, whole 7z blocks (a solid block that loses an entry is encoded again), `.bhive` cells (one that lost more than half its bytes is encoded again), tar, cpio and ar members (a compressed tar's or cpio's stream is encoded again). An ar's symbol table is left out of an edit, since it would be stale (`ranlib` makes it again). CAB, the disk images, packages, LHA, ARJ, ACE, ZOO, ARC and XAR aren't edited. Adding to an archive with encrypted entries needs a password for the new files, or `--unencrypted`. Split and self-extracting archives aren't edited; `convert` makes one file of them. `convert` of an encrypted archive needs `--new-password` or `--decrypt`.
 - **Prompts:** in a terminal, BeeZip asks for passwords and what to do with existing files. Without one, it fails and says which flag to pass (`--password`, `--overwrite`).
 - **Output:** `--output json` prints one JSON document, `--output ndjson` streams every job event (progress included, and `bench`'s cells as each finishes), and `-q` hides progress bars. Ctrl+C cancels and removes the partly written file; a second Ctrl+C exits at once, and still removes it.
 - **7z and RAR passwords:** 7z and RAR 1.5–4 have no password check, so a wrong password shows as damaged data; BeeZip asks again, up to three times. A RAR whose entries have different passwords asks for each.
@@ -163,6 +168,7 @@ threads = 0                # 0 = one per core
 
 [levels]                   # per codec, zip method and 7z method
 zstd = 3
+bhive = 2                  # a .bhive's: 0 none, 1 fast, 2 balanced, 3 high, 4 max
 deflate = 6
 lzma2 = 5
 
@@ -187,7 +193,7 @@ check = true               # the desktop app looks for a new release at most onc
 [shell]                    # Explorer's right-click menu
 cascade = true             # classic menu: false puts each item at the top level
 [shell.items]              # every item shows unless set to false: open, extract-here,
-test = false               # extract-folder, extract-to, test, add-zip, add-7z, add-tar-zst, compress-to
+test = false               # extract-folder, extract-to, test, add-zip, add-bhive, add-7z, add-tar-zst, compress-to
 
 [jobs]
 close_when_done = true     # a job window from Explorer closes after a clean success
