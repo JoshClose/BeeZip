@@ -79,6 +79,9 @@ dpi.clarify = { license = "Apache-2.0 AND MIT", files = [
 # for dunce alone (deny.toml passes it as MIT-0).
 dunce.accepted = ["CC0-1.0"]
 dunce.clarify = { license = "CC0-1.0", files = [{ path = "LICENSE", checksum = "a2010f343487d3f7618affe54f789f5487602331c0a8d03f49e9a7c547cf0499" }] }
+# CC0-1.0 OR Apache-2.0 OR Apache-2.0 WITH LLVM-exception, under names cargo-about doesn't look
+# for (`LICENSE_A2`): BeeZip takes Apache-2.0 (docs/M13.md §1).
+blake3.clarify = { license = "Apache-2.0", files = [{ path = "LICENSE_A2", checksum = "00fcc7a934ddbc9ece2a7cc063ac788e284b703b1d705ccbba72d462aa97921e" }] }
 # MIT, wrapped narrower than cargo-about's detector matches.
 minisign-verify.clarify = { license = "MIT", files = [{ path = "LICENSE", checksum = "42c8695fbc468866d9756be99af0ba4e37d733f8daa3c8827c8d80b8bec1b2f9" }] }
 # Apache-2.0 without the appendix, which cargo-about's detector doesn't take for Apache-2.0.

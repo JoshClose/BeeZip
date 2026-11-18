@@ -154,6 +154,14 @@ pub fn level_uses(name: &str) -> Vec<(String, beezip_core::Levels)> {
     codec.chain(methods).collect()
 }
 
+/// Whether Explorer's menu offers BeeZip's items on a format's extensions, and installing
+/// BeeZip associates them. The disk images' and installers' `.img`, `.exe` and `.msi` are left
+/// out (docs/M6.md §3.7). So is `.bhive` for now: it joins the menu and the associations with
+/// its icon, in M13's third part (docs/M13.md §9); until then BeeZip reads one it is handed.
+pub fn in_menu(f: FormatId) -> bool {
+    f != FormatId::Bhive && f.external().is_none_or(beezip_core::External::in_menu)
+}
+
 pub struct FormatsList;
 
 impl Command for FormatsList {
@@ -193,7 +201,7 @@ impl Command for FormatsList {
                     FormatId::SevenZ => vec!["aes256".into()],
                     _ => Vec::new(),
                 },
-                menu: f.external().is_none_or(beezip_core::External::in_menu),
+                menu: in_menu(f),
             })
             .collect();
         let codecs = CodecId::ALL

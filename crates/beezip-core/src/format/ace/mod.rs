@@ -699,6 +699,7 @@ fn entry_for(id: usize, h: &FileHeader, names: &NameDecoding, clock: &mut DosClo
     }
     let file = !dir;
     Entry {
+        created: None,
         id,
         path,
         raw_path: raw,

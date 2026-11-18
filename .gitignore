@@ -19,3 +19,6 @@ Desktop.ini
 fuzz/corpus/
 fuzz/artifacts/
 fuzz/coverage/
+
+# Python (docs/bhive_reader.py, the fixture scripts)
+__pycache__/

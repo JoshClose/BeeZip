@@ -20,6 +20,7 @@ bzip2.workspace = true
 cfb.workspace = true
 crc32fast.workspace = true
 backhand.workspace = true
+blake3.workspace = true
 delharc.workspace = true
 encoding_rs.workspace = true
 file-format.workspace = true
@@ -49,18 +50,20 @@ tar.workspace = true
 tempfile.workspace = true
 time.workspace = true
 walkdir.workspace = true
+xxhash-rust.workspace = true
 zip.workspace = true
 zlib-rs.workspace = true
 zstd.workspace = true
 
 # bench.rs reads the process's private bytes (docs/M6.md §7), safefs/disk.rs asks whether a
 # destination's disk pays for seeks (§6.3), and format/wim/lzms_win.rs loads cabinet.dll's LZMS
-# decoder from System32 (docs/M8.md §5.3).
+# decoder from System32 (docs/M8.md §5.3). format/bhive/mem.rs asks how much memory the machine
+# has (docs/M13.md §3).
 [target.'cfg(windows)'.dependencies]
 windows-sys = { workspace = true, features = [
     "Win32_Foundation", "Win32_Security", "Win32_Storage_FileSystem", "Win32_System_IO",
     "Win32_System_Ioctl", "Win32_System_LibraryLoader", "Win32_System_ProcessStatus",
-    "Win32_System_Threading",
+    "Win32_System_SystemInformation", "Win32_System_Threading",
 ] }
 
 # safefs/quarantine.rs reads and writes extended attributes (docs/M6.md §8.3); wim/lzms_wimlib.rs

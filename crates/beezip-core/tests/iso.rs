@@ -229,6 +229,7 @@ fn links_modes_and_times_round_trip() {
     let iso = dir.path().join("links.iso");
     let when = UNIX_EPOCH + Duration::from_secs(1_767_225_600);
     let entry = |path: &str, kind: NewKind, size: u64, mode: u32| NewEntry {
+        created: None,
         path: path.into(),
         kind,
         size,
@@ -369,6 +370,7 @@ fn a_file_that_changes_size_fails_the_image() {
         Box::new(IsoWriter::new(Box::new(out), IsoWriteOptions::default(), &iso).unwrap());
     let mut cx = SimpleCtx::new();
     let e = NewEntry {
+        created: None,
         path: "grows.txt".into(),
         kind: NewKind::File,
         size: 5,

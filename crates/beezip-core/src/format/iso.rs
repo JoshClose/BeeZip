@@ -373,6 +373,7 @@ fn list(
             _ => 0,
         };
         out.entries.push(Entry {
+            created: None,
             id,
             path: path.clone(),
             raw_path: raw.clone(),

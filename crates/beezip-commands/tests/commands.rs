@@ -101,8 +101,9 @@ fn walkdir(dir: &Path) -> Vec<PathBuf> {
 #[test]
 fn formats_list_has_everything() {
     let out = run("formats.list", json!({})).unwrap();
-    // BeeZip's 20 archive formats and the 17 disk images, file systems and installers.
-    assert_eq!(out["formats"].as_array().unwrap().len(), 37);
+    // BeeZip's own format, the 20 other archive formats, and the 17 disk images, file systems
+    // and installers.
+    assert_eq!(out["formats"].as_array().unwrap().len(), 38);
     assert_eq!(out["codecs"].as_array().unwrap().len(), 13);
     assert_eq!(out["create"].as_array().unwrap().len(), 31);
     let cab = out["formats"]
@@ -127,13 +128,19 @@ fn formats_list_has_everything() {
         "{wim}"
     );
     assert!(out.get("seven_zip").is_none());
-    let sz = &out["formats"][2];
+    // BeeZip's own format comes first, then zip.
+    let own = &out["formats"][0];
+    assert_eq!(own["id"], "bhive");
+    assert_eq!(own["caps"]["list"], true);
+    assert_eq!(own["caps"]["random_access"], true);
+    assert_eq!(own["menu"], false);
+    let sz = &out["formats"][3];
     assert_eq!(sz["id"], "7z");
     assert_eq!(sz["methods"][0]["id"], "lzma2");
     assert_eq!(sz["methods"][0]["levels"]["default"], 5);
     assert_eq!(sz["caps"]["encrypt_headers"], true);
     assert_eq!(sz["caps"]["random_access"], false);
-    let zip = &out["formats"][0];
+    let zip = &out["formats"][1];
     assert_eq!(zip["id"], "zip");
     assert_eq!(zip["methods"][1]["id"], "deflate");
     assert_eq!(zip["methods"][1]["levels"]["min"], 1);

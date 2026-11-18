@@ -11,7 +11,7 @@ BeeZip is a Windows-first desktop archive manager (Tauri 2 + React) that opens, 
 - **License:** MIT/Apache-2.0, so no GPL dependencies. UnRAR is allowed for extraction only, with its license notice shipped.
 - **MCP:** full command set by default, but writes are sandboxed to configured roots.
 - **Name:** **BeeZip**.
-- **Own archive format:** none in v1. `.bhive` is reserved for a possible future one; see §6.
+- **Own archive format:** `.bhive`, since M13 (docs/M13.md); its specification is `docs/bhive.md`. See §6.
 
 ### Naming
 | Thing | Name |
@@ -411,7 +411,8 @@ After approval I implement **M0 + M1** and then stop for your review before goin
   - beezip.com is taken, so use beezip.app as the primary domain. Register beezip.app and beezip.dev soon.
   - The ASPLOS 2024 "BeeZip" compression accelerator is academic and causes no conflict.
 
-## 6. Future note: `.bhive` archive format (not scheduled)
+## 6. The `.bhive` archive format
+- **The format:** BeeZip's own, built in M13 (docs/M13.md) and specified in [`bhive.md`](bhive.md): independent cells, chunk dedup, zstd and LZMA2, a trailing index, recovery records. It is a format of its own, not a 7z or tar.zst with a manifest inside as this section first suggested. It stays open through the specification, standard coders and a second reader in Python that CI runs (`docs/bhive_reader.py`).
 - **Extension check:** `.bhive` was checked on 2026-11-01. It has no entries in any file-extension database and no `.bhive` files on GitHub.
 - **Nearby names that don't clash:** the BHive x86 benchmark, the `bhived` MCP server, and the `.bh` BlakHole archive format.
 - **Rejected alternatives:**
@@ -424,8 +425,3 @@ After approval I implement **M0 + M1** and then stop for your review before goin
   - `.cmb` is Reason and Chromeleon;
   - `.bhv` is MOOS-IvP and looks like `.bvh`;
   - `.b2z` looks like `.bz2`.
-- **Suggested design if built:** a `.bhive` file is a **standard container underneath**, either `.7z` or `.tar.zst`, with a small `beezip.json` manifest as its first entry. The manifest holds the format version, the creating app and optional metadata.
-  - BeeZip gets branding, its own icon and a file association.
-  - Other tools can still open the file after renaming it. No new codec is needed, so the format can't lock users in.
-- **Until then:** don't register `.bhive` as a file association or emit `.bhive` files. Keep the extension unused so a future spec has no legacy files to stay compatible with.
-- **If it's adopted:** add a `bhive` entry to `ArchiveFormat` that wraps the 7z or tar.zst backend. Add `.bhive` to `bundle.fileAssociations` and to the Explorer "Add to…" menu. Publish a one-page spec in `docs/bhive.md`.

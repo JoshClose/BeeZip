@@ -369,6 +369,7 @@ impl FsSink {
             if buf.len() as u64 <= behind::SMALL {
                 let meta = Meta {
                     modified: entry.modified,
+                    created: entry.created,
                     unix_mode: entry.unix_mode,
                     readonly: entry.dos_attrs.is_some_and(|a| a & 0x01 != 0),
                 };
@@ -520,6 +521,7 @@ impl FsSink {
     fn apply_metadata(&self, path: &Path, entry: &Entry, cx: &mut dyn Ctx) {
         let meta = Meta {
             modified: entry.modified,
+            created: entry.created,
             unix_mode: entry.unix_mode,
             readonly: entry.dos_attrs.is_some_and(|a| a & 0x01 != 0),
         };
@@ -783,6 +785,15 @@ pub(super) fn metadata(
     {
         warn(format!("could not set the time of {}: {e}", path.display()));
     }
+    #[cfg(any(windows, target_vendor = "apple"))]
+    if let Some(t) = meta.created
+        && let Err(e) = set_created(path, t)
+    {
+        warn(format!(
+            "could not set the creation time of {}: {e}",
+            path.display()
+        ));
+    }
     #[cfg(unix)]
     if let Some(mode) = meta.unix_mode {
         use std::os::unix::fs::PermissionsExt;
@@ -796,6 +807,19 @@ pub(super) fn metadata(
         p.set_readonly(true);
         let _ = fs::set_permissions(path, p);
     }
+}
+
+/// Gives a file its creation time, where the system lets one be set: Windows and macOS.
+#[cfg(any(windows, target_vendor = "apple"))]
+fn set_created(path: &Path, created: SystemTime) -> io::Result<()> {
+    #[cfg(target_vendor = "apple")]
+    use std::os::darwin::fs::FileTimesExt;
+    #[cfg(windows)]
+    use std::os::windows::fs::FileTimesExt;
+    fs::OpenOptions::new()
+        .write(true)
+        .open(path)?
+        .set_times(fs::FileTimes::new().set_created(created))
 }
 
 impl EntrySink for FsSink {

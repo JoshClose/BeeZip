@@ -500,6 +500,7 @@ impl ArcReader {
                 .decode(&h.name, false, SystemPage::Oem)
                 .replace('\\', "/");
             self.entries.push(Entry {
+                created: None,
                 id,
                 path,
                 raw_path: h.name.clone(),

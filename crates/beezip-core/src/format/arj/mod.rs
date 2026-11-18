@@ -402,6 +402,7 @@ fn entry_for(id: usize, h: &Local, names: &NameDecoding, clock: &mut DosClock) -
         (None, Some(u32::from(h.mode)))
     };
     Entry {
+        created: None,
         id,
         path,
         raw_path: h.name.clone(),

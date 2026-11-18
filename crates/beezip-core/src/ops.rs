@@ -14,6 +14,7 @@ use crate::{
     format::{
         ArchiveWriter, Entry, EntryKind, FormatId, NewEntry, NewKind,
         ar::ArWriter,
+        bhive::{BhiveWriteOptions, BhiveWriter},
         cab::{CabWriteOptions, CabWriter},
         cpio::CpioWriter,
         dmg::{DmgWriteOptions, DmgWriter},
@@ -173,6 +174,9 @@ pub enum WriteSpec {
     Iso(IsoWriteOptions),
     Squashfs(SquashfsWriteOptions),
     Dmg(DmgWriteOptions),
+    /// A `.bhive` (docs/M13.md). The commands offer it from M13's second part on
+    /// ([`ArchiveKind`] has no kind for it yet).
+    Bhive(BhiveWriteOptions),
 }
 
 /// A plain output file as a [`FinishWrite`].
@@ -217,6 +221,7 @@ pub fn create_writer(
         WriteSpec::Iso(opts) => Box::new(IsoWriter::new(out, opts.clone(), output)?),
         WriteSpec::Squashfs(opts) => Box::new(SquashfsWriter::new(out, opts.clone(), output)?),
         WriteSpec::Dmg(opts) => Box::new(DmgWriter::new(out, opts.clone(), output)?),
+        WriteSpec::Bhive(opts) => Box::new(BhiveWriter::new(out, opts)?),
     })
 }
 
@@ -315,6 +320,7 @@ pub fn plan(inputs: &[PathBuf], output: &Path, opts: &CreateOptions) -> Result<V
                     size: if kind == NewKind::File { meta.len() } else { 0 },
                     kind,
                     modified: meta.modified().ok(),
+                    created: meta.created().ok(),
                     unix_mode: unix_mode(&meta),
                     dos_attrs: dos_attrs(&meta),
                     source: Some(d.path().to_path_buf()),

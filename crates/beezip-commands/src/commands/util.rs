@@ -258,10 +258,9 @@ pub(crate) mod tests {
     #[test]
     fn the_menu_knows_every_extension_core_reads() {
         use beezip_core::{CodecId, codec::TAR_SHORTHANDS};
-        // The disk images' and installers' `.img`, `.exe` and `.msi` are left out of the menu
-        // (docs/M6.md §3.7).
+        // The formats the menu leaves out aren't in its list (`formats_list::in_menu`).
         let formats = beezip_core::format::formats()
-            .filter(|f| f.id().external().is_none_or(beezip_core::External::in_menu))
+            .filter(|f| crate::commands::formats_list::in_menu(f.id()))
             .flat_map(|f| f.extensions().iter());
         let codecs = CodecId::ALL
             .into_iter()

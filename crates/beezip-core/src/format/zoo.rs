@@ -577,6 +577,7 @@ impl ZooReader {
             let is_file = kind == EntryKind::File;
             let id = self.entries.len();
             self.entries.push(Entry {
+                created: None,
                 id,
                 path,
                 raw_path: raw,

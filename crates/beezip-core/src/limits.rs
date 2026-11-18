@@ -93,7 +93,7 @@ impl Budget {
         self.produced.set(0);
     }
 
-    fn add(&self, n: u64) -> Result<()> {
+    pub(crate) fn add(&self, n: u64) -> Result<()> {
         self.produced.add(n);
         match self.max_total {
             Some(max) if self.produced.get() > max => Err(Error::limit(format!(
