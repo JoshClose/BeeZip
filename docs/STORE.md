@@ -189,7 +189,7 @@ Microsoft Store onboarding".
   alias; CPython's `PC/layout/support/appxmanifest.py`), so the Store accepts it. Confirm on the
   first submission. **It didn't:** Python's hidden apps (`AppListEntry="none"`) have Microsoft's
   HeadlessAppBypass waiver, and Partner Center refused 0.7.0's package for its hidden CLI app.
-  From 0.7.2 the alias belongs to the app itself, and this test passes (M12.md §14).
+  From 0.8.0 (planned as 0.7.2, which was never released) the alias belongs to the app itself, and this test passes (M12.md §14).
 - **Blocked executables: FAIL, optional.** It checks for Windows 10 S mode. It flags
   `CreateProcessW` and `ShellExecute(Ex)W` in all three binaries, and the strings `cmd.exe`,
   `powershell` and `bash` in `BeeZip.exe` and the DLL. Two of the matches, `cDb` and `dnX`, are

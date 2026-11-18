@@ -60,7 +60,7 @@ pnpm tauri dev      # the desktop app, reloading as you edit
 **The Microsoft Store copy** (from 0.7.1, once its listing is live) is the same app, signed by Microsoft:
 - **Updates:** the Microsoft Store installs them, so BeeZip never checks GitHub, and Settings has no update setting.
 - **Explorer's menu** comes with the package, on Windows 10 and 11, with no install or repair; Settings still chooses its items. **Default apps** in Settings opens Windows' page where BeeZip becomes the app for archives.
-- **The command line** (from 0.7.2; 0.7.1 has none) is `beezip` in any terminal, through the package's alias in `%LOCALAPPDATA%\Microsoft\WindowsApps`.
+- **The command line** (from 0.8.0; 0.7.1 has none) is `beezip` in any terminal, through the package's alias in `%LOCALAPPDATA%\Microsoft\WindowsApps`.
 - **Settings:** a machine that never had BeeZip keeps `config.toml` in the package's own folder, which Windows removes when BeeZip is uninstalled; Settings' Open config.toml finds it there.
 - **Both copies installed** (the Store's, and the installer's or a portable one's menu) give Explorer two BeeZip menus, which Settings and `beezip shell status` point out: uninstall one of them. `beezip` in a terminal is then the Store's.
 

@@ -35,8 +35,6 @@ using BeeZip will notice. Leave the date out: the Releases page dates each versi
   digits. If you had turned the submenu off, BeeZip replaces the old items the next time it
   registers the menu (Settings → Explorer menu → Repair does it at once).
 
-## 0.7.2
-
 ### The Microsoft Store copy
 
 - **The command line is back in the Microsoft Store copy:** `beezip` in any terminal, Copy as
