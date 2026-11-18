@@ -6,8 +6,8 @@ implemented, and this document. [`bhive_reader.py`](bhive_reader.py) is a second
 Python with only the standard library, which BeeZip's tests run against BeeZip's own archives.
 
 - **Status:** a draft until BeeZip 0.8.0 is released. Version 1 is frozen by that release: later
-  versions may add coders and features behind flags (§2), and every BeeZip reads every released
-  version.
+  versions may add coders and features behind flags (§3.1), and every BeeZip reads every
+  released version.
 - **Why it is built this way** is in [`M13.md`](M13.md), with the measurements behind it.
 - **Words:** "must" binds writers; a reader refuses a file that breaks a "must" where §9 says so.
 
@@ -54,7 +54,7 @@ Nothing else is in the file: each part starts where the one before ends, and the
 the file.
 
 **A file may be added to in place** by writing more cell blocks after the footer, then a new
-index block and footer. Version 1 of BeeZip doesn't write such files, but a reader must read
+index block and footer. BeeZip doesn't write such files yet, but a reader must read
 them: it finds the last index from the end of the file, that index's cell table (§6) names
 every cell wherever it lies, and earlier index blocks and footers are dead bytes.
 
@@ -211,10 +211,10 @@ filled, one after another, in order.
 | 5 | has DOS attributes |
 | 6–7 | reserved |
 
-- **Paths** are UTF-8, with `/` between components and none at either end. Writers must not
-  write an empty path, an empty component, `.` or `..`, a NUL, or a backslash. A reader treats
-  a path as it treats any archive's: as untrusted. It should replace bytes that aren't UTF-8
-  rather than fail.
+- **Paths** are UTF-8, with `/` between components. A writer should write none that is empty,
+  starts or ends with `/`, or has an empty component, `.`, `..` or a NUL. A backslash is a
+  character of a name like any other, as it is on Unix. A reader treats a path as it treats
+  any archive's: as untrusted. It should replace bytes that aren't UTF-8 rather than fail.
 - **Times** count from 1970-01-01T00:00:00Z, without leap seconds: whole seconds, which may be
   negative, and nanoseconds from 0 to 999,999,999 added to them.
 - **The Unix mode** is `st_mode`: the permission bits, and the file type bits if the writer has
@@ -292,10 +292,10 @@ And a reader should, for its own safety:
 
 None of this is needed to read a file; it describes what BeeZip writes.
 
-- **Levels.** None stores everything, the index and journals too, so a file made at None holds
-  no compressed data at all. Fast and Balanced use Zstandard at levels 3 and 6 in cells of 4
-  and 8 MiB. High and Max use LZMA2 at xz's presets 6 and 9 in cells of 16 and 64 MiB, with the
-  dictionary no larger than the cell.
+- **Levels.** None stores every cell, in cells of 4 MiB; only the index and the journals are
+  compressed. Fast and Balanced use Zstandard at levels 3 and 6 in cells of 4 and 8 MiB. High
+  and Max use LZMA2 at xz's presets 6 and 9 in cells of 16 and 64 MiB, with the dictionary no
+  larger than the cell.
 - **Filling cells.** Files are packed in the order given. A file that fits in a cell is never
   split across two; a bigger one fills cells. At None a file of up to 4 MiB is therefore one
   plain run of bytes in the archive.
@@ -304,5 +304,115 @@ None of this is needed to read a file; it describes what BeeZip writes.
   whose BLAKE3 it has seen before as an extent into the cell that holds it. Chunks under
   512 bytes are stored where they fall. Neither the chunking nor the hash is part of the format:
   a reader sees only extents.
-- **Cells that don't shrink** are stored. At High, a cell is first tried with Zstandard 3, and
-  stored if that saves under 2 %.
+- **Cells that barely shrink** are stored, so that reading them back is a copy: below Max, a
+  cell that isn't smaller by a sixty-fourth. At High, a cell is first tried with Zstandard 3,
+  and stored if that saves under 2 %, without LZMA2's time being spent on it.
+- **The same input gives the same bytes** on any number of threads: files are placed in order
+  on one thread, and only reading, hashing and compressing are shared out.
+
+## 11. Examples
+
+Two small archives, byte for byte. Both are in BeeZip's repository
+(`tests/fixtures/bhive/spec-empty.bhive` and `spec-small.bhive`), where a test checks that the
+bytes listed here are the files', and that BeeZip and `bhive_reader.py` read them as described.
+Neither holds compressed data, so every byte can be accounted for. Each line is an offset, the
+bytes there, and what they are.
+
+**An archive of nothing:** a header, an index block and a footer, 66 bytes.
+
+<!-- bytes of spec-empty.bhive -->
+```
+0000  89 42 48 49 56 45 0d 0a              magic
+0008  01 00                                version 1
+000a  00 00                                reserved
+000c  00 00 00 00                          features: none
+; the index block
+0010  42 48 49 58                          tag "BHIX"
+0014  00                                   coder 0: the index is stored
+0015  00 00 00                             reserved
+0018  02 00 00 00 00 00 00 00              stored length 2
+0020  02 00 00 00 00 00 00 00              raw length 2
+0028  05 55 28 1f 0e 23 25 33              index checksum, of the 2 bytes that follow
+0030  00                                   the index: no cells
+0031  00                                   no entries
+; the footer
+0032  10 00 00 00 00 00 00 00              index offset 16
+003a  89 42 48 49 56 45 0d 0a              magic
+```
+
+**A folder, two files and a link,** 332 bytes. `docs/a.txt` holds `honey` and a line feed,
+`docs/b.txt` holds `honeycomb` and a line feed, and the cell stores only the second: the first
+file is two extents of it.
+
+<!-- bytes of spec-small.bhive -->
+```
+0000  89 42 48 49 56 45 0d 0a              magic
+0008  01 00                                version 1
+000a  00 00                                reserved
+000c  00 00 00 00                          features: none
+; cell block 0: the record head
+0010  42 48 43 4c                          tag "BHCL"
+0014  00 00 00 00                          number 0
+0018  0a 00 00 00                          raw length 10
+001c  0a 00 00 00                          stored length 10
+0020  00                                   coder 0: stored
+0021  00                                   coder parameter
+0022  00                                   journal coder 0: stored
+0023  00                                   reserved
+0024  04 00 00 00                          journal items 4
+0028  5b 00 00 00                          journal raw length 91
+002c  5b 00 00 00                          journal stored length 91
+0030  14 37 98 42 06 65 4e 0e              cell checksum, of the cell's 10 bytes
+0038  12 96 db 66 7b 11 f9 47              record checksum, of the 40 bytes above and the journal
+; the journal: four items
+0040  05                                   flags: a folder (1) with a modification time (4)
+0041  04 64 6f 63 73                       path, 4 bytes: "docs"
+0046  80 e4 ad 95 0d                       seconds 1,767,225,600: 2026-01-01T00:00:00Z
+004b  00                                   nanoseconds 0
+004c  04                                   flags: a file (0) with a modification time (4)
+004d  0a 64 6f 63 73 2f 61 2e 74 78 74     path, 10 bytes: "docs/a.txt"
+0058  80 e4 ad 95 0d 00                    the same time
+005e  02                                   2 extents
+005f  00 00 05                             cell 0, offset 0, length 5: "honey"
+0062  00 09 01                             cell 0, offset 9, length 1: the line feed
+0065  14                                   flags: a file with a modification time (4) and a Unix mode (16)
+0066  0a 64 6f 63 73 2f 62 2e 74 78 74     path: "docs/b.txt"
+0071  82 e4 ad 95 0d                       seconds 1,767,225,601
+0076  80 ca b5 ee 01                       nanoseconds 500,000,000
+007b  a4 83 02                             Unix mode 0o100644
+007e  01                                   1 extent
+007f  00 00 0a                             cell 0, offset 0, length 10: the whole cell
+0082  06                                   flags: a link (2) with a modification time (4)
+0083  06 6c 61 74 65 73 74                 path: "latest"
+008a  80 e4 ad 95 0d 00                    time
+0090  0a 64 6f 63 73 2f 62 2e 74 78 74     target, 10 bytes: "docs/b.txt"
+; the cell's data
+009b  68 6f 6e 65 79 63 6f 6d 62 0a        "honeycomb" and a line feed
+; the index block
+00a5  42 48 49 58                          tag "BHIX"
+00a9  00                                   coder 0: stored
+00aa  00 00 00                             reserved
+00ad  77 00 00 00 00 00 00 00              stored length 119
+00b5  77 00 00 00 00 00 00 00              raw length 119
+00bd  48 6a ae 52 fc 9b e9 17              index checksum
+; the index
+00c5  01                                   1 cell
+00c6  9b 00 00 00 00 00 00 00              its data is at offset 155
+00ce  0a 00 00 00                          stored length 10
+00d2  0a 00 00 00                          raw length 10
+00d6  00                                   coder 0
+00d7  00                                   coder parameter
+00d8  14 37 98 42 06 65 4e 0e              cell checksum
+00e0  04                                   4 entries
+00e1  05 04 64 6f 63 73 80 e4 ad 95 0d 00  the four items, as in the journal
+00ed  04 0a 64 6f 63 73 2f 61 2e 74 78 74
+00f9  80 e4 ad 95 0d 00 02 00 00 05 00 09
+0105  01 14 0a 64 6f 63 73 2f 62 2e 74 78
+0111  74 82 e4 ad 95 0d 80 ca b5 ee 01 a4
+011d  83 02 01 00 00 0a 06 06 6c 61 74 65
+0129  73 74 80 e4 ad 95 0d 00 0a 64 6f 63
+0135  73 2f 62 2e 74 78 74
+; the footer
+013c  a5 00 00 00 00 00 00 00              index offset 165
+0144  89 42 48 49 56 45 0d 0a              magic
+```
