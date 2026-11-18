@@ -30,6 +30,7 @@ const settings: Config = {
       "extract-to": true,
       test: true,
       "add-zip": true,
+      "add-bhive": true,
       "add-7z": true,
       "add-tar-zst": true,
       "compress-to": true,
@@ -82,7 +83,7 @@ const installed = (cascade = true): ShellStatusOutput =>
       dll: "C:\\Users\\me\\AppData\\Local\\BeeZip\\beezip_shell_0.1.0.dll",
       dll_exists: true,
       cascade,
-      verbs: cascade ? ["*\\shell\\BeeZip", "Directory\\shell\\BeeZip"] : ["*\\shell\\BeeZip.1-open"],
+      verbs: cascade ? ["*\\shell\\BeeZip", "Directory\\shell\\BeeZip"] : ["*\\shell\\BeeZip.01-open"],
     },
   });
 

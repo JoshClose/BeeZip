@@ -1,7 +1,9 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { type CreateForm, CreateDialog, createArgs, defaultOutput, withFormat } from "../features/create/CreateDialog";
+import { applies, type CreateForm, CreateDialog, createArgs, defaultLevel, defaultOutput, levelHint, levelLabel, levelNote, withFormat } from "../features/create/CreateDialog";
+import { ownLevel } from "../features/edit/AddDialog";
+import { levelTargets } from "../features/settings/Settings";
 import type { FormatsListOutput } from "../gen/commands";
 import { codecOfTar } from "../lib/formats";
 import { fake } from "./fakeEngine";
@@ -15,6 +17,17 @@ const caps = { list: true, extract: true, create: true, append: false, delete: f
 // Enough of `formats.list` for the dialog.
 const formats: FormatsListOutput = {
   formats: [
+    {
+      id: "bhive",
+      name: "BeeZip",
+      extensions: [".bhive"],
+      caps: { ...caps, append: true, delete: true, rename: true, encrypt: false },
+      methods: [],
+      encryption: [],
+      menu: true,
+      levels: levels(0, 4, 2),
+      level_names: ["none", "fast", "balanced", "high", "max"],
+    },
     { id: "zip", name: "Zip", extensions: [".zip"], caps, methods: [{ id: "store", levels: null }, { id: "deflate", levels: levels(1, 9, 6) }, { id: "zstd", levels: levels(1, 22, 3) }], encryption: ["aes256", "zipcrypto"], menu: true, levels: null, level_names: [] },
     { id: "7z", name: "7z", extensions: [".7z"], caps: { ...caps, encrypt_headers: true, solid: true }, methods: [{ id: "lzma2", levels: levels(0, 9, 5) }, { id: "copy", levels: null }], encryption: ["aes256"], menu: true, levels: null, level_names: [] },
     { id: "tar", name: "Tar", extensions: [".tar"], caps: { ...caps, encrypt: false }, methods: [], encryption: [], menu: true, levels: null, level_names: [] },
@@ -32,7 +45,7 @@ const formats: FormatsListOutput = {
     { id: "zstd", name: "Zstandard", extensions: [".zst", ".tzst"], levels: levels(1, 22, 3), threads: true, detected: true },
     { id: "gzip", name: "gzip", extensions: [".gz", ".tgz"], levels: levels(0, 9, 6), threads: false, detected: true },
   ],
-  create: ["zip", "7z", "tar", "tar.gz", "tar.zst", "iso", "squashfs"],
+  create: ["zip", "bhive", "7z", "tar", "tar.gz", "tar.zst", "iso", "squashfs"],
 };
 
 const form = (patch: Partial<CreateForm>): CreateForm => ({
@@ -81,6 +94,47 @@ describe("the create dialog's arguments", () => {
     expect(createArgs(form({ format: "squashfs", level: 9 }), formats)).toEqual({ ...base, format: "squashfs", level: 9 });
     expect(createArgs(form({ format: "squashfs", method: "lz4", level: 9 }), formats)).toEqual({ ...base, format: "squashfs", method: "lz4" });
     expect(createArgs(form({ format: "iso", method: "xz", level: 9, threads: 4, password: "pw" }), formats)).toEqual({ ...base, format: "iso" });
+  });
+
+  it("gives a .bhive its level by name, and no method or password (docs/M13.md §4)", () => {
+    const base = { output: String.raw`C:\work\src.zip`, inputs: [String.raw`C:\work\src`], format: "bhive" };
+    expect(createArgs(form({ format: "bhive" }), formats)).toEqual(base);
+    expect(createArgs(form({ format: "bhive", level: 3, method: "lzma2", password: "pw", solid: false, threads: 8 }), formats)).toEqual({ ...base, level: "high", threads: 8 });
+    expect(createArgs(form({ format: "bhive", level: 0 }), formats)).toEqual({ ...base, level: "none" });
+
+    const a = applies({ format: "bhive", method: undefined }, formats);
+    expect(a).toMatchObject({ level: { min: 0, max: 4, default: 2 }, levelKey: "bhive", methods: [], password: false, solid: false, threads: true });
+    expect(levelLabel(a, 2)).toBe("Balanced");
+    expect(levelNote(a, 4)).toBe("LZMA2: the smallest, the slowest");
+    expect(levelHint(defaultLevel(a, {})!, levelLabel(a, 2))).toBe("Default Balanced.");
+    expect(levelHint(defaultLevel(a, { bhive: 3 })!, levelLabel(a, 3))).toBe("Default High, from the settings.");
+    // The others keep their numbers.
+    const zip = applies({ format: "zip", method: undefined }, formats);
+    expect(zip.levelNames).toEqual([]);
+    expect(levelLabel(zip, 6)).toBe("6");
+    expect(levelNote(zip, 6)).toBe("1 is fastest, 9 smallest");
+    expect(withFormat(String.raw`C:\a\b.bhive`, "zip")).toBe(String.raw`C:\a\b.zip`);
+  });
+
+  it("starts an add at the level the .bhive was made at", () => {
+    const names = ["none", "fast", "balanced", "high", "max"];
+    const info = (properties: { level: string; name: string; value: string }[]) => ({ properties }) as never;
+    expect(ownLevel(info([{ level: "bhive", name: "Level", value: "max" }]), names)).toBe(4);
+    expect(ownLevel(info([{ level: "bhive", name: "Cells", value: "3" }]), names)).toBeUndefined();
+    expect(ownLevel(info([{ level: "bhive", name: "Level", value: "max" }]), [])).toBeUndefined();
+    expect(ownLevel(undefined, names)).toBeUndefined();
+  });
+
+  it("has `[levels] bhive` in the settings, by name", () => {
+    const bhive = levelTargets(formats).find((l) => l.name === "bhive");
+    expect(bhive).toEqual({
+      name: "bhive",
+      range: { min: 0, max: 4 },
+      own: 2,
+      applies: "For .bhive archives.",
+      others: null,
+      names: ["none", "fast", "balanced", "high", "max"],
+    });
   });
 
   it("names the output after the inputs and the format", () => {
@@ -148,5 +202,16 @@ describe("the create dialog", () => {
     await user.selectOptions(screen.getByLabelText("Format"), "tar.zst");
     expect(screen.queryByLabelText("Password")).toBeNull();
     expect(screen.getByLabelText("Threads")).toBeInTheDocument();
+
+    // A .bhive: five named levels, no method, no password.
+    await user.selectOptions(screen.getByLabelText("Format"), "bhive");
+    expect(screen.getByLabelText("Save as")).toHaveValue(String.raw`C:\work\src.bhive`);
+    expect(screen.queryByLabelText("Password")).toBeNull();
+    expect(screen.queryByLabelText("Method")).toBeNull();
+    const level = screen.getByLabelText("Level");
+    expect(level).toHaveAttribute("max", "4");
+    expect(level).toHaveAttribute("aria-valuetext", "Balanced");
+    expect(screen.getByText("Default Balanced.")).toBeInTheDocument();
+    expect(screen.getByText("zstd 6: quick and small")).toBeInTheDocument();
   });
 });

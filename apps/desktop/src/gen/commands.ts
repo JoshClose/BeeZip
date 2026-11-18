@@ -1367,7 +1367,7 @@ read_only: boolean, };
  * An item of BeeZip's Explorer menu. The ids are stable: they are config keys
  * (`[shell.items]`), registry values and TypeScript types.
  */
-export type MenuItem = "open" | "extract-here" | "extract-folder" | "extract-to" | "test" | "add-zip" | "add-7z" | "add-tar-zst" | "compress-to";
+export type MenuItem = "open" | "extract-here" | "extract-folder" | "extract-to" | "test" | "add-zip" | "add-bhive" | "add-7z" | "add-tar-zst" | "compress-to";
 
 /**
  * A compression method BeeZip writes, with its level range.
@@ -1670,6 +1670,10 @@ test: boolean,
  * "Add to "a.zip"".
  */
 "add-zip": boolean,
+/**
+ * "Add to "a.bhive"".
+ */
+"add-bhive": boolean,
 /**
  * "Add to "a.7z"".
  */
