@@ -19,10 +19,13 @@ jobs:
     defaults: { run: { shell: bash } }   # bash -e: a failing first line fails the step (pwsh only checks the last exit code)
     env:
       BEEZIP_REQUIRE_7Z: "1"           # the interop tests fail instead of skipping without 7-Zip
+      BEEZIP_REQUIRE_PYTHON: "1"       # and without Python 3.14, which runs docs/bhive_reader.py (docs/M13.md §8)
     steps:
       - uses: actions/checkout@v7
       - run: rustup toolchain install    # reads rust-toolchain.toml
       - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-python@v7    # the .bhive reference reader needs 3.14's Zstandard
+        with: { python-version: "3.14" }
       - uses: pnpm/action-setup@v6
         with: { package_json_file: apps/desktop/package.json }
       - uses: actions/setup-node@v7
@@ -124,9 +127,12 @@ jobs:
       BEEZIP_REQUIRE_GNU_TAR: "1"      # and without GNU tar
       BEEZIP_REQUIRE_LINUX_TOOLS: "1"  # gzip, lzop, uncompress, cpio, ar, xorriso and unsquashfs check BeeZip's output (docs/M5.md §10, docs/M6.md §10)
       BEEZIP_REQUIRE_LZMS: "1"         # the LZMS images fail instead of being refused without wimlib (docs/M11.md §6.2)
+      BEEZIP_REQUIRE_PYTHON: "1"       # Python 3.14 reads BeeZip's .bhive fixtures with docs/bhive_reader.py (docs/M13.md §8)
     steps:
       - uses: actions/checkout@v7
       - run: rustup toolchain install
+      - uses: actions/setup-python@v7
+        with: { python-version: "3.14" }
       - name: The Linux tools the interop tests run, and wimlib's library for LZMS
         run: sudo apt-get update -q && sudo apt-get install -y -q --no-install-recommends lzop ncompress cpio binutils squashfs-tools xorriso libwim15t64
       - name: release.yml's choice of files, on made-up artifacts (before 1.0.0, no Windows installer)
@@ -237,10 +243,13 @@ jobs:
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - name: wimlib, whose library BeeZip loads to read LZMS (docs/M11.md §6.2)
         run: brew install wimlib
+      - uses: actions/setup-python@v7    # the .bhive reference reader needs 3.14's Zstandard (docs/M13.md §8)
+        with: { python-version: "3.14" }
       - name: test
         run: cargo test --workspace --locked
         env:
           BEEZIP_REQUIRE_LZMS: "1"
+          BEEZIP_REQUIRE_PYTHON: "1"
       - name: pnpm install
         working-directory: apps/desktop
         run: pnpm install --frozen-lockfile

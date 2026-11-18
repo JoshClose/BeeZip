@@ -287,3 +287,17 @@ path = "fuzz_targets/nsis.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "bhive"
+path = "fuzz_targets/bhive.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "bhive-index"
+path = "fuzz_targets/bhive_index.rs"
+test = false
+doc = false
+bench = false
