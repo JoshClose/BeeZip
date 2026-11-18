@@ -16,6 +16,7 @@ use anyhow::{Context, bail};
 mod ace;
 mod arc;
 mod arj;
+mod bhive;
 mod chm;
 mod cramfs;
 mod nsis;
@@ -37,30 +38,40 @@ fn workspace_root() -> PathBuf {
 }
 
 pub fn run(check: bool) -> anyhow::Result<()> {
-    let dir = workspace_root().join(DIR);
-    let files = corpus()?;
+    let malicious: Vec<(String, Vec<u8>)> = corpus()?
+        .into_iter()
+        .map(|(name, bytes)| (name.to_owned(), bytes))
+        .collect();
+    sync(DIR, &malicious, check)?;
+    // The `.bhive` fixtures: one for each level and feature, and their manifest (docs/M13.md §8).
+    sync(bhive::DIR, &bhive::fixtures()?, check)
+}
+
+/// Writes `files` into `dir`, or with `check` fails if any of them differs from what is there.
+fn sync(dir_name: &str, files: &[(String, Vec<u8>)], check: bool) -> anyhow::Result<()> {
+    let dir = workspace_root().join(dir_name);
     let mut stale = Vec::new();
-    for (name, bytes) in &files {
+    for (name, bytes) in files {
         let path = dir.join(name);
         let current = std::fs::read(&path).ok();
         if current.as_deref() == Some(bytes.as_slice()) {
             continue;
         }
         if check {
-            stale.push(*name);
+            stale.push(name.as_str());
         } else {
             std::fs::create_dir_all(&dir).with_context(|| format!("creating {}", dir.display()))?;
             std::fs::write(&path, bytes).with_context(|| format!("writing {}", path.display()))?;
-            println!("wrote {DIR}/{name}");
+            println!("wrote {dir_name}/{name}");
         }
     }
     if !stale.is_empty() {
         bail!(
-            "{} out of date in {DIR}; run `cargo xtask gen-fixtures`",
+            "{} out of date in {dir_name}; run `cargo xtask gen-fixtures`",
             stale.join(", ")
         );
     }
-    println!("{DIR}: {} files up to date", files.len());
+    println!("{dir_name}: {} files up to date", files.len());
     Ok(())
 }
 
@@ -257,6 +268,8 @@ fn corpus() -> anyhow::Result<Vec<(&'static str, Vec<u8>)>> {
     // M10: CramFS (docs/M10.md §8).
     files.extend(cramfs::corpus()?);
     files.extend(nsis::corpus()?);
+    // M13: .bhive (docs/M13.md §8).
+    files.extend(bhive::corpus()?);
     Ok(files)
 }
 
@@ -1113,6 +1126,7 @@ fn iso(items: &[IsoItem<'_>]) -> anyhow::Result<Vec<u8>> {
             ),
         };
         let e = NewEntry {
+            created: None,
             path: path.to_owned(),
             kind,
             size: data.len() as u64,
@@ -1358,6 +1372,7 @@ fn dmg_traversal() -> anyhow::Result<Vec<u8>> {
     std::fs::create_dir_all(&dir).with_context(|| format!("creating {}", dir.display()))?;
     let output = dir.join("traversal.dmg");
     let entry = |path: &str, kind: NewKind, data: &[u8]| NewEntry {
+        created: None,
         path: path.into(),
         kind,
         size: data.len() as u64,
