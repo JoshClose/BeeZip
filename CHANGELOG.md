@@ -7,6 +7,15 @@ Write a new section as `## X.Y.Z`, with `###` groups and `- ` items, describing 
 using BeeZip will notice. Leave the date out: the Releases page dates each version by its
 `vX.Y.Z` tag.
 
+## 0.8.2
+
+### The desktop app
+
+- **BeeZip's window comes up with BeeZip in it.** On Windows the window used to appear at
+  once as an empty white rectangle and fill in a moment later, longer on a busy machine. It
+  now appears when it has something to show, in light and dark mode alike, at the moment it
+  used to fill in.
+
 ## 0.8.1
 
 ### The Microsoft Store copy
