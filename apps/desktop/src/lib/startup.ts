@@ -41,6 +41,29 @@ export function startup(): Startup {
   return { paths: [], cli: "beezip", warnings: [], theme: "system", platform: "windows", store: false, ...window.__BEEZIP__ };
 }
 
+/**
+ * Tells Rust once the page's first frame with content is on its surface. On Windows the main
+ * window is kept off the screen until then, so it comes up with BeeZip in it, not as an empty
+ * rectangle while WebView2 starts (src-tauri/src/reveal.rs). Where the browser doesn't time its
+ * paints, it tells at once. A failure is left alone: Rust shows the window after a second anyway.
+ */
+export function ready(): void {
+  const tell = () => {
+    void Promise.resolve()
+      .then(() => invoke("cmd_ready"))
+      .catch(() => {});
+  };
+  if (typeof PerformanceObserver === "undefined" || !PerformanceObserver.supportedEntryTypes?.includes("paint")) {
+    tell();
+    return;
+  }
+  new PerformanceObserver((list, observer) => {
+    if (list.getEntriesByName("first-contentful-paint").length === 0) return;
+    observer.disconnect();
+    tell();
+  }).observe({ type: "paint", buffered: true });
+}
+
 /** Archives and a dialog forwarded before the main window listened (src-tauri/src/open.rs). */
 export type Launched = { paths: string[]; dialog: OpenDialog | null };
 

@@ -6,6 +6,7 @@ mod job;
 mod open;
 mod opened;
 mod prompts;
+mod reveal;
 mod update;
 
 use std::{
@@ -63,9 +64,13 @@ pub fn run() {
         .manage(Warnings(Mutex::new(warnings)))
         .manage(Arc::new(Opened::default()))
         .manage(Pending::default())
+        .manage(reveal::Revealed::default())
         .manage(update::Updates::default())
         // Back from an editor: entries opened from the tabs that changed (docs/M5.md §8.3).
         .on_window_event(|window, event| {
+            if let WindowEvent::ThemeChanged(theme) = event {
+                reveal::theme_changed(window, *theme);
+            }
             if window.label() == MAIN && matches!(event, WindowEvent::Focused(true)) {
                 let app = window.app_handle();
                 for changed in app.state::<Arc<Opened>>().changed() {
@@ -108,6 +113,7 @@ pub fn run() {
             ipc::cmd_respond,
             ipc::cmd_list,
             ipc::cmd_launched,
+            reveal::cmd_ready,
             drag::cmd_drag_out,
             update::cmd_update_check,
             update::cmd_update_install

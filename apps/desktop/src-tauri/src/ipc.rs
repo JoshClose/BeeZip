@@ -1,7 +1,7 @@
 //! The app's Tauri commands (PLAN §1, Desktop). Every BeeZip command goes through `cmd_run`, so
 //! adding a command never touches this file; the others cancel, answer prompts, list commands,
 //! and hand the main window the launches that arrived before it listened. The updater's two
-//! are in update.rs.
+//! are in update.rs, and the page's "I have rendered" in reveal.rs.
 
 use std::sync::Arc;
 

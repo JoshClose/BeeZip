@@ -22,7 +22,10 @@ use beezip_commands::{Engine, Theme};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, WebviewWindowBuilder};
 
-use crate::job::{self, JobStartup, Routed};
+use crate::{
+    job::{self, JobStartup, Routed},
+    reveal::{self, Revealed},
+};
 
 /// The main window: tabs, dialogs and the jobs panel.
 pub const MAIN: &str = "main";
@@ -285,7 +288,7 @@ pub fn startup_script(
 }
 
 /// Builds the main window (`create: false` in tauri.conf.json) with its startup data. On the
-/// main thread only.
+/// main thread only. On Windows it stays off the screen until its page has painted ([`reveal`]).
 pub fn create_main_window(
     app: &AppHandle,
     paths: Vec<PathBuf>,
@@ -302,11 +305,13 @@ pub fn create_main_window(
     if let Some(pending) = app.try_state::<Pending>() {
         pending.not_ready();
     }
-    with_browser_args(
-        WebviewWindowBuilder::from_config(app, &config)?
-            .initialization_script(startup_script(app, paths, dialog, None)),
-    )
-    .build()?;
+    reveal::build(
+        app,
+        with_browser_args(
+            WebviewWindowBuilder::from_config(app, &config)?
+                .initialization_script(startup_script(app, paths, dialog, None)),
+        ),
+    )?;
     Ok(())
 }
 
@@ -429,6 +434,10 @@ pub fn show(app: &AppHandle, mut routed: Routed) -> tauri::Result<()> {
 }
 
 fn focus_main(app: &AppHandle) -> tauri::Result<()> {
+    // A main window still waiting for its page comes up by itself, with what this launch sent.
+    if app.try_state::<Revealed>().is_some_and(|r| !r.is_set()) {
+        return Ok(());
+    }
     if let Some(window) = app.get_webview_window(MAIN) {
         let _ = window.unminimize();
         let _ = window.show();
