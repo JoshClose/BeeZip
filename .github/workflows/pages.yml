@@ -43,7 +43,15 @@ jobs:
           tags=$(git tag -l 'v*')
           if [ -z "$tags" ]; then echo "::error::fetched no v* tags"; exit 1; fi
           echo "$tags"
-      - run: rustup toolchain install    # reads rust-toolchain.toml
+      - name: Rust from rust-toolchain.toml alone
+        # rust-cache keys on every toolchain rustup lists, so the image's own stable, new with each
+        # Rust release, would start every job from an empty cache.
+        shell: bash
+        run: |
+          rustup toolchain install
+          rustup default "$(sed -n '/^channel = /{s/^channel = "//;s/"$//;p;}' rust-toolchain.toml)"
+          if rustup toolchain list | grep -q '^stable'; then rustup toolchain uninstall stable; fi
+          rustup toolchain list
       - uses: Swatinem/rust-cache@v2
       - name: The command line, whose help the site shows
         run: cargo build --locked -p beezip-cli

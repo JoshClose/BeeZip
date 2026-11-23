@@ -82,15 +82,15 @@ close_when_done = false</code></pre>
 <h2 id="two-menus">Windows 11's menu and the classic menu</h2>
 <p>Windows 11 has two right-click menus: its own, and the classic one, which it shows under <strong>Show more options</strong>. Windows 10 has only the classic one.</p>
 <ul>
-  <li><strong>Windows 11's own menu</strong> needs BeeZip's signed package. It comes with the signed installer, from version 1.0.0. There, <strong>BeeZip</strong> is always a submenu.</li>
+  <li><strong>Windows 11's own menu</strong> needs BeeZip's signed package. BeeZip from the Microsoft Store has it, and so will the signed installer, from version 1.0.0. There, <strong>BeeZip</strong> is always a submenu.</li>
   <li><strong>The classic menu</strong> is what the portable copy and unsigned builds register. On Windows 11 you find BeeZip under <strong>Show more options</strong>; on Windows 10 it's in the menu itself. Here BeeZip can be a submenu or put its items at the top of the menu.</li>
   <li><strong>Only one at a time:</strong> registering one kind takes the other away, so BeeZip never shows twice.</li>
 </ul>
-<p>Before 1.0.0 the portable copy is BeeZip's only Windows download, so for now BeeZip is under <strong>Show more options</strong> on Windows 11. Settings → Explorer menu says which menu you have.</p>
+<p>To have BeeZip in Windows 11's own menu, install it from the <a href="../download.html#windows-store">Microsoft Store</a>. The portable copy's menu is under <strong>Show more options</strong>. Settings → Explorer menu says which menu you have.</p>
 <div class="note"><p>On an installed BeeZip with Windows' Developer Mode on, <code>beezip shell install --mode modern --dev</code> moves the menu into Windows 11's own menu without a signed package, and <code>beezip shell install --mode classic</code> moves it back.</p></div>
 
 <h2 id="installing">Installing, repairing and removing it</h2>
-<p>The menu is registered for your Windows account only, and needs no administrator rights. The installer adds it without asking, and uninstalling BeeZip removes it, along with BeeZip's other registrations.</p>
+<p>The menu is registered for your Windows account only, and needs no administrator rights. BeeZip from the Microsoft Store brings its menu with it (see <a href="#store-copy">below</a>). The installer adds it without asking, and uninstalling BeeZip removes it, along with BeeZip's other registrations.</p>
 
 <h3 id="from-settings">From Settings</h3>
 <p>Settings → Explorer menu shows what's registered now:</p>
@@ -110,6 +110,9 @@ close_when_done = false</code></pre>
 beezip shell install      # add the menu, or repair it
 beezip shell uninstall    # remove it</code></pre>
 <p><code>beezip shell install</code> picks the menu as Install does; <code>--mode classic</code> or <code>--mode modern</code> asks for one. Running it again repairs the menu. <code>beezip shell uninstall</code> leaves your settings alone. See <a href="cli.html">The command line</a>.</p>
+
+<h3 id="store-copy">The Microsoft Store copy</h3>
+<p>Its menu comes with its package, on Windows 10 and 11: there's nothing to install or repair, and uninstalling BeeZip removes it. Settings → Explorer menu says the Microsoft Store package provides it, and still chooses its items. When a portable copy or the installer has added a menu too, Explorer shows BeeZip twice, and Settings and <code>beezip shell status</code> say so: remove the other one.</p>
 
 <h3 id="portable-copy">The portable copy</h3>
 <p>The portable copy installs nothing on its own: add the menu from Settings → Explorer menu → <strong>Install</strong>. It registers the classic menu.</p>
@@ -134,7 +137,7 @@ add-tar-zst = false</code></pre>
 
 <h2 id="troubleshooting">Troubleshooting</h2>
 <ul>
-  <li><strong>BeeZip isn't in Windows 11's menu:</strong> look under <strong>Show more options</strong>. Without the signed package, that's where BeeZip goes; see <a href="#two-menus">above</a>.</li>
+  <li><strong>BeeZip isn't in Windows 11's menu:</strong> look under <strong>Show more options</strong>. Without the signed package, which BeeZip from the Microsoft Store has, that's where BeeZip goes; see <a href="#two-menus">above</a>.</li>
   <li><strong>The menu stopped working, or a click does nothing:</strong> click <strong>Repair</strong> in Settings → Explorer menu, or run <code>beezip shell install</code>. Anything listed in red there says what was wrong.</li>
   <li><strong>You moved or updated a portable copy:</strong> click <strong>Repair</strong> from the copy you now use.</li>
   <li><strong>Only the add items show:</strong> the selection includes a folder, or a file BeeZip doesn't read by its name.</li>

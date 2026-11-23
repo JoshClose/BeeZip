@@ -224,8 +224,12 @@ pre {
   }
 }
 
+/* The button's ink, not the page's muted .release-line below, which would be grey on amber. */
 .button .release-line {
   display: block;
+  margin: 2px 0 0;
+  min-height: 0;
+  color: inherit;
   font-weight: 450;
   font-size: 0.82rem;
   opacity: 0.85;
@@ -1469,6 +1473,18 @@ pre.usage {
 
 .files small {
   color: var(--muted);
+}
+
+/* The Microsoft Store's own badge, as Microsoft draws it: dark on a light page, light on a dark one. */
+.store-badge {
+  display: block;
+  line-height: 0;
+}
+
+.store-badge img {
+  display: block;
+  width: 161px;
+  height: auto;
 }
 
 .platforms {

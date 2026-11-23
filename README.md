@@ -4,6 +4,10 @@ An archive manager for Windows, also built for Linux and macOS, with a desktop a
 
 **Website, downloads and documentation:** <https://joshclose.github.io/BeeZip/>. What's new in each version is in [CHANGELOG.md](CHANGELOG.md).
 
+**On Windows, get BeeZip from the Microsoft Store:** signed by Microsoft and kept up to date by the Store. Or run `winget install 9P9HHSVMM3M3 -s msstore`.
+
+<a href="https://apps.microsoft.com/detail/9P9HHSVMM3M3"><picture><source media="(prefers-color-scheme: dark)" srcset="site/src/assets/store/badge-light.svg"><img src="site/src/assets/store/badge-dark.svg" alt="Download from the Microsoft Store" width="161" height="44"></picture></a>
+
 > **Status:** milestones M0 to M13 are done: the engine, the command line, the MCP server and the desktop app read dozens of archive and disk-image formats, write and edit the common ones and BeeZip's own `.bhive`, Explorer's right-click menu reaches them, and BeeZip ships as an installer, a portable copy, Linux and macOS packages and a Microsoft Store package. See [`docs/PLAN.md`](docs/PLAN.md) for the architecture, the roadmap and each milestone's plan.
 
 ## Building
@@ -45,24 +49,24 @@ pnpm tauri dev      # the desktop app, reloading as you edit
 - **Copy as CLI**, on every dialog, copies the `beezip` command that does the same, without the password.
 - **Settings** (Ctrl+,, or from the welcome screen) change `config.toml` as you go, and the next job uses them. Each is saved as you change it, keeping the file's comments; a value BeeZip can't take shows its error beside the field and isn't saved.
 - **Theme:** System (Windows' light or dark mode), Light or Dark, in Settings or from Ctrl+K ("Theme: Dark"). Every window switches at once.
-- **Updates:** at most once a day, BeeZip asks GitHub for its newest release and, when there's one, shows a banner with what's new and "Update and restart". Nothing downloads before you click; running jobs finish first; the installer's signature must match the release's version. Settings turns the check off; About checks now. The command line and the MCP server never check. A portable copy doesn't install updates: its banner's Download gets the new zip.
+- **Updates:** the Microsoft Store updates its copy (below). Elsewhere, at most once a day, BeeZip asks GitHub for its newest release and, when there's one, shows a banner with what's new and "Update and restart". Nothing downloads before you click; running jobs finish first; the installer's signature must match the release's version. Settings turns the check off; About checks now. The command line and the MCP server never check. A portable copy doesn't install updates: its banner's Download gets the new zip.
 
-**The portable copy** (`BeeZip_<version>_x64-portable.zip`, the only Windows download before 1.0.0) runs from any folder: unzip it and run `BeeZip.exe`. Nothing is installed. `bin\beezip.exe` is the command line, and Settings → Explorer menu adds the right-click menu, which runs BeeZip from that folder, so remove the menu before moving or deleting it. File types and PATH are left alone. To update, close BeeZip and unzip the new version over the folder; the zip's `README.txt` says the same.
+**The Microsoft Store copy** is the recommended way to install BeeZip on Windows: get it from [its listing](https://apps.microsoft.com/detail/9P9HHSVMM3M3) or with `winget install 9P9HHSVMM3M3 -s msstore`. It's the same app, signed by Microsoft, so Windows runs it without a SmartScreen warning, Smart App Control included:
+- **Updates:** the Microsoft Store installs them, so BeeZip never checks GitHub, and Settings has no update setting.
+- **Explorer's menu** comes with the package, in Windows 11's own menu and in Windows 10's, with no install or repair; Settings still chooses its items. **Default apps** in Settings opens Windows' page where BeeZip becomes the app for archives.
+- **The command line** is `beezip` in any terminal, through the package's alias in `%LOCALAPPDATA%\Microsoft\WindowsApps`.
+- **Settings:** a machine that never had BeeZip keeps `config.toml` in the package's own folder, which Windows removes when BeeZip is uninstalled; Settings' Open config.toml finds it there.
+- **Both copies installed** (the Store's, and the installer's or a portable one's menu) give Explorer two BeeZip menus, which Settings and `beezip shell status` point out: uninstall one of them. `beezip` in a terminal is then the Store's.
 
-**The installer** works per user, with no admin rights:
+**The portable copy** (`BeeZip_<version>_x64-portable.zip`, the only Windows download on GitHub before 1.0.0) runs from any folder: unzip it and run `BeeZip.exe`. Nothing is installed. `bin\beezip.exe` is the command line, and Settings → Explorer menu adds the right-click menu, which runs BeeZip from that folder, so remove the menu before moving or deleting it. File types and PATH are left alone. To update, close BeeZip and unzip the new version over the folder; the zip's `README.txt` says the same.
+
+**The installer** (on GitHub from 1.0.0) works per user, with no admin rights:
 - **Files:** it puts `BeeZip.exe` in `%LOCALAPPDATA%\BeeZip`, and adds its `bin` folder (holding `beezip.exe`) to your PATH.
 - **File types:** it registers BeeZip for zip, `.bhive`, 7z, rar, tar and the compressed and split formats, but not for zip-based documents such as `.docx` or `.jar`. Windows asks which app to use the first time you open each kind of file, with BeeZip offered. An app you've already chosen for a type (Windows sets Explorer's zip folder for `.zip` on many machines) stays until you pick BeeZip under *Open with → Choose another app*.
 - **Explorer's menu:** a "BeeZip" submenu on files and folders, with Extract here, Extract to "a\", Test archive, Add to "a.zip" and the rest. A click opens a small window for the job, or BeeZip's own dialogs for Extract to… and Compress to…. When `a.zip` is already there, the window offers to add to it, replace it, keep both or skip. Settings → Explorer menu chooses the items and removes or repairs the menu; so do `beezip shell status`, `beezip shell install` and `beezip shell uninstall`.
 - **On Windows 11** the menu needs BeeZip's signed package to be in Windows 11's own menu. Until releases are signed, the installer puts it under *Show more options*. With Developer Mode on, `beezip shell install --mode modern --dev` moves it into the Windows 11 menu, and `beezip shell install --mode classic` moves it back. Only one of the two is registered at a time.
 - **Uninstalling** removes the PATH entry, the menu and the registrations, and leaves your file types as they were. An upgrade keeps the file types you had before BeeZip, too.
 - **A running `beezip`,** such as an MCP server an AI app started, doesn't stop an upgrade or an uninstall: it keeps running from `%TEMP%` until its app restarts it, and Windows deletes that copy at your next sign-in. A running BeeZip window is closed first; the silent (`/S`) and passive (`/P`) installers close it without asking.
-
-**The Microsoft Store copy** (from 0.7.1, once its listing is live) is the same app, signed by Microsoft:
-- **Updates:** the Microsoft Store installs them, so BeeZip never checks GitHub, and Settings has no update setting.
-- **Explorer's menu** comes with the package, on Windows 10 and 11, with no install or repair; Settings still chooses its items. **Default apps** in Settings opens Windows' page where BeeZip becomes the app for archives.
-- **The command line** (from 0.8.0; 0.7.1 has none) is `beezip` in any terminal, through the package's alias in `%LOCALAPPDATA%\Microsoft\WindowsApps`.
-- **Settings:** a machine that never had BeeZip keeps `config.toml` in the package's own folder, which Windows removes when BeeZip is uninstalled; Settings' Open config.toml finds it there.
-- **Both copies installed** (the Store's, and the installer's or a portable one's menu) give Explorer two BeeZip menus, which Settings and `beezip shell status` point out: uninstall one of them. `beezip` in a terminal is then the Store's.
 
 **On Linux and macOS** the app is the same, without Explorer's menu and its job windows:
 - **Linux** (x86-64, glibc 2.35 or newer: Ubuntu 22.04, Debian 12 and later): the deb (`sudo apt install ./beezip_<version>_amd64.deb`) or the rpm installs the app as `beezip-desktop` and the command line as `/usr/bin/beezip`, and offers BeeZip in the file manager's *Open With* for the archive types it reads; packages, snaps and disk images stay with the apps that install or mount them. The AppImage runs as it is on a desktop with GTK.

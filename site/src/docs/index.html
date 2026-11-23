@@ -3,8 +3,9 @@
 <p class="lede">BeeZip opens archives in its own window, from Explorer's right-click menu, on the command line, and for AI assistants. This page gets you from the download to your first extracted archive, and points to the rest.</p>
 
 <h2 id="install">Install BeeZip</h2>
-<p>Get the file for your system from the <a href="../download.html">download page</a>.</p>
+<p>Get BeeZip for your system from the <a href="../download.html">download page</a>.</p>
 <ul>
+  <li><strong>Windows, from the Microsoft Store</strong> (recommended): get it from the <a href="https://apps.microsoft.com/detail/9P9HHSVMM3M3">Microsoft Store</a>, or run <code>winget install 9P9HHSVMM3M3 -s msstore</code>. Microsoft signs it, so Windows runs it without a warning. It installs for you alone, adds BeeZip to Windows 11's own right-click menu, to the archive types it opens, and to your PATH, and the Store keeps it up to date.</li>
   <li><strong>Windows, the portable copy:</strong> unzip <code>BeeZip_<var>version</var>_x64-portable.zip</code> anywhere and run <code>BeeZip.exe</code>. Nothing is installed. Until 1.0.0, Windows asks before the first run, since BeeZip isn't signed yet: choose <strong>More info</strong>, then <strong>Run anyway</strong>.</li>
   <li><strong>Windows, the installer</strong> (from 1.0.0): run it. It installs for you alone, with no admin rights, and adds BeeZip to Windows 11's own right-click menu, to the archive types it opens, and to your PATH.</li>
   <li><strong>Linux:</strong> install the deb or rpm package, or run the AppImage.</li>
@@ -24,13 +25,13 @@
 <h2 id="right-click">From Explorer's right-click menu</h2>
 <p>Right-click an archive in Explorer, open <strong>BeeZip</strong>, and choose <strong>Extract here</strong> or <strong>Extract to "<var>name</var>\"</strong>. A small window shows the job, and closes when it's done. Right-click files or folders and choose <strong>Add to "<var>name</var>.zip"</strong> to make an archive of them.</p>
 <ul>
-  <li><strong>With the installer,</strong> the menu is already there, in Windows 11's own menu.</li>
+  <li><strong>From the Microsoft Store, or with the installer,</strong> the menu is already there, in Windows 11's own menu.</li>
   <li><strong>With the portable copy,</strong> add it from BeeZip: open Settings (<kbd>Ctrl</kbd>+<kbd>,</kbd>), go to <strong>Explorer menu</strong> and click <strong>Install</strong>. On Windows 11 it's under <strong>Show more options</strong>. It runs BeeZip from the portable copy's folder, so remove it there before moving or deleting that folder.</li>
 </ul>
 <p><a href="explorer.html">Explorer's menu</a> lists every item and setting.</p>
 
 <h2 id="command-line">On the command line</h2>
-<p>The command line is <code>beezip</code>. The installer and the Linux packages put it on your PATH; in the portable copy it's <code>bin\beezip.exe</code>, and on macOS it's inside the app (the <a href="../download.html#macos-install">download page</a> shows how to link it).</p>
+<p>The command line is <code>beezip</code>. The Microsoft Store copy, the installer and the Linux packages put it on your PATH; in the portable copy it's <code>bin\beezip.exe</code>, and on macOS it's inside the app (the <a href="../download.html#macos-install">download page</a> shows how to link it).</p>
 <pre><code>beezip list backup.zip              # what's inside, one folder at a time
 beezip x backup.zip -o out          # extract into out
 beezip c photos.7z Pictures         # make a 7z of a folder

@@ -22,7 +22,15 @@ jobs:
       BEEZIP_REQUIRE_PYTHON: "1"       # and without Python 3.14, which runs docs/bhive_reader.py (docs/M13.md §8)
     steps:
       - uses: actions/checkout@v7
-      - run: rustup toolchain install    # reads rust-toolchain.toml
+      - name: Rust from rust-toolchain.toml alone
+        # rust-cache keys on every toolchain rustup lists, so the image's own stable, new with each
+        # Rust release, would start every job from an empty cache.
+        shell: bash
+        run: |
+          rustup toolchain install
+          rustup default "$(sed -n '/^channel = /{s/^channel = "//;s/"$//;p;}' rust-toolchain.toml)"
+          if rustup toolchain list | grep -q '^stable'; then rustup toolchain uninstall stable; fi
+          rustup toolchain list
       - uses: Swatinem/rust-cache@v2
       - uses: actions/setup-python@v7    # the .bhive reference reader needs 3.14's Zstandard
         with: { python-version: "3.14" }
@@ -130,7 +138,15 @@ jobs:
       BEEZIP_REQUIRE_PYTHON: "1"       # Python 3.14 reads BeeZip's .bhive fixtures with docs/bhive_reader.py (docs/M13.md §8)
     steps:
       - uses: actions/checkout@v7
-      - run: rustup toolchain install
+      - name: Rust from rust-toolchain.toml alone
+        # rust-cache keys on every toolchain rustup lists, so the image's own stable, new with each
+        # Rust release, would start every job from an empty cache.
+        shell: bash
+        run: |
+          rustup toolchain install
+          rustup default "$(sed -n '/^channel = /{s/^channel = "//;s/"$//;p;}' rust-toolchain.toml)"
+          if rustup toolchain list | grep -q '^stable'; then rustup toolchain uninstall stable; fi
+          rustup toolchain list
       - uses: actions/setup-python@v7
         with: { python-version: "3.14" }
       - name: The Linux tools the interop tests run, and wimlib's library for LZMS
@@ -161,7 +177,15 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v7
-      - run: rustup toolchain install
+      - name: Rust from rust-toolchain.toml alone
+        # rust-cache keys on every toolchain rustup lists, so the image's own stable, new with each
+        # Rust release, would start every job from an empty cache.
+        shell: bash
+        run: |
+          rustup toolchain install
+          rustup default "$(sed -n '/^channel = /{s/^channel = "//;s/"$//;p;}' rust-toolchain.toml)"
+          if rustup toolchain list | grep -q '^stable'; then rustup toolchain uninstall stable; fi
+          rustup toolchain list
       - name: Tauri's build packages, and what the checks and the end-to-end test run
         run: |
           sudo apt-get update -q
@@ -233,7 +257,15 @@ jobs:
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v7
-      - run: rustup toolchain install
+      - name: Rust from rust-toolchain.toml alone
+        # rust-cache keys on every toolchain rustup lists, so the image's own stable, new with each
+        # Rust release, would start every job from an empty cache.
+        shell: bash
+        run: |
+          rustup toolchain install
+          rustup default "$(sed -n '/^channel = /{s/^channel = "//;s/"$//;p;}' rust-toolchain.toml)"
+          if rustup toolchain list | grep -q '^stable'; then rustup toolchain uninstall stable; fi
+          rustup toolchain list
       - uses: Swatinem/rust-cache@v2
       - uses: pnpm/action-setup@v6
         with: { package_json_file: apps/desktop/package.json }

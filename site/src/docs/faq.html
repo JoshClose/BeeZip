@@ -1,27 +1,29 @@
-<!-- {"title": "Questions and problems", "description": "Answers about BeeZip: Windows' warning on first run, the portable copy and the installer, the right-click menu, formats BeeZip refuses, passwords, garbled names and more.", "layout": "docs"} -->
+<!-- {"title": "Questions and problems", "description": "Answers about BeeZip: Windows' warning on first run, the Microsoft Store copy, the portable copy and the installer, the right-click menu, formats BeeZip refuses, passwords, garbled names and more.", "layout": "docs"} -->
 <h1>Questions and problems</h1>
 <p class="lede">Answers to what people run into most. If yours isn't here, <a href="https://github.com/JoshClose/BeeZip/issues">ask on GitHub</a>.</p>
 
 <h2 id="smartscreen">Windows says it protected my PC</h2>
-<p>Until 1.0.0, BeeZip's programs aren't signed, so Windows' SmartScreen doesn't know them yet and stops the first run. Choose <strong>More info</strong>, then <strong>Run anyway</strong>. On a PC with Smart App Control turned on, Windows blocks unsigned programs outright; wait for the signed 1.0.0, or <a href="index.html#build-it-yourself">build BeeZip yourself</a>.</p>
+<p>That's the portable copy: until 1.0.0, its programs aren't signed, so Windows' SmartScreen doesn't know them yet and stops the first run. Choose <strong>More info</strong>, then <strong>Run anyway</strong>. On a PC with Smart App Control turned on, Windows blocks unsigned programs outright. BeeZip from the <a href="../download.html#windows-store">Microsoft Store</a> is signed by Microsoft, so Windows runs it without asking, Smart App Control included.</p>
 
-<h2 id="portable-or-installer">Portable copy or installer?</h2>
-<p>Until 1.0.0 there's only the portable copy. After that, the installer is the one most people want:</p>
+<h2 id="portable-or-installer">Microsoft Store, portable copy or installer?</h2>
+<p>The Microsoft Store copy is the one most people want. The portable copy is for running BeeZip without installing it, and the installer comes with 1.0.0:</p>
 <div class="table-wrap"><table>
-  <thead><tr><th scope="col"></th><th scope="col">Portable copy</th><th scope="col">Installer</th></tr></thead>
+  <thead><tr><th scope="col"></th><th scope="col">Microsoft Store</th><th scope="col">Portable copy</th><th scope="col">Installer, from 1.0.0</th></tr></thead>
   <tbody>
-    <tr><th scope="row">Installs anything</th><td>No: runs from its folder</td><td>Yes, for you alone, without admin rights</td></tr>
-    <tr><th scope="row">Right-click menu</th><td>Classic, under Show more options, if you add it</td><td>Windows 11's own menu</td></tr>
-    <tr><th scope="row">Opens archives on double-click</th><td>No</td><td>Yes, offered for the types BeeZip reads</td></tr>
-    <tr><th scope="row"><code>beezip</code> on PATH</th><td>No: <code>bin\beezip.exe</code> in its folder</td><td>Yes</td></tr>
-    <tr><th scope="row">Updates</th><td>Tells you, and links to the new zip</td><td>Installs them, when you click</td></tr>
+    <tr><th scope="row">Installs anything</th><td>Yes, for you alone</td><td>No: runs from its folder</td><td>Yes, for you alone, without admin rights</td></tr>
+    <tr><th scope="row">Signed</th><td>By Microsoft</td><td>Not until 1.0.0</td><td>Yes</td></tr>
+    <tr><th scope="row">Right-click menu</th><td>Windows 11's own menu</td><td>Classic, under Show more options, if you add it</td><td>Windows 11's own menu</td></tr>
+    <tr><th scope="row">Opens archives on double-click</th><td>Yes, offered for the types BeeZip reads</td><td>No</td><td>Yes, offered for the types BeeZip reads</td></tr>
+    <tr><th scope="row"><code>beezip</code> on PATH</th><td>Yes</td><td>No: <code>bin\beezip.exe</code> in its folder</td><td>Yes</td></tr>
+    <tr><th scope="row">Updates</th><td>The Microsoft Store installs them</td><td>Tells you, and links to the new zip</td><td>Installs them, when you click</td></tr>
   </tbody>
 </table></div>
-<p>Both keep their settings in the same <code>config.toml</code>, so moving from one to the other keeps them.</p>
+<p>The portable copy and the installer keep their settings in the same <code>config.toml</code>, so moving from one to the other keeps them. The Store copy uses that file too when it's there; on a PC that never had BeeZip, it keeps its own, which Windows removes with BeeZip (see <a href="settings.html#where">Settings</a>).</p>
+<p>Install BeeZip one way: with the Store copy and another one's menu on the same PC, Explorer shows BeeZip twice. Settings → Explorer menu and <code>beezip shell status</code> point that out.</p>
 
 <h2 id="menu-missing">BeeZip isn't in the right-click menu</h2>
 <ul>
-  <li><strong>On Windows 11,</strong> with the portable copy, it's under <strong>Show more options</strong>. Windows 11's own menu needs the signed installer, from 1.0.0.</li>
+  <li><strong>On Windows 11,</strong> with the portable copy, it's under <strong>Show more options</strong>. Windows 11's own menu needs a signed BeeZip: the Microsoft Store copy, or the installer from 1.0.0.</li>
   <li><strong>With the portable copy,</strong> the menu isn't added until you click <strong>Install</strong> in Settings → Explorer menu.</li>
   <li><strong>If it stopped working,</strong> for example after the portable copy's folder moved, click <strong>Repair</strong> there. <code>beezip shell status</code> says what's registered and what's wrong.</li>
   <li><strong>Some items are missing:</strong> they may be turned off in Settings → Explorer menu.</li>
@@ -53,9 +55,10 @@
 
 <h2 id="removing">How do I remove BeeZip?</h2>
 <ul>
+  <li><strong>BeeZip from the Microsoft Store:</strong> right-click it in Start and choose <strong>Uninstall</strong>, or use Settings → Apps in Windows. Its menu, <code>beezip</code> and file types go with it.</li>
   <li><strong>The installer's BeeZip:</strong> Settings → Apps in Windows. It removes the menu, PATH entry and registrations, and leaves your file types as they were.</li>
   <li><strong>The portable copy:</strong> remove the Explorer menu first (Settings → Explorer menu → <strong>Remove</strong>, or <code>bin\beezip.exe shell uninstall</code>), then delete the folder.</li>
-  <li><strong>Settings</strong> stay in <code>config.toml</code> (see <a href="settings.html#where">Settings</a>) until you delete it.</li>
+  <li><strong>Settings</strong> stay in <code>config.toml</code> (see <a href="settings.html#where">Settings</a>) until you delete it, except a Store copy's own file, which Windows removes along with BeeZip.</li>
 </ul>
 
 <h2 id="report">Something's wrong</h2>
