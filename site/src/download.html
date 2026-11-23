@@ -1,4 +1,4 @@
-<!-- {"title": "Download", "description": "Download BeeZip for Windows, Linux or macOS: the portable copy, the installer, the Linux packages and the macOS disk image.", "layout": "page", "wide": true} -->
+<!-- {"title": "Download", "description": "Get BeeZip for Windows from the Microsoft Store, or download the portable copy, the Linux packages or the macOS disk image.", "layout": "page", "wide": true} -->
 <div class="download-head">
   <!-- beezip:mark comb-lifted -->
   <div>
@@ -9,8 +9,8 @@
       <span class="when-none">The first release is nearly ready. Until it's out, <a href="https://github.com/JoshClose/BeeZip/releases">watch for it on GitHub</a>, or <a href="docs/index.html#build-it-yourself">build BeeZip yourself</a>.</span>
     </p>
     <div class="get" data-state="loading">
-      <a class="button big not-none" data-download="auto" href="https://github.com/JoshClose/BeeZip/releases/latest">
-        <span>Download for <span data-os-name>Windows</span><span class="release-line" data-download-meta>&nbsp;</span></span>
+      <a class="button big not-none" data-download="auto" href="https://apps.microsoft.com/detail/9P9HHSVMM3M3">
+        <span><span data-download-label>Get it for Windows</span><span class="release-line" data-download-meta>From the Microsoft Store</span></span>
       </a>
     </div>
   </div>
@@ -20,17 +20,24 @@
   <section>
     <h2 id="windows">Windows</h2>
     <ul class="files">
+      <li class="store"><div><strong>Microsoft Store</strong><small>Recommended, signed by Microsoft</small></div><a class="store-badge" href="https://apps.microsoft.com/detail/9P9HHSVMM3M3"><picture><source srcset="assets/store/badge-light.svg" media="(prefers-color-scheme: dark)"><img src="assets/store/badge-dark.svg" alt="Download from the Microsoft Store" width="161" height="44"></picture></a></li>
       <li data-file="windows-portable" hidden><div><strong>Portable copy</strong><small><span data-name></span>, <span data-size></span></small></div><a class="button small" href="#">Download</a></li>
       <li data-file="windows-setup" hidden><div><strong>Installer</strong><small><span data-name></span>, <span data-size></span></small></div><a class="button small" href="#">Download</a></li>
     </ul>
+    <h3 id="windows-store">The Microsoft Store copy</h3>
+    <p>The one most people want. Get it from the <a href="https://apps.microsoft.com/detail/9P9HHSVMM3M3">Microsoft Store</a>, or with winget:</p>
+    <pre><code>winget install 9P9HHSVMM3M3 -s msstore</code></pre>
+    <p>It's the same BeeZip, signed by Microsoft, so Windows runs it without a warning, even with Smart App Control on. It installs for you alone, puts BeeZip in Windows 11's own right-click menu (and Windows 10's), offers it for the archive types it opens, and puts <code>beezip</code> on your PATH. The Store installs each new version, once Microsoft has checked it, which can take a few days after its release on GitHub.</p>
     <h3 id="windows-portable">The portable copy</h3>
-    <p>Unzip it anywhere (right-click it and choose Extract All) and run <code>BeeZip.exe</code>. Nothing is installed. The command line is <code>bin\beezip.exe</code>, and Settings → Explorer menu adds the right-click menu. The <code>README.txt</code> inside says how to update it.</p>
+    <p>For running BeeZip without installing it. Unzip it anywhere (right-click it and choose Extract All) and run <code>BeeZip.exe</code>. The command line is <code>bin\beezip.exe</code>, and Settings → Explorer menu adds the right-click menu, under Show more options on Windows 11. The <code>README.txt</code> inside says how to update it.</p>
     <div class="note"><p>Until BeeZip 1.0.0, its programs aren't signed, so Windows asks before the first run. Choose <strong>More info</strong>, then <strong>Run anyway</strong>.</p></div>
     <h3 id="windows-installer">The installer, from 1.0.0</h3>
     <p>It installs BeeZip for you alone, with no admin rights. It adds BeeZip to Windows 11's own right-click menu, offers it for the archive types it opens, puts <code>beezip</code> on your PATH, and updates itself.</p>
+    <p>Install BeeZip one way: with the Store copy and another one's menu on the same PC, Explorer shows BeeZip twice.</p>
     <h3 id="windows-needs">What it needs</h3>
     <ul>
       <li>Windows 10 or 11, 64-bit, with the WebView2 runtime, which both have.</li>
+      <li>The Microsoft Store copy needs Windows 10 version 2004 or newer.</li>
     </ul>
   </section>
 

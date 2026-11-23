@@ -15,13 +15,13 @@
     "linux-appimage": { match: /\.AppImage$/, what: "AppImage" },
     "mac-dmg": { match: /_aarch64\.dmg$/, what: "disk image, Apple silicon" },
   };
-  /** What each platform's main button downloads, in order of preference. */
+  /** What each platform's main button downloads, in order of preference. Windows' is the page's own
+   * link to BeeZip in the Microsoft Store, whatever GitHub's newest release is. */
   const PREFER = {
-    windows: ["windows-setup", "windows-portable"],
     linux: ["linux-deb", "linux-appimage", "linux-rpm"],
     mac: ["mac-dmg"],
   };
-  const NAMES = { windows: "Windows", linux: "Linux", mac: "macOS" };
+  const LABELS = { windows: "Get it for Windows", linux: "Download for Linux", mac: "Download for macOS" };
 
   function platform() {
     const p = `${navigator.userAgentData?.platform ?? ""} ${navigator.platform ?? ""} ${navigator.userAgent}`;
@@ -68,13 +68,17 @@
   async function downloads() {
     const boxes = document.querySelectorAll("[data-state]");
     if (!boxes.length) return;
-    const release = await latest();
     const os = platform();
-    for (const el of document.querySelectorAll("[data-os-name]")) el.textContent = NAMES[os];
+    for (const el of document.querySelectorAll("[data-download-label]")) el.textContent = LABELS[os];
+    if (os !== "windows") {
+      for (const el of document.querySelectorAll("[data-download-meta]")) el.innerHTML = "&nbsp;";
+    }
+    const release = await latest();
 
     if (!release) {
       // Before the first release, or GitHub out of reach: the releases page has whatever there is.
       for (const box of boxes) box.dataset.state = release === null ? "none" : "ready";
+      if (os === "windows") return;
       for (const a of document.querySelectorAll("[data-download]")) a.href = RELEASES;
       for (const el of document.querySelectorAll("[data-download-meta]")) {
         el.textContent = release === null ? "" : "The newest version is on GitHub.";
@@ -88,10 +92,12 @@
     for (const el of document.querySelectorAll('[data-release="date"]')) el.textContent = date(release.published_at);
     for (const a of document.querySelectorAll('[data-release="page"]')) a.href = release.html_url;
 
-    const main = PREFER[os].map((k) => found[k]).find(Boolean);
-    for (const a of document.querySelectorAll('[data-download="auto"]')) a.href = main?.url ?? release.html_url;
-    for (const el of document.querySelectorAll("[data-download-meta]")) {
-      el.textContent = main ? `Version ${version}, ${main.what}, ${size(main.size)}` : `Version ${version}`;
+    if (os !== "windows") {
+      const main = PREFER[os].map((k) => found[k]).find(Boolean);
+      for (const a of document.querySelectorAll('[data-download="auto"]')) a.href = main?.url ?? release.html_url;
+      for (const el of document.querySelectorAll("[data-download-meta]")) {
+        el.textContent = main ? `Version ${version}, ${main.what}, ${size(main.size)}` : `Version ${version}`;
+      }
     }
     for (const li of document.querySelectorAll("[data-file]")) {
       const f = found[li.dataset.file];
