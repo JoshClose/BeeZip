@@ -307,6 +307,7 @@ pub fn create_main_window(
     }
     reveal::build(
         app,
+        MAIN,
         with_browser_args(
             WebviewWindowBuilder::from_config(app, &config)?
                 .initialization_script(startup_script(app, paths, dialog, None)),
@@ -435,7 +436,7 @@ pub fn show(app: &AppHandle, mut routed: Routed) -> tauri::Result<()> {
 
 fn focus_main(app: &AppHandle) -> tauri::Result<()> {
     // A main window still waiting for its page comes up by itself, with what this launch sent.
-    if app.try_state::<Revealed>().is_some_and(|r| !r.is_set()) {
+    if app.try_state::<Revealed>().is_some_and(|r| !r.is_set(MAIN)) {
         return Ok(());
     }
     if let Some(window) = app.get_webview_window(MAIN) {

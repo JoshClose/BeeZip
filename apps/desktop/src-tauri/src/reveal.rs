@@ -1,7 +1,7 @@
-//! When the main window first appears. WebView2 takes several times longer to start than
-//! everything else BeeZip does at launch, and a window shown meanwhile is an empty white
-//! rectangle. So on Windows the main window comes onto the screen once its page has painted
-//! (`cmd_ready`), with BeeZip in it.
+//! When a window first appears: the main window, and each job window Explorer's menu opens.
+//! WebView2 takes several times longer to start than everything else BeeZip does at launch, and
+//! a window shown meanwhile is an empty white rectangle. So on Windows a window comes onto the
+//! screen once its page has painted (`cmd_ready`), with BeeZip in it.
 //!
 //! - **Cloaked, not hidden:** the window is cloaked as it is made (`DWMWA_CLOAK`: the desktop
 //!   doesn't draw it) and shown as always, so to Windows and to WebView2 it is an ordinary
@@ -16,10 +16,13 @@
 //! - **Its background is the page's,** light or dark, and follows the theme: it is what shows
 //!   wherever the page hasn't painted, at the wait's end above all.
 //! - **Elsewhere** nothing changes: there is no cloak, and the page's report does nothing.
-//! - **Job windows** aren't cloaked: a click on Explorer's menu gets its window at once.
+//! - **Job windows** wait too. A click on Explorer's menu got its window at once, but empty,
+//!   white even in dark mode, until its page painted; now the window comes up when it would
+//!   have filled in, with the job in it.
 
 use std::{
-    sync::atomic::{AtomicBool, Ordering},
+    collections::HashSet,
+    sync::{Mutex, MutexGuard, PoisonError},
     time::Duration,
 };
 
@@ -27,12 +30,12 @@ use tauri::{
     AppHandle, Manager, Runtime, Theme, WebviewWindow, WebviewWindowBuilder, Window, window::Color,
 };
 
-use crate::open::{MAIN, trace};
+use crate::open::trace;
 
-/// Whether the main window waits, cloaked, for its page.
+/// Whether a window waits, cloaked, for its page.
 pub const WAITS: bool = cfg!(windows);
 
-/// How long after its webview exists the main window waits for its page before it is uncloaked
+/// How long after its webview exists a window waits for its page before it is uncloaked
 /// anyway. A page paints some 100 ms after it starts to load, and a few hundred on a busy machine.
 pub const PAGE_WAIT: Duration = Duration::from_secs(1);
 
@@ -49,38 +52,48 @@ pub fn paper(theme: Theme) -> Color {
     }
 }
 
-/// Whether the main window is on the screen, or was asked to be. Until then a second launch
-/// leaves bringing it up to its page.
+/// The windows still waiting for their pages, by label. Until the main window is on the
+/// screen, a second launch leaves bringing it up to its page.
 #[derive(Debug, Default)]
-pub struct Revealed(AtomicBool);
+pub struct Revealed(Mutex<HashSet<String>>);
 
 impl Revealed {
-    /// A new main window, on the screen when made or not.
-    pub fn start(&self, shown: bool) {
-        self.0.store(shown, Ordering::SeqCst);
+    fn waiting(&self) -> MutexGuard<'_, HashSet<String>> {
+        self.0.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    /// Whether the window is on the screen, or about to be.
-    pub fn is_set(&self) -> bool {
-        self.0.load(Ordering::SeqCst)
+    /// A new window, `label`, on the screen when made or not.
+    pub fn start(&self, label: &str, shown: bool) {
+        let mut waiting = self.waiting();
+        if shown {
+            waiting.remove(label);
+        } else {
+            waiting.insert(label.to_owned());
+        }
     }
 
-    /// Marks the window as on the screen. `true` the first time only, for the one who then
-    /// uncloaks it.
-    pub fn set(&self) -> bool {
-        !self.0.swap(true, Ordering::SeqCst)
+    /// Whether the window `label` is on the screen, or about to be.
+    pub fn is_set(&self, label: &str) -> bool {
+        !self.waiting().contains(label)
+    }
+
+    /// Marks the window `label` as on the screen. `true` the first time only, for the one who
+    /// then uncloaks it.
+    pub fn set(&self, label: &str) -> bool {
+        self.waiting().remove(label)
     }
 }
 
-/// Builds the main window from `builder`, on the main thread: cloaked from the moment it exists
-/// (Windows), in the page's background, and uncloaked at the latest [`PAGE_WAIT`] after this
-/// returns. A window that couldn't be cloaked is simply there, as it used to be.
+/// Builds the window `label` from `builder`, on the main thread: cloaked from the moment it
+/// exists (Windows), in the page's background, and uncloaked at the latest [`PAGE_WAIT`] after
+/// this returns. A window that couldn't be cloaked is simply there, as it used to be.
 pub fn build<R: Runtime, M: Manager<R>>(
     app: &AppHandle<R>,
+    label: &str,
     builder: WebviewWindowBuilder<'_, R, M>,
 ) -> tauri::Result<WebviewWindow<R>> {
     if let Some(revealed) = app.try_state::<Revealed>() {
-        revealed.start(!WAITS);
+        revealed.start(label, !WAITS);
     }
     let window = {
         #[cfg(windows)]
@@ -91,24 +104,24 @@ pub fn build<R: Runtime, M: Manager<R>>(
         if let Ok(theme) = window.theme() {
             let _ = window.set_background_color(Some(paper(theme)));
         }
-        let app = app.clone();
+        let (app, label) = (app.clone(), label.to_owned());
         std::thread::spawn(move || {
             std::thread::sleep(PAGE_WAIT);
-            reveal(&app, "its page didn't say it painted");
+            reveal(&app, &label, "its page didn't say it painted");
         });
     }
     Ok(window)
 }
 
-/// Puts the main window on the screen, the first time it is asked.
-pub fn reveal<R: Runtime>(app: &AppHandle<R>, why: &str) {
-    let first = app.try_state::<Revealed>().is_some_and(|r| r.set());
+/// Puts the window `label` on the screen, the first time it is asked.
+pub fn reveal<R: Runtime>(app: &AppHandle<R>, label: &str, why: &str) {
+    let first = app.try_state::<Revealed>().is_some_and(|r| r.set(label));
     if !first {
         return;
     }
-    trace(|| format!("the main window is on the screen: {why}"));
+    trace(|| format!("window {label} is on the screen: {why}"));
     #[cfg(windows)]
-    if let Some(hwnd) = app.get_webview_window(MAIN).and_then(|w| w.hwnd().ok()) {
+    if let Some(hwnd) = app.get_webview_window(label).and_then(|w| w.hwnd().ok()) {
         win::cloak(hwnd, false);
     }
 }
@@ -153,7 +166,7 @@ mod win {
             )
         };
         if let Err(e) = set {
-            trace(|| format!("the main window's cloak ({on}) failed: {e}"));
+            trace(|| format!("a window's cloak ({on}) failed: {e}"));
         }
     }
 
@@ -175,7 +188,7 @@ mod win {
                     Some(Self(hook))
                 }
                 Err(e) => {
-                    trace(|| format!("no hook to cloak the main window with: {e}"));
+                    trace(|| format!("no hook to cloak a new window with: {e}"));
                     None
                 }
             }
@@ -214,24 +227,21 @@ mod win {
     }
 }
 
-/// The window's theme changed (Windows' mode, or the setting): the main window's background
-/// follows.
+/// A window's theme changed (Windows' mode, or the setting): its background follows.
 pub fn theme_changed(window: &Window, theme: Theme) {
-    if !WAITS || window.label() != MAIN {
+    if !WAITS {
         return;
     }
-    if let Some(window) = window.app_handle().get_webview_window(MAIN) {
+    if let Some(window) = window.app_handle().get_webview_window(window.label()) {
         let _ = window.set_background_color(Some(paper(theme)));
     }
 }
 
-/// The page has painted: the main window, cloaked until now, is on the screen. Other windows,
-/// and a main window already there, are left as they are.
+/// The page has painted: its window, cloaked until now, is on the screen. A window already
+/// there is left as it is.
 #[tauri::command]
 pub fn cmd_ready(window: Window) {
-    if window.label() == MAIN {
-        reveal(window.app_handle(), "its page painted");
-    }
+    reveal(window.app_handle(), window.label(), "its page painted");
 }
 
 #[cfg(test)]
@@ -262,16 +272,39 @@ mod tests {
     #[test]
     fn a_window_comes_onto_the_screen_once() {
         let revealed = Revealed::default();
-        revealed.start(false);
-        assert!(!revealed.is_set());
-        assert!(revealed.set(), "the page's report uncloaks it");
-        assert!(!revealed.set(), "the wait's end finds it on the screen");
-        assert!(revealed.is_set());
+        revealed.start("main", false);
+        assert!(!revealed.is_set("main"));
+        assert!(revealed.set("main"), "the page's report uncloaks it");
+        assert!(
+            !revealed.set("main"),
+            "the wait's end finds it on the screen"
+        );
+        assert!(revealed.is_set("main"));
         // A new main window, after the first was closed, waits again.
-        revealed.start(false);
-        assert!(revealed.set());
+        revealed.start("main", false);
+        assert!(revealed.set("main"));
         // Where windows aren't cloaked, nobody uncloaks them.
-        revealed.start(true);
-        assert!(!revealed.set());
+        revealed.start("main", true);
+        assert!(!revealed.set("main"));
+    }
+
+    #[test]
+    fn each_window_waits_for_its_own_page() {
+        let revealed = Revealed::default();
+        revealed.start("main", false);
+        revealed.start("job-1", false);
+        revealed.start("job-2", false);
+        assert!(revealed.set("job-1"), "a job window's page painted");
+        assert!(
+            !revealed.is_set("main"),
+            "the main window still waits for its own"
+        );
+        assert!(!revealed.is_set("job-2"));
+        assert!(revealed.set("main"));
+        assert!(revealed.set("job-2"));
+        assert!(!revealed.set("job-1"), "nor is a window uncloaked twice");
+        // A window nobody made waiting is on the screen.
+        assert!(revealed.is_set("job-3"));
+        assert!(!revealed.set("job-3"));
     }
 }

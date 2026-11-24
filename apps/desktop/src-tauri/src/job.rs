@@ -22,7 +22,10 @@ use beezip_menu::JobRequest;
 use serde::Serialize;
 use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder};
 
-use crate::open::{self, OpenDialog};
+use crate::{
+    open::{self, OpenDialog},
+    reveal,
+};
 
 /// The largest request file BeeZip reads.
 pub const MAX_REQUEST_BYTES: u64 = 16 * 1024 * 1024;
@@ -173,9 +176,11 @@ pub struct JobStartup {
 
 static NEXT_JOB_WINDOW: AtomicU64 = AtomicU64::new(1);
 
-/// Opens a job window, `job-<n>`, for these steps.
+/// Opens a job window, `job-<n>`, for these steps. On the main thread only. On Windows it stays
+/// off the screen until its page has painted, as the main window does ([`reveal`]).
 pub fn create_job_window(app: &AppHandle, steps: Vec<Step>) -> tauri::Result<()> {
     let n = NEXT_JOB_WINDOW.fetch_add(1, Ordering::Relaxed);
+    let label = format!("job-{n}");
     let title = match steps.as_slice() {
         [Step::Run { title, .. } | Step::Failed { title, .. }] => title.clone(),
         _ => "BeeZip".to_owned(),
@@ -195,20 +200,19 @@ pub fn create_job_window(app: &AppHandle, steps: Vec<Step>) -> tauri::Result<()>
             close_when_done,
         }),
     );
-    open::with_browser_args(
-        WebviewWindowBuilder::new(
-            app,
-            format!("job-{n}"),
-            WebviewUrl::App("index.html".into()),
-        )
-        .title(title)
-        .inner_size(JOB_WINDOW.0, JOB_WINDOW.1)
-        .min_inner_size(JOB_WINDOW_MIN.0, JOB_WINDOW_MIN.1)
-        .center()
-        .focused(true)
-        .initialization_script(script),
-    )
-    .build()?;
+    reveal::build(
+        app,
+        &label,
+        open::with_browser_args(
+            WebviewWindowBuilder::new(app, &label, WebviewUrl::App("index.html".into()))
+                .title(title)
+                .inner_size(JOB_WINDOW.0, JOB_WINDOW.1)
+                .min_inner_size(JOB_WINDOW_MIN.0, JOB_WINDOW_MIN.1)
+                .center()
+                .focused(true)
+                .initialization_script(script),
+        ),
+    )?;
     Ok(())
 }
 
