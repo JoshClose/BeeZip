@@ -42,9 +42,9 @@ export function startup(): Startup {
 }
 
 /**
- * Tells Rust once the page's first frame with content is on its surface. On Windows the main
- * window is kept off the screen until then, so it comes up with BeeZip in it, not as an empty
- * rectangle while WebView2 starts (src-tauri/src/reveal.rs). Where the browser doesn't time its
+ * Tells Rust once the page's first frame with content is on its surface. On Windows a window,
+ * the main one or a job's, is kept off the screen until then, so it comes up with BeeZip in it,
+ * not as an empty rectangle while WebView2 starts (src-tauri/src/reveal.rs). Where the browser doesn't time its
  * paints, it tells at once. A failure is left alone: Rust shows the window after a second anyway.
  */
 export function ready(): void {

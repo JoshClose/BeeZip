@@ -8,8 +8,8 @@ import "./index.css";
 // A job window (`job-*`) gets its steps with its startup data and shows only them (docs/M4.md
 // §6.3); every other window is the main one.
 const job = startup().job;
-// The main window waits, off the screen, for its first paint (lib/startup.ts).
-if (!job) ready();
+// Every window waits, off the screen, for its first paint (lib/startup.ts).
+ready();
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>{job ? <JobWindow job={job} /> : <App />}</React.StrictMode>,
