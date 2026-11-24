@@ -100,7 +100,8 @@ struct Sparse {
     unclean: bool,
     /// Grain tables, by their sector.
     tables: Cache,
-    /// Decoded grains, by their sector.
+    /// Decoded grains, by their number, not their sector: two grain table entries can name the
+    /// same sector, and only the grain its marker names may use it.
     grains: Cache,
     dec: Decoders,
     src: Vec<u8>,
@@ -328,20 +329,27 @@ impl Sparse {
             Grain::At(s) => {
                 let k = n(want.min(grain - within));
                 let data = self.inflated(g, s)?;
-                let w = n(within);
-                buf[..k].copy_from_slice(&data[w..w + k]);
-                Ok((k, Got::Data))
+                let (w, len) = (n(within), data.len());
+                if let Some(part) = data.get(w..w + k) {
+                    buf[..k].copy_from_slice(part);
+                    return Ok((k, Got::Data));
+                }
+                Err(Error::corrupt(format!(
+                    "vmdk: {}'s grain {g} is {len} bytes, not {}",
+                    self.name,
+                    w + k
+                )))
             }
         }
     }
 
     /// Grain `g` of a stream-optimized extent, stored at sector `s` behind its marker, decoded.
     fn inflated(&mut self, g: u64, s: u32) -> Result<&[u8]> {
-        let key = u64::from(s);
-        if self.grains.get(key).is_none() {
+        let at = u64::from(s) * 512;
+        if self.grains.get(g).is_none() {
             let what = format!("vmdk: {}'s grain at sector {s}", self.name);
             let mut m = [0u8; 12];
-            self.file.read_exact_at(key * 512, &mut m, &what)?;
+            self.file.read_exact_at(at, &mut m, &what)?;
             let lba = le64(&m, 0);
             let size = u64::from(le32(&m, 8));
             if lba != g * (self.grain / 512) {
@@ -354,7 +362,7 @@ impl Sparse {
             let full = n(self.grain.min(self.len - g * self.grain));
             if size == 0
                 || size > 2 * self.grain + 512
-                || key * 512 + 12 + size > self.file.len
+                || at + 12 + size > self.file.len
                 || (full as u64) > size.saturating_mul(DEFLATE_RATIO) + 1024
             {
                 return Err(Error::corrupt(format!(
@@ -362,15 +370,14 @@ impl Sparse {
                 )));
             }
             self.src.resize(n(size), 0);
-            self.file
-                .read_exact_at(key * 512 + 12, &mut self.src, &what)?;
+            self.file.read_exact_at(at + 12, &mut self.src, &what)?;
             let (src, dec) = (&self.src, &mut self.dec);
             // Only what's in the extent is kept: a read never goes past its end.
             self.grains
-                .fill(key, full, |out| dec.inflate(src, out, true, &what))?;
+                .fill(g, full, |out| dec.inflate(src, out, true, &what))?;
         }
         self.grains
-            .get(key)
+            .get(g)
             .ok_or_else(|| Error::corrupt("vmdk: a grain"))
     }
 
