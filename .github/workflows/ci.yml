@@ -7,6 +7,9 @@ permissions: { contents: read }
 concurrency:   # block style: `${{ }}` braces break a YAML flow map
   group: ci-${{ github.ref }}
   cancel-in-progress: true
+# Only master saves Rust's caches (rust-cache's save-if); a pull request starts from master's. One
+# set of them is about 7 GB of the repository's 10 GB, and past that GitHub evicts what was used
+# least recently, so a pull request saving its own set pushed out master's and the fuzz corpora.
 env:
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: "0"
@@ -32,6 +35,8 @@ jobs:
           if rustup toolchain list | grep -q '^stable'; then rustup toolchain uninstall stable; fi
           rustup toolchain list
       - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/master' }}
       - uses: actions/setup-python@v7    # the .bhive reference reader needs 3.14's Zstandard
         with: { python-version: "3.14" }
       - uses: pnpm/action-setup@v6
@@ -154,6 +159,8 @@ jobs:
       - name: release.yml's choice of files, on made-up artifacts (before 1.0.0, no Windows installer)
         run: bash .github/scripts/release-files-test.sh
       - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/master' }}
       - run: cargo test --locked -p beezip-core -p beezip-menu -p beezip-commands -p beezip-mcp -p beezip-cli
         env:
           BEEZIP_IMAGES_OUT: ${{ runner.temp }}/images   # the ISO and DMG the macOS job mounts
@@ -195,6 +202,7 @@ jobs:
             webkit2gtk-driver xvfb xauth dbus-x11
       - uses: Swatinem/rust-cache@v2
         with:
+          save-if: ${{ github.ref == 'refs/heads/master' }}
           workspaces: |
             . -> target
             . -> target/dist
@@ -267,6 +275,8 @@ jobs:
           if rustup toolchain list | grep -q '^stable'; then rustup toolchain uninstall stable; fi
           rustup toolchain list
       - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/master' }}
       - uses: pnpm/action-setup@v6
         with: { package_json_file: apps/desktop/package.json }
       - uses: actions/setup-node@v7
