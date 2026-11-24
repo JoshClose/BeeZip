@@ -17,6 +17,12 @@
 //! - `mutation-rar4-header-password-loop.rar` (`mutations.rs`): a RAR 4 whose damaged header
 //!   claims encrypted names. UnRAR asked for the password while reading the first header, the
 //!   listing gave the same answer every time, and retried forever.
+//! - `fuzz-vdisk-vmdk-shared-grain.vmdk` (the `vdisk` fuzzer): a stream-optimized VMDK whose
+//!   grain directory names one grain table twice, so grain 0 and the last grain name the same
+//!   compressed grain. Its marker says it's the last grain, which is short (the disk isn't a
+//!   whole number of grains). Decoded grains were cached by their sector, so grain 0 found the
+//!   last grain's 1,536 bytes there without its marker being checked, and copying 64 KiB out of
+//!   them panicked. They're cached by their number now.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
@@ -53,7 +59,7 @@ fn regressions_end_quickly_without_panicking() {
             Err(mpsc::RecvTimeoutError::Disconnected) => panic!("{} panicked", path.display()),
         }
     }
-    assert_eq!(n, 4);
+    assert_eq!(n, 5);
 }
 
 fn dir() -> PathBuf {
@@ -91,4 +97,25 @@ fn a_failed_codec_is_not_read_again() {
     assert_eq!(paths, ["a.bin"]);
     assert_eq!(err.kind, ErrorKind::Corrupt);
     assert_eq!(err.message, "tar: bzip2: invalid data");
+}
+
+/// Only the grain a VMDK grain's marker names may use it: grain 0 of
+/// `fuzz-vdisk-vmdk-shared-grain.vmdk` is damaged, whatever was read first.
+#[test]
+fn a_vmdk_grain_is_only_the_one_its_marker_names() {
+    let mut cx = SimpleCtx::new();
+    let path = dir().join("fuzz-vdisk-vmdk-shared-grain.vmdk");
+    let mut opened = open(&path, &OpenOptions::default(), &mut cx).unwrap();
+    let mut sink = TestSink::default();
+    let _ = opened.reader.extract(&Selection::all(), &mut sink, &mut cx);
+    let errors = &sink.report.errors;
+    assert_eq!(errors.len(), 1, "{errors:?}");
+    assert_eq!(errors[0].kind, ErrorKind::Corrupt);
+    assert!(
+        errors[0]
+            .message
+            .ends_with("its marker says it's the grain at sector 10485760, not 0"),
+        "{}",
+        errors[0].message
+    );
 }
