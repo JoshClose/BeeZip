@@ -7,6 +7,21 @@ Write a new section as `## X.Y.Z`, with `###` groups and `- ` items, describing 
 using BeeZip will notice. Leave the date out: the Releases page dates each version by its
 `vX.Y.Z` tag.
 
+## 0.8.3
+
+### The desktop app
+
+- **Explorer's menu opens its windows with BeeZip in them.** On Windows, extracting, adding
+  or testing from Explorer's right-click menu opened a window that was empty and white, even in
+  dark mode, and filled in a moment later. That window now appears when it has something to
+  show, as BeeZip's main window has since 0.8.2.
+
+### Fixes
+
+- **A damaged VMDK disk image is reported as damaged.** One whose grain table names the same
+  compressed grain twice stopped testing or extracting with an internal error ("command
+  panicked"). BeeZip now says which grain is wrong.
+
 ## 0.8.2
 
 ### The desktop app
