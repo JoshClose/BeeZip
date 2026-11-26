@@ -540,6 +540,7 @@ impl Command for TestKeys {
             key_id: &key_id,
             framed: &[],
             public: &[],
+            commitment: &[0; 32],
         };
         let source = beezip_core::Ctx::key_source(cx).unwrap();
         let offered = source.offers(&view);

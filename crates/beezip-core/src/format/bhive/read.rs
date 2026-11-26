@@ -25,10 +25,14 @@ use std::{
 
 use super::{
     coder,
-    crypt::envelope::{KeyBlock, Unlocked},
+    crypt::{
+        TAG_LEN,
+        envelope::{KeyBlock, Unlocked},
+    },
     layout::{
         self, CELL_TAG, Cell, Coder, Extent, FOOTER_LEN, HEADER_LEN, INDEX_HEAD_LEN, INDEX_TAG,
-        Index, IndexHead, Items, Kind, RECORD_LEN, Record, Stamp, bad, checksum, sums,
+        Index, IndexHead, Items, Kind, RECORD_LEN, Record, SEALED_CELL_HEAD_LEN, SEALED_CELL_TAG,
+        SEALED_INDEX_HEAD_LEN, SEALED_INDEX_TAG, Stamp, TableForm, bad, checksum, sums,
     },
     mem, par, sign,
 };
@@ -82,7 +86,7 @@ fn read_index(
     limits: &Limits,
     unlocked: Option<&Unlocked>,
     key_block_len: u64,
-) -> Result<(Index, sign::Report)> {
+) -> Result<(Index, sign::Checked)> {
     if let Some(unlocked) = unlocked {
         return read_sealed_index(input, header, limits, unlocked, key_block_len);
     }
@@ -109,6 +113,14 @@ fn read_index(
     }
     memory_limit("the index", head.raw.max(head.stored), limits)?;
     let stored = read_at(input, offset + INDEX_HEAD_LEN as u64, head.stored as usize)?;
+    let raw = index_raw(&head, stored)?;
+    let index = layout::parse_index(&raw, offset, limits.max_entries)?;
+    let report = sign::checked(header, &raw, &index);
+    Ok((index, report))
+}
+
+/// An index's raw bytes from its stored ones, checked.
+fn index_raw(head: &IndexHead, stored: Vec<u8>) -> Result<Vec<u8>> {
     let raw = if head.zstd {
         coder::unzstd(&stored, head.raw as usize, "the index")?
     } else {
@@ -117,27 +129,78 @@ fn read_index(
     if !sums(checksum(&raw), head.checksum) {
         return Err(bad("the index fails its checksum"));
     }
-    let index = layout::parse_index(&raw, offset, limits.max_entries)?;
-    let report = sign::check(header, &raw, &index);
-    Ok((index, report))
+    Ok(raw)
+}
+
+fn u64_of(b: &[u8]) -> u64 {
+    let mut w = [0u8; 8];
+    w.copy_from_slice(&b[..8]);
+    u64::from_le_bytes(w)
 }
 
 /// An encrypted archive's index (docs/bhive.md §12.7): the `BHIE` block the footer points to,
-/// opened, then read as §5's index block with a sealed table. PR A builds it.
+/// opened, then read as §5's index block with a sealed table.
 fn read_sealed_index(
     input: &mut Input,
     header: &[u8; HEADER_LEN],
     limits: &Limits,
     unlocked: &Unlocked,
     key_block_len: u64,
-) -> Result<(Index, sign::Report)> {
-    let _ = (input, header, limits, unlocked, key_block_len);
-    Err(super::crypt::not_built("reading a sealed index"))
+) -> Result<(Index, sign::Checked)> {
+    let len = input.len();
+    let start = HEADER_LEN as u64 + key_block_len;
+    let least = start + (SEALED_INDEX_HEAD_LEN + TAG_LEN + INDEX_HEAD_LEN + FOOTER_LEN) as u64;
+    if len < least {
+        return Err(bad("the file is too short to hold a sealed index"));
+    }
+    let footer = read_at(input, len - FOOTER_LEN as u64, FOOTER_LEN)?;
+    let Some(offset) = layout::parse_footer(&footer) else {
+        return Err(bad("the file doesn't end with a .bhive footer"));
+    };
+    if offset < start || offset > len - (SEALED_INDEX_HEAD_LEN + FOOTER_LEN) as u64 {
+        return Err(bad("the footer points outside the file"));
+    }
+    let head = read_at(input, offset, SEALED_INDEX_HEAD_LEN)?;
+    if head[..4] != SEALED_INDEX_TAG {
+        return Err(bad("the footer doesn't point at a sealed index"));
+    }
+    let sealed = u64_of(&head[8..16]);
+    // A sealed length larger than the file is refused before anything is added to it.
+    let ends = (sealed <= len)
+        .then(|| offset + (SEALED_INDEX_HEAD_LEN + FOOTER_LEN) as u64)
+        .and_then(|n| n.checked_add(sealed));
+    if ends != Some(len) {
+        return Err(bad("the sealed index and the footer don't end the file"));
+    }
+    memory_limit("the index", sealed, limits)?;
+    let block = read_at(input, offset, SEALED_INDEX_HEAD_LEN + sealed as usize)?;
+    let inner = unlocked.open_index(&block)?;
+    let head = IndexHead::parse(&inner)?;
+    memory_limit("the index", head.raw.max(head.stored), limits)?;
+    let raw = index_raw(&head, inner[INDEX_HEAD_LEN..].to_vec())?;
+    let form = TableForm {
+        sealed: true,
+        start,
+    };
+    let index = layout::parse_index_with(&raw, offset, limits.max_entries, form)?;
+    if let Some(body) = index.section(layout::SECTION_SLOTS) {
+        unlocked.set_descriptions(body);
+    }
+    let report = sign::checked(header, &raw, &index);
+    Ok((index, report))
 }
 
 /// What the records before the cells still list (docs/bhive.md §8): the cells that are whole,
 /// in order from the start of the file, and the entries completed in them.
-fn recover(input: &mut Input, limits: &Limits, cx: &mut dyn Ctx) -> Result<(Vec<Cell>, Items)> {
+fn recover(
+    input: &mut Input,
+    limits: &Limits,
+    sealed: Option<(&Unlocked, u64)>,
+    cx: &mut dyn Ctx,
+) -> Result<(Vec<Cell>, Items, Vec<[u8; 32]>)> {
+    if let Some((unlocked, key_block_len)) = sealed {
+        return recover_sealed(input, limits, unlocked, key_block_len, cx);
+    }
     let len = input.len();
     let mut cells: Vec<Cell> = Vec::new();
     let mut items = Items::default();
@@ -208,7 +271,102 @@ fn recover(input: &mut Input, limits: &Limits, cx: &mut dyn Ctx) -> Result<(Vec<
         }
         limits.check_entries(items.items.len() as u64)?;
     }
-    Ok((cells, items))
+    Ok((cells, items, Vec::new()))
+}
+
+/// [`recover`] for an encrypted archive (docs/bhive.md §12.10): from the end of the key block,
+/// each `BHCE` block's record opened with its nonce and offset, which gives the cell's id,
+/// record head and journal; a `BHIE` block skipped by its sealed length.
+fn recover_sealed(
+    input: &mut Input,
+    limits: &Limits,
+    unlocked: &Unlocked,
+    key_block_len: u64,
+    cx: &mut dyn Ctx,
+) -> Result<(Vec<Cell>, Items, Vec<[u8; 32]>)> {
+    let len = input.len();
+    let mut cells: Vec<Cell> = Vec::new();
+    let mut ids = Vec::new();
+    let mut items = Items::default();
+    let mut pos = HEADER_LEN as u64 + key_block_len;
+    let mut step = |pos: u64,
+                    cells: &mut Vec<Cell>,
+                    ids: &mut Vec<[u8; 32]>,
+                    items: &mut Items|
+     -> Result<Option<u64>> {
+        if pos.checked_add(4).is_none_or(|end| end > len) {
+            return Ok(None);
+        }
+        let tag = read_at(input, pos, 4)?;
+        if tag == SEALED_INDEX_TAG {
+            // An index block in the middle: the file was added to in place.
+            if pos + (SEALED_INDEX_HEAD_LEN + FOOTER_LEN) as u64 > len {
+                return Ok(None);
+            }
+            let head = read_at(input, pos, SEALED_INDEX_HEAD_LEN)?;
+            let end = pos
+                .checked_add((SEALED_INDEX_HEAD_LEN + FOOTER_LEN) as u64)
+                .and_then(|n| n.checked_add(u64_of(&head[8..16])));
+            return Ok(end.filter(|&end| end <= len));
+        }
+        if tag != SEALED_CELL_TAG || pos + SEALED_CELL_HEAD_LEN as u64 > len {
+            return Ok(None);
+        }
+        let head = read_at(input, pos, SEALED_CELL_HEAD_LEN)?;
+        let r = u64::from(u32::from_le_bytes([head[4], head[5], head[6], head[7]]));
+        let c = u64::from(u32::from_le_bytes([head[8], head[9], head[10], head[11]]));
+        let cell_at = pos + SEALED_CELL_HEAD_LEN as u64 + r;
+        if cell_at.checked_add(c).is_none_or(|end| end > len) {
+            return Ok(None);
+        }
+        memory_limit("a journal", r, limits)?;
+        let block = read_at(input, pos, SEALED_CELL_HEAD_LEN + r as usize)?;
+        let (id, record_head, stored) = unlocked.open_record(pos, &block)?;
+        if record_head[..4] != CELL_TAG {
+            return Err(bad("a sealed record without its record head"));
+        }
+        let (record, sum) = Record::parse(&record_head)?;
+        if record.number as usize != cells.len() {
+            return Err(bad("a record out of order"));
+        }
+        if record.journal_stored as usize != stored.len() {
+            return Err(bad(
+                "a sealed record's journal isn't the length its head says",
+            ));
+        }
+        let cell = record.cell(cell_at);
+        cell.check()?;
+        memory_limit("a journal", u64::from(record.journal_raw), limits)?;
+        if !sums(layout::record_checksum(&record_head, &stored), sum) {
+            return Err(bad("a record fails its checksum"));
+        }
+        let raw = if record.journal_zstd {
+            coder::unzstd(&stored, record.journal_raw as usize, "a journal")?
+        } else {
+            stored
+        };
+        cells.push(cell);
+        let (had_items, had_extents) = (items.items.len(), items.extents.len());
+        if let Err(e) = layout::parse_journal(&raw, record.journal_items, cells, items) {
+            cells.pop();
+            items.items.truncate(had_items);
+            items.extents.truncate(had_extents);
+            return Err(e);
+        }
+        ids.push(id);
+        Ok(Some(cell_at + c))
+    };
+    loop {
+        cx.check()?;
+        match step(pos, &mut cells, &mut ids, &mut items) {
+            Ok(Some(next)) => pos = next,
+            Ok(None) => break,
+            Err(e) if e.kind == ErrorKind::Corrupt => break,
+            Err(e) => return Err(e),
+        }
+        limits.check_entries(items.items.len() as u64)?;
+    }
+    Ok((cells, items, ids))
 }
 
 /// One decoded cell, or what it is on the way to being.
@@ -591,6 +749,8 @@ pub struct BhiveReader {
     pub(super) crypt: CellCrypt,
     /// The signatures, as the index has them, checked (docs/bhive.md §13).
     signatures: sign::Report,
+    /// Section 3 and the manifest, for a rewrite that keeps the contents to carry over.
+    carried: Option<sign::Carried>,
     pub(super) cache: Cache,
     input: Option<Input>,
     /// For the reads of [`ArchiveReader::open_entry`].
@@ -620,16 +780,17 @@ impl BhiveReader {
         } else {
             (None, 0)
         };
-        let (index, recovered, signatures) = match read_index(
+        let (index, recovered, checked) = match read_index(
             &mut input,
             &head,
             &source.limits,
             unlocked.as_deref(),
             key_block_len,
         ) {
-            Ok((index, signatures)) => (index, None, signatures),
+            Ok((index, checked)) => (index, None, checked),
             Err(e) if e.kind == ErrorKind::Corrupt && source.recover => {
-                let (cells, items) = recover(&mut input, &source.limits, cx)?;
+                let sealed = unlocked.as_deref().map(|u| (u, key_block_len));
+                let (cells, items, ids) = recover(&mut input, &source.limits, sealed, cx)?;
                 cx.warn(format!(
                     "the archive is incomplete ({}): listing the {} entries its first {} cells hold",
                     e.message,
@@ -639,9 +800,10 @@ impl BhiveReader {
                 let index = Index {
                     cells,
                     items,
+                    ids,
                     ..Index::default()
                 };
-                (index, Some(e.message), sign::Report::default())
+                (index, Some(e.message), sign::Checked::default())
             }
             Err(e) if e.kind == ErrorKind::Corrupt => {
                 return Err(Error::corrupt(format!(
@@ -665,7 +827,7 @@ impl BhiveReader {
         let crypt = CellCrypt {
             unlocked,
             ids: index.ids,
-            digests: signatures.digests.clone(),
+            digests: checked.report.digests.clone(),
         };
         Ok(Self {
             source,
@@ -676,7 +838,8 @@ impl BhiveReader {
             level: index.level,
             recovered,
             crypt,
-            signatures,
+            signatures: checked.report,
+            carried: checked.carried,
             cache: Cache::new(budget),
             input: Some(input),
             touched: Counter::new(),
@@ -688,6 +851,12 @@ impl BhiveReader {
     /// trust a signer is the caller's question.
     pub fn signatures(&self) -> &sign::Report {
         &self.signatures
+    }
+
+    /// Section 3 as it is and the manifest it was made over, when the archive is signed: a
+    /// writer that copies the archive keeps them while its contents stay (docs/M14.md §11).
+    pub(super) fn carried(&self) -> Option<&sign::Carried> {
+        self.carried.as_ref()
     }
 
     /// Whether the archive is encrypted, and so how it was opened.
@@ -765,11 +934,24 @@ impl BhiveReader {
         }
     }
 
-    /// Cell `n`'s bytes as they are stored, for a writer that copies the cell without
-    /// decoding it.
-    pub(super) fn stored(&mut self, n: usize) -> Result<Vec<u8>> {
+    /// Cell `n`'s bytes as they are in the file (sealed, in an encrypted archive), for a writer
+    /// that copies the cell as it is.
+    pub(super) fn in_file(&mut self, n: usize) -> Result<Vec<u8>> {
         let cell = self.cells[n];
-        read_at(self.input()?, cell.offset, cell.stored as usize)
+        let len = self.crypt.len_in_file(&cell);
+        read_at(self.input()?, cell.offset, len as usize)
+    }
+
+    /// Cell `n`'s bytes as they are stored, opened and checked, for a writer that copies the
+    /// cell without decoding it.
+    pub(super) fn stored(&mut self, n: usize) -> Result<Vec<u8>> {
+        let in_file = self.in_file(n)?;
+        self.crypt.open(n as u32, in_file)
+    }
+
+    /// An encrypted archive's cell ids, by number.
+    pub(super) fn cell_ids(&self) -> &[[u8; 32]] {
+        &self.crypt.ids
     }
 
     /// Cell `n`'s raw bytes, decoded and checked.
@@ -946,6 +1128,8 @@ impl ArchiveReader for BhiveReader {
     }
 
     fn info(&mut self, _: &mut dyn Ctx) -> Result<ArchiveInfo> {
+        // An encrypted archive seals everything, its names too (docs/bhive.md §12).
+        let sealed = self.crypt.unlocked.is_some();
         let methods = [Coder::Stored, Coder::Zstd, Coder::Lzma2]
             .into_iter()
             .filter(|c| {
@@ -960,12 +1144,16 @@ impl ArchiveReader for BhiveReader {
             codecs: Vec::new(),
             methods,
             comment: None,
-            encryption: Encryption::None,
+            encryption: if sealed {
+                Encryption::All
+            } else {
+                Encryption::None
+            },
             solid: false,
             sfx: false,
             volumes: self.source.volumes.len(),
             solid_blocks: None,
-            encrypted_headers: false,
+            encrypted_headers: sealed,
             locked: false,
             recovery_record: false,
             external: Some(self.properties()),

@@ -69,6 +69,10 @@ pub const CLI_GROUPS: &[(&str, &str)] = &[
     ),
     ("shell", "BeeZip's Explorer menu: what a click on it does"),
     (
+        "keys",
+        "Your keys for opening and signing .bhive archives, and your contacts' public keys",
+    ),
+    (
         "certificates",
         "The certificates archives can be encrypted to and signed with",
     ),

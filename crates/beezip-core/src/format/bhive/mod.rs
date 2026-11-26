@@ -53,8 +53,8 @@ impl ArchiveFormat for Bhive {
         }
     }
 
-    /// Everything but encryption, which version 1 leaves out (docs/M13.md decision 11). An
-    /// edit copies the cells it keeps as they are.
+    /// Everything, encryption included (docs/bhive.md §12): an encrypted `.bhive` seals its
+    /// names too. An edit copies the cells it keeps as they are.
     fn caps(&self) -> FormatCaps {
         FormatCaps {
             list: true,
@@ -63,6 +63,8 @@ impl ArchiveFormat for Bhive {
             append: true,
             delete: true,
             rename: true,
+            encrypt: true,
+            encrypt_headers: true,
             random_access: true,
             ..FormatCaps::default()
         }
