@@ -1,5 +1,5 @@
 // Settings → Keys (docs/M14.md §6, §11): your keys (for opening archives and for signing them),
-// your contacts' public keys, and the system's certificates. `keys.create`, `keys.import`,
+// your contacts' public keys and certificates, and the system's certificates. `keys.create`, `keys.import`,
 // `keys.export` and `keys.delete` change them; the private keys stay sealed by the system.
 import { ask, open as pickFile } from "@tauri-apps/plugin-dialog";
 import { Copy, KeyRound, Plus, Trash2, Upload } from "lucide-react";
@@ -21,7 +21,15 @@ export const KEY_KINDS: { id: KeyKindName; label: string }[] = [
   { id: "signing", label: "Signs archives (bzsig1…)" },
 ];
 
-const KIND_SHORT: Record<KeyKindName, string> = { "post-quantum": "Opens archives, post-quantum", classic: "Opens archives, classic", signing: "Signs archives" };
+const KIND_SHORT: Record<KeyKindName, string> = { "post-quantum": "Opens archives, post-quantum", classic: "Opens archives, classic", signing: "Signs archives", certificate: "Certificate" };
+
+/** A contact's certificate in a line: whose it says it is, who issued it, and until when. */
+export function contactCertificate(k: KeyInfo, now = Date.now()): string {
+  const issuer = k.issuer && k.issuer !== k.subject ? `, issued by ${k.issuer}` : ", self-signed";
+  const day = k.not_after === undefined ? "" : new Date(k.not_after * 1000).toLocaleDateString();
+  const until = k.not_after === undefined ? "" : k.not_after * 1000 < now ? `, expired ${day}` : `, until ${day}`;
+  return `${k.subject ?? k.name}${issuer}${until}`;
+}
 
 /** Where this system keeps your private keys (decision 14). */
 export function sealedBy(platform: string): string {
@@ -73,7 +81,7 @@ function KeyRow({ k, onChanged }: { k: KeyInfo; onChanged: () => void }) {
     try {
       const out = await track("keys.export", { name: k.name, ...(secret ? { secret: true } : {}) }, { title: `Exporting ${k.name}`, quiet: true });
       if (secret) setBackup(out.text);
-      else await copyText(out.text, `${k.name}'s public key`);
+      else await copyText(out.text, k.kind === "certificate" ? `${k.name}'s certificate` : `${k.name}'s public key`);
     } catch (e) {
       toastError(e, `Exporting ${k.name}`);
     }
@@ -106,13 +114,22 @@ function KeyRow({ k, onChanged }: { k: KeyInfo; onChanged: () => void }) {
           {KIND_SHORT[k.kind]}
           {k.created > 0 ? `, added ${new Date(k.created * 1000).toLocaleDateString()}` : ""}
         </p>
+        {k.kind === "certificate" && <p className="text-[12px]">{contactCertificate(k)}</p>}
+        {k.refused && <p className="text-[12px] text-muted">Knows their signatures; archives can't be encrypted to it: {k.refused}</p>}
         <p className="selectable font-mono text-[12px]">{k.fingerprint}</p>
-        <p className="selectable truncate font-mono text-[11px] text-muted" title={k.public}>
-          {k.public}
-        </p>
+        {k.kind !== "certificate" && (
+          <p className="selectable truncate font-mono text-[11px] text-muted" title={k.public}>
+            {k.public}
+          </p>
+        )}
       </div>
       <div className="flex shrink-0 gap-1">
-        <Button size="sm" onClick={() => void exportKey(false)} aria-label={`Copy ${k.name}'s public key`} title="Copy the public key, to share">
+        <Button
+          size="sm"
+          onClick={() => void exportKey(false)}
+          aria-label={k.kind === "certificate" ? `Copy ${k.name}'s certificate` : `Copy ${k.name}'s public key`}
+          title={k.kind === "certificate" ? "Copy the certificate (PEM)" : "Copy the public key, to share"}
+        >
           <Copy /> Copy
         </Button>
         {k.own && (
@@ -192,7 +209,7 @@ function ImportKey({ onChanged }: { onChanged: () => void }) {
   const [error, setError] = useState<string>();
   const ready = name.trim().length > 0 && (text.trim().length > 0 || file !== undefined);
   const choose = async () => {
-    const picked = await pickFile({ multiple: false, title: "Add a key", filters: [{ name: "Keys", extensions: ["txt", "key", "age"] }, { name: "All files", extensions: ["*"] }] });
+    const picked = await pickFile({ multiple: false, title: "Add a key or certificate", filters: [{ name: "Keys and certificates", extensions: ["txt", "key", "age", "cer", "crt", "der", "pem"] }, { name: "All files", extensions: ["*"] }] });
     const path = Array.isArray(picked) ? picked[0] : picked;
     if (path) {
       setFile(path);
@@ -213,7 +230,7 @@ function ImportKey({ onChanged }: { onChanged: () => void }) {
     }
   };
   return (
-    <Field label="Add a key" htmlFor="import-name" hint="A public key (age1…, age1pq1…, bzsig1…) becomes a contact; a private key becomes yours. Certificates come from the system's stores or a file, where you encrypt.">
+    <Field label="Add a key" htmlFor="import-name" hint="A public key (age1…, age1pq1…, bzsig1…) or someone's certificate becomes a contact; a private key becomes yours.">
       <Input id="import-name" className="w-48" placeholder="Whose it is" value={name} onChange={(e) => setName(e.target.value)} />
       {file ? (
         <p className="selectable flex items-center gap-2 text-[12px]">
@@ -223,7 +240,7 @@ function ImportKey({ onChanged }: { onChanged: () => void }) {
           </Button>
         </p>
       ) : (
-        <Textarea aria-label="Key" rows={2} className="font-mono text-[12px]" placeholder="Paste the key here" value={text} onChange={(e) => setText(e.target.value)} />
+        <Textarea aria-label="Key" rows={2} className="font-mono text-[12px]" placeholder="Paste the key or certificate here" value={text} onChange={(e) => setText(e.target.value)} />
       )}
       <div className="flex gap-2">
         <Button size="sm" onClick={() => void choose()}>
@@ -291,7 +308,7 @@ export function KeysSettings() {
         )}
         <MakeKey onChanged={reload} />
       </Section>
-      <Section title="Contacts" description="Other people's public keys, by name, to encrypt to and to know their signatures.">
+      <Section title="Contacts" description="Other people's public keys and certificates, by name, to encrypt to and to know their signatures.">
         {!keysError && <KeyList keys={contacts} label="Contacts" empty="No contacts yet." onChanged={reload} />}
         <ImportKey onChanged={reload} />
       </Section>

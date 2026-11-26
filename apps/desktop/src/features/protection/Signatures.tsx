@@ -9,7 +9,7 @@ import { Input } from "../../components/ui/input";
 import { type Tab, useArchives } from "../../lib/archives";
 import { useJobs } from "../../lib/jobs";
 import { useKeyring } from "../../lib/keyring";
-import { ALGORITHMS, contactKey, type Signature, signaturesOf, signerPhrase, summarize, unknownSubject } from "../../lib/signatures";
+import { ALGORITHMS, contactKey, type Signature, signaturesOf, signerPhrase, suggestedName, summarize, unknownSubject } from "../../lib/signatures";
 import { toastError, toastInfo } from "../../lib/toasts";
 
 const STATUS: Record<Signature["status"], string> = {
@@ -24,9 +24,9 @@ function claimed(seconds: number): string {
   return new Date(seconds * 1000).toLocaleString();
 }
 
-/** "Add to contacts": the signer's `bzsig1…` key, under a name, with `keys.import`. */
+/** "Add to contacts": the signer's `bzsig1…` key or certificate, under a name, with `keys.import`. */
 function AddContact({ sig, tab }: { sig: Signature; tab: Tab }) {
-  const [name, setName] = useState(sig.signer === sig.fingerprint ? "" : sig.signer);
+  const [name, setName] = useState(suggestedName(sig));
   const [busy, setBusy] = useState(false);
   const text = contactKey(sig);
   if (!text) return null;
@@ -60,6 +60,13 @@ function AddContact({ sig, tab }: { sig: Signature; tab: Tab }) {
   );
 }
 
+/** What to compare with an unknown signer before adding them: a certificate's own fingerprint,
+ * which its owner can read out and the contact will show, whatever chain the signature carries. */
+function checkWith(s: Signature): string {
+  if (s.certificate_fingerprint) return `The system doesn't trust this certificate. Check its fingerprint, ${s.certificate_fingerprint}, with the signer, by phone or in person, before you add them.`;
+  return "Check the fingerprint with the signer, by phone or in person, before you add them.";
+}
+
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="grid grid-cols-[8rem_1fr] gap-3 py-0.5">
@@ -86,6 +93,11 @@ export function SignatureDetails({ tab, sigs, onClose }: { tab: Tab; sigs: Signa
               <Row label="Fingerprint">
                 <span className="font-mono">{s.fingerprint}</span>
               </Row>
+              {s.certificate_fingerprint && (
+                <Row label="Certificate's fingerprint">
+                  <span className="font-mono">{s.certificate_fingerprint}</span>
+                </Row>
+              )}
               {s.issuer && <Row label="Issued by">{s.issuer}</Row>}
               <Row label="Algorithm">
                 {ALGORITHMS[s.algorithm]}
@@ -96,12 +108,12 @@ export function SignatureDetails({ tab, sigs, onClose }: { tab: Tab; sigs: Signa
             </dl>
             {s.status === "valid" && s.trust === "unknown" && contactKey(s) && (
               <div className="pt-2">
-                <p className="pb-1.5 text-[12px] text-muted">Check the fingerprint with the signer, by phone or in person, before you add them.</p>
+                <p className="pb-1.5 text-[12px] text-muted">{checkWith(s)}</p>
                 <AddContact sig={s} tab={tab} />
               </div>
             )}
             {s.status === "valid" && s.trust === "unknown" && !contactKey(s) && s.issuer && (
-              <p className="pt-2 text-[12px] text-muted">Windows doesn't trust this certificate. Check the fingerprint with the signer before you trust what they signed.</p>
+              <p className="pt-2 text-[12px] text-muted">{s.note ? `It can't be added to your contacts: ${s.note}.` : "The system doesn't trust this certificate. Check the fingerprint with the signer before you trust what they signed."}</p>
             )}
           </li>
         ))}

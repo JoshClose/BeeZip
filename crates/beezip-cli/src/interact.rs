@@ -133,6 +133,18 @@ fn unlock(
                  --identity with its key file",
             ));
         }
+        // The one way in, a key or device that just didn't open it (another security key, a
+        // closed dialog): tried again only if asked to, so the dialog doesn't keep coming back.
+        [(label, Way::Slot(slot))] if attempt > 0 => {
+            match Confirm::with_theme(theme)
+                .with_prompt(format!("{label} again?"))
+                .default(true)
+                .interact_opt()
+            {
+                Ok(Some(true)) => Way::Slot(*slot),
+                Ok(_) | Err(_) => return Ok(PromptReply::Cancel),
+            }
+        }
         [(_, way)] => *way,
         _ => {
             let labels: Vec<&str> = items.iter().map(|(l, _)| l.as_str()).collect();

@@ -1169,6 +1169,10 @@ impl Ctx for PassCtx<'_> {
         self.inner.key_source()
     }
 
+    fn spend_memory(&mut self, need: u64, total: u64) -> Result<bool> {
+        self.inner.spend_memory(need, total)
+    }
+
     fn overwrite(&mut self, existing: &Path) -> Result<OverwriteChoice> {
         self.inner.overwrite(existing)
     }

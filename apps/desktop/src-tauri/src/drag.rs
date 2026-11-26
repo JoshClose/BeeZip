@@ -21,7 +21,7 @@ use std::{
 use beezip_commands::{CmdError, EventSink, JobEvent};
 use serde::Serialize;
 use serde_json::{Value, json};
-use tauri::{AppHandle, ipc::Channel};
+use tauri::{AppHandle, Window, ipc::Channel};
 
 #[cfg(windows)]
 pub use win::init;
@@ -43,10 +43,12 @@ pub enum DragOutcome {
 /// Drags the entries `args` names (`archive.extract`'s arguments: `archive`, `entries`,
 /// `strip_components`, `password`, `name_encoding`) out of the window, while the mouse button
 /// that started the page's `dragstart` is still down. The extraction's events go to
-/// `on_event`, as `cmd_run`'s do. Resolves when the drag is over.
+/// `on_event`, as `cmd_run`'s do, and a device it uses shows its dialog over `window`, as
+/// there. Resolves when the drag is over.
 #[tauri::command]
 pub async fn cmd_drag_out(
     app: AppHandle,
+    window: Window,
     args: Value,
     on_event: Channel<JobEvent>,
 ) -> Result<DragOutcome, CmdError> {
@@ -56,11 +58,11 @@ pub async fn cmd_drag_out(
     });
     #[cfg(windows)]
     {
-        win::drag_out(&app, args, sink).await
+        win::drag_out(&app, args, sink, crate::ipc::hwnd(&window)).await
     }
     #[cfg(not(windows))]
     {
-        let _ = (app, args, sink);
+        let _ = (app, window, args, sink);
         Err(CmdError::new(
             beezip_commands::ErrorCode::UnsupportedOperation,
             "dragging entries out is only on Windows; use Extract",

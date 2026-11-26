@@ -52,7 +52,7 @@ Options:
           The source's password, if it is encrypted
 
       --new-password <NEW_PASSWORD>
-          Encrypt the new archive with this password (zip, 7z)
+          Encrypt the new archive with this password (zip, 7z, .bhive)
 
       --encryption <ENCRYPTION>
           How to encrypt a new zip [default: aes256]. Zip only
@@ -141,8 +141,8 @@ Options:
           - strong:   2 GiB and 3 passes: about 0.8 s and 1.7 s. Needs 2 GiB free to open
 
       --sign <SIGNER>
-          Sign it: your signing key by name, a certificate's thumbprint in your stores, or a
-          certificate file with its key beside it. `.bhive` only
+          Sign it: your signing key by name, a certificate's thumbprint in your stores, a
+          certificate file with its key beside it, or a `.pfx` (Windows, macOS). `.bhive` only
 
       --dry-run[=<DRY_RUN>]
           Show what would be written without writing anything
@@ -165,8 +165,8 @@ Global options:
           [default: human]
 
   -i, --identity <FILE>
-          A key file that opens encrypted .bhive archives (age identities, PEM and PKCS #8 keys);
-          repeatable
+          A key file that opens encrypted .bhive archives (age identities, PEM and PKCS #8 keys,
+          .pfx files on Windows and macOS); repeatable
 
       --password-stdin
           Read the password or recovery key from the first line of stdin, where other programs can't

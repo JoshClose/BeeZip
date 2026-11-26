@@ -58,7 +58,7 @@ fn cli() -> clap::Command {
                 .action(ArgAction::Append)
                 .value_parser(value_parser!(PathBuf))
                 .help_heading("Global options")
-                .help("A key file that opens encrypted .bhive archives (age identities, PEM and PKCS #8 keys); repeatable"),
+                .help("A key file that opens encrypted .bhive archives (age identities, PEM and PKCS #8 keys, .pfx files on Windows and macOS); repeatable"),
         )
         .arg(
             Arg::new("password-stdin")
@@ -332,6 +332,8 @@ fn run(name: &str, args: Value, identities: &[PathBuf], out: &Output) -> Result<
     }
     let policy = Policy {
         identities: identities.to_vec(),
+        // Windows' PIN and security-key dialogs come up over the terminal.
+        window: beezip_commands::policy::console_window(),
         ..Policy::unrestricted()
     };
     let engine = Engine::with_options(registry(), EngineOptions::from_loaded(loaded, policy));

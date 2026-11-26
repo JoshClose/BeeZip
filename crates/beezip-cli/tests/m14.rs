@@ -388,3 +388,27 @@ fn sign_and_protect_change_an_archive_in_place() {
     h.ok(&["verify", "e.bhive"]);
     h.ok(&["list", "e.bhive", "-i", &classic]);
 }
+
+#[test]
+fn a_certificate_contact_through_the_cli() {
+    let h = Here::new();
+    let out = h.ok(&["keys", "import", "Bob", "--file", &testdata("rsa.der")]);
+    assert!(
+        out.contains("Added `Bob`, a contact's certificate: BeeZip test rsa (self-signed)"),
+        "{out}"
+    );
+    let table = h.ok(&["keys", "list"]);
+    assert!(
+        table.contains("Bob  certificate   contact  ")
+            && table.contains("BeeZip test rsa, until 2"),
+        "{table}"
+    );
+    h.ok(&["create", "c.bhive", "src", "--to", "Bob"]);
+    h.fails(&["list", "c.bhive"], 15);
+    h.ok(&["list", "c.bhive", "-i", &testdata("rsa.key")]);
+    // Signed with Bob's key file, the signature is Bob's.
+    h.ok(&["create", "s.bhive", "src", "--sign", &testdata("rsa.crt")]);
+    let out = h.ok(&["info", "s.bhive"]);
+    assert!(out.contains("signed by Bob"), "{out}");
+    h.ok(&["verify", "s.bhive", "--require-signer", "Bob"]);
+}

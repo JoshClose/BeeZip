@@ -160,9 +160,16 @@ pub struct SignatureReport {
     /// Who signed, as BeeZip shows it: your key's or a contact's name, a certificate's subject,
     /// or the fingerprint.
     pub signer: String,
-    /// 16 characters in groups of four (docs/bhive.md §13.5).
+    /// 16 characters in groups of four (docs/bhive.md §13.5), of the signer bytes: for a
+    /// certificate, of its chain as the signature carries it.
     pub fingerprint: String,
-    /// The signer's public key (`bzsig1…`) or certificate (PEM), for "Add to contacts".
+    /// A certificate signer's own certificate's fingerprint, the same whatever chain follows it:
+    /// what its owner can read out, and what the contact made from it shows.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub certificate_fingerprint: Option<String>,
+    /// The signer's public key (`bzsig1…`) or certificate (PEM), for "Add to contacts"; absent
+    /// for a certificate whose key usage forbids signatures, which no contact makes known.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub public: Option<String>,
@@ -204,6 +211,9 @@ pub enum KeyKindName {
     Classic,
     /// Signs archives (`bzsig1…`).
     Signing,
+    /// Someone else's certificate, a contact: added with `keys.import`, never made.
+    #[value(skip)]
+    Certificate,
 }
 
 /// A key or contact, as `keys.list` shows it.
@@ -211,13 +221,30 @@ pub enum KeyKindName {
 pub struct KeyInfo {
     pub name: String,
     pub kind: KeyKindName,
-    /// The public key as text, to share.
+    /// The public key as text, to share; a certificate's PEM.
     pub public: String,
     pub fingerprint: String,
     /// Yours, with its private key here; or a contact's.
     pub own: bool,
     /// Seconds since 1970.
     pub created: i64,
+    /// A certificate's subject.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub subject: Option<String>,
+    /// A certificate's issuer.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub issuer: Option<String>,
+    /// When a certificate expires, in seconds since 1970.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub not_after: Option<i64>,
+    /// Why an archive can't be encrypted to a certificate, when it can't (an ECDSA-only key,
+    /// RSA under 2,048 bits…): it may still be known as a signer.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub refused: Option<String>,
 }
 
 /// Where a certificate's private key is.

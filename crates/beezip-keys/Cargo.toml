@@ -21,7 +21,7 @@ zeroize.workspace = true
 windows = { workspace = true, features = [
     "Win32_Foundation", "Win32_Security", "Win32_Security_Cryptography",
     "Win32_Security_Credentials", "Win32_Networking_WindowsWebServices",
-    "Win32_System_LibraryLoader",
+    "Win32_System_Console", "Win32_System_LibraryLoader",
 ] }
 windows-core.workspace = true
 

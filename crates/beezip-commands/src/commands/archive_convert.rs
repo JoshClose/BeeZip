@@ -65,7 +65,7 @@ pub struct ArchiveConvertInput {
     #[arg(short, long)]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub password: Option<Secret>,
-    /// Encrypt the new archive with this password (zip, 7z).
+    /// Encrypt the new archive with this password (zip, 7z, .bhive).
     #[arg(long)]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub new_password: Option<Secret>,
@@ -139,8 +139,8 @@ pub struct ArchiveConvertInput {
     #[arg(long, value_enum)]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub strength: Option<crate::crypt::StrengthName>,
-    /// Sign it: your signing key by name, a certificate's thumbprint in your stores, or a
-    /// certificate file with its key beside it. `.bhive` only.
+    /// Sign it: your signing key by name, a certificate's thumbprint in your stores, a
+    /// certificate file with its key beside it, or a `.pfx` (Windows, macOS). `.bhive` only.
     #[arg(long, value_name = "SIGNER")]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sign: Option<Vec<String>>,

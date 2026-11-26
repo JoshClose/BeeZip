@@ -10,7 +10,7 @@ import type { ArchiveInfoOutput, KeyInfo } from "../gen/commands";
 import { type Tab, useArchives } from "../lib/archives";
 import { useKeyring } from "../lib/keyring";
 import { useUi } from "../lib/ui";
-import { changedSinceSigned, contactKey, ownSigners, type Signature, signaturesOf, summarize } from "../lib/signatures";
+import { changedSinceSigned, contactKey, ownSigners, type Signature, signaturesOf, suggestedName, summarize } from "../lib/signatures";
 import { fake } from "./fakeEngine";
 
 vi.mock("../lib/engine", () => import("./fakeEngine"));
@@ -95,22 +95,51 @@ describe("what the signature line says (docs/M14.md §11)", () => {
 describe("an unknown signer's certificate (docs/M14.md §11)", () => {
   it("shows its subject beside \"an unknown signer\", in the line and the details", async () => {
     const user = userEvent.setup();
-    const stranger: Signature = { ...cert, trust: "unknown", signer: "CN=Someone Else", issuer: "CN=Nobody's CA", public: "-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----\n" };
-    // keys.import takes keys, not certificates: no "Add to contacts" for one.
-    expect(contactKey(stranger)).toBeUndefined();
+    const pem = "-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----\n";
+    const stranger: Signature = { ...cert, trust: "unknown", signer: "CN=Someone Else (issued by CN=Nobody's CA)", issuer: "CN=Nobody's CA", public: pem, certificate_fingerprint: "CERT-CERT-CERT-CERT" };
+    // keys.import keeps a certificate as a contact: "Add to contacts" adds its PEM.
+    expect(contactKey(stranger)).toBe(pem);
     expect(contactKey(unknown)).toBe("bzsig1stranger");
-    render(<SignatureLine tab={tab([stranger])} />);
+    expect(contactKey({ ...stranger, public: "MIIB" })).toBeUndefined();
+    expect(suggestedName(stranger)).toBe("CN=Someone Else");
+    expect(suggestedName({ ...stranger, signer: "CN=Me (self-signed)" })).toBe("CN=Me");
+    expect(suggestedName(unknown)).toBe("");
+    const t = tab([stranger]);
+    useArchives.setState({ tabs: [t], active: t.id });
+    fake.handlers.set("keys.import", (args) => ({ ...keys[0], ...(args as object), kind: "certificate", own: false }));
+    render(<SignatureLine tab={t} />);
     const line = screen.getByRole("status", { name: "Signature" });
     expect(line).toHaveTextContent("Signed by an unknown signer");
     expect(line).toHaveTextContent("certificate for CN=Someone Else");
     await user.click(screen.getByRole("button", { name: "Details…" }));
     const dialog = screen.getByRole("dialog");
     expect(dialog).toHaveTextContent("Signed byan unknown signer");
-    expect(dialog).toHaveTextContent("Certificate forCN=Someone Else, as the certificate says");
+    expect(dialog).toHaveTextContent("Certificate forCN=Someone Else (issued by CN=Nobody's CA), as the certificate says");
     expect(dialog).toHaveTextContent("Issued byCN=Nobody's CA");
     expect(dialog).toHaveTextContent("AAAA-BBBB-CCCC-DDDD");
+    // What is checked with the signer is the certificate's own fingerprint, which the contact
+    // will show, not the signature's (of the chain it carries).
+    expect(dialog).toHaveTextContent("Certificate's fingerprintCERT-CERT-CERT-CERT");
+    expect(dialog).toHaveTextContent("The system doesn't trust this certificate. Check its fingerprint, CERT-CERT-CERT-CERT, with the signer");
+    // Added as a contact under its subject, or the name typed: its certificate, as PEM.
+    expect(within(dialog).getByLabelText("Contact's name")).toHaveValue("CN=Someone Else");
+    await user.clear(within(dialog).getByLabelText("Contact's name"));
+    await user.type(within(dialog).getByLabelText("Contact's name"), "Someone");
+    await user.click(within(dialog).getByRole("button", { name: /Add to contacts/ }));
+    await waitFor(() => expect(fake.calls.find((c) => c.name === "keys.import")?.args).toEqual({ name: "Someone", text: pem }));
+    await waitFor(() => expect(useArchives.getState().tabs[0].info).toBeUndefined());
+  });
+
+  it("doesn't offer to add a certificate whose key usage forbids signatures, and says why", async () => {
+    const user = userEvent.setup();
+    const note = "its certificate's key usage doesn't allow signatures, so it can't be known as anyone's, a contact's included";
+    const encryptOnly: Signature = { ...cert, trust: "unknown", signer: "CN=Encrypt Only (self-signed)", issuer: "CN=Encrypt Only", certificate_fingerprint: "CERT-CERT-CERT-CERT", note };
+    expect(contactKey(encryptOnly)).toBeUndefined();
+    render(<SignatureLine tab={tab([encryptOnly])} />);
+    await user.click(screen.getByRole("button", { name: "Details…" }));
+    const dialog = screen.getByRole("dialog");
     expect(within(dialog).queryByRole("button", { name: /Add to contacts/ })).toBeNull();
-    expect(dialog).toHaveTextContent("Windows doesn't trust this certificate.");
+    expect(dialog).toHaveTextContent(`It can't be added to your contacts: ${note}.`);
   });
 });
 

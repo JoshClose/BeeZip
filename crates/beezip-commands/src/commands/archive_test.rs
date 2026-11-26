@@ -126,7 +126,11 @@ pub(crate) fn test(
     )?;
     let path = crate::commands::util::absolute(&input.archive);
     let (protection, signatures) = protect::security(&path, &mut *opened.reader, cx)?;
-    protect::require(protect::signatures_of(&mut *opened.reader), &wanted)?;
+    protect::require(
+        protect::signatures_of(&mut *opened.reader),
+        &wanted,
+        cx.key_store().ok().as_ref(),
+    )?;
     if verify {
         protect::verified(
             signatures.as_deref().unwrap_or_default(),

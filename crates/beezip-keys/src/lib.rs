@@ -5,7 +5,8 @@
 //!
 //! - [`identity`]: your own keys and your contacts, sealed by the system (DPAPI-NG, the login
 //!   Keychain, a 0600 file) (PR C); [`identity::signing`], your signing key (PR H).
-//! - [`files`]: key files and certificate files, everywhere (PR D).
+//! - [`files`]: key files and certificate files, everywhere (PR D); [`pfx`], `.pfx` files,
+//!   opened in memory on Windows.
 //! - [`trust`]: whom a signature is from (PR D, with PR H).
 //! - `cng` (Windows): certificate stores, smart cards, TPM keys and "This PC", chain checks
 //!   (PR D). `mac` (macOS): Keychain identities (PR D).
@@ -22,6 +23,7 @@ use beezip_core::{
 
 pub mod files;
 pub mod identity;
+pub mod pfx;
 pub mod trust;
 
 #[cfg(windows)]
@@ -29,6 +31,21 @@ pub mod cng;
 #[cfg(target_os = "macos")]
 pub mod mac;
 pub mod webauthn;
+
+/// The console window this process runs in: the window Windows' own dialogs (a smart card's or
+/// TPM key's PIN, Windows Security's for a security key or Windows Hello) belong to when a
+/// command runs in a terminal, as the CLI's do. `None` without a console, and on macOS and
+/// Linux.
+pub fn console_window() -> Option<isize> {
+    #[cfg(windows)]
+    {
+        webauthn::ffi::console_window()
+    }
+    #[cfg(not(windows))]
+    {
+        None
+    }
+}
 
 /// What M14's parts return until their PR builds them.
 pub fn not_built(what: &str) -> Error {

@@ -178,7 +178,7 @@ impl Ways {
                     credential,
                     label,
                 } => {
-                    let mut l = security_key(hello, credential.as_deref())?;
+                    let mut l = security_key(hello, credential.as_deref(), cx.window())?;
                     if label.is_some() {
                         l.label = label;
                     }
@@ -356,7 +356,8 @@ pub fn now() -> i64 {
     time::OffsetDateTime::now_utc().unix_timestamp()
 }
 
-/// An `age1…` or `age1pq1…` key, or a contact's (or your own key's) name.
+/// An `age1…` or `age1pq1…` key, or a contact's (or your own key's) name: a contact's
+/// certificate is encrypted to as `to_cert` would be, with a warning when it has expired.
 pub fn public_key(text: &str, cx: &JobCtx) -> Result<Labelled, CmdError> {
     let text = text.trim();
     if text.to_ascii_lowercase().starts_with("age1") {
@@ -369,7 +370,13 @@ pub fn public_key(text: &str, cx: &JobCtx) -> Result<Labelled, CmdError> {
         .key_store()?
         .list()?
         .into_iter()
-        .find(|k| k.name == text && matches!(k.kind, KeyKind::X25519 | KeyKind::XWing))
+        .find(|k| {
+            k.name == text
+                && matches!(
+                    k.kind,
+                    KeyKind::X25519 | KeyKind::XWing | KeyKind::Certificate
+                )
+        })
         .ok_or_else(|| {
             CmdError::new(
                 ErrorCode::NotFound,
@@ -379,6 +386,33 @@ pub fn public_key(text: &str, cx: &JobCtx) -> Result<Labelled, CmdError> {
                 ),
             )
         })?;
+    if entry.kind == KeyKind::Certificate {
+        let c = entry.certificate.ok_or_else(|| {
+            CmdError::new(
+                ErrorCode::Corrupt,
+                format!("the contact `{}`'s certificate is damaged", entry.name),
+            )
+        })?;
+        let recipient = c.recipient(false).map_err(|why| {
+            CmdError::invalid_args(format!(
+                "an archive can't be encrypted to {}'s certificate: {why}",
+                entry.name
+            ))
+        })?;
+        if c.not_after < now() {
+            cx.log(
+                LogLevel::Warn,
+                format!(
+                    "{}'s certificate has expired; it can still open the archive",
+                    entry.name
+                ),
+            );
+        }
+        return Ok(Labelled {
+            recipient,
+            label: Some(entry.name),
+        });
+    }
     Ok(Labelled {
         recipient: key_recipient(bech32::parse_key(&entry.public)?, text)?,
         label: Some(entry.name),
@@ -438,10 +472,27 @@ fn store_certificate(thumbprint: &[u8; 20]) -> Result<Certificate, CmdError> {
         })
 }
 
-#[cfg(not(windows))]
+/// The Keychain's certificates, as `certificates.list` lists them on macOS.
+#[cfg(target_os = "macos")]
+fn store_certificate(thumbprint: &[u8; 20]) -> Result<Certificate, CmdError> {
+    beezip_keys::mac::certificates()?
+        .into_iter()
+        .map(|c| c.certificate)
+        .find(|c| c.thumbprint == *thumbprint)
+        .ok_or_else(|| {
+            CmdError::new(
+                ErrorCode::NotFound,
+                "no certificate with that thumbprint is in the Keychain (`certificates.list` \
+                 shows them)",
+            )
+        })
+}
+
+#[cfg(not(any(windows, target_os = "macos")))]
 fn store_certificate(_: &[u8; 20]) -> Result<Certificate, CmdError> {
     Err(CmdError::invalid_args(
-        "a thumbprint names a certificate in Windows' stores; pass a certificate file",
+        "a thumbprint names a certificate in Windows' stores or the macOS Keychain; pass a \
+         certificate file",
     ))
 }
 
@@ -505,11 +556,16 @@ fn this_pc(_: Option<&Secret>, _: &mut JobCtx) -> Result<Labelled, CmdError> {
     ))
 }
 
-/// A security key, or with `hello` Windows Hello: Windows asks for a touch, a PIN or a face.
-/// `credential` rebuilds the slot of one already registered ("New key").
+/// A security key, or with `hello` Windows Hello: Windows asks for a touch, a PIN or a face, in
+/// a dialog that belongs to `window` (the job's). `credential` rebuilds the slot of one already
+/// registered ("New key").
 #[cfg(windows)]
-fn security_key(hello: bool, credential: Option<&[u8]>) -> Result<Labelled, CmdError> {
-    let recipient = beezip_keys::webauthn::recipient(hello, credential, None)?;
+fn security_key(
+    hello: bool,
+    credential: Option<&[u8]>,
+    window: Option<isize>,
+) -> Result<Labelled, CmdError> {
+    let recipient = beezip_keys::webauthn::recipient(hello, credential, window)?;
     Ok(Labelled {
         recipient,
         label: Some(
@@ -524,7 +580,7 @@ fn security_key(hello: bool, credential: Option<&[u8]>) -> Result<Labelled, CmdE
 }
 
 #[cfg(not(windows))]
-fn security_key(_: bool, _: Option<&[u8]>) -> Result<Labelled, CmdError> {
+fn security_key(_: bool, _: Option<&[u8]>, _: Option<isize>) -> Result<Labelled, CmdError> {
     Err(CmdError::new(
         ErrorCode::UnsupportedOperation,
         "security keys work through Windows' webauthn.dll; on this system use a password, a \
@@ -532,8 +588,9 @@ fn security_key(_: bool, _: Option<&[u8]>) -> Result<Labelled, CmdError> {
     ))
 }
 
-/// Whom `sign` names: your signing key by name, a certificate's thumbprint in your stores, or
-/// a certificate file with its key beside it (`name.key`, or in the same PEM file).
+/// Whom `sign` names: your signing key by name, a certificate's thumbprint in your stores, a
+/// certificate file with its key beside it (`name.key`, or in the same PEM file), or a `.pfx`
+/// (Windows and macOS). A key file under a password asks for it.
 pub fn signing(names: &[String], cx: &mut JobCtx) -> Result<Option<Signing>, CmdError> {
     if names.is_empty() {
         return Ok(None);
@@ -556,14 +613,26 @@ pub fn signing(names: &[String], cx: &mut JobCtx) -> Result<Option<Signing>, Cmd
     Ok(Some(signing))
 }
 
-fn signer(text: &str, cx: &JobCtx) -> Result<Arc<dyn sign::Signer>, CmdError> {
+fn signer(text: &str, cx: &mut JobCtx) -> Result<Arc<dyn sign::Signer>, CmdError> {
     if let Some(t) = thumbprint(text) {
-        return store_signer(&t);
+        return store_signer(&t, cx.window());
     }
     let path = Path::new(text);
     if path.is_file() {
+        let bytes = std::fs::read(path)
+            .map_err(|e| beezip_core::Error::io(format!("reading {}", path.display()), &e))?;
+        // A .pfx holds its key (opened on Windows and macOS); its password is asked for.
+        if beezip_keys::pfx::is_pfx(&bytes) {
+            return cx.with_file_password(path, |password| {
+                beezip_keys::pfx::signer(&bytes, password).map_err(|e| {
+                    beezip_core::Error::new(e.kind, format!("{}: {}", path.display(), e.message))
+                })
+            });
+        }
         let key = key_beside(path);
-        return Ok(beezip_keys::files::signer(path, &key, None)?);
+        return cx.with_file_password(&key, |password| {
+            beezip_keys::files::signer(path, &key, password)
+        });
     }
     Ok(beezip_keys::identity::signing::signer(
         &cx.key_store()?,
@@ -582,16 +651,30 @@ fn key_beside(certificate: &Path) -> PathBuf {
     }
 }
 
+/// The certificate's signer, whose PIN dialog (a smart card's, a TPM key's) belongs to `window`.
 #[cfg(windows)]
-fn store_signer(thumbprint: &[u8; 20]) -> Result<Arc<dyn sign::Signer>, CmdError> {
-    Ok(beezip_keys::cng::signer(thumbprint)?)
+fn store_signer(
+    thumbprint: &[u8; 20],
+    window: Option<isize>,
+) -> Result<Arc<dyn sign::Signer>, CmdError> {
+    Ok(beezip_keys::cng::signer(thumbprint, window)?)
 }
 
-#[cfg(not(windows))]
-fn store_signer(_: &[u8; 20]) -> Result<Arc<dyn sign::Signer>, CmdError> {
+/// A Keychain identity, which may show the Keychain's prompt when it signs. The Keychain's
+/// prompt isn't parented to a window, so `window` goes unused.
+#[cfg(target_os = "macos")]
+fn store_signer(
+    thumbprint: &[u8; 20],
+    _: Option<isize>,
+) -> Result<Arc<dyn sign::Signer>, CmdError> {
+    Ok(beezip_keys::mac::signer(thumbprint)?)
+}
+
+#[cfg(not(any(windows, target_os = "macos")))]
+fn store_signer(_: &[u8; 20], _: Option<isize>) -> Result<Arc<dyn sign::Signer>, CmdError> {
     Err(CmdError::invalid_args(
-        "a thumbprint names a certificate in Windows' stores; pass a certificate file and its \
-         key",
+        "a thumbprint names a certificate in Windows' stores or the macOS Keychain; pass a \
+         certificate file and its key",
     ))
 }
 
@@ -695,7 +778,7 @@ fn wanted_one(text: &str, cx: &JobCtx) -> Result<Wanted, CmdError> {
         .key_store()?
         .list()?
         .into_iter()
-        .find(|k| k.name == text && k.kind == KeyKind::Signing)
+        .find(|k| k.name == text && matches!(k.kind, KeyKind::Signing | KeyKind::Certificate))
         .ok_or_else(|| {
             CmdError::new(
                 ErrorCode::NotFound,
@@ -705,18 +788,45 @@ fn wanted_one(text: &str, cx: &JobCtx) -> Result<Wanted, CmdError> {
                 ),
             )
         })?;
+    if let Some(c) = &entry.certificate {
+        return Ok(Wanted::Certificate(sha256(&c.der)));
+    }
     signing_key(bech32::parse_key(&entry.public)?)
 }
 
 /// `Ok` when a valid signature is from each signer `wanted` names; `SignatureRequired`
-/// otherwise. `report` is `None` for an archive that can't be signed (not a `.bhive`).
-pub fn require(report: Option<&sign::Report>, wanted: &[(String, Wanted)]) -> Result<(), CmdError> {
+/// otherwise. `report` is `None` for an archive that can't be signed (not a `.bhive`). A
+/// certificate's signature doesn't count once `store`'s trust finds the certificate expired or
+/// revoked (a contact's, or one the system trusts; docs/M14.md §11).
+pub fn require(
+    report: Option<&sign::Report>,
+    wanted: &[(String, Wanted)],
+    store: Option<&Store>,
+) -> Result<(), CmdError> {
+    use beezip_keys::trust::Trust;
     let signatures = report.map(|r| r.signatures.as_slice()).unwrap_or_default();
     for (name, want) in wanted {
-        if signatures.iter().any(|s| want.matches(s)) {
+        // Each of their signatures, with why it doesn't count when it doesn't.
+        let lapses: Vec<Option<&str>> = signatures
+            .iter()
+            .filter(|s| want.matches(s))
+            .map(|s| match (want, store) {
+                (Wanted::Certificate(_), Some(store)) => {
+                    match beezip_keys::trust::trust(store, s) {
+                        Ok(Trust::Expired { .. }) => Some("has expired"),
+                        Ok(Trust::Revoked { .. }) => Some("was revoked"),
+                        _ => None,
+                    }
+                }
+                _ => None,
+            })
+            .collect();
+        if lapses.iter().any(Option::is_none) {
             continue;
         }
-        let why = if signatures.is_empty() {
+        let why = if let Some(Some(why)) = lapses.first() {
+            format!("it is signed with their certificate, which {why}")
+        } else if signatures.is_empty() {
             "the archive isn't signed".to_owned()
         } else if signatures.iter().any(|s| s.status == Status::Invalid) {
             "it changed after it was signed".to_owned()
@@ -857,8 +967,9 @@ pub fn reports(report: &sign::Report, cx: &JobCtx) -> Vec<SignatureReport> {
 fn signature_report(s: &SignatureInfo, store: Result<&Store, &CmdError>) -> SignatureReport {
     let algorithm = Algorithm::from_id(s.algorithm);
     let fingerprint = fingerprint(&s.signer);
+    // DER from the archive: never read as PEM.
     let leaf = signer_certificates(&s.signer)
-        .and_then(|c| c.first().and_then(|der| cert::parse(der).ok()));
+        .and_then(|c| c.first().and_then(|der| cert::parse_der(der).ok()));
     let (status, mut note) = match &s.status {
         Status::Valid => (SignatureStatusName::Valid, None),
         Status::Invalid => (
@@ -875,6 +986,21 @@ fn signature_report(s: &SignatureInfo, store: Result<&Store, &CmdError>) -> Sign
         Some(Algorithm::MlDsa65Ed25519) => <[u8; 1984]>::try_from(&s.signer[..])
             .ok()
             .map(|k| bech32::key_text(&KeyText::SigningPublic(Box::new(k)))),
+        // A certificate whose key usage forbids signatures is nobody's, contact or not
+        // (`beezip_keys::trust`): there is nothing to add.
+        _ if leaf
+            .as_ref()
+            .is_some_and(|c| c.digital_signature == Some(false)) =>
+        {
+            if status == SignatureStatusName::Valid && note.is_none() {
+                note = Some(
+                    "its certificate's key usage doesn't allow signatures, so it can't be \
+                     known as anyone's, a contact's included"
+                        .to_owned(),
+                );
+            }
+            None
+        }
         _ => signer_certificates(&s.signer).and_then(|c| c.first().map(|der| pem(der))),
     };
     let mut signer = leaf
@@ -917,6 +1043,9 @@ fn signature_report(s: &SignatureInfo, store: Result<&Store, &CmdError>) -> Sign
         trust,
         signer,
         fingerprint,
+        certificate_fingerprint: leaf
+            .as_ref()
+            .map(beezip_keys::identity::certificate_fingerprint),
         public,
         issuer: leaf.map(|c| c.issuer),
         claimed_time: s.time,
@@ -1146,11 +1275,20 @@ pub fn known_recipient(slot: &Slot, store: Option<&Store>, this_pc: &[Vec<u8>]) 
         let spki = cert::parse(bytes).map_or_else(|_| bytes.to_vec(), |c| c.spki);
         return slot.kind == SlotKind::EcP256 && this_pc.contains(&spki);
     }
-    let Some(key) = d.public_key.as_deref() else {
-        // Certificates aren't among the contacts yet: each is confirmed.
+    let Some(store) = store else {
         return false;
     };
-    let Some(store) = store else {
+    if matches!(
+        slot.kind,
+        SlotKind::Rsa | SlotKind::EcP256 | SlotKind::EcP384
+    ) {
+        // A contact's certificate, compared whole; a key without one is confirmed.
+        return d
+            .certificate
+            .as_deref()
+            .is_some_and(|der| store.find_certificate(der).ok().flatten().is_some());
+    }
+    let Some(key) = d.public_key.as_deref() else {
         return false;
     };
     store.list().unwrap_or_default().iter().any(|k| {
@@ -1555,20 +1693,20 @@ mod tests {
     fn require_says_why() {
         let key = vec![1u8; 1984];
         let wanted = vec![("alice".to_owned(), Wanted::Key(sha256(&key)))];
-        let e = require(None, &wanted).unwrap_err();
+        let e = require(None, &wanted, None).unwrap_err();
         assert_eq!(e.code, ErrorCode::SignatureRequired);
         assert!(e.message.contains("isn't signed"), "{}", e.message);
         let report = sign::Report {
             signatures: vec![signature(1, key.clone(), Status::Invalid)],
             digests: None,
         };
-        let e = require(Some(&report), &wanted).unwrap_err();
+        let e = require(Some(&report), &wanted, None).unwrap_err();
         assert!(e.message.contains("changed after"), "{}", e.message);
         let report = sign::Report {
             signatures: vec![signature(1, vec![2; 1984], Status::Valid)],
             digests: None,
         };
-        let e = require(Some(&report), &wanted).unwrap_err();
+        let e = require(Some(&report), &wanted, None).unwrap_err();
         assert!(e.message.contains("none of its 1"), "{}", e.message);
         let report = sign::Report {
             signatures: vec![
@@ -1577,8 +1715,8 @@ mod tests {
             ],
             digests: None,
         };
-        require(Some(&report), &wanted).unwrap();
-        require(None, &[]).unwrap();
+        require(Some(&report), &wanted, None).unwrap();
+        require(None, &[], None).unwrap();
     }
 
     #[test]
@@ -1895,5 +2033,85 @@ mod tests {
         )
         .unwrap_err();
         assert!(e.message.contains("could be checked"), "{}", e.message);
+    }
+
+    /// A test certificate of `beezip-keys`' (its `files/testdata`, published on purpose).
+    fn test_certificate(name: &str) -> (Vec<u8>, Vec<u8>) {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../beezip-keys/src/files/testdata")
+            .join(name);
+        let bytes = std::fs::read(path).unwrap();
+        let der = cert::parse(&bytes).unwrap().der;
+        (bytes, der)
+    }
+
+    /// The signer bytes of a signature carrying `der` alone.
+    fn signer_of(der: &[u8]) -> Vec<u8> {
+        beezip_core::format::bhive::crypt::sig::signer_bytes(&[der.to_vec()]).unwrap()
+    }
+
+    /// `require_signer` matches whole certificates, and a contact's certificate that has
+    /// expired doesn't count, though its hash matches (docs/M14.md §11).
+    #[test]
+    fn a_lapsed_contact_isnt_the_signer_required() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::new(dir.path().to_owned());
+        let (bytes, der) = test_certificate("rsa-expired.crt");
+        store.import_file("Old", &bytes).unwrap();
+        let wanted = vec![("Old".to_owned(), Wanted::Certificate(sha256(&der)))];
+        let report = sign::Report {
+            signatures: vec![signature(2, signer_of(&der), Status::Valid)],
+            digests: None,
+        };
+        // Without your contacts, only the hash is checked.
+        require(Some(&report), &wanted, None).unwrap();
+        let e = require(Some(&report), &wanted, Some(&store)).unwrap_err();
+        assert_eq!(e.code, ErrorCode::SignatureRequired);
+        assert!(e.message.contains("which has expired"), "{}", e.message);
+        // A valid contact's does, and so does a certificate nobody vouches for.
+        let (bytes, der) = test_certificate("rsa.crt");
+        store.import_file("Bob", &bytes).unwrap();
+        let wanted = vec![("Bob".to_owned(), Wanted::Certificate(sha256(&der)))];
+        let report = sign::Report {
+            signatures: vec![signature(2, signer_of(&der), Status::Valid)],
+            digests: None,
+        };
+        require(Some(&report), &wanted, Some(&store)).unwrap();
+        let (_, der) = test_certificate("p256-ecdsa.crt");
+        let wanted = vec![("file".to_owned(), Wanted::Certificate(sha256(&der)))];
+        let report = sign::Report {
+            signatures: vec![signature(4, signer_of(&der), Status::Valid)],
+            digests: None,
+        };
+        require(Some(&report), &wanted, Some(&store)).unwrap();
+    }
+
+    /// A certificate signer's report gives its own certificate's fingerprint beside the signer
+    /// bytes', and the one a contact made from it shows; one whose key usage forbids signatures
+    /// offers nothing to add, and says why.
+    #[test]
+    fn certificate_signers_are_shown_by_their_certificates() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::new(dir.path().to_owned());
+        let (bytes, der) = test_certificate("rsa.crt");
+        let r = signature_report(&signature(2, signer_of(&der), Status::Valid), Ok(&store));
+        assert_eq!(r.fingerprint, fingerprint(&signer_of(&der)));
+        let contact = store.import_file("Bob", &bytes).unwrap();
+        assert_eq!(r.certificate_fingerprint, Some(contact.fingerprint));
+        assert_ne!(
+            r.certificate_fingerprint.as_deref(),
+            Some(r.fingerprint.as_str())
+        );
+        assert!(r.public.unwrap().starts_with("-----BEGIN CERTIFICATE-----"));
+        // A signing key has no certificate.
+        let key = signature_report(&signature(1, vec![3; 1984], Status::Valid), Ok(&store));
+        assert_eq!(key.certificate_fingerprint, None);
+
+        let (_, der) = test_certificate("rsa-encrypt-only.crt");
+        let r = signature_report(&signature(2, signer_of(&der), Status::Valid), Ok(&store));
+        assert_eq!(r.trust, Some(TrustName::Unknown));
+        assert_eq!(r.public, None);
+        assert!(r.note.unwrap().contains("key usage"));
+        assert!(r.certificate_fingerprint.is_some());
     }
 }

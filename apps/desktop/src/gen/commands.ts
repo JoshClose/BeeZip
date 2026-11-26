@@ -72,8 +72,9 @@ level?: LevelArg,
  */
 threads?: number,
 /**
- * Encrypt the new files with this password (zip, 7z). It also reads a 7z whose names are
- * encrypted.
+ * Encrypt the new files with this password (zip, 7z). On an encrypted .bhive it is the way in
+ * (a password or recovery key), and the new files are sealed with the rest. It also reads a
+ * 7z whose names are encrypted.
  */
 password?: Secret,
 /**
@@ -103,7 +104,8 @@ follow_links?: boolean,
 name_encoding?: NameEncoding,
 /**
  * Sign the archive again after adding: an edit drops its signatures otherwise. Your
- * signing key by name, a certificate's thumbprint, or a certificate file. `.bhive` only.
+ * signing key by name, a certificate's thumbprint, a certificate file, or a `.pfx`
+ * (Windows, macOS). `.bhive` only.
  */
 sign?: Array<string>,
 /**
@@ -163,7 +165,7 @@ threads?: number,
  */
 password?: Secret,
 /**
- * Encrypt the new archive with this password (zip, 7z).
+ * Encrypt the new archive with this password (zip, 7z, .bhive).
  */
 new_password?: Secret,
 /**
@@ -237,8 +239,8 @@ windows_hello?: boolean,
  */
 strength?: StrengthName,
 /**
- * Sign it: your signing key by name, a certificate's thumbprint in your stores, or a
- * certificate file with its key beside it. `.bhive` only.
+ * Sign it: your signing key by name, a certificate's thumbprint in your stores, a
+ * certificate file with its key beside it, or a `.pfx` (Windows, macOS). `.bhive` only.
  */
 sign?: Array<string>,
 /**
@@ -319,7 +321,8 @@ level?: LevelArg,
  */
 threads?: number,
 /**
- * Encrypt the entries with this password (AES-256). Zip and 7z.
+ * Encrypt with this password (AES-256): a zip's or 7z's entries, or a whole .bhive,
+ * names and all.
  */
 password?: Secret,
 /**
@@ -393,8 +396,8 @@ windows_hello?: boolean,
  */
 strength?: StrengthName,
 /**
- * Sign it: your signing key by name, a certificate's thumbprint in your stores, or a
- * certificate file with its key beside it. `.bhive` only.
+ * Sign it: your signing key by name, a certificate's thumbprint in your stores, a
+ * certificate file with its key beside it, or a `.pfx` (Windows, macOS). `.bhive` only.
  */
 sign?: Array<string>,
 /**
@@ -868,7 +871,7 @@ export type ArchiveSignInput = {
 archive: string,
 /**
  * Sign with these: your signing key by name, a certificate's thumbprint in your stores,
- * or a certificate file with its key beside it.
+ * a certificate file with its key beside it, or a `.pfx` (Windows, macOS).
  */
 sign?: Array<string>,
 /**
@@ -1632,7 +1635,7 @@ export type KeyHomeName = "software" | "smart-card" | "tpm" | "file";
  */
 export type KeyInfo = { name: string, kind: KeyKindName,
 /**
- * The public key as text, to share.
+ * The public key as text, to share; a certificate's PEM.
  */
 public: string, fingerprint: string,
 /**
@@ -1642,12 +1645,29 @@ own: boolean,
 /**
  * Seconds since 1970.
  */
-created: number, };
+created: number,
+/**
+ * A certificate's subject.
+ */
+subject?: string,
+/**
+ * A certificate's issuer.
+ */
+issuer?: string,
+/**
+ * When a certificate expires, in seconds since 1970.
+ */
+not_after?: number,
+/**
+ * Why an archive can't be encrypted to a certificate, when it can't (an ECDSA-only key,
+ * RSA under 2,048 bits…): it may still be known as a signer.
+ */
+refused?: string, };
 
 /**
  * What a key of yours is for.
  */
-export type KeyKindName = "post-quantum" | "classic" | "signing";
+export type KeyKindName = "post-quantum" | "classic" | "signing" | "certificate";
 
 /**
  * Make a key of your own: one that archives can be encrypted to (post-quantum by default), or
@@ -1684,7 +1704,8 @@ export type KeysExportOutput = { text: Secret, };
 
 /**
  * Add a key: a private key (`AGE-SECRET-KEY-…`, `BZSIG-SECRET-KEY-1…`, or an age identity
- * file) becomes yours; a public key (`age1…`, `age1pq1…`, `bzsig1…`) becomes a contact's.
+ * file) becomes yours; a public key (`age1…`, `age1pq1…`, `bzsig1…`) or someone's
+ * certificate (PEM or DER) becomes a contact's.
  */
 export type KeysImportInput = {
 /**
@@ -1692,16 +1713,17 @@ export type KeysImportInput = {
  */
 name: string,
 /**
- * The key as text.
+ * The key, or a certificate's PEM, as text.
  */
 text?: Secret,
 /**
- * Or a file that holds it.
+ * Or a file that holds it: a key file, or a `.pem`, `.crt`, `.cer` or `.der` certificate.
  */
 file?: string, };
 
 /**
- * List your keys (for opening archives and for signing them) and your contacts' public keys.
+ * List your keys (for opening archives and for signing them) and your contacts' public keys
+ * and certificates.
  */
 export type KeysListInput = Record<symbol, never>;
 
@@ -2203,11 +2225,18 @@ trust?: TrustName,
  */
 signer: string,
 /**
- * 16 characters in groups of four (docs/bhive.md §13.5).
+ * 16 characters in groups of four (docs/bhive.md §13.5), of the signer bytes: for a
+ * certificate, of its chain as the signature carries it.
  */
 fingerprint: string,
 /**
- * The signer's public key (`bzsig1…`) or certificate (PEM), for "Add to contacts".
+ * A certificate signer's own certificate's fingerprint, the same whatever chain follows it:
+ * what its owner can read out, and what the contact made from it shows.
+ */
+certificate_fingerprint?: string,
+/**
+ * The signer's public key (`bzsig1…`) or certificate (PEM), for "Add to contacts"; absent
+ * for a certificate whose key usage forbids signatures, which no contact makes known.
  */
 public?: string, issuer?: string,
 /**
@@ -2577,10 +2606,14 @@ export type CommandMap = {
   "keys.export": { input: KeysExportInput; output: KeysExportOutput };
   /**
    * Add a key: a private key (`AGE-SECRET-KEY-…`, `BZSIG-SECRET-KEY-1…`, or an age identity
-   * file) becomes yours; a public key (`age1…`, `age1pq1…`, `bzsig1…`) becomes a contact's.
+   * file) becomes yours; a public key (`age1…`, `age1pq1…`, `bzsig1…`) or someone's
+   * certificate (PEM or DER) becomes a contact's.
    */
   "keys.import": { input: KeysImportInput; output: KeyInfo };
-  /** List your keys (for opening archives and for signing them) and your contacts' public keys. */
+  /**
+   * List your keys (for opening archives and for signing them) and your contacts' public keys
+   * and certificates.
+   */
   "keys.list": { input: KeysListInput; output: KeysListOutput };
   /**
    * Show every setting with its effective value: what config.toml sets, or the default.

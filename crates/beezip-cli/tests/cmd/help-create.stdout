@@ -42,7 +42,8 @@ Options:
           Compression threads for codecs that have them; 0 is one per core [default: from config]
 
   -p, --password <PASSWORD>
-          Encrypt the entries with this password (AES-256). Zip and 7z
+          Encrypt with this password (AES-256): a zip's or 7z's entries, or a whole .bhive, names
+          and all
 
       --encryption <ENCRYPTION>
           How to encrypt a zip [default: aes256]. `zipcrypto` is weak, for tools that can't read
@@ -126,8 +127,8 @@ Options:
           - strong:   2 GiB and 3 passes: about 0.8 s and 1.7 s. Needs 2 GiB free to open
 
       --sign <SIGNER>
-          Sign it: your signing key by name, a certificate's thumbprint in your stores, or a
-          certificate file with its key beside it. `.bhive` only
+          Sign it: your signing key by name, a certificate's thumbprint in your stores, a
+          certificate file with its key beside it, or a `.pfx` (Windows, macOS). `.bhive` only
 
       --dry-run[=<DRY_RUN>]
           Show what would be added without writing anything
@@ -150,8 +151,8 @@ Global options:
           [default: human]
 
   -i, --identity <FILE>
-          A key file that opens encrypted .bhive archives (age identities, PEM and PKCS #8 keys);
-          repeatable
+          A key file that opens encrypted .bhive archives (age identities, PEM and PKCS #8 keys,
+          .pfx files on Windows and macOS); repeatable
 
       --password-stdin
           Read the password or recovery key from the first line of stdin, where other programs can't

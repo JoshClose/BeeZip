@@ -7,12 +7,14 @@
 //! `NCRYPT_SILENT_FLAG` on delete; its provider-handle property is borrowed, not owned; TPM
 //! keys get no Key Usage property. Every call is silent unless the user chose the way in (a
 //! slot's `device`) or is signing: then a smart card's or TPM key's PIN dialog, Windows' own,
-//! may show. The user's stores are opened read only and never changed; certificates whose keys
-//! are in legacy CryptoAPI providers (which CNG-only acquisition can't open) are listed without
-//! a key and skipped as ways in.
+//! may show, parented to the window the caller gives (`NCRYPT_WINDOW_HANDLE_PROPERTY`). The
+//! user's stores are opened read only and never changed; certificates whose keys are in legacy
+//! CryptoAPI providers (which CNG-only acquisition can't open) are listed without a key and
+//! skipped as ways in.
 
 #![allow(unsafe_code)]
 
+pub(crate) mod pfx;
 mod win;
 
 use std::sync::{Arc, Mutex};
@@ -35,6 +37,9 @@ use windows::Win32::Security::Cryptography::{
 
 pub use win::Chain;
 use win::{Cert, Key, Provider, Store, WinError};
+
+/// The name of CNG's software key storage provider, `MS_KEY_STORAGE_PROVIDER`.
+const SOFTWARE_PROVIDER: &str = "Microsoft Software Key Storage Provider";
 
 /// The names of "This PC" keys in the TPM start with this.
 pub const THIS_PC_PREFIX: &str = "BeeZip This PC ";
@@ -153,6 +158,8 @@ struct ThisPc {
 pub struct CngSource {
     certs: Vec<CertKey>,
     this_pc: Vec<ThisPc>,
+    /// The window a PIN dialog belongs to, for a way in the user chose.
+    window: Option<isize>,
 }
 
 fn kind_fits(kind: SlotKind, algorithm: KeyAlgorithm) -> bool {
@@ -179,7 +186,11 @@ impl CngSource {
                 })
             })
             .collect();
-        Self { certs, this_pc }
+        Self {
+            certs,
+            this_pc,
+            window: None,
+        }
     }
 
     fn cert_fits(c: &CertKey, slot: &SlotView<'_>) -> bool {
@@ -264,10 +275,16 @@ impl KeySource for CngSource {
             || self.this_pc.iter().any(|k| Self::this_pc_fits(k, slot))
     }
 
+    /// With `device`, a PIN dialog Windows shows belongs to the source's window.
     fn secret(&mut self, slot: &SlotView<'_>, device: bool) -> Result<Option<SlotSecret>> {
+        let window = self.window;
         for c in self.certs.iter().filter(|c| Self::cert_fits(c, slot)) {
             let key = || {
-                let key = c.cert.private_key(!device)?;
+                let key = if device {
+                    c.cert.private_key_for(window)?
+                } else {
+                    c.cert.private_key(true)?
+                };
                 let recipient = match c.certificate.algorithm {
                     KeyAlgorithm::Ec(curve) => ecdh::point_of_spki(curve, &c.certificate.spki)?,
                     _ => Vec::new(),
@@ -282,6 +299,10 @@ impl KeySource for CngSource {
             let key = || {
                 let key = Provider::open(MS_PLATFORM_CRYPTO_PROVIDER)
                     .and_then(|p| p.open_key(&k.name))?;
+                if device {
+                    // Best effort: the TPM's PIN dialog over the window in front otherwise.
+                    let _ = key.parent(window);
+                }
                 Ok((key, k.point.clone()))
             };
             if let Some(secret) = try_key(key, slot, device)? {
@@ -309,11 +330,15 @@ fn this_pc_keys() -> Vec<ThisPc> {
         .collect()
 }
 
-/// A key source over the Personal store's keys and "This PC" keys.
-pub fn source() -> Result<Box<dyn KeySource + Send>> {
+/// A key source over the Personal store's keys and "This PC" keys. The PIN dialogs Windows
+/// shows for a way in the user chose belong to `window` (the HWND of the window that started
+/// the job), or without one to the window in front.
+pub fn source(window: Option<isize>) -> Result<Box<dyn KeySource + Send>> {
     let my = Store::user("My").ok();
     let stores: Vec<&Store> = my.iter().collect();
-    Ok(Box::new(CngSource::new(&stores, this_pc_keys())))
+    let mut source = CngSource::new(&stores, this_pc_keys());
+    source.window = window;
+    Ok(Box::new(source))
 }
 
 fn no_tpm(e: WinError) -> Error {
@@ -431,13 +456,29 @@ pub fn chain(certificates: &[Vec<u8>]) -> Result<Chain> {
     Ok(leaf.chain(Some(&store), true)?)
 }
 
-/// A signer for the certificate with this SHA-1 thumbprint, whose key is on this machine.
-pub fn signer(thumbprint: &[u8; 20]) -> Result<Arc<dyn Signer>> {
+/// A signer for the certificate with this SHA-1 thumbprint, whose key is on this machine. The
+/// PIN dialog signing may show belongs to `window`, or without one to the window in front.
+pub fn signer(thumbprint: &[u8; 20], window: Option<isize>) -> Result<Arc<dyn Signer>> {
     let store = Store::user("My")?;
-    signer_in(&store, thumbprint)
+    signer_in(&store, thumbprint, window)
 }
 
-fn signer_in(store: &Store, thumbprint: &[u8; 20]) -> Result<Arc<dyn Signer>> {
+fn signer_in(
+    store: &Store,
+    thumbprint: &[u8; 20],
+    window: Option<isize>,
+) -> Result<Arc<dyn Signer>> {
+    signer_with(store, thumbprint, None, window)
+}
+
+/// [`signer_in`], its chain built with the certificates in `extra` besides the system's (a
+/// `.pfx` file's own).
+fn signer_with(
+    store: &Store,
+    thumbprint: &[u8; 20],
+    extra: Option<&Store>,
+    window: Option<isize>,
+) -> Result<Arc<dyn Signer>> {
     let hex: String = thumbprint.iter().map(|b| format!("{b:02x}")).collect();
     let cert = store.find_sha1(thumbprint).ok_or_else(|| {
         Error::new(
@@ -459,11 +500,16 @@ fn signer_in(store: &Store, thumbprint: &[u8; 20]) -> Result<Arc<dyn Signer>> {
     let key = match cert.private_key(true) {
         Ok(k) => k,
         // A smart card may ask for its PIN to be opened at all: signing is the user's choice.
-        Err(e) if e.needs_person() => cert.private_key(false).map_err(no_key)?,
+        Err(e) if e.needs_person() => cert.private_key_for(window).map_err(no_key)?,
         Err(e) => return Err(no_key(e)),
     };
+    // Signing isn't silent: its PIN dialog belongs to the window. Best effort, as for opening.
+    let _ = key.parent(window);
+    // The software provider's EC keys sign whether they were made for ECDH or ECDSA (measured:
+    // it imports every EC key of a .pfx as ECDH, and signs with it); other providers' ECDH keys
+    // (the TPM's, a smart card's) may not, so they aren't offered to sign.
     let key_algorithm = key.algorithm();
-    if key_algorithm.starts_with("ECDH") {
+    if key_algorithm.starts_with("ECDH") && key.provider_name() != SOFTWARE_PROVIDER {
         return Err(Error::new(
             ErrorKind::InvalidArgs,
             format!(
@@ -479,7 +525,7 @@ fn signer_in(store: &Store, thumbprint: &[u8; 20]) -> Result<Arc<dyn Signer>> {
     // The chain the machine has, without its root, which a reader must have anyway. A chain
     // that stops short of a root ends with an intermediate, which stays.
     let (mut ders, complete) = cert
-        .chain(None, false)
+        .chain(extra, false)
         .map(|c| {
             let complete = c.complete();
             (c.certificates, complete)

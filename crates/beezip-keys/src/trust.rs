@@ -95,13 +95,12 @@ fn known(store: &Store, signer: &[u8]) -> Result<Option<Trust>> {
 }
 
 /// The contact whose certificate is the signer's own, matched on the whole certificate (never a
-/// fingerprint). A contact's certificate is kept as its PEM text; until contacts can hold
-/// certificates (`keys.import` of one is not built yet), nobody matches.
+/// fingerprint). A contact's certificate is kept as its PEM text (`keys.import`).
 fn certificate_contact(store: &Store, leaf: &[u8]) -> Result<Option<String>> {
     Ok(entries(store)?
         .into_iter()
-        .filter(|e| !e.own && e.public.contains("-----BEGIN"))
-        .find(|e| cert::parse(e.public.as_bytes()).is_ok_and(|c| c.der == leaf))
+        .filter(|e| !e.own && e.kind == KeyKind::Certificate)
+        .find(|e| e.certificate.as_ref().is_some_and(|c| c.der == leaf))
         .map(|e| e.name))
 }
 
@@ -142,11 +141,14 @@ fn certificate_trust(store: &Store, signer: &[u8]) -> Result<Trust> {
     let subject = first.subject.clone();
     let expired = first.expired(crate::files::now());
     if let Some(name) = certificate_contact(store, &first.der)? {
-        return Ok(if expired {
-            Trust::Expired { subject }
+        // Expired by its own dates, which the contact vouched for; else revoked, which only
+        // the system can say (for a chain it otherwise trusts, so only then online).
+        let system = if expired {
+            System::Untrusted
         } else {
-            Trust::Contact(name)
-        });
+            system_trust(&chain)
+        };
+        return Ok(contact_trust(name, subject, expired, system));
     }
     Ok(match system_trust(&chain) {
         System::Untrusted => Trust::Unknown { who: who(&first) },
@@ -155,6 +157,19 @@ fn certificate_trust(store: &Store, signer: &[u8]) -> Result<Trust> {
         System::Trusted if expired => Trust::Expired { subject },
         System::Trusted => Trust::Certificate { subject },
     })
+}
+
+/// A contact's certificate: theirs while it is valid, expired once its dates have passed, and
+/// revoked when the system says its issuer revoked it (docs/M14.md §11). A contact is someone
+/// you vouch for, not a certificate that can't lapse.
+fn contact_trust(name: String, subject: String, expired: bool, system: System) -> Trust {
+    if expired {
+        Trust::Expired { subject }
+    } else if system == System::Revoked {
+        Trust::Revoked { subject }
+    } else {
+        Trust::Contact(name)
+    }
 }
 
 /// What the system makes of a chain. `Expired` and `Revoked` are only for a chain the system
@@ -279,5 +294,89 @@ mod tests {
             trust(&store, &signature(4, vec![1, 2])).unwrap(),
             Trust::Unknown { .. }
         ));
+    }
+    /// A certificate someone added as a contact is theirs, by the name they gave it, on every
+    /// system: matched on the whole certificate, whatever chain the signature carries after
+    /// it. Once expired it is shown as expired.
+    #[test]
+    fn a_certificate_contact_is_known_by_its_name() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::new(dir.path().to_owned());
+        let read = |f: &str| std::fs::read(data(f)).unwrap();
+        let der = |f: &str| cert::parse(&read(f)).unwrap().der;
+        store.import_file("Bob", &read("rsa.der")).unwrap();
+        let rsa = sig::signer_bytes(&[der("rsa.crt")]).unwrap();
+        assert_eq!(
+            trust(&store, &signature(2, rsa.clone())).unwrap(),
+            Trust::Contact("Bob".into())
+        );
+        assert_eq!(
+            trust(&store, &signature(3, rsa)).unwrap(),
+            Trust::Contact("Bob".into())
+        );
+        // Another certificate of the same key isn't Bob's.
+        let sign_only = sig::signer_bytes(&[der("rsa-sign-only.crt")]).unwrap();
+        assert!(matches!(
+            trust(&store, &signature(2, sign_only)).unwrap(),
+            Trust::Unknown { .. }
+        ));
+
+        // A chain's leaf as a contact: the signature carries the leaf and its issuer.
+        store.import_file("Leaf", &read("chain.pem")).unwrap();
+        let chain: Vec<_> = cert::parse_all(&read("chain.pem"))
+            .unwrap()
+            .into_iter()
+            .map(|c| c.der)
+            .collect();
+        assert_eq!(
+            trust(&store, &signature(4, sig::signer_bytes(&chain).unwrap())).unwrap(),
+            Trust::Contact("Leaf".into())
+        );
+
+        // A contact whose certificate has expired is shown as expired, not by their name.
+        store.import_file("Old", &read("rsa-expired.crt")).unwrap();
+        let expired = sig::signer_bytes(&[der("rsa-expired.crt")]).unwrap();
+        assert_eq!(
+            trust(&store, &signature(2, expired)).unwrap(),
+            Trust::Expired {
+                subject: "BeeZip test rsa-expired".into()
+            }
+        );
+
+        // A certificate whose key usage forbids signatures is a contact to encrypt to, but no
+        // signature is theirs.
+        store
+            .import_file("Encrypt", &read("rsa-encrypt-only.crt"))
+            .unwrap();
+        let encrypt = sig::signer_bytes(&[der("rsa-encrypt-only.crt")]).unwrap();
+        assert!(matches!(
+            trust(&store, &signature(2, encrypt)).unwrap(),
+            Trust::Unknown { .. }
+        ));
+    }
+
+    /// A contact's certificate that its issuer revoked is revoked, not the contact's, and expiry
+    /// comes first. A revoked chain can't be made offline without a root the system trusts
+    /// (which a test must never add to the user's stores), so the rule is checked on what the
+    /// system would say.
+    #[test]
+    fn a_revoked_or_expired_contact_isnt_their_signature() {
+        let rule = |expired, system| contact_trust("Bob".into(), "CN=Bob".into(), expired, system);
+        let revoked = Trust::Revoked {
+            subject: "CN=Bob".into(),
+        };
+        let lapsed = Trust::Expired {
+            subject: "CN=Bob".into(),
+        };
+        assert_eq!(rule(false, System::Revoked), revoked);
+        assert_eq!(rule(true, System::Revoked), lapsed);
+        assert_eq!(rule(true, System::Trusted), lapsed);
+        for system in [System::Trusted, System::Untrusted, System::Expired] {
+            assert_eq!(
+                rule(false, system),
+                Trust::Contact("Bob".into()),
+                "{system:?}"
+            );
+        }
     }
 }

@@ -586,3 +586,109 @@ fn archives_sealed_to_your_keys_open_with_them() {
         .collect();
     assert_eq!(names, ["Alice", "Quantum", "Classic"]);
 }
+
+/// Someone's certificate as a contact, from a PEM file, a DER file and pasted PEM: kept as its
+/// PEM, listed with its subject, dates and fingerprint, exported as it was kept, and never with
+/// a private key.
+#[test]
+fn certificates_are_contacts() {
+    use crate::files::tests::data;
+    let s = Scratch::new();
+    let read = |f: &str| std::fs::read(data(f)).unwrap();
+    let rsa = cert::parse(&read("rsa.crt")).unwrap();
+
+    let pem = s.store.import_file("Rsa", &read("rsa.crt")).unwrap();
+    assert_eq!(pem.kind, KeyKind::Certificate);
+    assert!(!pem.own);
+    assert!(pem.public.starts_with("-----BEGIN CERTIFICATE-----\n"));
+    let c = pem.certificate.as_ref().unwrap();
+    assert_eq!(c.der, rsa.der);
+    assert_eq!(c.subject, "BeeZip test rsa");
+    assert_eq!(pem.fingerprint, bech32::fingerprint(&rsa.der));
+    assert_eq!(pem.fingerprint.len(), 19);
+    // The same certificate in DER is the same contact, so it is refused as already here.
+    let e = s.store.import_file("Again", &read("rsa.der")).unwrap_err();
+    assert_eq!(e.kind, ErrorKind::Conflict, "{}", e.message);
+    assert!(
+        e.message.contains("certificate is already here"),
+        "{}",
+        e.message
+    );
+
+    // DER, and pasted PEM with text around it; a chain is its first certificate.
+    let other = Scratch::new();
+    let der = other.store.import_file("Der", &read("rsa.der")).unwrap();
+    assert_eq!(der.public, pem.public);
+    let pasted = format!(
+        "Bag Attributes\n{}",
+        String::from_utf8(read("p384.crt")).unwrap()
+    );
+    let p384 = other.store.import("P384", &pasted).unwrap();
+    assert_eq!(p384.certificate.unwrap().subject, "BeeZip test p384");
+    let chain = other.store.import_file("Leaf", &read("chain.pem")).unwrap();
+    assert_eq!(chain.certificate.unwrap().subject, "BeeZip test leaf");
+    // An ECDSA certificate signs, so it is a contact too, though nothing is encrypted to it.
+    other
+        .store
+        .import_file("Ecdsa", &read("p256-ecdsa.crt"))
+        .unwrap();
+
+    // Listed after your keys, and kept across a reload.
+    s.store.create("Mine", KeyKind::XWing).unwrap();
+    let list = s.store.list().unwrap();
+    assert_eq!(list.len(), 2);
+    assert_eq!(list[1], pem);
+    assert_eq!(
+        s.store.find_certificate(&rsa.der).unwrap(),
+        Some(pem.clone())
+    );
+    assert_eq!(s.store.find_certificate(&[1, 2, 3]).unwrap(), None);
+
+    // Exported as kept; there's no private key to export.
+    assert_eq!(*s.store.export("rsa", false).unwrap(), pem.public);
+    let e = s.store.export("Rsa", true).unwrap_err();
+    assert!(e.message.contains("only the certificate"), "{}", e.message);
+    assert!(s.store.private("Rsa").is_err());
+    // Never a way in of yours: your keys' source has only "Mine".
+    assert!(s.store.source_with_problems().unwrap().1.is_empty());
+
+    assert_eq!(s.store.delete("Rsa").unwrap(), pem);
+    assert_eq!(s.store.find_certificate(&rsa.der).unwrap(), None);
+}
+
+#[test]
+fn certificates_that_arent_contacts_are_refused_with_the_reason() {
+    use crate::files::tests::data;
+    let s = Scratch::new();
+    let read = |f: &str| std::fs::read(data(f)).unwrap();
+    // A key alongside the certificate: refused, and nothing kept.
+    let both = [read("rsa.crt"), read("rsa.key")].concat();
+    let e = s.store.import_file("Both", &both).unwrap_err();
+    assert_eq!(e.kind, ErrorKind::InvalidArgs);
+    assert!(e.message.contains("private key"), "{}", e.message);
+    // RSA-1024 can neither be encrypted to nor sign.
+    let e = s
+        .store
+        .import_file("Small", &read("rsa1024.crt"))
+        .unwrap_err();
+    assert!(e.message.contains("no use"), "{}", e.message);
+    assert!(e.message.contains("1024 bits"), "{}", e.message);
+    // A public key alone isn't a certificate; nor is a private key file.
+    let e = s.store.import_file("Pub", &read("p256.pub")).unwrap_err();
+    assert!(e.message.contains("isn't a certificate"), "{}", e.message);
+    let e = s.store.import_file("Key", &read("p256.key")).unwrap_err();
+    assert!(e.message.contains("isn't a certificate"), "{}", e.message);
+    // Bytes that are neither text nor a certificate.
+    let e = s
+        .store
+        .import_file("Bytes", &[0x30, 0xFF, 0x00, 0x80])
+        .unwrap_err();
+    assert!(
+        e.message.contains("neither a key nor a certificate"),
+        "{}",
+        e.message
+    );
+    assert!(s.store.list().unwrap().is_empty());
+    // BeeZip doesn't make certificates.
+    assert!(s.store.create("Made", KeyKind::Certificate).is_err());
+}

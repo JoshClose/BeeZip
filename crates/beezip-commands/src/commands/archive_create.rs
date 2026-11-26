@@ -58,7 +58,8 @@ pub struct ArchiveCreateInput {
     #[arg(long)]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub threads: Option<u32>,
-    /// Encrypt the entries with this password (AES-256). Zip and 7z.
+    /// Encrypt with this password (AES-256): a zip's or 7z's entries, or a whole .bhive,
+    /// names and all.
     #[arg(short, long)]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub password: Option<Secret>,
@@ -132,8 +133,8 @@ pub struct ArchiveCreateInput {
     #[arg(long, value_enum)]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub strength: Option<crate::crypt::StrengthName>,
-    /// Sign it: your signing key by name, a certificate's thumbprint in your stores, or a
-    /// certificate file with its key beside it. `.bhive` only.
+    /// Sign it: your signing key by name, a certificate's thumbprint in your stores, a
+    /// certificate file with its key beside it, or a `.pfx` (Windows, macOS). `.bhive` only.
     #[arg(long, value_name = "SIGNER")]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sign: Option<Vec<String>>,

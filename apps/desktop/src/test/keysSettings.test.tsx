@@ -2,9 +2,10 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ask, open } from "@tauri-apps/plugin-dialog";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { certificateUse, KeysSettings, sealedBy } from "../features/settings/KeysSettings";
+import { certificateUse, contactCertificate, KeysSettings, sealedBy } from "../features/settings/KeysSettings";
 import type { CertificateInfo, KeyInfo } from "../gen/commands";
 import { certificateWarning, signers, useKeyring } from "../lib/keyring";
+import { encryptionKeys } from "../lib/protection";
 import { fake } from "./fakeEngine";
 
 vi.mock("../lib/engine", () => import("./fakeEngine"));
@@ -138,6 +139,41 @@ describe("Settings → Keys (docs/M14.md §6)", () => {
     expect(fake.calls.some((c) => c.name === "keys.delete")).toBe(false);
     await user.click(screen.getByRole("button", { name: "Delete Ann" }));
     await waitFor(() => expect(fake.calls.find((c) => c.name === "keys.delete")?.args).toEqual({ name: "Ann" }));
+  });
+
+  it("offers certificate files, and lists a certificate contact by its subject and dates", async () => {
+    const user = userEvent.setup();
+    const pem = "-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----\n";
+    const bob: KeyInfo = { name: "Bob", kind: "certificate", public: pem, fingerprint: "BOBB-BOBB-BOBB-BOBB", own: false, created: 1_780_000_000, subject: "CN=Bob", issuer: "CN=Corp CA", not_after: 4102444800 };
+    const signsOnly: KeyInfo = { ...bob, name: "Eve", subject: "CN=Eve", issuer: "CN=Eve", not_after: 1_000_000_000, refused: "it is an ECDSA certificate" };
+    fake.handlers.set("keys.list", () => ({ keys: [...keys, bob, signsOnly] }));
+    fake.handlers.set("keys.export", () => ({ text: pem }));
+    fake.handlers.set("keys.import", (args) => ({ ...bob, ...(args as object) }));
+    render(<KeysSettings />);
+    const contacts = await screen.findByRole("list", { name: "Contacts" });
+    expect(contacts).toHaveTextContent("BobCertificate");
+    expect(contacts).toHaveTextContent(`CN=Bob, issued by CN=Corp CA, until ${new Date(4102444800 * 1000).toLocaleDateString()}`);
+    expect(contacts).toHaveTextContent("BOBB-BOBB-BOBB-BOBB");
+    // Its PEM isn't shown as a key line, and an expired one that only signs says so.
+    expect(contacts).not.toHaveTextContent("BEGIN CERTIFICATE");
+    expect(contacts).toHaveTextContent("CN=Eve, self-signed, expired");
+    expect(contacts).toHaveTextContent("archives can't be encrypted to it: it is an ECDSA certificate");
+    await user.click(screen.getByRole("button", { name: "Copy Bob's certificate" }));
+    await waitFor(() => expect(fake.calls.find((c) => c.name === "keys.export")?.args).toEqual({ name: "Bob" }));
+    expect(await navigator.clipboard.readText()).toBe(pem);
+
+    // "From a file" offers certificates, and the file is sent as it is.
+    vi.mocked(open).mockResolvedValueOnce(String.raw`C:\keys\carol.crt`);
+    await user.type(screen.getByLabelText("Add a key"), "Carol");
+    await user.click(screen.getByRole("button", { name: /From a file/ }));
+    const picker = vi.mocked(open).mock.calls[0][0];
+    expect(picker?.filters?.[0].extensions).toEqual(expect.arrayContaining(["cer", "crt", "der", "pem"]));
+    await user.click(screen.getByRole("button", { name: "Add" }));
+    await waitFor(() => expect(fake.calls.find((c) => c.name === "keys.import")?.args).toEqual({ name: "Carol", file: String.raw`C:\keys\carol.crt` }));
+
+    // A certificate contact is offered to encrypt to, unless it can't be.
+    expect(encryptionKeys([...keys, bob, signsOnly]).map((k) => k.name)).toEqual(["Home", "Ann", "Bob"]);
+    expect(contactCertificate({ ...bob, issuer: "CN=Bob" }, 0)).toBe(`CN=Bob, self-signed, until ${new Date(4102444800 * 1000).toLocaleDateString()}`);
   });
 
   it("says why the lists couldn't be read", async () => {

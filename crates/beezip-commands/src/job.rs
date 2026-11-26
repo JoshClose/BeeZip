@@ -185,7 +185,9 @@ impl std::fmt::Debug for SystemKeys {
 /// A test's stand-in for this machine's keys.
 pub trait KeyStub: Send + Sync {
     /// The key sources a job tries after your keys and the key files given, made for each job.
-    fn sources(&self) -> Vec<Box<dyn KeySource + Send>>;
+    /// `window` is the job's [`Policy::window`], which the real sources parent Windows'
+    /// dialogs to.
+    fn sources(&self, window: Option<isize>) -> Vec<Box<dyn KeySource + Send>>;
 
     /// The SubjectPublicKeyInfos of this machine's This PC keys.
     fn this_pc(&self) -> Vec<Vec<u8>> {
@@ -406,7 +408,7 @@ impl JobCtx {
             SystemKeys::Off => {}
             _ if self.policy.unattended => {}
             SystemKeys::Stub(stub) => {
-                for s in stub.sources() {
+                for s in stub.sources(self.window()) {
                     sources.push(s);
                 }
             }
@@ -419,14 +421,19 @@ impl JobCtx {
         sources
     }
 
-    /// This machine's certificate stores and devices. One that this system lacks, or that isn't
-    /// built yet, is left out.
+    /// This machine's certificate stores and devices, whose dialogs belong to the job's window.
+    /// One that this system lacks, or that isn't built yet, is left out.
     fn system_sources(&self) -> Vec<Box<dyn KeySource + Send>> {
+        #[cfg(windows)]
+        let window = self.window();
         let found: Vec<(&str, beezip_core::Result<Box<dyn KeySource + Send>>)> = vec![
             #[cfg(windows)]
-            ("Windows' certificate keys", beezip_keys::cng::source()),
+            (
+                "Windows' certificate keys",
+                beezip_keys::cng::source(window),
+            ),
             #[cfg(windows)]
-            ("security keys", beezip_keys::webauthn::source(None)),
+            ("security keys", beezip_keys::webauthn::source(window)),
             #[cfg(target_os = "macos")]
             ("the Keychain", beezip_keys::mac::source()),
         ];
@@ -445,10 +452,9 @@ impl JobCtx {
     }
 
     /// The key file at `path` (`--identity`): an age identity file (`AGE-SECRET-KEY-…`
-    /// lines), or a PEM or DER private key, which under a password asks for it, without echo,
-    /// up to [`PASSWORD_PROMPTS`] times.
+    /// lines), a PEM or DER private key, or a `.pfx`, opened in memory on Windows; one under a
+    /// password asks for it ([`JobCtx::with_file_password`]).
     fn key_file(&mut self, path: &Path) -> Result<Box<dyn KeySource + Send>, CmdError> {
-        use beezip_core::ErrorKind;
         let in_file = |e: beezip_core::Error| {
             let e = CmdError::from(e);
             CmdError::new(e.code, format!("{}: {}", path.display(), e.message))
@@ -462,11 +468,33 @@ impl JobCtx {
         {
             return beezip_keys::identity::identity_file(text).map_err(in_file);
         }
+        if beezip_keys::pfx::is_pfx(&bytes) {
+            return self.with_file_password(path, |password| {
+                beezip_keys::pfx::source(&bytes, password).map_err(|e| {
+                    beezip_core::Error::new(e.kind, format!("{}: {}", path.display(), e.message))
+                })
+            });
+        }
+        self.with_file_password(path, |password| {
+            beezip_keys::files::source(&[path], password)
+        })
+    }
+
+    /// `open` with no password; then, while it says the key file at `path` needs one or was
+    /// given a wrong one, with the one the user types for it, without echo, up to
+    /// [`PASSWORD_PROMPTS`] times. With nobody to ask, the error says to run the command in a
+    /// terminal.
+    pub(crate) fn with_file_password<T>(
+        &mut self,
+        path: &Path,
+        mut open: impl FnMut(Option<&str>) -> beezip_core::Result<T>,
+    ) -> Result<T, CmdError> {
+        use beezip_core::ErrorKind;
         let mut passphrase: Option<String> = None;
         let mut asked = 0;
         loop {
-            match beezip_keys::files::source(&[path], passphrase.as_deref()) {
-                Ok(source) => return Ok(source),
+            match open(passphrase.as_deref()) {
+                Ok(opened) => return Ok(opened),
                 Err(e)
                     if matches!(
                         e.kind,
@@ -572,6 +600,11 @@ impl JobCtx {
 
     pub fn policy(&self) -> &Policy {
         &self.policy
+    }
+
+    /// The window Windows' PIN and security-key dialogs belong to ([`Policy::window`]).
+    pub fn window(&self) -> Option<isize> {
+        self.policy.window
     }
 
     /// The engine's archive cache; `None` for a job run without an engine.
