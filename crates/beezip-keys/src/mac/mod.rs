@@ -14,7 +14,7 @@ use beezip_core::{
         crypt::{
             Curve, KeySource, SlotKind, SlotSecret, SlotView,
             cert::{self, Certificate, KeyAlgorithm},
-            ecdh, rsa,
+            ecdh, rsa, sig,
         },
         sign::{Algorithm, MAX_CERTIFICATES, MESSAGE_LEN, Signer},
     },
@@ -164,7 +164,7 @@ pub fn signer(thumbprint: &[u8; 20]) -> Result<Arc<dyn Signer>> {
     Ok(Arc::new(KeychainSigner {
         key,
         algorithm,
-        signer: cert::chain_bytes(&chain_of(&certificate.der))?,
+        signer: sig::signer_bytes(&chain_of(&certificate.der))?,
     }))
 }
 

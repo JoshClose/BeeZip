@@ -7,7 +7,11 @@ use windows::Win32::Security::Cryptography::*;
 
 use super::*;
 use crate::files::tests::{data, hex, secret_bytes, vectors, view};
-use beezip_core::format::bhive::crypt::{KEY_ID_LEN, MadeSlot, SLOT_TAIL_LEN, cert::PrivateKey};
+use beezip_core::format::bhive::crypt::{
+    KEY_ID_LEN, MadeSlot, SLOT_TAIL_LEN, cert::PrivateKey, sig,
+};
+
+mod e2e;
 
 /// The software provider, open for the whole run: keys attached to certificates in memory stop
 /// working when the provider they came from is closed.
@@ -177,7 +181,7 @@ fn certificates_sign_through_cng_and_windows_checks_them() {
         let signer = signer_in(&store, &thumbprint).unwrap();
         assert_eq!(signer.algorithm(), algorithm, "{crt}");
         assert_eq!(
-            cert::chain(&signer.signer_bytes()).unwrap(),
+            sig::certificates(&signer.signer_bytes()).unwrap(),
             vec![cert.der().to_vec()]
         );
         let hash = cert::digest(algorithm, &message).unwrap();

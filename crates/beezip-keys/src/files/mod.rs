@@ -13,6 +13,7 @@ use beezip_core::{
         crypt::{
             KeySource, SlotSecret, SlotView,
             cert::{self, Certificate, PrivateKey},
+            sig,
         },
         sign::{Algorithm, MESSAGE_LEN, Signer},
     },
@@ -156,7 +157,7 @@ pub fn signer(certificate: &Path, key: &Path, password: Option<&str>) -> Result<
     Ok(Arc::new(FileSigner {
         key,
         algorithm,
-        signer: cert::chain_bytes(&ders)?,
+        signer: sig::signer_bytes(&ders)?,
     }))
 }
 
@@ -384,7 +385,7 @@ pub(crate) mod tests {
         ] {
             let s = signer(&data(crt), &data(key), Some("honey")).unwrap();
             assert_eq!(s.algorithm(), algorithm, "{crt}");
-            let chain = cert::chain(&s.signer_bytes()).unwrap();
+            let chain = sig::certificates(&s.signer_bytes()).unwrap();
             assert_eq!(
                 chain,
                 vec![
@@ -396,7 +397,7 @@ pub(crate) mod tests {
             assert_eq!(s.sign(&message).unwrap().len(), len, "{crt}");
         }
         let chained = signer(&data("chain.pem"), &data("p256.key"), None).unwrap();
-        assert_eq!(cert::chain(&chained.signer_bytes()).unwrap().len(), 2);
+        assert_eq!(sig::certificates(&chained.signer_bytes()).unwrap().len(), 2);
     }
 
     #[test]
@@ -424,3 +425,6 @@ pub(crate) mod tests {
         );
     }
 }
+
+#[cfg(test)]
+pub(crate) mod e2e;

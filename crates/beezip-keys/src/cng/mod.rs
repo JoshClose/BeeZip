@@ -23,7 +23,7 @@ use beezip_core::{
         crypt::{
             Curve, KeySource, SlotKind, SlotSecret, SlotView,
             cert::{self, Certificate, KeyAlgorithm},
-            ecdh, rsa,
+            ecdh, rsa, sig,
         },
         sign::{Algorithm, MAX_CERTIFICATES, MESSAGE_LEN, Signer},
     },
@@ -496,7 +496,7 @@ fn signer_in(store: &Store, thumbprint: &[u8; 20]) -> Result<Arc<dyn Signer>> {
         _cert: cert,
         key: Mutex::new(key),
         algorithm,
-        signer: cert::chain_bytes(&ders)?,
+        signer: sig::signer_bytes(&ders)?,
     }))
 }
 

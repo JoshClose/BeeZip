@@ -7,7 +7,7 @@
 use beezip_core::{
     Error, ErrorKind, Result,
     format::bhive::{
-        crypt::{bech32, cert},
+        crypt::{bech32, cert, sig},
         sign::{Algorithm, SignatureInfo},
     },
 };
@@ -40,22 +40,8 @@ pub enum Trust {
 }
 
 /// The fingerprint people compare (bhive.md §13.5): the first 10 bytes of the SHA-256 of the
-/// signer bytes in base32, 16 characters in groups of four.
-pub fn fingerprint(signer: &[u8]) -> String {
-    const ALPHABET: &[u8; 32] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
-    let hash = cert::sha256(signer);
-    let bits = hash[..10]
-        .iter()
-        .fold(0u128, |acc, &b| (acc << 8) | u128::from(b));
-    let chars: Vec<char> = (0..16)
-        .map(|i| char::from(ALPHABET[((bits >> (75 - 5 * i)) & 31) as usize]))
-        .collect();
-    chars
-        .chunks(4)
-        .map(|c| c.iter().collect::<String>())
-        .collect::<Vec<_>>()
-        .join("-")
-}
+/// signer bytes in base32, 16 characters in groups of four. The signing module's, here too.
+pub use beezip_core::format::bhive::sign::fingerprint;
 
 /// What is shown for a certificate nobody vouches for: its subject and issuer.
 fn who(certificate: &cert::Certificate) -> String {
@@ -139,7 +125,7 @@ pub fn trust(store: &Store, signature: &SignatureInfo) -> Result<Trust> {
 /// the system trusts): an archive's maker chooses everything else about a certificate it
 /// carries, its name and dates included, so an untrusted one is unknown whatever they say.
 fn certificate_trust(store: &Store, signer: &[u8]) -> Result<Trust> {
-    let Ok(chain) = cert::chain(signer) else {
+    let Ok(chain) = sig::certificates(signer) else {
         return Ok(Trust::Unknown {
             who: fingerprint(signer),
         });
@@ -263,14 +249,14 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let store = Store::new(dir.path().to_owned());
         let der = |f: &str| cert::parse(&std::fs::read(data(f)).unwrap()).unwrap().der;
-        let rsa = cert::chain_bytes(&[der("rsa.crt")]).unwrap();
+        let rsa = sig::signer_bytes(&[der("rsa.crt")]).unwrap();
         assert_eq!(
             trust(&store, &signature(2, rsa)).unwrap(),
             Trust::Unknown {
                 who: "BeeZip test rsa (self-signed)".into()
             }
         );
-        let expired = cert::chain_bytes(&[der("rsa-expired.crt")]).unwrap();
+        let expired = sig::signer_bytes(&[der("rsa-expired.crt")]).unwrap();
         assert_eq!(
             trust(&store, &signature(2, expired)).unwrap(),
             Trust::Unknown {
@@ -284,7 +270,7 @@ mod tests {
             .map(|c| c.der)
             .collect();
         assert_eq!(
-            trust(&store, &signature(4, cert::chain_bytes(&chain).unwrap())).unwrap(),
+            trust(&store, &signature(4, sig::signer_bytes(&chain).unwrap())).unwrap(),
             Trust::Unknown {
                 who: "BeeZip test leaf (issued by BeeZip test CA)".into()
             }

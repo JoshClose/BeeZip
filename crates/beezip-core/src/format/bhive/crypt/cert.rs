@@ -16,10 +16,7 @@ use zeroize::Zeroizing;
 use super::{Curve, SlotKind, SlotSecret, SlotView, label};
 use crate::{
     Error, ErrorKind, Result,
-    format::bhive::{
-        layout::{Bytes, put_uvarint},
-        sign::{self, Algorithm},
-    },
+    format::bhive::sign::{self, Algorithm},
 };
 
 const RSA_ENCRYPTION: ObjectIdentifier = ObjectIdentifier::new_unwrap("1.2.840.113549.1.1.1");
@@ -429,46 +426,6 @@ pub fn tag_matches(slot: &SlotView<'_>, spki: &[u8]) -> bool {
     }
 }
 
-/// The signer field for certificates (bhive.md §13.4): a `uvarint` count, 1 to 8, then each
-/// certificate's DER with its `uvarint` length, the signer's first.
-pub fn chain_bytes(certificates: &[Vec<u8>]) -> Result<Vec<u8>> {
-    if certificates.is_empty() || certificates.len() > sign::MAX_CERTIFICATES {
-        return Err(invalid(format!(
-            "a signature carries 1 to {} certificates, not {}",
-            sign::MAX_CERTIFICATES,
-            certificates.len()
-        )));
-    }
-    let mut out = Vec::new();
-    put_uvarint(&mut out, certificates.len() as u64);
-    for c in certificates {
-        put_uvarint(&mut out, c.len() as u64);
-        out.extend_from_slice(c);
-    }
-    Ok(out)
-}
-
-/// The certificates of a signer field, DER, the signer's first.
-pub fn chain(signer: &[u8]) -> Result<Vec<Vec<u8>>> {
-    let mut b = Bytes::new(signer);
-    let n = b.uvarint()?;
-    if n == 0 || n > sign::MAX_CERTIFICATES as u64 {
-        return Err(Error::corrupt(format!(
-            "a signer field with {n} certificates"
-        )));
-    }
-    let mut out = Vec::new();
-    for _ in 0..n {
-        let len = usize::try_from(b.uvarint()?)
-            .map_err(|_| Error::corrupt("a certificate's length is too large"))?;
-        out.push(b.take(len)?.to_vec());
-    }
-    if b.left() != 0 {
-        return Err(Error::corrupt("bytes after a signer field's certificates"));
-    }
-    Ok(out)
-}
-
 /// `der` as PEM under `label`, for a system API that takes PEM.
 pub fn pem(label: &str, der: &[u8]) -> Result<String> {
     der::pem::encode_string(label, der::pem::LineEnding::LF, der)
@@ -775,22 +732,6 @@ pub(crate) mod tests {
                 hex(&vec["tag"])
             );
         }
-    }
-
-    #[test]
-    fn a_chain_round_trips_and_its_limits_hold() {
-        let certs = vec![vec![1, 2, 3], vec![4; 200]];
-        let field = chain_bytes(&certs).unwrap();
-        assert_eq!(&field[..2], &[2, 3]);
-        assert_eq!(chain(&field).unwrap(), certs);
-        assert!(chain_bytes(&[]).is_err());
-        assert!(chain_bytes(&vec![vec![0]; 9]).is_err());
-        assert!(chain(&[0]).is_err());
-        assert!(chain(&[9, 0, 0, 0, 0, 0, 0, 0, 0, 0]).is_err());
-        let mut long = field.clone();
-        long.push(0);
-        assert!(chain(&long).is_err());
-        assert!(chain(&field[..field.len() - 1]).is_err());
     }
 
     /// Every algorithm signs, and `ring` (as a reader checks) accepts it.

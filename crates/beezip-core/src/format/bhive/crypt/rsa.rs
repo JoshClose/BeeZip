@@ -73,22 +73,11 @@ pub fn secret(slot: &SlotView<'_>, pkcs8: &[u8]) -> Result<SlotSecret> {
     from_plaintext(Zeroizing::new(plain))
 }
 
+/// A slot's public part: its tag, the ciphertext's length and 256 to 1,024 bytes of
+/// ciphertext, exactly. That is all of it ([`super::check_framing`] holds the one copy); the
+/// ciphertext itself is for the key to judge.
 pub fn check(public: &[u8]) -> Result<()> {
-    let len = public
-        .get(4..6)
-        .map(|b| usize::from(u16::from_le_bytes([b[0], b[1]])))
-        .ok_or_else(|| Error::corrupt("an RSA slot too short for its tag and length"))?;
-    if !(MIN_MODULUS..=MAX_MODULUS).contains(&len) {
-        return Err(Error::corrupt(format!(
-            "an RSA slot's ciphertext of {len} bytes (256 to 1,024)"
-        )));
-    }
-    if public.len() != 6 + len {
-        return Err(Error::corrupt(
-            "an RSA slot's public part isn't its ciphertext's length",
-        ));
-    }
-    Ok(())
+    super::check_framing(SlotKind::Rsa, public)
 }
 
 #[cfg(test)]
