@@ -46,6 +46,8 @@ jobs:
 
       - name: rustfmt
         run: cargo fmt --all --check
+      - name: The Python reader against the specification's vectors and every fixture (docs/M14.md §9)
+        run: python -I tests/bhive_reader/test_reader.py
       - name: Generated files are current (TS bindings, the menu's extensions)
         run: |
           cargo xtask codegen
@@ -154,6 +156,8 @@ jobs:
           rustup toolchain list
       - uses: actions/setup-python@v7
         with: { python-version: "3.14" }
+      - name: The Python reader against the specification's vectors and every fixture (docs/M14.md §9)
+        run: python -I tests/bhive_reader/test_reader.py
       - name: The Linux tools the interop tests run, and wimlib's library for LZMS
         run: sudo apt-get update -q && sudo apt-get install -y -q --no-install-recommends lzop ncompress cpio binutils squashfs-tools xorriso libwim15t64
       - name: release.yml's choice of files, on made-up artifacts (before 1.0.0, no Windows installer)
@@ -287,6 +291,8 @@ jobs:
         run: brew install wimlib
       - uses: actions/setup-python@v7    # the .bhive reference reader needs 3.14's Zstandard (docs/M13.md §8)
         with: { python-version: "3.14" }
+      - name: The Python reader against the specification's vectors and every fixture (docs/M14.md §9)
+        run: python -I tests/bhive_reader/test_reader.py
       - name: test
         run: cargo test --workspace --locked
         env:
