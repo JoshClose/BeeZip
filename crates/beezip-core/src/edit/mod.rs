@@ -843,13 +843,14 @@ pub fn edit(
         | WriteSpec::Dmg(_) => {}
         WriteSpec::Bhive(o) => {
             // No level was chosen: the archive keeps the one it was made at.
-            let own = opened
-                .reader
-                .as_any_mut()
-                .downcast_mut::<BhiveReader>()
-                .and_then(|r| r.level());
+            let r = opened.reader.as_any_mut().downcast_mut::<BhiveReader>();
+            let own = r.as_ref().and_then(|r| r.level());
             if let (true, Some(level)) = (o.inherit, own) {
                 o.level = level;
+            }
+            // An encrypted archive keeps its file key and slots (docs/M14.md §3).
+            if o.protection.is_none() {
+                o.protection = keep_protection(r.as_deref());
             }
         }
     }
@@ -866,6 +867,13 @@ pub fn edit(
     target.swap(partial, cx)?;
     report.bytes_after = fs::metadata(&target.path).map(|m| m.len()).unwrap_or(0);
     Ok(report)
+}
+
+/// What an encrypted `.bhive` keeps through an edit or a conversion into a `.bhive`: its file
+/// key and slots, byte for byte (docs/M14.md decision 7). `None` for any other archive.
+fn keep_protection(r: Option<&BhiveReader>) -> Option<crate::format::bhive::crypt::Protection> {
+    r.and_then(BhiveReader::unlocked)
+        .map(|u| crate::format::bhive::crypt::Protection::Keep(u.clone()))
 }
 
 /// How to convert (docs/M5.md §7.5).
@@ -947,17 +955,36 @@ pub fn convert(
         && (matches!(format, FormatId::Tar | FormatId::Cpio) || codecs.is_empty())
         && opened.detection.volumes.len() <= 1;
     let raw = opts.raw && same_format;
+    // An encrypted .bhive converted into a .bhive keeps its file key and slots unless it is
+    // given new ones, or asked to be decrypted (docs/M14.md §3).
+    let kept;
+    let spec = match spec {
+        WriteSpec::Bhive(o) if o.protection.is_none() && !opts.decrypt => {
+            let r = opened.reader.as_any_mut().downcast_mut::<BhiveReader>();
+            match keep_protection(r.as_deref()) {
+                Some(p) => {
+                    kept = WriteSpec::Bhive(crate::format::bhive::BhiveWriteOptions {
+                        protection: Some(p),
+                        ..o.clone()
+                    });
+                    &kept
+                }
+                None => spec,
+            }
+        }
+        _ => spec,
+    };
     let encrypts = match spec {
         WriteSpec::Zip(o) => o.password.is_some(),
         WriteSpec::SevenZ(o) => o.password.is_some(),
+        WriteSpec::Bhive(o) => o.protection.is_some(),
         WriteSpec::Tar { .. }
         | WriteSpec::Cpio { .. }
         | WriteSpec::Ar
         | WriteSpec::Cab(_)
         | WriteSpec::Iso(_)
         | WriteSpec::Squashfs(_)
-        | WriteSpec::Dmg(_)
-        | WriteSpec::Bhive(_) => false,
+        | WriteSpec::Dmg(_) => false,
     };
     if info.encryption != Encryption::None && !raw && !encrypts && !opts.decrypt {
         return Err(Error::invalid_args(format!(

@@ -11,7 +11,7 @@
 //! Keys and devices that live in the system (certificate stores, smart cards, the TPM,
 //! security keys, your stored keys) are reached through [`KeySource`], which `beezip-keys`
 //! implements and the commands layer hands to core through [`crate::Ctx::key_source`].
-//! Everything here returns [`not_built`] until its PR fills it.
+//! A slot kind returns [`not_built`] until its PR fills it.
 
 pub mod bech32;
 pub mod cert;
@@ -20,6 +20,7 @@ pub mod envelope;
 pub mod fido2;
 pub mod mldsa;
 pub mod password;
+pub mod prim;
 pub mod recovery;
 pub mod rsa;
 pub mod sig;
@@ -193,7 +194,9 @@ impl SlotView<'_> {
 }
 
 /// What opens a slot: its secret `S`, or, where `S` never leaves a device, the HMAC already
-/// computed from it (`PRK`, bhive.md §12.4 step 2).
+/// computed from it (`PRK`, bhive.md §12.4 step 2). For kinds 3, 6 and 7 a reader gives the
+/// PRK: their context holds the recipient's public key, which only the key's holder knows
+/// ([`SlotView::context`]). A writer always gives `S` ([`MadeSlot`]).
 pub enum SlotSecret {
     Shared(Zeroizing<Vec<u8>>),
     Extracted(Zeroizing<[u8; 32]>),
@@ -266,6 +269,14 @@ pub enum Strength {
     Standard,
     /// 2 GiB, 3 passes, 4 lanes.
     Strong,
+    /// Any cost within the limits (bhive.md §12.5): for tests and fixtures, which can't spend
+    /// a gigabyte on every archive. BeeZip writes Standard or Strong.
+    #[doc(hidden)]
+    Cost {
+        memory_kib: u32,
+        passes: u32,
+        lanes: u32,
+    },
 }
 
 impl Strength {
@@ -274,6 +285,11 @@ impl Strength {
         match self {
             Self::Standard => (1 << 20, 2, 4),
             Self::Strong => (2 << 20, 3, 4),
+            Self::Cost {
+                memory_kib,
+                passes,
+                lanes,
+            } => (memory_kib, passes, lanes),
         }
     }
 }
@@ -362,6 +378,136 @@ pub enum Protection {
     New(Vec<Labelled>),
     /// An edit: the archive it reads keeps its file key and slots (docs/M14.md decision 7).
     Keep(std::sync::Arc<envelope::Unlocked>),
+    /// The archive it reads with ways in removed (by slot, as the key block has them) and
+    /// added, under the same file key: its cells are copied sealed as they are, and the slots
+    /// it keeps are kept byte for byte (`archive.protect`, docs/M14.md §3).
+    Change {
+        from: std::sync::Arc<envelope::Unlocked>,
+        remove: Vec<usize>,
+        add: Vec<Labelled>,
+    },
+}
+
+/// What section 5 says of a slot (bhive.md §12.9): claims, for people, never checked against the
+/// slot.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Description {
+    pub label: Option<String>,
+    /// An X25519 (32 bytes) or X-Wing (1,216) public key.
+    pub public_key: Option<Vec<u8>>,
+    /// A certificate in DER, or a key's SubjectPublicKeyInfo.
+    pub certificate: Option<Vec<u8>>,
+    /// Bound to one machine: a TPM key, Windows Hello.
+    pub machine_bound: bool,
+}
+
+impl Description {
+    /// What a writer says of a recipient.
+    pub fn of(l: &Labelled) -> Self {
+        let (public_key, certificate, machine_bound) = match &l.recipient {
+            Recipient::X25519(k) => (Some(k.to_vec()), None, false),
+            Recipient::XWing(k) => (Some(k.to_vec()), None, false),
+            Recipient::Rsa { spki, certificate } => (
+                None,
+                Some(certificate.clone().unwrap_or_else(|| spki.clone())),
+                false,
+            ),
+            Recipient::Ec {
+                spki,
+                certificate,
+                machine_bound,
+                ..
+            } => (
+                None,
+                Some(certificate.clone().unwrap_or_else(|| spki.clone())),
+                *machine_bound,
+            ),
+            Recipient::Fido2 { machine_bound, .. } => (None, None, *machine_bound),
+            Recipient::Password { .. } | Recipient::RecoveryKey(_) => (None, None, false),
+        };
+        Self {
+            label: l.label.clone(),
+            public_key,
+            certificate,
+            machine_bound,
+        }
+    }
+
+    /// The fields, as one slot's entry of section 5 holds them, without its length.
+    pub fn encode(&self) -> Vec<u8> {
+        use super::layout::put_uvarint;
+        let mut out = Vec::new();
+        let mut field = |tag: u64, value: &[u8]| {
+            put_uvarint(&mut out, tag);
+            put_uvarint(&mut out, value.len() as u64);
+            out.extend_from_slice(value);
+        };
+        if let Some(label) = &self.label {
+            field(1, label.as_bytes());
+        }
+        if let Some(key) = &self.public_key {
+            field(2, key);
+        }
+        if let Some(cert) = &self.certificate {
+            field(3, cert);
+        }
+        if self.machine_bound {
+            field(4, &[]);
+        }
+        out
+    }
+
+    /// One slot's fields. Tags it doesn't know are skipped; tags out of order are refused.
+    pub fn parse(body: &[u8]) -> Result<Self> {
+        let mut b = super::layout::Bytes::new(body);
+        let mut d = Self::default();
+        let mut last = 0;
+        while b.left() > 0 {
+            let tag = b.uvarint()?;
+            let value = b.bytes()?;
+            if tag <= last {
+                return Err(super::layout::bad(
+                    "a slot description's fields are out of order",
+                ));
+            }
+            last = tag;
+            match tag {
+                1 => d.label = Some(String::from_utf8_lossy(value).into_owned()),
+                2 => d.public_key = Some(value.to_vec()),
+                3 => d.certificate = Some(value.to_vec()),
+                4 => d.machine_bound = true,
+                _ => {}
+            }
+        }
+        Ok(d)
+    }
+}
+
+/// Section 5's body for these slots' entries, each as [`Description::encode`] gives it.
+pub fn encode_descriptions(entries: &[Vec<u8>]) -> Vec<u8> {
+    use super::layout::put_uvarint;
+    let mut out = Vec::new();
+    put_uvarint(&mut out, entries.len() as u64);
+    for e in entries {
+        put_uvarint(&mut out, e.len() as u64);
+        out.extend_from_slice(e);
+    }
+    out
+}
+
+/// Section 5's entries, one per slot, as they are; `None` unless its count is `slots` and it
+/// parses (bhive.md §12.9: otherwise a reader ignores it).
+pub fn split_descriptions(body: &[u8], slots: usize) -> Option<Vec<Vec<u8>>> {
+    let mut b = super::layout::Bytes::new(body);
+    let count = b.uvarint().ok()?;
+    if count != slots as u64 {
+        return None;
+    }
+    let mut out = Vec::with_capacity(slots);
+    for _ in 0..slots {
+        out.push(b.bytes().ok()?.to_vec());
+    }
+    (b.left() == 0).then_some(out)
 }
 
 /// A slot's public part and secret, made for a [`Recipient`] by its kind's module.
