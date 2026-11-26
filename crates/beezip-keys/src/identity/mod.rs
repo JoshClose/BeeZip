@@ -387,11 +387,40 @@ impl Store {
     /// asked (docs/M14.md §8). They are unsealed the first time a slot is tried.
     pub fn source(&self) -> Result<Box<dyn KeySource + Send>> {
         Ok(Box::new(OwnKeys {
-            store: self.clone(),
+            store: Some(self.clone()),
             identities: None,
             matched: Vec::new(),
         }))
     }
+}
+
+/// The keys of an age identity file, as a key source: what `--identity FILE` opens with (PR F).
+/// Lines that are empty or start with `#` are skipped; each other line must be an
+/// `AGE-SECRET-KEY-1…` or `AGE-SECRET-KEY-PQ-1…` key.
+pub fn identity_file(text: &str) -> Result<Box<dyn KeySource + Send>> {
+    let mut identities = Vec::new();
+    for (n, line) in text.lines().enumerate() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let key = bech32::parse_key(line)
+            .map_err(|e| invalid(format!("line {}: {}", n + 1, e.message)))?;
+        identities.push(Identity::of(key).ok_or_else(|| {
+            invalid(format!(
+                "line {}: not a private key that opens archives (AGE-SECRET-KEY-…)",
+                n + 1
+            ))
+        })?);
+    }
+    if identities.is_empty() {
+        return Err(invalid("there is no key in it"));
+    }
+    Ok(Box::new(OwnKeys {
+        store: None,
+        identities: Some(identities),
+        matched: Vec::new(),
+    }))
 }
 
 /// One of your keys that opens archives.
@@ -400,9 +429,25 @@ struct Identity {
     secret: Zeroizing<[u8; 32]>,
 }
 
-/// Your keys as a key source.
+impl Identity {
+    fn of(key: KeyText) -> Option<Self> {
+        match key {
+            KeyText::X25519Secret(secret) => Some(Self {
+                kind: SlotKind::X25519,
+                secret,
+            }),
+            KeyText::XWingSecret(secret) => Some(Self {
+                kind: SlotKind::XWing,
+                secret,
+            }),
+            _ => None,
+        }
+    }
+}
+
+/// Your keys, or an identity file's, as a key source.
 struct OwnKeys {
-    store: Store,
+    store: Option<Store>,
     /// Unsealed on first use; a key that can't be (another account's) is left out.
     identities: Option<Vec<Identity>>,
     /// The slots found so far, by commitment, with the identity that opens each.
@@ -412,24 +457,17 @@ struct OwnKeys {
 impl OwnKeys {
     fn identities(&mut self) -> &[Identity] {
         self.identities.get_or_insert_with(|| {
-            let Ok(index) = self.store.load() else {
+            let Some(store) = &self.store else {
+                return Vec::new();
+            };
+            let Ok(index) = store.load() else {
                 return Vec::new();
             };
             index
                 .keys
                 .iter()
                 .filter(|r| r.own && r.kind != KeyKind::Signing)
-                .filter_map(|r| match self.store.secret_of(r).ok()? {
-                    KeyText::X25519Secret(secret) => Some(Identity {
-                        kind: SlotKind::X25519,
-                        secret,
-                    }),
-                    KeyText::XWingSecret(secret) => Some(Identity {
-                        kind: SlotKind::XWing,
-                        secret,
-                    }),
-                    _ => None,
-                })
+                .filter_map(|r| Identity::of(store.secret_of(r).ok()?))
                 .collect()
         })
     }

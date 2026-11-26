@@ -18,7 +18,7 @@ struct Settings(tempfile::TempDir);
 
 impl Settings {
     fn new() -> Self {
-        Self(tempfile::tempdir().unwrap())
+        Self(tempfile::tempdir().expect("a temporary folder"))
     }
 
     fn path(&self) -> &Path {

@@ -326,3 +326,49 @@ fn your_keys_open_the_slots_made_for_them() {
     let empty = Scratch::new();
     assert!(!empty.store.source().unwrap().offers(&v));
 }
+
+#[test]
+fn an_identity_file_opens_its_slots() {
+    let ex = age_examples();
+    let file = format!(
+        "# age's examples
+{}
+
+{}
+",
+        ex[0], ex[2]
+    );
+    let mut source = identity_file(&file).unwrap();
+    let key_id = [1; KEY_ID_LEN];
+    let KeyText::XWingPublic(to_pq) = bech32::parse_key(&ex[3]).unwrap() else {
+        panic!()
+    };
+    let KeyText::X25519Public(to_x) = bech32::parse_key(&ex[1]).unwrap() else {
+        panic!()
+    };
+    for slot in [
+        framed(SlotKind::XWing, &xwing::make(&to_pq).unwrap(), &key_id),
+        framed(SlotKind::X25519, &x25519::make(&to_x).unwrap(), &key_id),
+    ] {
+        let v = view(0, &key_id, &slot);
+        assert!(source.offers(&v));
+        assert!(source.secret(&v, false).unwrap().is_some());
+    }
+    // A public key, or nothing, isn't an identity file.
+    let e = identity_file(&format!(
+        "{}
+{}
+",
+        ex[0], ex[1]
+    ))
+    .err()
+    .unwrap();
+    assert!(e.message.starts_with("line 2:"), "{}", e.message);
+    assert!(
+        identity_file(
+            "# nothing
+"
+        )
+        .is_err()
+    );
+}
