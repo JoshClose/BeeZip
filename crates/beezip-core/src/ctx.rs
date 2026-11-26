@@ -8,7 +8,11 @@ use std::{
     },
 };
 
-use crate::{Error, ErrorKind, Result, io::Counter};
+use crate::{
+    Error, ErrorKind, Result,
+    format::bhive::crypt::{KeySource, UnlockAnswer, UnlockRequest},
+    io::Counter,
+};
 
 /// Job progress. Byte counts track the compressed input, so they are reliable.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -53,6 +57,22 @@ pub trait Ctx {
 
     /// What to do about an existing file. Only called for the `ask` overwrite policy.
     fn overwrite(&mut self, existing: &Path) -> Result<OverwriteChoice>;
+
+    /// How to open an encrypted `.bhive` (docs/M14.md §8): a password, a recovery key, or the
+    /// choice of a way in that needs a key or a device. The default asks for a password, as
+    /// for any other archive, so a context that knows nothing of M14 still opens password
+    /// slots. `JobCtx` asks with the job's Unlock prompt (PR F).
+    fn unlock(&mut self, request: &UnlockRequest) -> Result<UnlockAnswer> {
+        self.password(None, request.attempt)
+            .map(UnlockAnswer::Password)
+    }
+
+    /// Where the keys and devices are that open slots a typed secret doesn't: your stored
+    /// keys, key files, certificates, the TPM, security keys (`beezip-keys`). `None`, the
+    /// default: there are none.
+    fn key_source(&mut self) -> Option<&mut dyn KeySource> {
+        None
+    }
 
     /// What to do about an entry already in `archive` at `entry`, when adding a file of the
     /// same name with the `ask` policy (docs/M5.md §7.1). The default asks as for a file.
@@ -233,6 +253,14 @@ impl Ctx for MeteredCtx<'_> {
 
     fn overwrite_entry(&mut self, archive: &Path, entry: &str) -> Result<OverwriteChoice> {
         self.inner.overwrite_entry(archive, entry)
+    }
+
+    fn unlock(&mut self, request: &UnlockRequest) -> Result<UnlockAnswer> {
+        self.inner.unlock(request)
+    }
+
+    fn key_source(&mut self) -> Option<&mut dyn KeySource> {
+        self.inner.key_source()
     }
 
     fn check(&mut self) -> Result<()> {

@@ -10,6 +10,8 @@ publish.workspace = true
 [dependencies]
 base64.workspace = true
 beezip-core.workspace = true
+# Your keys, certificates and devices, for encrypted and signed .bhive (docs/M14.md §8).
+beezip-keys.workspace = true
 beezip-menu = { workspace = true, features = ["wire"] }
 clap.workspace = true
 dirs.workspace = true

@@ -26,9 +26,14 @@ use std::{
 use super::{
     chunk::{self, Chunk, MIN_SHARED, SEGMENT},
     coder::{self, Level},
-    layout::{self, Cell, Extent, IndexHead, ItemRef, Kind, MAX_CELL, Record, checksum, stamp},
+    crypt::{Protection, envelope::Envelope},
+    layout::{
+        self, Cell, Extent, IndexHead, ItemRef, Kind, MAX_CELL, Record, SECTION_DIGESTS,
+        SECTION_LEVEL, SECTION_SIGNATURES, SECTION_SLOTS, checksum, stamp,
+    },
     mem,
     read::BhiveReader,
+    sign::{self, Signing},
 };
 use crate::{
     Ctx, Error, ErrorKind, Result,
@@ -67,6 +72,10 @@ pub struct BhiveWriteOptions {
     /// In an edit, write at the level the archive was made at, when it says, instead of
     /// `level`: nobody chose one, and an archive keeps its own.
     pub inherit: bool,
+    /// Encrypt the archive for these ways in, or keep an edited archive's (docs/bhive.md §12).
+    pub protection: Option<Protection>,
+    /// Sign it (docs/bhive.md §13). An edit that isn't signed again drops the signatures.
+    pub signing: Option<Signing>,
 }
 
 /// A chunk's BLAKE3, hashed for the table by its first eight bytes: it is a hash already.
@@ -114,16 +123,52 @@ struct Sealed {
 struct Packed {
     record: Record,
     journal: Vec<u8>,
+    /// The cell's bytes in the file: as stored, or sealed in an encrypted archive.
     data: Vec<u8>,
     cost: u64,
+    /// The SHA-256 of the stored bytes, when the archive is signed (docs/bhive.md §13.2).
+    digest: Option<[u8; 32]>,
+    /// The cell's id, when the archive is encrypted (docs/bhive.md §12.2).
+    id: Option<[u8; 32]>,
+}
+
+/// A cell's bytes in the file, its stored bytes' digest, and its id.
+type Finished = (Vec<u8>, Option<[u8; 32]>, Option<[u8; 32]>);
+
+/// What every cell goes through after it is compressed: a digest, then the seal.
+#[derive(Default)]
+struct Finish {
+    digests: bool,
+    envelope: Option<Arc<Envelope>>,
+}
+
+impl Finish {
+    /// The stored bytes' digest, when signing, then the bytes sealed under a new id, when
+    /// encrypting: in that order, since a signature covers what is stored, not how it is sealed.
+    fn apply(&self, stored: Vec<u8>) -> Result<Finished> {
+        let digest = match self.digests {
+            true => Some(sign::cell_digest(&stored)?),
+            false => None,
+        };
+        match &self.envelope {
+            Some(env) => {
+                let id = env.new_cell_id()?;
+                let sealed = env.seal_cell(&id, &stored)?;
+                Ok((sealed, digest, Some(id)))
+            }
+            None => Ok((stored, digest, None)),
+        }
+    }
 }
 
 /// Compresses a sealed cell and its journal, and makes its record.
-fn pack(sealed: Sealed, level: Level, stop: &AtomicBool) -> Result<Packed> {
+fn pack(sealed: Sealed, level: Level, finish: &Finish, stop: &AtomicBool) -> Result<Packed> {
     let coded = coder::encode(&sealed.raw, level, stop)?;
     let sum = checksum(&sealed.raw);
     let raw_len = sealed.raw.len();
     let data = coded.data.unwrap_or(sealed.raw);
+    let stored_len = data.len();
+    let (data, digest, id) = finish.apply(data)?;
     let journal_raw = sealed.journal.len();
     let (journal, journal_zstd) = pack_small(sealed.journal, level)?;
     let len = |n: usize| u32::try_from(n).map_err(|_| Error::limit("bhive: a cell too large"));
@@ -131,7 +176,7 @@ fn pack(sealed: Sealed, level: Level, stop: &AtomicBool) -> Result<Packed> {
         record: Record {
             number: sealed.number,
             raw: len(raw_len)?,
-            stored: len(data.len())?,
+            stored: len(stored_len)?,
             coder: coded.coder,
             param: coded.param,
             journal_zstd,
@@ -143,6 +188,8 @@ fn pack(sealed: Sealed, level: Level, stop: &AtomicBool) -> Result<Packed> {
         journal,
         data,
         cost: sealed.cost,
+        digest,
+        id,
     })
 }
 
@@ -174,6 +221,7 @@ struct Shared {
     done: Condvar,
     stop: AtomicBool,
     level: Level,
+    finish: Arc<Finish>,
 }
 
 #[derive(Default)]
@@ -190,13 +238,14 @@ struct Pool {
 }
 
 impl Pool {
-    fn new(workers: usize, level: Level) -> Self {
+    fn new(workers: usize, level: Level, finish: Arc<Finish>) -> Self {
         let shared = Arc::new(Shared {
             state: Mutex::new(PoolState::default()),
             work: Condvar::new(),
             done: Condvar::new(),
             stop: AtomicBool::new(false),
             level,
+            finish,
         });
         let threads = (0..workers)
             .map(|_| {
@@ -225,13 +274,15 @@ impl Shared {
             };
             let number = sealed.number;
             // A panic in a coder must not leave the job waiting for this cell for ever.
-            let packed = catch_unwind(AssertUnwindSafe(|| pack(sealed, self.level, &self.stop)))
-                .unwrap_or_else(|_| {
-                    Err(Error::new(
-                        ErrorKind::Io,
-                        format!("bhive: compressing cell {number} failed unexpectedly"),
-                    ))
-                });
+            let packed = catch_unwind(AssertUnwindSafe(|| {
+                pack(sealed, self.level, &self.finish, &self.stop)
+            }))
+            .unwrap_or_else(|_| {
+                Err(Error::new(
+                    ErrorKind::Io,
+                    format!("bhive: compressing cell {number} failed unexpectedly"),
+                ))
+            });
             lock(&self.state).packed.insert(number, packed);
             self.done.notify_all();
         }
@@ -279,6 +330,11 @@ pub struct BhiveWriter {
     /// Sealed cells not written yet, and what they are charged.
     pending: usize,
     in_flight: u64,
+    /// The digest and seal every cell gets, and what they gave, by cell.
+    finish: Arc<Finish>,
+    digests: Vec<[u8; 32]>,
+    ids: Vec<[u8; 32]>,
+    signing: Option<Signing>,
 }
 
 impl BhiveWriter {
@@ -290,12 +346,30 @@ impl BhiveWriter {
                 "bhive: a cell of {cell_size} bytes; cells hold 1 byte to 256 MiB"
             )));
         }
-        let header = layout::header();
-        out.write_all(&header).map_err(|e| write_error(&e))?;
+        let signing = opts.signing.clone().filter(|s| !s.is_empty());
+        if let Some(signing) = &signing {
+            sign::ready(signing)?;
+        }
+        let envelope = match &opts.protection {
+            Some(p) => Some(Arc::new(Envelope::new(p)?)),
+            None => None,
+        };
+        let mut start = match envelope {
+            Some(_) => layout::header_encrypted().to_vec(),
+            None => layout::header().to_vec(),
+        };
+        if let Some(env) = &envelope {
+            start.extend_from_slice(env.key_block());
+        }
+        out.write_all(&start).map_err(|e| write_error(&e))?;
+        let finish = Arc::new(Finish {
+            digests: signing.is_some(),
+            envelope,
+        });
         let workers = resolve_threads(opts.threads) as usize;
         Ok(Self {
             out,
-            pos: header.len() as u64,
+            pos: start.len() as u64,
             level: opts.level,
             cell_size: cell_size as usize,
             workers,
@@ -308,9 +382,13 @@ impl BhiveWriter {
             cells: Vec::new(),
             items: Vec::new(),
             entries: 0,
-            pool: (workers > 1).then(|| Pool::new(workers, opts.level)),
+            pool: (workers > 1).then(|| Pool::new(workers, opts.level, finish.clone())),
             pending: 0,
             in_flight: 0,
+            finish,
+            digests: Vec::new(),
+            ids: Vec::new(),
+            signing,
         })
     }
 
@@ -326,12 +404,30 @@ impl BhiveWriter {
         Ok(())
     }
 
-    /// Writes a packed cell: its record, its journal, its data.
+    /// Writes a packed cell: its record, its journal, its data; in an encrypted archive, a
+    /// `BHCE` block with the record sealed, then the sealed cell (docs/bhive.md §12.6).
     fn write_packed(&mut self, p: Packed) -> Result<()> {
         debug_assert_eq!(p.record.number as usize, self.cells.len());
         let head = p.record.encode(&p.journal);
-        self.write(&head)?;
-        self.write(&p.journal)?;
+        match (&self.finish.envelope, p.id) {
+            (Some(env), Some(id)) => {
+                let sealed_len = u32::try_from(p.data.len())
+                    .map_err(|_| Error::limit("bhive: a sealed cell too large"))?;
+                let block = env.record_block(self.pos, &id, &head, &p.journal, sealed_len)?;
+                self.write(&block)?;
+                self.ids.push(id);
+            }
+            (Some(_), None) => {
+                return Err(Error::new(ErrorKind::Io, "bhive: a cell wasn't sealed"));
+            }
+            (None, _) => {
+                self.write(&head)?;
+                self.write(&p.journal)?;
+            }
+        }
+        if let Some(digest) = p.digest {
+            self.digests.push(digest);
+        }
         let offset = self.pos;
         self.write(&p.data)?;
         self.cells.push(p.record.cell(offset));
@@ -386,7 +482,7 @@ impl BhiveWriter {
         if self.pool.is_none() {
             static NEVER: AtomicBool = AtomicBool::new(false);
             cx.check()?;
-            let packed = pack(sealed, self.level, &NEVER)?;
+            let packed = pack(sealed, self.level, &self.finish, &NEVER)?;
             return self.write_packed(packed);
         }
         loop {
@@ -626,14 +722,33 @@ impl BhiveWriter {
         self.stream(entry, head, None, (!eof).then_some(data), None, cx)
     }
 
-    /// The index block and the footer.
+    /// The index block and the footer. A signed archive's index gets the cells' digests and
+    /// the signatures; an encrypted one's has its cell ids and slot descriptions, and is sealed
+    /// (docs/bhive.md §12.7, §13).
     fn write_index(&mut self) -> Result<()> {
-        let raw = layout::encode_index(
-            &self.cells,
-            self.entries,
-            &self.items,
-            Some(self.level.number()),
-        );
+        let level = [self.level.number()];
+        let mut sections: Vec<(u64, Vec<u8>)> = vec![(SECTION_LEVEL, level.to_vec())];
+        if let Some(signing) = &self.signing {
+            if self.digests.len() != self.cells.len() {
+                return Err(Error::new(ErrorKind::Io, "bhive: a cell has no digest"));
+            }
+            sections.push((SECTION_DIGESTS, self.digests.concat()));
+            let covered: Vec<(u64, &[u8])> = sections
+                .iter()
+                .filter(|(id, _)| id % 2 == 0)
+                .map(|(id, b)| (*id, b.as_slice()))
+                .collect();
+            let manifest = sign::manifest_of(&self.cells, self.entries, &self.items, &covered)?;
+            sections.push((SECTION_SIGNATURES, sign::section(signing, &manifest)?));
+        }
+        let envelope = self.finish.envelope.clone();
+        if let Some(descriptions) = envelope.as_ref().and_then(|e| e.descriptions.clone()) {
+            sections.push((SECTION_SLOTS, descriptions));
+        }
+        let sections: Vec<(u64, &[u8])> =
+            sections.iter().map(|(id, b)| (*id, b.as_slice())).collect();
+        let ids = envelope.as_ref().map(|_| self.ids.as_slice());
+        let raw = layout::encode_index_with(&self.cells, ids, self.entries, &self.items, &sections);
         let head = IndexHead {
             zstd: false,
             stored: 0,
@@ -647,8 +762,18 @@ impl BhiveWriter {
             ..head
         };
         let offset = self.pos;
-        self.write(&head.encode())?;
-        self.write(&stored)?;
+        match envelope {
+            Some(env) => {
+                let mut inner = head.encode().to_vec();
+                inner.extend_from_slice(&stored);
+                let block = env.index_block(&inner)?;
+                self.write(&block)?;
+            }
+            None => {
+                self.write(&head.encode())?;
+                self.write(&stored)?;
+            }
+        }
         self.write(&layout::footer(offset))
     }
 }
@@ -978,6 +1103,11 @@ impl ArchiveWriter for BhiveWriter {
         let Some(r) = source.as_any_mut().downcast_mut::<BhiveReader>() else {
             return Ok(Copied::nothing(keep));
         };
+        // Sealed cells, and cells that need a digest, are copied by PRs A and H (docs/M14.md
+        // §10); until then their entries are decoded and stored again.
+        if r.unlocked().is_some() || self.finish.envelope.is_some() || self.finish.digests {
+            return Ok(Copied::nothing(keep));
+        }
         if !empty || r.recovered().is_some() || keep.iter().any(|k| k.id >= r.entries.len()) {
             return Ok(Copied::nothing(keep));
         }
@@ -1071,6 +1201,8 @@ impl ArchiveWriter for BhiveWriter {
                 journal,
                 data,
                 cost: 0,
+                digest: None,
+                id: None,
             })?;
         }
         self.sealed = copies;

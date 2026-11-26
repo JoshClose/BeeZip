@@ -11,6 +11,9 @@ pub enum ErrorKind {
     UnsupportedOperation,
     PasswordRequired,
     WrongPassword,
+    /// An encrypted `.bhive` that no password, key or device given here opens
+    /// (docs/M14.md §8).
+    KeyRequired,
     Corrupt,
     /// The archive holds something BeeZip refuses to extract, such as overlapping entries.
     Unsafe,

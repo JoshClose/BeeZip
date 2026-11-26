@@ -9,6 +9,7 @@ pub mod codepages;
 mod command;
 pub mod commands;
 pub mod config;
+pub mod crypt;
 mod engine;
 mod error;
 mod job;

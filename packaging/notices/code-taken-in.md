@@ -142,3 +142,7 @@ BeeZip builds a patched copy of hadris-iso 3.0.0-rc.3 by hxyulin (MIT): `vendor/
 ### fstool
 
 BeeZip builds a patched copy of fstool 0.5.2 by Karpelès Lab Inc. (MIT): `vendor/fstool` in BeeZip's source, trimmed to the file systems BeeZip reads through it, with its changes in `BEEZIP.md` there. Its license is with the Rust crates below.
+
+### The EFF large wordlist
+
+"Suggest one" makes passphrases from the EFF's large wordlist for random passphrases (https://www.eff.org/dice), by Joseph Bonneau and the Electronic Frontier Foundation, which BeeZip carries unchanged in its interface (`eff_large_wordlist.txt`, 7,776 words). It is licensed under the Creative Commons Attribution 3.0 United States License (https://creativecommons.org/licenses/by/3.0/us/).

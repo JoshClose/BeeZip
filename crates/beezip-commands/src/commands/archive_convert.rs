@@ -101,10 +101,62 @@ pub struct ArchiveConvertInput {
     #[arg(long, num_args = 0..=1, require_equals = true, default_missing_value = "true")]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub recover: Option<bool>,
+    /// Make a recovery key that opens the archive, shown once in the output: 48 digits to keep
+    /// somewhere safe. `.bhive` only.
+    #[arg(long, num_args = 0..=1, require_equals = true, default_missing_value = "true")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub recovery_key: Option<bool>,
+    /// Encrypt to these public keys, so their owners open it with their private keys:
+    /// `age1…`, `age1pq1…`, or a contact's name. `.bhive` only.
+    #[arg(long, value_name = "KEY")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub to: Option<Vec<String>>,
+    /// Encrypt to these certificates: a thumbprint in your stores, or a certificate file.
+    /// `.bhive` only.
+    #[arg(long, value_name = "CERT")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub to_cert: Option<Vec<String>>,
+    /// Let this PC open it, with a key in its TPM. Needs another way in that works elsewhere.
+    /// `.bhive` on Windows.
+    #[arg(long, num_args = 0..=1, require_equals = true, default_missing_value = "true")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub this_pc: Option<bool>,
+    /// A PIN for the This PC key, which the TPM protects against guessing.
+    #[arg(long, value_name = "PIN")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub this_pc_pin: Option<Secret>,
+    /// Let a security key or Windows Hello open it: Windows asks for a touch. `.bhive` on
+    /// Windows.
+    #[arg(long, num_args = 0..=1, require_equals = true, default_missing_value = "true")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub security_key: Option<bool>,
+    /// How hard a `.bhive`'s password makes guessing [default: standard].
+    #[arg(long, value_enum)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub strength: Option<crate::crypt::StrengthName>,
+    /// Sign it: your signing key by name, a certificate's thumbprint in your stores, or a
+    /// certificate file with its key beside it. `.bhive` only.
+    #[arg(long, value_name = "SIGNER")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sign: Option<Vec<String>>,
     /// Show what would be written without writing anything.
     #[arg(long, num_args = 0..=1, require_equals = true, default_missing_value = "true")]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub dry_run: Option<bool>,
+}
+
+impl ArchiveConvertInput {
+    /// Whether this asks for what M14 builds (docs/M14.md §8, §11).
+    fn m14_asked(&self) -> bool {
+        self.recovery_key.is_some()
+            || self.to.is_some()
+            || self.to_cert.is_some()
+            || self.this_pc.is_some()
+            || self.this_pc_pin.is_some()
+            || self.security_key.is_some()
+            || self.strength.is_some()
+            || self.sign.is_some()
+    }
 }
 
 /// An entry the new archive couldn't hold.
@@ -116,6 +168,10 @@ pub struct ConvertSkipped {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
 pub struct ArchiveConvertOutput {
+    /// The recovery key that was made (`recovery_key`): shown this once, never stored.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub recovery_key: Option<Secret>,
     pub path: PathBuf,
     pub format: ArchiveFormatName,
     pub files: u64,
@@ -161,6 +217,11 @@ impl Command for ArchiveConvert {
     }
 
     fn run(input: ArchiveConvertInput, cx: &mut JobCtx) -> Result<ArchiveConvertOutput, CmdError> {
+        if input.m14_asked() {
+            return Err(crate::commands::util::not_built(
+                "encrypting and signing a .bhive",
+            ));
+        }
         let output = absolute(&input.output);
         let kind = match input.format {
             Some(f) => f.kind(),
@@ -229,6 +290,7 @@ impl Command for ArchiveConvert {
             cx,
         )?;
         Ok(ArchiveConvertOutput {
+            recovery_key: None,
             path: input.output,
             format: ArchiveFormatName::from_kind(kind),
             files: r.files,

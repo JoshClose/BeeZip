@@ -23,6 +23,26 @@ pub const MAX_CELL: u32 = 256 << 20;
 pub const ROW_LEN: usize = 26;
 /// The index section that holds the level the writer was asked for.
 pub const SECTION_LEVEL: u64 = 1;
+/// Index sections of M14 (docs/bhive.md §6): the cells' SHA-256 (§13.2), the signatures
+/// (§13.3), and an encrypted archive's slot descriptions (§12.9). Even ids are covered by
+/// signatures, odd ones aren't.
+pub const SECTION_DIGESTS: u64 = 2;
+pub const SECTION_SIGNATURES: u64 = 3;
+pub const SECTION_SLOTS: u64 = 5;
+/// Header feature bit 0: the archive is encrypted (docs/bhive.md §12).
+pub const FEATURE_ENCRYPTED: u32 = 1;
+/// An encrypted archive's blocks (docs/bhive.md §12.3, §12.6, §12.7).
+pub const KEY_TAG: [u8; 4] = *b"BHKY";
+pub const SEALED_CELL_TAG: [u8; 4] = *b"BHCE";
+pub const SEALED_INDEX_TAG: [u8; 4] = *b"BHIE";
+pub const KEY_BLOCK_HEAD_LEN: usize = 44;
+pub const SEALED_CELL_HEAD_LEN: usize = 12;
+pub const SEALED_INDEX_HEAD_LEN: usize = 48;
+/// A cell's row in an encrypted archive's table: the row, then the cell's id.
+pub const SEALED_ROW_LEN: usize = ROW_LEN + 32;
+/// The least an encrypted archive puts between two cells' data: a block head and the
+/// smallest sealed record (an id, a record head, no journal, a tag).
+pub const SEALED_GAP: u64 = (SEALED_CELL_HEAD_LEN + 32 + RECORD_LEN + 16) as u64;
 /// The largest LZMA2 dictionary parameter: 256 MiB.
 pub const MAX_LZMA2_PARAM: u8 = 32;
 
@@ -472,8 +492,9 @@ pub fn header() -> [u8; HEADER_LEN] {
     h
 }
 
-/// Checks a header: the magic, then a version and features this reader knows.
-pub fn check_header(h: &[u8]) -> Result<()> {
+/// Checks a header: the magic, then a version and features this reader knows. Returns the
+/// features: [`FEATURE_ENCRYPTED`], or none.
+pub fn check_header(h: &[u8]) -> Result<u32> {
     if h.len() < HEADER_LEN || h[..8] != MAGIC {
         return Err(bad("the file doesn't start with a .bhive header"));
     }
@@ -484,12 +505,20 @@ pub fn check_header(h: &[u8]) -> Result<()> {
         )));
     }
     let features = u32_at(h, 12);
-    if features != 0 {
+    if features & !FEATURE_ENCRYPTED != 0 {
         return Err(Error::unsupported_format(format!(
-            "bhive: the archive uses features this BeeZip doesn't have (flags {features:#x})"
+            "bhive: the archive was made by a newer program: it uses features this BeeZip \
+             doesn't have (flags {features:#x})"
         )));
     }
-    Ok(())
+    Ok(features)
+}
+
+/// An encrypted archive's header: feature bit 0.
+pub fn header_encrypted() -> [u8; HEADER_LEN] {
+    let mut h = header();
+    h[12..16].copy_from_slice(&FEATURE_ENCRYPTED.to_le_bytes());
+    h
 }
 
 /// The file's last 16 bytes.
@@ -633,22 +662,46 @@ impl IndexHead {
 /// The index's raw bytes (docs/bhive.md §6): the cell table, `entries` items already encoded in
 /// `items`, and the level as a section.
 pub fn encode_index(cells: &[Cell], entries: u64, items: &[u8], level: Option<u8>) -> Vec<u8> {
-    let mut out = Vec::with_capacity(cells.len() * ROW_LEN + items.len() + 24);
+    let level = level.map(|l| [l]);
+    let sections: Vec<(u64, &[u8])> = level.iter().map(|l| (SECTION_LEVEL, &l[..])).collect();
+    encode_index_with(cells, None, entries, items, &sections)
+}
+
+/// [`encode_index`] with an encrypted archive's cell ids after each row (docs/bhive.md §12.7)
+/// and any sections, as given: a writer gives them in increasing order of id (§6).
+pub fn encode_index_with(
+    cells: &[Cell],
+    ids: Option<&[[u8; 32]]>,
+    entries: u64,
+    items: &[u8],
+    sections: &[(u64, &[u8])],
+) -> Vec<u8> {
+    debug_assert!(ids.is_none_or(|ids| ids.len() == cells.len()));
+    let row = if ids.is_some() {
+        SEALED_ROW_LEN
+    } else {
+        ROW_LEN
+    };
+    let extra: usize = sections.iter().map(|(_, b)| b.len() + 20).sum();
+    let mut out = Vec::with_capacity(cells.len() * row + items.len() + 12 + extra);
     put_uvarint(&mut out, cells.len() as u64);
-    for c in cells {
+    for (n, c) in cells.iter().enumerate() {
         out.extend_from_slice(&c.offset.to_le_bytes());
         out.extend_from_slice(&c.stored.to_le_bytes());
         out.extend_from_slice(&c.raw.to_le_bytes());
         out.push(c.coder.id());
         out.push(c.param);
         out.extend_from_slice(&c.checksum.to_le_bytes());
+        if let Some(ids) = ids {
+            out.extend_from_slice(&ids[n]);
+        }
     }
     put_uvarint(&mut out, entries);
     out.extend_from_slice(items);
-    if let Some(level) = level {
-        put_uvarint(&mut out, SECTION_LEVEL);
-        put_uvarint(&mut out, 1);
-        out.push(level);
+    for (id, body) in sections {
+        put_uvarint(&mut out, *id);
+        put_uvarint(&mut out, body.len() as u64);
+        out.extend_from_slice(body);
     }
     out
 }
@@ -660,24 +713,82 @@ pub struct Index {
     pub items: Items,
     /// The level the writer was asked for, when it said.
     pub level: Option<u8>,
+    /// An encrypted archive's cell ids, one per cell; empty otherwise.
+    pub ids: Vec<[u8; 32]>,
+    /// The entry count, and where the entries' bytes are in the raw index: what the manifest
+    /// covers (docs/bhive.md §13.1).
+    pub entry_count: u64,
+    pub entry_bytes: std::ops::Range<usize>,
+    /// Every section after the entries, in order, the level's included.
+    pub sections: Vec<Section>,
+}
+
+/// An index section (docs/bhive.md §6).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Section {
+    pub id: u64,
+    pub body: Vec<u8>,
+}
+
+impl Index {
+    /// The body of section `id`, if the index has it.
+    pub fn section(&self, id: u64) -> Option<&[u8]> {
+        self.sections
+            .iter()
+            .find(|s| s.id == id)
+            .map(|s| s.body.as_slice())
+    }
+}
+
+/// How the cell table is laid out: version 1's, or an encrypted archive's (docs/bhive.md §12.7).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TableForm {
+    /// Rows carry a cell id, and sealed cells need [`SEALED_GAP`] before them.
+    pub sealed: bool,
+    /// Where the first cell's block may start: after the header, or the key block.
+    pub start: u64,
+}
+
+impl TableForm {
+    pub const PLAIN: Self = Self {
+        sealed: false,
+        start: HEADER_LEN as u64,
+    };
 }
 
 /// Parses an index's raw bytes and checks everything docs/bhive.md §9 asks of it. Cells must
 /// lie between the header and `index_offset`, where the index block starts. More than
 /// `max_entries` entries is `LimitExceeded`.
 pub fn parse_index(raw: &[u8], index_offset: u64, max_entries: Option<u64>) -> Result<Index> {
+    parse_index_with(raw, index_offset, max_entries, TableForm::PLAIN)
+}
+
+/// [`parse_index`] for a table of either form. A sealed cell's length in the file is its
+/// stored length and a tag per segment (docs/bhive.md §12.8).
+pub fn parse_index_with(
+    raw: &[u8],
+    index_offset: u64,
+    max_entries: Option<u64>,
+    form: TableForm,
+) -> Result<Index> {
+    let (row_len, gap) = if form.sealed {
+        (SEALED_ROW_LEN, SEALED_GAP)
+    } else {
+        (ROW_LEN, RECORD_LEN as u64)
+    };
     let mut b = Bytes::new(raw);
     let count = b.uvarint()?;
-    if count > (b.left() / ROW_LEN) as u64 {
+    if count > (b.left() / row_len) as u64 {
         return Err(bad(format!(
             "a table of {count} cells in an index of {} bytes",
             raw.len()
         )));
     }
     let mut cells = Vec::with_capacity(count as usize);
-    let mut prev_end = HEADER_LEN as u64;
+    let mut ids = Vec::new();
+    let mut prev_end = form.start;
     for n in 0..count {
-        let row = b.take(ROW_LEN)?;
+        let row = b.take(row_len)?;
         let cell = Cell {
             offset: u64_at(row, 0),
             stored: u32_at(row, 8),
@@ -687,13 +798,18 @@ pub fn parse_index(raw: &[u8], index_offset: u64, max_entries: Option<u64>) -> R
             checksum: u64_at(row, 18),
         };
         cell.check()?;
+        let len = if form.sealed {
+            sealed_len(u64::from(cell.stored))
+        } else {
+            u64::from(cell.stored)
+        };
         // A record head lies between a cell and whatever is before it.
         let fits = prev_end
-            .checked_add(RECORD_LEN as u64)
+            .checked_add(gap)
             .is_some_and(|min| cell.offset >= min)
             && cell
                 .offset
-                .checked_add(u64::from(cell.stored))
+                .checked_add(len)
                 .is_some_and(|end| end <= index_offset);
         if !fits {
             return Err(bad(format!(
@@ -701,7 +817,12 @@ pub fn parse_index(raw: &[u8], index_offset: u64, max_entries: Option<u64>) -> R
                 cell.offset
             )));
         }
-        prev_end = cell.end();
+        prev_end = cell.offset + len;
+        if form.sealed {
+            let mut id = [0; 32];
+            id.copy_from_slice(&row[ROW_LEN..]);
+            ids.push(id);
+        }
         cells.push(cell);
     }
 
@@ -723,23 +844,45 @@ pub fn parse_index(raw: &[u8], index_offset: u64, max_entries: Option<u64>) -> R
     let mut items = Items::default();
     // Not `entries`: an item in memory is many times its bytes in the index.
     items.items.reserve((entries as usize).min(1 << 16));
+    let entries_start = b.pos;
     for _ in 0..entries {
         item(&mut b, &cells, &mut items)?;
     }
+    let entry_bytes = entries_start..b.pos;
 
     let mut level = None;
+    let mut sections = Vec::new();
     while b.left() > 0 {
         let id = b.uvarint()?;
         let body = b.bytes()?;
         if id == SECTION_LEVEL && body.len() == 1 {
             level = Some(body[0]);
         }
+        sections.push(Section {
+            id,
+            body: body.to_vec(),
+        });
     }
     Ok(Index {
         cells,
         items,
         level,
+        ids,
+        entry_count: entries,
+        entry_bytes,
+        sections,
     })
+}
+
+/// A sealed cell's or index's length in the file: its plaintext and a tag for each 1 MiB
+/// segment, one segment at least (docs/bhive.md §12.8).
+pub const fn sealed_len(plain: u64) -> u64 {
+    let segments = if plain == 0 {
+        1
+    } else {
+        plain.div_ceil(1 << 20)
+    };
+    plain + 16 * segments
 }
 
 /// Parses a journal's raw bytes: `count` items, with extents in `cells` only (the cells up to

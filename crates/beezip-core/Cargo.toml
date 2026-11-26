@@ -55,6 +55,24 @@ zip.workspace = true
 zlib-rs.workspace = true
 zstd.workspace = true
 
+# M14, encrypted and signed .bhive (docs/M14.md §2): format/bhive/crypt and format/bhive/sign.
+argon2.workspace = true
+der.workspace = true
+getrandom.workspace = true
+hkdf.workspace = true
+ml-dsa.workspace = true
+ml-kem.workspace = true
+p256.workspace = true
+p384.workspace = true
+pkcs8.workspace = true
+ring.workspace = true
+rsa.workspace = true
+spki.workspace = true
+unicode-normalization.workspace = true
+x25519-dalek.workspace = true
+x509-cert.workspace = true
+zeroize.workspace = true
+
 # bench.rs reads the process's private bytes (docs/M6.md §7), safefs/disk.rs asks whether a
 # destination's disk pays for seeks (§6.3), and format/wim/lzms_win.rs loads cabinet.dll's LZMS
 # decoder from System32 (docs/M8.md §5.3). format/bhive/mem.rs asks how much memory the machine

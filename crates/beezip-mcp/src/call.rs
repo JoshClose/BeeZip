@@ -40,7 +40,8 @@ struct McpInteractor {
 
 impl Interactor for McpInteractor {
     fn prompt(&self, _job: JobId, _id: u64, prompt: &Prompt) -> Result<PromptReply, CmdError> {
-        if let Prompt::Password { .. } = prompt {
+        // No devices over MCP, and no secrets in elicitation (docs/M14.md decision 15).
+        if let Prompt::Password { .. } | Prompt::Unlock { .. } = prompt {
             return Err(prompt::password_required());
         }
         let (reply, answer) = oneshot::channel();

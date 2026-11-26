@@ -130,6 +130,8 @@ export function Prompts() {
   const { job, pending } = next;
   const reply = (r: PromptReply) => void answer(job.id, pending.id, r);
   const key = `${job.id}-${pending.id}`;
+  // The Unlock panel comes with M14's desktop PR (docs/M14.md §10, PR G); no job asks it yet.
+  if (pending.prompt.kind === "Unlock") return null;
   return pending.prompt.kind === "Password" ? (
     <PasswordPrompt key={key} entry={pending.prompt.entry} title={job.title} onReply={reply} kept={job.tab !== undefined} />
   ) : (

@@ -51,13 +51,21 @@ fuzz_target!(|data: &[u8]| {
                 },
             );
         }
-        let again = layout::encode_index(
+        let sections: Vec<(u64, &[u8])> = index
+            .sections
+            .iter()
+            .map(|s| (s.id, s.body.as_slice()))
+            .collect();
+        let again = layout::encode_index_with(
             &index.cells,
+            None,
             index.items.items.len() as u64,
             &items,
-            index.level,
+            &sections,
         );
-        let back = layout::parse_index(&again, index_offset, None).expect("its own index");
+        let mut back = layout::parse_index(&again, index_offset, None).expect("its own index");
+        // Where the entries lie may move: a reader takes longer varints than a writer makes.
+        back.entry_bytes = index.entry_bytes.clone();
         assert_eq!(back, index);
 
         // As a journal: the same items, against the cells so far.

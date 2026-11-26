@@ -53,6 +53,13 @@ pub enum Prompt {
         #[ts(optional)]
         archive: Option<String>,
     },
+    /// An encrypted `.bhive` and how it can be opened (docs/M14.md §8): a password, a recovery
+    /// key, or one of its ways in that this machine has. `attempt` counts the answers that
+    /// failed.
+    Unlock {
+        ways: Vec<crate::crypt::UnlockWay>,
+        attempt: u32,
+    },
 }
 
 /// A front end's answer to a `Prompt`.
@@ -61,6 +68,7 @@ pub enum Prompt {
 pub enum PromptReply {
     Password { password: String },
     Overwrite { choice: OverwriteChoice },
+    Unlock { answer: crate::crypt::UnlockReply },
     Cancel,
 }
 
@@ -134,6 +142,10 @@ impl Interactor for NonInteractive {
             } => CmdError::new(
                 ErrorCode::Conflict,
                 format!("`{path}` is already in {archive}; pass an `overwrite` policy"),
+            ),
+            Prompt::Unlock { .. } => CmdError::new(
+                ErrorCode::KeyRequired,
+                "the archive is encrypted; pass a password, a recovery key or a key to open it",
             ),
         })
     }
