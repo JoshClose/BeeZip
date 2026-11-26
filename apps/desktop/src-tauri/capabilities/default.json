@@ -29,6 +29,7 @@
     "allow-cmd-list",
     "allow-cmd-launched",
     "allow-cmd-ready",
+    "allow-cmd-save-text",
     "allow-cmd-drag-out",
     "allow-cmd-update-check",
     "allow-cmd-update-install"

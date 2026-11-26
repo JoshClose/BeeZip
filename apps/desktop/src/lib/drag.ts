@@ -7,6 +7,7 @@ import type { ArchiveExtractInput, EntryInfo, JobEvent } from "../gen/commands";
 import { archiveArgs, type Tab } from "./archives";
 import { baseName, describeError, formatSize, normalize } from "./format";
 import { follow, type JobMeta, useJobs } from "./jobs";
+import { changedSinceSigned } from "./signatures";
 import { toastError } from "./toasts";
 import { useUi } from "./ui";
 
@@ -107,12 +108,23 @@ export async function dragOut(tab: Tab, sel: DragSelection): Promise<DragOutcome
 
 /**
  * A `dragstart` on the selection: measured, then dragged, or, past the cap, offered to the
- * extract dialog instead. `"too-big"` when the dialog opened; `undefined` when nothing
- * happened (a drag already under way, nothing selected, or it couldn't start).
+ * extract dialog instead. `"too-big"` when the dialog opened for that; `"changed"` when it
+ * opened because the archive changed after it was signed, which the dialog asks about first
+ * (docs/M14.md decision 26); `undefined` when nothing happened (a drag already under way,
+ * nothing selected, or it couldn't start).
  */
-export async function startDrag(tab: Tab, sel: DragSelection): Promise<DragOutcome | "too-big" | undefined> {
+export async function startDrag(tab: Tab, sel: DragSelection): Promise<DragOutcome | "too-big" | "changed" | undefined> {
   if (state !== "idle") return undefined;
   if (!sel.all && sel.rows.length === 0) return undefined;
+  if (changedSinceSigned(tab.info)) {
+    useUi.getState().show({
+      kind: "extract",
+      tab: tab.id,
+      entries: paths(tab, sel),
+      note: "It changed after it was signed, so its files aren't dragged out: extract them from here if you still want them.",
+    });
+    return "changed";
+  }
   state = "sizing";
   let size: number;
   try {

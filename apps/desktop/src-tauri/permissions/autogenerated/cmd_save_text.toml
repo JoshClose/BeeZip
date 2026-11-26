@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-cmd-save-text"
+description = "Enables the cmd_save_text command without any pre-configured scope."
+commands.allow = ["cmd_save_text"]
+
+[[permission]]
+identifier = "deny-cmd-save-text"
+description = "Denies the cmd_save_text command without any pre-configured scope."
+commands.deny = ["cmd_save_text"]

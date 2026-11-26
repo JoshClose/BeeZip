@@ -18,7 +18,12 @@ export type DialogState =
   | { kind: "report"; title: string; error: CmdError }
   | { kind: "settings" }
   /** The Benchmark dialog, offering `file` as its sample (docs/M6.md §7). */
-  | { kind: "bench"; file?: string };
+  | { kind: "bench"; file?: string }
+  /** "Who can open this", for an encrypted .bhive (docs/M14.md §8). */
+  | { kind: "protection"; tab: string }
+  /** Sign a .bhive, or remove its signatures (docs/M14.md §11). After an edit that dropped them,
+   * `sign` are your keys that had signed it, ticked, and `note` says why it opened. */
+  | { kind: "sign"; tab: string; sign?: string[]; note?: string };
 
 type UiState = {
   dialog?: DialogState;

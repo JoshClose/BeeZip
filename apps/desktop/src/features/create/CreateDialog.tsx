@@ -1,7 +1,9 @@
 // The create dialog (docs/M3.md §5.3). Fields that don't apply to the chosen format are hidden.
-// In its convert mode (docs/M5.md §8.5) the source is an open archive rather than files.
+// In its convert mode (docs/M5.md §8.5) the source is an open archive rather than files. A
+// .bhive gets a Protection section and "Sign with" (docs/M14.md §8, §11); zip and 7z, with a
+// password, a line pointing to .bhive (decision 1).
 import { open as pickFiles, save as pickOutput } from "@tauri-apps/plugin-dialog";
-import { FilePlus2, FolderPlus, PackagePlus, X } from "lucide-react";
+import { FilePlus2, FolderPlus, PackagePlus, ShieldCheck, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Button } from "../../components/ui/button";
 import { Checkbox } from "../../components/ui/checkbox";
@@ -21,9 +23,13 @@ import { archiveArgs, type Tab } from "../../lib/archives";
 import { baseName, joinPath, parentDir } from "../../lib/format";
 import { codecOfTar, methodsOf, useFormats } from "../../lib/formats";
 import { useJobs } from "../../lib/jobs";
+import { checkProtection, NO_PROTECTION, protectionArgs, type ProtectionForm } from "../../lib/protection";
 import { loadSettings } from "../../lib/settings";
+import { startup } from "../../lib/startup";
 import { toastError } from "../../lib/toasts";
 import { CopyAsCli } from "../cli/CopyAsCli";
+import { NewPasswordField, ProtectionFields, SignWithField } from "../protection/ProtectionFields";
+import { showRecoveryKey } from "../protection/RecoveryKey";
 
 export type CreateForm = {
   inputs: string[];
@@ -38,6 +44,10 @@ export type CreateForm = {
   encryptHeaders: boolean;
   volumeSize: string;
   exclude: string;
+  /** A .bhive's ways in beside the password (docs/M14.md §4). */
+  protection?: ProtectionForm;
+  /** A .bhive's signers: what `sign` takes (§11). */
+  sign?: string[];
 };
 
 /** What the chosen format and method take. */
@@ -61,6 +71,8 @@ export function applies(f: Pick<CreateForm, "format" | "method">, formats?: Form
     /** The levels' names, lowest first, when they have them: `none` … `max`. */
     levelNames: own?.levels ? own.level_names : [],
     password: archive,
+    /** A .bhive's own encryption: a password and every other way in (docs/M14.md §4). */
+    protection: f.format === "bhive",
     encryption: f.format === "zip",
     solid: f.format === "7z",
     encryptHeaders: f.format === "7z",
@@ -166,14 +178,15 @@ export function convertFormat(source: string): ArchiveFormatName {
 
 /** The convert mode's fields as `archive.convert` arguments: the new archive's options, the
  * source's password and name encoding, and `decrypt` when its encrypted entries are to be
- * written without one. */
+ * written without one: only when the new archive gets no way in at all. */
 export function convertArgs(source: Tab, f: CreateForm, decrypt: boolean, formats?: FormatsListOutput): ArchiveConvertInput {
   const { inputs: _, password, ...rest } = createArgs(f, formats);
+  const wayIn = !!password || !!rest.recovery_key || (rest.to?.length ?? 0) > 0 || (rest.to_cert?.length ?? 0) > 0 || !!rest.this_pc || !!rest.security_key || !!rest.windows_hello;
   return {
     archive: source.path,
     ...rest,
     ...(password ? { new_password: password } : {}),
-    ...(decrypt && !password ? { decrypt: true } : {}),
+    ...(decrypt && !wayIn ? { decrypt: true } : {}),
     ...archiveArgs(source),
   };
 }
@@ -204,13 +217,32 @@ export function createArgs(f: CreateForm, formats?: FormatsListOutput): ArchiveC
     ...(a.methods.length > 0 && f.method ? { method: f.method } : {}),
     ...(a.level && f.level !== undefined ? { level: levelArg(a, f.level) } : {}),
     ...(a.threads && f.threads !== undefined ? { threads: f.threads } : {}),
-    ...(a.password && f.password ? { password: f.password } : {}),
+    ...((a.password || a.protection) && f.password ? { password: f.password } : {}),
+    ...(a.protection ? protectionArgs(f.protection ?? NO_PROTECTION, f.password, startup().platform === "windows") : {}),
+    ...(a.protection && f.sign && f.sign.length > 0 ? { sign: f.sign } : {}),
     ...(a.encryption && f.password && f.encryption !== "aes256" ? { encryption: f.encryption } : {}),
     ...(a.encryptHeaders && f.password && !f.encryptHeaders ? { encrypt_headers: false } : {}),
     ...(a.solid && !f.solid ? { solid: false } : {}),
     ...(exclude.length > 0 ? { exclude } : {}),
     ...(volume ? { volume_size: /^\d+$/.test(volume) ? Number(volume) : volume } : {}),
   };
+}
+
+/** Zip's and 7z's encryption, beside a .bhive's (docs/M14.md decision 1): said once a password is
+ * typed, with a button to switch. */
+export function WeakerThanBhive({ format, onBhive }: { format: string; onBhive: () => void }) {
+  const why =
+    format === "zip"
+      ? "Zip's encryption leaves names, sizes and dates readable, and its passwords are quick to guess at."
+      : "7z's encryption doesn't notice changed bytes, and its passwords are quicker to guess at.";
+  return (
+    <div role="note" className="flex items-start gap-2 text-[12px] text-muted">
+      <p className="flex-1">{why} A .bhive hides everything and makes each guess slow.</p>
+      <Button size="sm" onClick={onBhive}>
+        <ShieldCheck /> Use .bhive
+      </Button>
+    </div>
+  );
 }
 
 /** Files and folders to pack or add, with buttons to pick more. */
@@ -295,10 +327,12 @@ export function CreateDialog({
     () => (source ? convertArgs(source, form, decrypt, formats) : createArgs(form, formats)),
     [source, form, decrypt, formats],
   );
-  // Encryption is never dropped silently: an encrypted source needs a new password, or the
-  // person's word that its entries may go without one.
-  const keepsEncryption = !encryptedSource || (a.password && form.password.length > 0) || decrypt;
-  const ready = (convert || form.inputs.length > 0) && form.output.trim().length > 0 && keepsEncryption;
+  const protection = form.protection ?? NO_PROTECTION;
+  const check = a.protection ? checkProtection(protection, form.password, startup().platform === "windows") : undefined;
+  // Encryption is never dropped silently: an encrypted source needs a new password (or, for a
+  // .bhive, any way in), or the person's word that its entries may go without one.
+  const keepsEncryption = !encryptedSource || (a.password && form.password.length > 0) || (check !== undefined && check.ways > 0) || decrypt;
+  const ready = (convert || form.inputs.length > 0) && form.output.trim().length > 0 && keepsEncryption && !check?.problem;
 
   const setInputs = (inputs: string[]) => setForm((f) => ({ ...f, inputs, output: f.output || defaultOutput(inputs, f.format) }));
 
@@ -321,10 +355,14 @@ export function CreateDialog({
   const create = () => {
     if (source) {
       const title = `Converting ${source.name} to ${baseName(form.output)}`;
-      track("archive.convert", args as ArchiveConvertInput, { title, tab: source.id }).catch((e) => toastError(e, title));
+      track("archive.convert", args as ArchiveConvertInput, { title, tab: source.id }).then(
+        (out) => showRecoveryKey(out.path, out),
+        (e) => toastError(e, title),
+      );
     } else {
-      track("archive.create", args as ArchiveCreateInput, { title: `Creating ${baseName(form.output)}` }).catch((e) =>
-        toastError(e, `Creating ${baseName(form.output)}`),
+      track("archive.create", args as ArchiveCreateInput, { title: `Creating ${baseName(form.output)}` }).then(
+        (out) => showRecoveryKey(out.path, out),
+        (e) => toastError(e, `Creating ${baseName(form.output)}`),
       );
     }
     onClose();
@@ -453,15 +491,29 @@ export function CreateDialog({
             {form.password && a.encryptHeaders && (
               <Checkbox checked={form.encryptHeaders} onChange={(encryptHeaders) => set({ encryptHeaders })} label="Encrypt file names too" />
             )}
+            {form.password && <WeakerThanBhive format={form.format} onBhive={() => setFormat("bhive")} />}
           </Field>
         )}
-        {encryptedSource && !(a.password && form.password) && (
+        {a.protection && (
+          <>
+            <NewPasswordField
+              id="new-password"
+              value={form.password}
+              onChange={(password) => set({ password })}
+              strength={protection.strength}
+              onStrength={(strength) => set({ protection: { ...protection, strength } })}
+            />
+            <ProtectionFields id="protect" value={protection} onChange={(p) => set({ protection: p })} password={form.password} />
+            <SignWithField id="sign" value={form.sign ?? []} onChange={(sign) => set({ sign })} />
+          </>
+        )}
+        {encryptedSource && !(a.password && form.password) && !(check && check.ways > 0) && (
           <Field label="Encryption">
             <div className="pt-1">
               <Checkbox checked={decrypt} onChange={setDecrypt} label={`Write ${source.name}'s encrypted entries without a password`} />
             </div>
             <p className="text-[12px] text-muted">
-              {a.password ? "Or give the new archive a password above." : `${form.format} can't be encrypted.`}
+              {a.password ? "Or give the new archive a password above." : a.protection ? "Or give the new archive a way in above." : `${form.format} can't be encrypted.`}
             </p>
           </Field>
         )}

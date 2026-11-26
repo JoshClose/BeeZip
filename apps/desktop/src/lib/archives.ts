@@ -149,6 +149,13 @@ export function archiveArgs(tab: Pick<Tab, "id">): { password?: string; name_enc
   };
 }
 
+/** Only the way in kept for the tab, for the commands that take no name encoding:
+ * `archive.protection`, `archive.protect` and `archive.sign` (docs/M14.md §8, §11). */
+export function keptWayIn(tab: Pick<Tab, "id">): { password?: string } {
+  const { password } = archiveArgs(tab);
+  return password ? { password } : {};
+}
+
 export function activeTab(s: Pick<ArchivesState, "tabs" | "active">): Tab | undefined {
   return s.tabs.find((t) => t.id === s.active);
 }

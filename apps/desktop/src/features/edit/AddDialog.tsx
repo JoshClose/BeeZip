@@ -1,7 +1,8 @@
 // The add dialog (docs/M5.md §8.1): files for an open archive, the folder inside it they go
 // into, what happens when an entry is already there, and the new files' method, level and
 // password. Dropped files open it too (§8.2): it is the confirmation, so a stray drop changes
-// nothing.
+// nothing. Adding to a signed .bhive drops its signatures, so it says so and offers to sign
+// again with your own keys that signed it (docs/M14.md §11).
 import { FilePlus2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Button } from "../../components/ui/button";
@@ -17,13 +18,15 @@ import type {
   MethodName,
   OverwritePolicy,
 } from "../../gen/commands";
-import type { Tab } from "../../lib/archives";
+import { archiveArgs, type Tab } from "../../lib/archives";
 import { runEdit } from "../../lib/edit";
 import { normalize } from "../../lib/format";
 import { useFormats } from "../../lib/formats";
 import { loadSettings } from "../../lib/settings";
+import { ownSigners, signaturesOf } from "../../lib/signatures";
 import { toastError } from "../../lib/toasts";
 import { CopyAsCli } from "../cli/CopyAsCli";
+import { SignWithField } from "../protection/ProtectionFields";
 import { applies, defaultLevel, defaultMethod, InputsField, levelArg, levelHint, levelLabel, levelNote, useConfiguredLevels } from "../create/CreateDialog";
 
 export type AddForm = {
@@ -34,10 +37,12 @@ export type AddForm = {
   overwrite?: OverwritePolicy;
   method?: MethodName;
   level?: number;
-  /** Encrypt the new files. On for an archive with encrypted entries; off sends `unencrypted`. */
+  /** Encrypt the new files (zip, 7z). On for an archive with encrypted entries; off sends `unencrypted`. */
   encrypt: boolean;
   password: string;
   encryption: EncryptionName;
+  /** Sign a .bhive again after adding: what `sign` takes. */
+  sign?: string[];
 };
 
 export const EDIT_OVERWRITE: { id: OverwritePolicy; label: string }[] = [
@@ -87,14 +92,21 @@ export function initialAdd(tab: Tab, inputs: string[], dir: string): AddForm {
     encrypt: encrypted || headers,
     password: encrypted || headers ? (tab.password ?? "") : "",
     encryption: "aes256",
+    // Your own keys that signed it sign again, unless the person takes them off.
+    sign: ownSigners(signaturesOf(tab.info)),
   };
 }
 
-/** The dialog's fields as `archive.add` arguments, with only the ones that apply. */
+/** The dialog's fields as `archive.add` arguments, with only the ones that apply. An encrypted
+ * .bhive's new files are sealed with its own key (docs/M14.md §3): nothing about encryption is
+ * chosen, and the way in kept for its tab opens it, as a removal or rename does. */
 export function addArgs(tab: Tab, f: AddForm, formats?: FormatsListOutput): ArchiveAddInput {
-  const a = applies({ format: editFormat(tab.info, formats), method: f.method }, formats);
+  const format = editFormat(tab.info, formats);
+  const bhive = format === "bhive";
+  const a = applies({ format, method: f.method }, formats);
   const { encrypted, headers } = encryptionOf(tab.info);
   const encrypt = a.password && (f.encrypt || headers);
+  const kept = bhive ? archiveArgs(tab).password : undefined;
   const dir = normalize(f.dir.trim());
   return {
     archive: tab.path,
@@ -103,10 +115,11 @@ export function addArgs(tab: Tab, f: AddForm, formats?: FormatsListOutput): Arch
     ...(f.overwrite ? { overwrite: f.overwrite } : {}),
     ...(a.methods.length > 0 && f.method ? { method: f.method } : {}),
     ...(a.level && f.level !== undefined ? { level: levelArg(a, f.level) } : {}),
-    ...(encrypt && f.password ? { password: f.password } : {}),
+    ...(encrypt && f.password ? { password: f.password } : kept ? { password: kept } : {}),
     ...(encrypt && a.encryption && f.password && f.encryption !== "aes256" ? { encryption: f.encryption } : {}),
-    ...(encrypted && !encrypt ? { unencrypted: true } : {}),
+    ...(encrypted && !encrypt && !bhive ? { unencrypted: true } : {}),
     ...(tab.encoding ? { name_encoding: tab.encoding } : {}),
+    ...(bhive && f.sign && f.sign.length > 0 ? { sign: f.sign } : {}),
   };
 }
 
@@ -152,6 +165,7 @@ export function AddDialog({ tab, inputs: given, dir, onClose }: { tab: Tab; inpu
   const ready = addReady(tab, form, formats);
   const methodDefault = defaultMethod(format);
   const configuredLabel = EDIT_OVERWRITE.find((o) => o.id === configured)?.label;
+  const signed = signaturesOf(tab.info).length;
 
   const add = () => {
     const title = `Adding to ${tab.name}`;
@@ -280,6 +294,23 @@ export function AddDialog({ tab, inputs: given, dir, onClose }: { tab: Tab; inpu
               </>
             )}
           </Field>
+        )}
+        {format === "bhive" && encrypted && (
+          <Field label="Protection">
+            <p className="text-[12px] text-muted">The new files are encrypted like the rest, and the same ways in open them. Who can open this changes who can.</p>
+          </Field>
+        )}
+        {format === "bhive" && (
+          <SignWithField
+            id="add-sign"
+            value={form.sign ?? []}
+            onChange={(sign) => set({ sign })}
+            hint={
+              signed > 0
+                ? `Adding changes what's in it, so its ${signed === 1 ? "signature is" : `${signed} signatures are`} dropped. Sign it again here.`
+                : "Sign the archive once the files are in."
+            }
+          />
         )}
       </div>
     </Dialog>
