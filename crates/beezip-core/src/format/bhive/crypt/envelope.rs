@@ -96,12 +96,14 @@ fn wrap_with(
             "bhive: a slot is made from its secret, not from a PRK",
         ));
     };
+    // The context doesn't cover the commitment, which comes from it.
     let view = SlotView {
         index: 0,
         kind,
         key_id,
         framed: &slot,
         public: &slot[4..],
+        commitment: &[0; 32],
     };
     let prk = Zeroizing::new(prim::hmac(&view.context(&made.recipient_key), &[secret]));
     let (wrap, commitment) = slot_keys(&prk);
@@ -514,12 +516,17 @@ impl KeyBlock {
             .enumerate()
             .filter_map(|(index, (kind, range))| {
                 let framed = &self.bytes[range.start..range.end - SLOT_TAIL_LEN];
+                let tail = range.end - SLOT_TAIL_LEN;
+                let commitment = self.bytes[tail..tail + 32]
+                    .try_into()
+                    .expect("a slot's tail holds its commitment");
                 kind.map(|kind| SlotView {
                     index,
                     kind,
                     key_id: &self.key_id,
                     framed,
                     public: &framed[4..],
+                    commitment,
                 })
             })
             .collect()

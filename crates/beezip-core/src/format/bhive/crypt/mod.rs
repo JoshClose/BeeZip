@@ -144,6 +144,10 @@ pub struct SlotView<'a> {
     pub framed: &'a [u8],
     /// The public part alone.
     pub public: &'a [u8],
+    /// The slot's commitment, after its public part. A key source with several keys for an
+    /// anonymous slot (kinds 3 and 4) compares it to tell which key is the slot's
+    /// (`x25519::commits`).
+    pub commitment: &'a [u8; 32],
 }
 
 impl SlotView<'_> {
@@ -691,6 +695,7 @@ mod tests {
                 key_id: &key_id,
                 framed,
                 public: &framed[4..],
+                commitment: slot[framed.len()..framed.len() + 32].try_into().unwrap(),
             };
             let recipient = match name {
                 "x25519" | "p256" | "p384" => hex(&vec["recipient_public"]),

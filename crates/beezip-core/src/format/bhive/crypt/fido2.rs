@@ -281,6 +281,7 @@ mod tests {
             key_id: &key_id,
             framed,
             public: &framed[4..],
+            commitment: slot[framed.len()..framed.len() + 32].try_into().unwrap(),
         };
         check(view.public).unwrap();
         let parsed = parse(&view).unwrap();
@@ -452,6 +453,7 @@ mod tests {
             key_id: &key_id,
             framed: &framed,
             public: &framed[4..],
+            commitment: &[0; 32],
         };
         assert_eq!(parse(&view).unwrap().credential_id, [1; 8]);
         view.kind = SlotKind::Password;
