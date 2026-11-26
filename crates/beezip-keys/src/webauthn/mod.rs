@@ -436,6 +436,7 @@ pub(crate) mod tests {
             key_id: &key_id,
             framed: &framed,
             public: &framed[4..],
+            commitment: &[0; 32],
         };
         let mut source = Fido2Source::new(auth);
         assert!(source.offers(&view));
@@ -581,6 +582,7 @@ pub(crate) mod tests {
             key_id: &key_id,
             framed: &framed,
             public: &framed[4..],
+            commitment: &[0; 32],
         };
         /// A source with keys of other kinds.
         struct Others;
@@ -661,6 +663,7 @@ pub(crate) mod tests {
             key_id: &key_id,
             framed: &framed,
             public: &framed[4..],
+            commitment: &[0; 32],
         };
         let mut source = Fido2Source::new(MockAuthenticator::new());
         assert!(!source.offers(&view));
@@ -675,6 +678,7 @@ pub(crate) mod tests {
             key_id: &key_id,
             framed: &framed,
             public: &framed[4..],
+            commitment: &[0; 32],
         };
         assert!(!source.offers(&view));
         assert_eq!(
@@ -700,6 +704,7 @@ pub(crate) mod tests {
                 key_id: &key_id,
                 framed: &framed,
                 public: &framed[4..],
+                commitment: &[0; 32],
             };
             assert!(!source.offers(&view));
             assert!(source.secret(&view, true).is_err());
@@ -723,6 +728,7 @@ pub(crate) mod tests {
             key_id: &key_id,
             framed: &framed,
             public: &framed[4..],
+            commitment: &[0; 32],
         };
         let mut source = Fido2Source::new(none);
         assert!(!source.offers(&view));
@@ -783,6 +789,7 @@ pub(crate) mod tests {
             key_id: &key_id,
             framed: &framed,
             public: &framed[4..],
+            commitment: &[0; 32],
         };
         let mut source = source(None).unwrap();
         assert!(!source.offers(&view));
