@@ -22,7 +22,7 @@ use super::{
     *,
 };
 use crate::{
-    ArchiveReader, CreateOptions, OpenOptions, SimpleCtx, WriteSpec,
+    ArchiveReader, CreateOptions, ErrorKind, Limits, OpenOptions, SimpleCtx, WriteSpec,
     edit::{
         EditOp, EditOptions,
         sign::{SignOptions, sign},
@@ -426,6 +426,25 @@ fn ed25519_edges_are_rings() {
         .collect();
     let want: Vec<(&str, bool)> = cases.iter().map(|c| (c.0, c.4)).collect();
     assert_eq!(got, want);
+
+    // The cases the Python reader is tested with (PR B's ed25519-edges.json), once the two are
+    // in the same tree: `ring` must give each the verdict the file does.
+    let shared = fixture("ed25519-edges.json");
+    if !shared.exists() {
+        eprintln!("{} isn't here yet", shared.display());
+        return;
+    }
+    let v: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(shared).unwrap()).unwrap();
+    let cases = v["cases"].as_array().unwrap();
+    assert!(cases.len() >= 10, "{}", cases.len());
+    for c in cases {
+        let field = |k: &str| hex(c[k].as_str().unwrap());
+        let ok = UnparsedPublicKey::new(&ED25519, field("public"))
+            .verify(&field("message"), &field("signature"))
+            .is_ok();
+        assert_eq!(Some(ok), c["valid"].as_bool(), "{}", c["name"]);
+    }
 }
 
 // Every algorithm, written and read.
@@ -647,19 +666,23 @@ fn any_change_to_the_contents_fails_them() {
     changed[at] = b'z';
     assert_eq!(checked(&changed), invalid);
 
-    // A cell's raw length, coder parameter or checksum in the table.
-    for field in [12usize, 17, 18] {
+    // A cell's raw length or checksum in the table.
+    for field in [12usize, 18] {
         let mut changed = raw.clone();
         let row = 1 + 26 * 2;
         changed[row + field] ^= 1;
-        if let Ok(i) = parse_index(&changed, offset, None) {
-            assert_eq!(
-                statuses(&check(&header, &changed, &i)),
-                invalid,
-                "field {field}"
-            );
-        }
+        let i = parse_index(&changed, offset, None).unwrap();
+        assert_ne!(i.cells[2], index.cells[2], "field {field}");
+        assert_eq!(
+            statuses(&check(&header, &changed, &i)),
+            invalid,
+            "field {field}"
+        );
     }
+    // Its coder's parameter. These cells' coders take only 0, so it is the parse that changes.
+    let mut changed = index.clone();
+    changed.cells[2].param ^= 1;
+    assert_eq!(statuses(&check(&header, &raw, &changed)), invalid);
 
     // A digest in section 2, an even section added, the header's version.
     let mut sections = sections_of(&index);
@@ -1265,6 +1288,216 @@ fn resign_keeps_a_zstd_index_and_checks_the_file() {
     assert!(out.is_empty());
 }
 
+/// A `.bhive` of `bytes`'s header and an index head that claims a terabyte, over a zstd frame
+/// that doesn't say its size: one raw block of one byte.
+fn claims_a_terabyte(bytes: &[u8]) -> Vec<u8> {
+    // The magic, a frame header with no content size and a 1 KiB window, the last block.
+    let frame = [0x28, 0xB5, 0x2F, 0xFD, 0x00, 0x00, 0x09, 0x00, 0x00, b'x'];
+    assert_eq!(zstd::stream::decode_all(&frame[..]).unwrap(), b"x");
+    let mut out = bytes[..HEADER_LEN].to_vec();
+    let head = IndexHead {
+        zstd: true,
+        stored: frame.len() as u64,
+        raw: 1 << 40,
+        checksum: checksum(b"x"),
+    };
+    out.extend_from_slice(&head.encode());
+    out.extend_from_slice(&frame);
+    out.extend_from_slice(&layout::footer(HEADER_LEN as u64));
+    out
+}
+
+#[test]
+fn archive_sign_keeps_the_readers_limits() {
+    let t = tree();
+    let path = create(&t, "u.bhive", None);
+    let bytes = std::fs::read(&path).unwrap();
+    let add = |open: OpenOptions| SignOptions {
+        open,
+        signing: signing(vec![hybrid()]),
+        ..SignOptions::default()
+    };
+
+    // An index that would take a terabyte to decode: refused before any of it is read.
+    let hostile = claims_a_terabyte(&bytes);
+    let p = t.dir.path().join("hostile.bhive");
+    std::fs::write(&p, &hostile).unwrap();
+    let e = open_report(&p, &OpenOptions::default()).err().unwrap();
+    assert_eq!(e.kind, ErrorKind::LimitExceeded, "{e}");
+    let e = sign_with(&p, add(OpenOptions::default())).unwrap_err();
+    assert_eq!(e.kind, ErrorKind::LimitExceeded, "{e}");
+    assert!(e.message.contains("the index needs 1048576 MiB"), "{e}");
+    assert_eq!(std::fs::read(&p).unwrap(), hostile);
+    let e = resign(
+        &mut std::io::Cursor::new(&hostile),
+        &mut Vec::new(),
+        &Resign::default(),
+        &mut SimpleCtx::new(),
+    )
+    .unwrap_err();
+    assert_eq!(e.kind, ErrorKind::LimitExceeded, "{e}");
+
+    // Entries over `max_entries`, as the reader counts them.
+    let few = OpenOptions {
+        limits: Limits {
+            max_entries: Some(2),
+            ..Limits::default()
+        },
+        ..OpenOptions::default()
+    };
+    let e = open_report(&path, &few).err().unwrap();
+    assert_eq!(e.kind, ErrorKind::LimitExceeded, "{e}");
+    let e = sign_with(&path, add(few)).unwrap_err();
+    assert_eq!(e.kind, ErrorKind::LimitExceeded, "{e}");
+    assert_eq!(std::fs::read(&path).unwrap(), bytes);
+    sign_with(&path, add(OpenOptions::default())).unwrap();
+}
+
+/// A new signature vouches for the bytes in the file, not for what section 2 says of them: a
+/// section 2 that holds other cells' digests (cells of the same raw length and checksum, which
+/// a reader that ignores section 2 would show the same) isn't signed.
+#[test]
+fn archive_sign_checks_the_cells_against_their_digests() {
+    let t = tree();
+    // An unsigned archive with digests: signed when it was made, its signature removed.
+    let path = create(&t, "d.bhive", Some(signing(vec![hybrid()])));
+    let done = sign_with(
+        &path,
+        SignOptions {
+            remove_all: true,
+            ..SignOptions::default()
+        },
+    )
+    .unwrap();
+    assert!(!done.signatures.is_signed() && done.signatures.digests.is_some());
+    let bytes = std::fs::read(&path).unwrap();
+    let (_, raw, index) = index_of(&bytes);
+    assert!(index.cells.len() > 3);
+    let add = || SignOptions {
+        signing: signing(vec![hybrid()]),
+        ..SignOptions::default()
+    };
+    let p = t.dir.path().join("other.bhive");
+
+    // Section 2 with another cell 1.
+    let mut sections = sections_of(&index);
+    sections
+        .iter_mut()
+        .find(|s| s.0 == SECTION_DIGESTS)
+        .unwrap()
+        .1[32 + 7] ^= 1;
+    let lying = with_index(&bytes, &with_sections(&raw, &index, &sections));
+    std::fs::write(&p, &lying).unwrap();
+    let e = sign_with(&p, add()).unwrap_err();
+    assert_eq!(e.kind, ErrorKind::Corrupt, "{e}");
+    assert!(
+        e.message.contains("cell 1 doesn't match its digest") && e.message.contains("test it"),
+        "{e}"
+    );
+    assert_eq!(std::fs::read(&p).unwrap(), lying);
+
+    // A cell changed after its digest was made.
+    let mut damaged = bytes.clone();
+    damaged[index.cells[2].offset as usize + 1] ^= 1;
+    std::fs::write(&p, &damaged).unwrap();
+    let e = sign_with(&p, add()).unwrap_err();
+    assert!(e.message.contains("cell 2 doesn't match"), "{e}");
+    assert_eq!(std::fs::read(&p).unwrap(), damaged);
+
+    // Cells that match: signed, section 2 as it was.
+    let done = sign_with(&path, add()).unwrap();
+    assert!(!done.hashed);
+    assert_eq!(statuses(&done.signatures), [Status::Valid]);
+    let (_, _, after) = index_of(&std::fs::read(&path).unwrap());
+    assert_eq!(
+        after.section(SECTION_DIGESTS),
+        index.section(SECTION_DIGESTS)
+    );
+}
+
+#[test]
+fn archive_sign_counts_every_signature_it_drops() {
+    let t = tree();
+    let path = create(
+        &t,
+        "r.bhive",
+        Some(signing(vec![hybrid(), CertSigner::ec("p256")])),
+    );
+    let bytes = std::fs::read(&path).unwrap();
+    let (_, raw, index) = index_of(&bytes);
+    let p = t.dir.path().join("changed.bhive");
+
+    // Section 2 cut short: signing makes it again, and drops both signatures over it.
+    let mut sections = sections_of(&index);
+    sections
+        .iter_mut()
+        .find(|s| s.0 == SECTION_DIGESTS)
+        .unwrap()
+        .1
+        .pop();
+    std::fs::write(
+        &p,
+        with_index(&bytes, &with_sections(&raw, &index, &sections)),
+    )
+    .unwrap();
+    let mut cx = SimpleCtx::new();
+    let opts = SignOptions {
+        signing: signing(vec![CertSigner::ec("p384")]),
+        ..SignOptions::default()
+    };
+    let done = sign(&p, &opts, &mut cx).unwrap();
+    assert!(done.hashed);
+    assert_eq!((done.added, done.removed), (1, 2));
+    assert_eq!(statuses(&done.signatures), [Status::Valid]);
+    assert!(
+        cx.warnings
+            .iter()
+            .any(|w| w.contains("2 signatures were made without whole cell digests")),
+        "{:?}",
+        cx.warnings
+    );
+
+    // A section 3 that doesn't parse, all removed: as many as it says it holds, or the one
+    // signature it is listed as when that can't be read either.
+    for (says, removed) in [(2u64, 2usize), (40, 1)] {
+        let mut sections = sections_of(&index);
+        let body = &mut sections
+            .iter_mut()
+            .find(|s| s.0 == SECTION_SIGNATURES)
+            .unwrap()
+            .1;
+        body.clear();
+        put_uvarint(body, says);
+        body.push(7);
+        std::fs::write(
+            &p,
+            with_index(&bytes, &with_sections(&raw, &index, &sections)),
+        )
+        .unwrap();
+        let (_, report) = open_report(&p, &OpenOptions::default()).unwrap();
+        assert_eq!(report.signatures.len(), 1);
+        assert!(not_checked(&report.signatures[0].status));
+        let e = sign_with(
+            &p,
+            SignOptions {
+                remove: vec![0],
+                ..SignOptions::default()
+            },
+        )
+        .unwrap_err();
+        assert!(e.message.contains("remove them all first"), "{e}");
+        let mut cx = SimpleCtx::new();
+        let opts = SignOptions {
+            remove_all: true,
+            ..SignOptions::default()
+        };
+        let done = sign(&p, &opts, &mut cx).unwrap();
+        assert_eq!(done.removed, removed, "says {says}");
+        assert!(!done.signatures.is_signed());
+        assert_eq!(cx.warnings.len(), 1, "{:?}", cx.warnings);
+    }
+}
+
 #[test]
 fn an_edit_of_the_contents_drops_the_signatures() {
     let t = tree();
@@ -1306,26 +1539,36 @@ fn signing_costs() {
     });
     println!("SHA-256, one thread: {:.2} GiB/s", 0.25 / s);
 
-    // The workspace's sources, or the folder `BEEZIP_SIGNING_INPUT` names.
+    // The workspace's sources, or the folder `BEEZIP_SIGNING_INPUT` names, on one thread
+    // (`BEEZIP_SIGNING_THREADS` for more): what signing adds to the work, which a busy machine
+    // hides less than it hides a time on every core. Signed and unsigned take turns, the best
+    // of seven each.
     let sources = std::env::var_os("BEEZIP_SIGNING_INPUT")
         .map(PathBuf::from)
         .unwrap_or_else(|| Path::new(env!("CARGO_MANIFEST_DIR")).join(".."));
+    let threads = std::env::var("BEEZIP_SIGNING_THREADS")
+        .ok()
+        .and_then(|t| t.parse().ok())
+        .unwrap_or(1);
     let dir = tempfile::tempdir().unwrap();
     let key = hybrid();
     for level in [
         crate::format::bhive::Level::Fast,
         crate::format::bhive::Level::Balanced,
     ] {
-        let mut times = Vec::new();
-        for signed in [false, true] {
-            let spec = WriteSpec::Bhive(BhiveWriteOptions {
-                level,
-                signing: signed.then(|| signing(vec![key.clone()])),
-                ..BhiveWriteOptions::default()
-            });
-            let out = dir.path().join("t.bhive");
-            times.push(best(&mut || {
+        let mut times = [f64::MAX; 2];
+        let mut size = 0;
+        for _ in 0..7 {
+            for (signed, best) in times.iter_mut().enumerate() {
+                let spec = WriteSpec::Bhive(BhiveWriteOptions {
+                    level,
+                    threads,
+                    signing: (signed == 1).then(|| signing(vec![key.clone()])),
+                    ..BhiveWriteOptions::default()
+                });
+                let out = dir.path().join("t.bhive");
                 let _ = std::fs::remove_file(&out);
+                let t = Instant::now();
                 crate::ops::create(
                     &out,
                     std::slice::from_ref(&sources),
@@ -1334,13 +1577,18 @@ fn signing_costs() {
                     &mut SimpleCtx::new(),
                 )
                 .unwrap();
-            }));
+                *best = best.min(t.elapsed().as_secs_f64());
+                size = std::fs::metadata(&out).unwrap().len();
+            }
         }
         println!(
-            "{level:?}: {:.3} s, signed {:.3} s ({:+.1} %)",
+            "{level:?}, {threads} thread(s): {:.3} s, signed {:.3} s ({:+.1} %), {:.1} MiB \
+             signed, its digests {:.1} ms at that rate",
             times[0],
             times[1],
-            (times[1] / times[0] - 1.0) * 100.0
+            (times[1] / times[0] - 1.0) * 100.0,
+            size as f64 / f64::from(1 << 20),
+            size as f64 / f64::from(1 << 30) / (0.25 / s) * 1000.0
         );
     }
 }

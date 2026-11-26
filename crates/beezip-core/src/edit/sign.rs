@@ -26,7 +26,8 @@ use crate::{
 /// What to sign with, and what to remove.
 #[derive(Debug, Clone, Default)]
 pub struct SignOptions {
-    /// How to open an encrypted archive, once PR A's edits are in (docs/M14.md §10).
+    /// How to open the archive: its limits now, an encrypted one's keys once PR A's edits are
+    /// in (docs/M14.md §10).
     pub open: OpenOptions,
     /// New signatures, by these signers.
     pub signing: Signing,
@@ -44,8 +45,10 @@ pub struct SignReport {
     /// The signatures afterwards, checked.
     pub signatures: Report,
     pub added: usize,
+    /// The signatures the archive no longer has, those over digests made again among them.
     pub removed: usize,
-    /// The cells were read once to make their digests.
+    /// The cells' digests were made: the archive had none. (Adding a signature reads every
+    /// cell once either way.)
     pub hashed: bool,
     pub bytes_before: u64,
     pub bytes_after: u64,
@@ -79,6 +82,7 @@ pub fn sign(archive: &Path, opts: &SignOptions, cx: &mut dyn Ctx) -> Result<Sign
         signing: opts.signing.clone(),
         remove: opts.remove.clone(),
         remove_all: opts.remove_all,
+        limits: opts.open.limits.clone(),
     };
     let mut partial = target.partial()?;
     let done = {

@@ -6,15 +6,16 @@
 use std::io::{Read, Seek, SeekFrom, Write};
 
 use super::{
-    Report, Signing, assemble, check, digests, manifest_of, ready, record, records, sha256,
+    MAX_SIGNATURES, Report, Signing, assemble, check, digests, manifest_of, ready, record, records,
+    sha256,
 };
 use crate::{
-    Ctx, Error, ErrorKind, Result,
+    Ctx, Error, ErrorKind, Limits, Result,
     format::bhive::{
         coder,
         crypt::not_built,
         layout::{
-            self, FEATURE_ENCRYPTED, FOOTER_LEN, HEADER_LEN, INDEX_HEAD_LEN, IndexHead,
+            self, Bytes, FEATURE_ENCRYPTED, FOOTER_LEN, HEADER_LEN, INDEX_HEAD_LEN, IndexHead,
             SECTION_DIGESTS, SECTION_SIGNATURES, checksum, parse_index, put_uvarint,
         },
     },
@@ -30,6 +31,9 @@ pub struct Resign {
     pub remove: Vec<usize>,
     /// Remove every signature the archive has, before adding any.
     pub remove_all: bool,
+    /// What reading the index may take, as when the archive is opened: `decoder_memory` for
+    /// its raw bytes, `max_entries` for its entries.
+    pub limits: Limits,
 }
 
 /// What `archive.sign` did.
@@ -38,8 +42,11 @@ pub struct Resigned {
     /// The signatures afterwards, checked.
     pub report: Report,
     pub added: usize,
+    /// The signatures the archive had that it no longer has: those named, every one when
+    /// asked, and those over a section 2 that had to be made again.
     pub removed: usize,
-    /// The cells were read to make their digests: the archive had none.
+    /// Section 2 was made: the archive had no whole digests. (Adding a signature reads every
+    /// cell either way, to make the digests or to check the cells against them.)
     pub hashed: bool,
 }
 
@@ -78,10 +85,34 @@ fn hash_at<R: Read + Seek>(input: &mut R, at: u64, len: u64, cx: &mut dyn Ctx) -
     Ok(out)
 }
 
+/// The index `head` describes may be read: its raw bytes and its stored bytes within
+/// `decoder_memory`, as the reader keeps them (read.rs).
+fn memory_limit(head: &IndexHead, limits: &Limits) -> Result<()> {
+    let need = head.raw.max(head.stored);
+    if need > limits.decoder_memory {
+        return Err(Error::limit(format!(
+            "bhive: the index needs {} MiB (limit `decoder_memory`)",
+            need.div_ceil(1 << 20)
+        )));
+    }
+    Ok(())
+}
+
+/// How many signatures a section 3 that doesn't parse says it holds, when that much of it
+/// reads and is within the limit.
+fn claimed(body: &[u8]) -> Option<usize> {
+    let n = Bytes::new(body).uvarint().ok()?;
+    (1..=MAX_SIGNATURES as u64)
+        .contains(&n)
+        .then_some(n as usize)
+}
+
 /// Writes `input`, an unencrypted `.bhive` opened from its index, to `out` with its
 /// signatures changed as `what` says. Every byte before the index block is copied as it is.
-/// The signatures kept are kept byte for byte; a section 2 that doesn't match the cells is
-/// made again, which drops the signatures over it.
+/// The signatures kept are kept byte for byte. Adding a signature reads every cell once: a
+/// section 2 that is whole must match the cells, or nothing is signed (a signature vouches for
+/// the bytes in the file, as the writer's does, not for what section 2 says of them); one that
+/// isn't whole is made again, which drops the signatures over it.
 pub fn resign<R: Read + Seek>(
     input: &mut R,
     out: &mut dyn Write,
@@ -112,6 +143,8 @@ pub fn resign<R: Read + Seek>(
     if ends != Some(len) {
         return Err(bad("the index and the footer don't end the file"));
     }
+    // The limits the reader keeps: an index head may claim any raw size.
+    memory_limit(&head, &what.limits)?;
     let stored = read_at(input, offset + INDEX_HEAD_LEN as u64, head.stored as usize)?;
     let raw = if head.zstd {
         coder::unzstd(&stored, head.raw as usize, "the index")?
@@ -121,26 +154,37 @@ pub fn resign<R: Read + Seek>(
     if checksum(&raw) != head.checksum {
         return Err(bad("the index fails its checksum"));
     }
-    let index = parse_index(&raw, offset, None)?;
-    let before = check(&header, &raw, &index);
+    let index = parse_index(&raw, offset, what.limits.max_entries)?;
 
-    // The signatures kept, as they are.
-    let mut kept: Vec<Vec<u8>> = match index.section(SECTION_SIGNATURES) {
-        Some(body) if !what.remove_all => records(body)
-            .map_err(|why| {
-                Error::invalid_args(format!(
+    // The signatures kept, as they are, and how many the archive had.
+    let (mut kept, had): (Vec<Vec<u8>>, usize) = match index.section(SECTION_SIGNATURES) {
+        None => (Vec::new(), 0),
+        Some(body) => match records(body) {
+            Ok(r) if what.remove_all => (Vec::new(), r.len()),
+            Ok(r) => {
+                let n = r.len();
+                (r.into_iter().map(<[u8]>::to_vec).collect(), n)
+            }
+            Err(why) if what.remove_all => {
+                // Opened, the archive lists them as one signature that couldn't be checked.
+                let n = claimed(body);
+                cx.warn(match n {
+                    Some(n) => format!(
+                        "the archive's {n} signatures can't be read ({why}); they are removed"
+                    ),
+                    None => format!(
+                        "the archive's signatures can't be read ({why}), and how many there \
+                         were is unknown; they are removed"
+                    ),
+                });
+                (Vec::new(), n.unwrap_or(1))
+            }
+            Err(why) => {
+                return Err(Error::invalid_args(format!(
                     "the archive's signatures can't be read ({why}); remove them all first"
-                ))
-            })?
-            .into_iter()
-            .map(<[u8]>::to_vec)
-            .collect(),
-        _ => Vec::new(),
-    };
-    let had = if what.remove_all {
-        before.signatures.len()
-    } else {
-        kept.len()
+                )));
+            }
+        },
     };
     let mut remove = what.remove.clone();
     remove.sort_unstable();
@@ -157,31 +201,40 @@ pub fn resign<R: Read + Seek>(
             kept.remove(n);
         }
     }
-    let removed = had - kept.len();
 
-    // Section 2: kept when it is whole, made when signing needs it.
+    // Section 2. Adding a signature reads every cell once: a whole section 2 is checked
+    // against the cells, and one that isn't whole is made from them.
     let mut section2 = index.section(SECTION_DIGESTS).map(<[u8]>::to_vec);
-    let whole = section2
+    let have = section2
         .as_deref()
-        .and_then(|d| digests(d, index.cells.len()))
-        .is_some();
+        .and_then(|d| digests(d, index.cells.len()));
     let mut hashed = false;
-    if !what.signing.is_empty() && !whole {
+    if !what.signing.is_empty() {
         let mut all = Vec::with_capacity(index.cells.len() * 32);
-        for c in &index.cells {
-            all.extend_from_slice(&hash_at(input, c.offset, u64::from(c.stored), cx)?);
+        for (n, c) in index.cells.iter().enumerate() {
+            let digest = hash_at(input, c.offset, u64::from(c.stored), cx)?;
+            if have.as_ref().is_some_and(|d| d[n] != digest) {
+                return Err(bad(format!(
+                    "cell {n} doesn't match its digest in the index, so the archive isn't \
+                     signed; test it to see what changed"
+                )));
+            }
+            all.extend_from_slice(&digest);
         }
-        if !kept.is_empty() {
-            cx.warn(format!(
-                "the archive's {} signatures were made without whole cell digests; they are \
-                 removed",
-                kept.len()
-            ));
-            kept.clear();
+        if have.is_none() {
+            if !kept.is_empty() {
+                cx.warn(format!(
+                    "the archive's {} signatures were made without whole cell digests; they \
+                     are removed",
+                    kept.len()
+                ));
+                kept.clear();
+            }
+            section2 = Some(all);
+            hashed = true;
         }
-        section2 = Some(all);
-        hashed = true;
     }
+    let removed = had - kept.len();
 
     // The new signatures, of the manifest with that section 2.
     let entries = &raw[index.entry_bytes.clone()];
