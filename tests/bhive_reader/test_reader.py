@@ -694,6 +694,24 @@ class Encrypted(unittest.TestCase):
         with self.assertRaises(r.Bad):
             read(sealed([bad_x]), keys(files=[write(sv["x25519"]["secret_text"].encode())]))
 
+    def test_a_security_key_slot_it_cant_use(self):
+        """A security-key slot with a reserved flag bit set, or a relying party id that isn't
+        UTF-8, can't be used, but the archive is still read and opens another way (§12.5 kind 8)."""
+        sv = V["slots"]
+        fk, kid = h(sv["file_key"]), h(sv["key_id"])
+        password = h(sv["password"]["slot"])
+        credential, salt = bytes(range(48)), bytes(32)
+        for what, flags, rp in (("a reserved bit", 0x0006, b"beezip"), ("a relying party that isn't UTF-8", 0x0002, b"\xff\xfe")):
+            with self.subTest(what):
+                public = struct.pack("<HH", flags, len(credential)) + credential + bytes([len(rp)]) + rp + salt
+                slot, _ = mv.make_slot(8, public, bytes(32), fk, kid)
+                data = sealed([slot, password])
+                a = read(data, keys([sv["password"]["password_as_typed_nfd"]]))
+                self.assertEqual(listing(a), SMALL_LIST)
+                self.assertIn("relying party", a.keyblock.slots[0].describe())
+                with self.assertRaises(r.Locked):
+                    read(data)
+
     def test_index_rules(self):
         pw = keys([V["slots"]["password"]["password_as_typed_nfd"]])
         slots = [h(V["slots"]["password"]["slot"])]
