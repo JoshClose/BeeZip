@@ -302,7 +302,8 @@ pub fn create_this_pc(pin: Option<&str>) -> Result<(String, Vec<u8>)> {
         .map_err(no_tpm)?;
     if let Some(pin) = pin {
         // An unfinalized key isn't written: dropping it leaves nothing behind.
-        key.set_prop(NCRYPT_PIN_PROPERTY, &win::wz_bytes(pin))?;
+        key.set_prop(NCRYPT_PIN_PROPERTY, &win::wz_bytes(pin))
+            .map_err(no_tpm)?;
     }
     key.finalize().map_err(no_tpm)?;
     let spki = key

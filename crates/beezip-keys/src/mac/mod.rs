@@ -161,7 +161,7 @@ pub fn signer(thumbprint: &[u8; 20]) -> Result<Arc<dyn Signer>> {
     Ok(Arc::new(KeychainSigner {
         key,
         algorithm,
-        signer: cert::chain_bytes(&[certificate.der.clone()])?,
+        signer: cert::chain_bytes(std::slice::from_ref(&certificate.der))?,
     }))
 }
 
