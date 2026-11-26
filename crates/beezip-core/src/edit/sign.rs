@@ -4,7 +4,7 @@
 
 use std::{
     fs::File,
-    io::{BufReader, BufWriter, Write},
+    io::{BufReader, BufWriter, Read, Write},
     path::{Path, PathBuf},
 };
 
@@ -12,20 +12,21 @@ use super::swap;
 use crate::{
     Ctx, Error, Result,
     format::bhive::{
-        BhiveReader,
         crypt::not_built,
+        layout::{self, FEATURE_ENCRYPTED, HEADER_LEN, MAGIC},
         sign::{
             Report, Signing,
             edit::{Resign, resign},
         },
     },
     io::write_error,
-    source::{OpenOptions, open},
+    source::OpenOptions,
 };
 
 /// What to sign with, and what to remove.
 #[derive(Debug, Clone, Default)]
 pub struct SignOptions {
+    /// How to open an encrypted archive, once PR A's edits are in (docs/M14.md §10).
     pub open: OpenOptions,
     /// New signatures, by these signers.
     pub signing: Signing,
@@ -60,30 +61,25 @@ pub fn sign(archive: &Path, opts: &SignOptions, cx: &mut dyn Ctx) -> Result<Sign
     }
     let target = swap::Target::check(archive)?;
     let name = target.name.clone();
-    {
-        let mut opened = open(&target.path, &opts.open, cx)?;
-        let Some(r) = opened.reader.as_any_mut().downcast_mut::<BhiveReader>() else {
-            return Err(Error::unsupported(format!(
-                "{name} isn't a .bhive; only a .bhive can be signed"
-            )));
-        };
-        if r.recovered().is_some() {
-            return Err(Error::unsupported(format!(
-                "{name} is incomplete: it is listed from what is left of it, and can't be signed"
-            )));
-        }
-        if r.unlocked().is_some() {
-            return Err(not_built("signing an encrypted .bhive"));
-        }
+    let mut input = BufReader::new(
+        File::open(&target.path).map_err(|e| Error::io(format!("opening {name}"), &e))?,
+    );
+    // Only a .bhive, unencrypted until PR A is in; the rest (its index whole, not recovered)
+    // is checked as it is read.
+    let mut head = [0u8; HEADER_LEN];
+    if input.read_exact(&mut head).is_err() || !head.starts_with(&MAGIC) {
+        return Err(Error::unsupported(format!(
+            "{name} isn't a .bhive; only a .bhive can be signed"
+        )));
+    }
+    if layout::check_header(&head)? & FEATURE_ENCRYPTED != 0 {
+        return Err(not_built("signing an encrypted .bhive"));
     }
     let what = Resign {
         signing: opts.signing.clone(),
         remove: opts.remove.clone(),
         remove_all: opts.remove_all,
     };
-    let mut input = BufReader::new(
-        File::open(&target.path).map_err(|e| Error::io(format!("opening {name}"), &e))?,
-    );
     let mut partial = target.partial()?;
     let done = {
         let mut out = BufWriter::new(partial.file_mut());

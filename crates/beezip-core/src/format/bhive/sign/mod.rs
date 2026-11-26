@@ -421,11 +421,13 @@ fn parts(record: &[u8]) -> Result<Parts<'_>> {
     let signer = take_bytes(&mut b)?;
     let signed = take_bytes(&mut b)?;
     let signature = take_bytes(&mut b)?;
-    // Unsigned attributes: none is known yet, and they never change the status.
-    let _unsigned = take_bytes(&mut b)?;
+    // Unsigned attributes: none is known yet, and they never change the status, but they
+    // keep the rules of fields.
+    let unsigned = take_bytes(&mut b)?;
     if b.left() != 0 {
         return Err(Error::corrupt("bytes after a signature record"));
     }
+    fields(unsigned, "unsigned").map_err(|why| Error::corrupt(format!("bhive: {why}")))?;
     Ok(Parts {
         algorithm,
         signer,
@@ -434,19 +436,27 @@ fn parts(record: &[u8]) -> Result<Parts<'_>> {
     })
 }
 
-/// The time a record's signed attributes claim, or why the signature can't be checked: they
-/// don't parse, or one this reader doesn't know is critical (an odd tag).
-fn attributes(signed: &[u8]) -> std::result::Result<Option<i64>, String> {
-    let mut b = Bytes::new(signed);
-    let mut last = None;
-    let mut time = None;
+/// Attributes as fields (bhive.md §13.3): each a `uvarint` tag, a `uvarint` length and the
+/// value, tags in increasing order, each at most once.
+fn fields<'a>(bytes: &'a [u8], what: &str) -> std::result::Result<Vec<(u64, &'a [u8])>, String> {
+    let mut b = Bytes::new(bytes);
+    let mut out: Vec<(u64, &[u8])> = Vec::new();
     while b.left() > 0 {
         let tag = b.uvarint().map_err(|e| e.message)?;
         let value = take_bytes(&mut b).map_err(|e| e.message)?;
-        if last.is_some_and(|l| l >= tag) {
-            return Err(format!("signed attribute {tag} is out of order"));
+        if out.last().is_some_and(|&(l, _)| l >= tag) {
+            return Err(format!("{what} attribute {tag} is out of order"));
         }
-        last = Some(tag);
+        out.push((tag, value));
+    }
+    Ok(out)
+}
+
+/// The time a record's signed attributes claim, or why the signature can't be checked: they
+/// don't parse, or one this reader doesn't know is critical (an odd tag).
+fn attributes(signed: &[u8]) -> std::result::Result<Option<i64>, String> {
+    let mut time = None;
+    for (tag, value) in fields(signed, "signed")? {
         match tag {
             ATTRIBUTE_TIME => {
                 let mut v = Bytes::new(value);

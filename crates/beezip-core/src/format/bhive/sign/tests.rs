@@ -833,6 +833,11 @@ fn sixteen_signatures_at_most_and_a_mebibyte() {
     extra.truncate(extra.len() - 1);
     put_bytes(&mut extra, &[1, 3, 9, 9, 9]);
     assert_eq!(statuses(&s.of(&[extra])), [Status::Valid]);
+    // Unsigned attributes that break the rules of fields: the record doesn't parse.
+    let mut broken = one.clone();
+    broken.truncate(broken.len() - 1);
+    put_bytes(&mut broken, &[2, 0, 1, 0]);
+    assert!(not_checked(&s.of(&[broken]).signatures[0].status));
 
     // Bytes after the last record, and a record cut short, which leaves the others.
     let mut body = Vec::new();
@@ -1205,6 +1210,26 @@ fn archive_sign_adds_and_removes_and_keeps_the_contents() {
     )
     .unwrap_err();
     assert!(e.message.contains("only a .bhive"), "{e}");
+
+    // A cut archive, and an encrypted one (until PR A's edits are in), are left as they are.
+    let bytes = std::fs::read(&path).unwrap();
+    let cut = t.dir.path().join("cut.bhive");
+    std::fs::write(&cut, &bytes[..bytes.len() - 40]).unwrap();
+    let mut encrypted = bytes.clone();
+    encrypted[12] |= 1;
+    let sealed = t.dir.path().join("sealed.bhive");
+    std::fs::write(&sealed, &encrypted).unwrap();
+    for (p, was) in [
+        (&cut, &bytes[..bytes.len() - 40]),
+        (&sealed, &encrypted[..]),
+    ] {
+        let opts = SignOptions {
+            signing: signing(vec![hybrid()]),
+            ..SignOptions::default()
+        };
+        assert!(sign_with(p, opts).is_err());
+        assert_eq!(std::fs::read(p).unwrap(), was);
+    }
 }
 
 #[test]
@@ -1258,4 +1283,64 @@ fn an_edit_of_the_contents_drops_the_signatures() {
     let (mut r, report) = open_report(&path, &OpenOptions::default()).unwrap();
     assert!(!report.is_signed());
     assert_eq!(read_all(&mut r).unwrap().len(), 3);
+}
+
+// What signing costs (docs/M14.md §11): SHA-256 over every cell's stored bytes.
+
+#[test]
+#[ignore = "a timing, run by hand in release: cargo test --release -p beezip-core --lib -- --ignored signing_costs --nocapture"]
+fn signing_costs() {
+    use std::time::Instant;
+    let big = vec![0x5Au8; 256 << 20];
+    let best = |f: &mut dyn FnMut()| {
+        (0..5)
+            .map(|_| {
+                let t = Instant::now();
+                f();
+                t.elapsed().as_secs_f64()
+            })
+            .fold(f64::MAX, f64::min)
+    };
+    let s = best(&mut || {
+        cell_digest(&big).unwrap();
+    });
+    println!("SHA-256, one thread: {:.2} GiB/s", 0.25 / s);
+
+    // The workspace's sources, or the folder `BEEZIP_SIGNING_INPUT` names.
+    let sources = std::env::var_os("BEEZIP_SIGNING_INPUT")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| Path::new(env!("CARGO_MANIFEST_DIR")).join(".."));
+    let dir = tempfile::tempdir().unwrap();
+    let key = hybrid();
+    for level in [
+        crate::format::bhive::Level::Fast,
+        crate::format::bhive::Level::Balanced,
+    ] {
+        let mut times = Vec::new();
+        for signed in [false, true] {
+            let spec = WriteSpec::Bhive(BhiveWriteOptions {
+                level,
+                signing: signed.then(|| signing(vec![key.clone()])),
+                ..BhiveWriteOptions::default()
+            });
+            let out = dir.path().join("t.bhive");
+            times.push(best(&mut || {
+                let _ = std::fs::remove_file(&out);
+                crate::ops::create(
+                    &out,
+                    std::slice::from_ref(&sources),
+                    &spec,
+                    &CreateOptions::default(),
+                    &mut SimpleCtx::new(),
+                )
+                .unwrap();
+            }));
+        }
+        println!(
+            "{level:?}: {:.3} s, signed {:.3} s ({:+.1} %)",
+            times[0],
+            times[1],
+            (times[1] / times[0] - 1.0) * 100.0
+        );
+    }
 }
