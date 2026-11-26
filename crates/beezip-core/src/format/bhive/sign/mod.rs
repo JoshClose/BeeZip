@@ -13,6 +13,13 @@ use crate::{
 
 /// The message every algorithm signs is this long (bhive.md §13.3).
 pub const MESSAGE_LEN: usize = 113;
+/// What a reader checks at most (bhive.md §13.3, §13.4).
+pub const MAX_SIGNATURES: usize = 16;
+pub const MAX_CERTIFICATES: usize = 8;
+pub const MAX_SECTION_LEN: usize = 1 << 20;
+pub const RSA_BITS: std::ops::RangeInclusive<u32> = 2048..=8192;
+/// An RSA exponent is odd and from 3 to 2^32 − 1.
+pub const RSA_EXPONENT: std::ops::RangeInclusive<u64> = 3..=0xFFFF_FFFF;
 
 /// A signature algorithm (bhive.md §13.4).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -102,21 +109,31 @@ pub fn ready(signing: &Signing) -> Result<()> {
     Err(not_built("signing"))
 }
 
-/// The manifest of an index (bhive.md §13.1), from its raw bytes and their parse.
-pub fn manifest(raw: &[u8], index: &Index) -> Result<[u8; 32]> {
-    let _ = (raw, index);
+/// The manifest of an index (bhive.md §13.1), from the file's header, the index's raw bytes
+/// and their parse.
+pub fn manifest(header: &[u8; 16], raw: &[u8], index: &Index) -> Result<[u8; 32]> {
+    let _ = (header, raw, index);
     Err(not_built("the manifest"))
 }
 
-/// The manifest from a writer's parts: its cells, its entries' items as encoded, and its
-/// sections with even ids, in order.
+/// The manifest from a writer's parts: the header's version and features (bit 0 is cleared
+/// here), its cells, its entries' items as encoded, and its sections with even ids, in order.
 pub fn manifest_of(
+    version: u16,
+    features: u32,
     cells: &[Cell],
     entry_count: u64,
     entries: &[u8],
     even_sections: &[(u64, &[u8])],
 ) -> Result<[u8; 32]> {
-    let _ = (cells, entry_count, entries, even_sections);
+    let _ = (
+        version,
+        features,
+        cells,
+        entry_count,
+        entries,
+        even_sections,
+    );
     Err(not_built("the manifest"))
 }
 
@@ -155,7 +172,8 @@ pub enum Status {
     Invalid,
     /// An algorithm this BeeZip doesn't know.
     UnknownAlgorithm(u8),
-    /// It couldn't be checked, and why.
+    /// It couldn't be checked, and why: section 2 or 3 is malformed, a critical (odd) signed
+    /// attribute is unknown, a key is outside the limits or doesn't match the algorithm.
     NotChecked(String),
 }
 
@@ -179,9 +197,10 @@ pub struct Report {
 }
 
 /// Reads sections 2 and 3 from `index` and checks every signature against the manifest of
-/// `raw`. Never fails the archive: a signature that can't be checked says so in its status.
-pub fn check(raw: &[u8], index: &Index) -> Report {
-    let _ = raw;
+/// `header` and `raw`. Never fails the archive: a signature that can't be checked says so in
+/// its status. A recovered archive has no index, and is unsigned.
+pub fn check(header: &[u8; 16], raw: &[u8], index: &Index) -> Report {
+    let _ = (header, raw);
     let has = |id| index.sections.iter().any(|s| s.id == id);
     if !has(super::layout::SECTION_SIGNATURES) && !has(super::layout::SECTION_DIGESTS) {
         return Report::default();

@@ -287,10 +287,10 @@ def oaep_decrypt(n, d, ct):
 
 # --- the format ----------------------------------------------------------------------------
 
-def make_slot(kind, public, secret, file_key, recipient_key=b""):
+def make_slot(kind, public, secret, file_key, key_id, recipient_key=b""):
     head = bytes([kind, 0]) + struct.pack("<H", len(public) + 80)
     framed = head + public
-    context = hashlib.sha256(b"bhive1 slot" + framed + recipient_key).digest()
+    context = hashlib.sha256(b"bhive1 slot" + key_id + framed + recipient_key).digest()
     prk = hmac.new(context, secret, hashlib.sha256).digest()
     okm = hkdf_expand(prk, b"bhive1 slot", 64)
     wrap, commitment = okm[:32], okm[32:]
@@ -324,9 +324,9 @@ def seal_segments(key, data, aad):
     return bytes(out)
 
 
-def key_block(archive_id, slots, mac_key):
+def key_block(archive_id, key_id, slots, mac_key):
     body = b"".join(slots)
-    kb = b"BHKY" + bytes([1, 0]) + struct.pack("<HI", len(slots), len(body)) + archive_id + body
+    kb = b"BHKY" + bytes([1, 0]) + struct.pack("<HI", len(slots), len(body)) + archive_id + key_id + body
     mac = hmac.new(mac_key, HEADER_ENC + kb, hashlib.sha256).digest()
     return kb + mac, mac
 
@@ -353,15 +353,16 @@ def sealed_example(out):
     """spec-small's contents behind a password, "honey", at a tiny Argon2 cost."""
     _, head, journal, cell, row, items = spec_small()
     file_key = rnd("file key", 32)
+    key_id = rnd("key id", 16)
     archive_id = rnd("archive id", 32)
     salt = rnd("password salt", 32)
     m, t, p = 256, 2, 4
     secret = argon2id(b"honey", salt, t, m, p, 32)
     public = bytes([0x13, 0, 0, 0]) + struct.pack("<III", m, t, p) + salt
-    slot, sv = make_slot(1, public, secret, file_key)
+    slot, sv = make_slot(1, public, secret, file_key, key_id)
     mac_key = hkdf(file_key, archive_id, b"bhive1 mac")
     record_key = hkdf(file_key, archive_id, b"bhive1 record")
-    kb, mac = key_block(archive_id, [slot], mac_key)
+    kb, mac = key_block(archive_id, key_id, [slot], mac_key)
     f = bytearray(HEADER_ENC + kb)
 
     cell_id = rnd("cell id 0", 32)
@@ -370,9 +371,10 @@ def sealed_example(out):
     block_at = len(f)
     record_pt = cell_id + head + journal
     r = len(record_pt) + 16
-    block_head = b"BHCE" + struct.pack("<II", r, len(sealed_cell))
-    nonce = struct.pack("<Q", block_at) + b"\0" * 4
-    sealed_record = AesGcm(record_key).seal(nonce, record_pt, block_head)
+    nonce = rnd("record nonce 0", 12)
+    block_head = b"BHCE" + struct.pack("<II", r, len(sealed_cell)) + nonce
+    aad = block_head + struct.pack("<Q", block_at)
+    sealed_record = AesGcm(record_key).seal(nonce, record_pt, aad)
     f += block_head + sealed_record
     cell_at = len(f)
     f += sealed_cell
@@ -398,11 +400,13 @@ def sealed_example(out):
     out["sealed_example"] = {
         "password": "honey",
         "file_key": file_key.hex(),
+        "key_id": key_id.hex(),
         "archive_id": archive_id.hex(),
         "mac_key": mac_key.hex(),
         "record_key": record_key.hex(),
         "header_mac": mac.hex(),
         "cell_id": cell_id.hex(),
+        "record_nonce": nonce.hex(),
         "cell_key": cell_key.hex(),
         "index_salt": index_salt.hex(),
         "index_key": index_key.hex(),
@@ -444,6 +448,7 @@ def listing(f, parts):
     at = field(at, 2, "1 slot")
     at = field(at, 4, "slots length 132")
     at = field(at, 32, "archive id")
+    at = field(at, 16, "key id")
     lines.append("; slot 0: a password")
     at = field(at, 1, "kind 1: a password")
     at = field(at, 1, "reserved")
@@ -456,13 +461,14 @@ def listing(f, parts):
     at = field(at, 32, "salt")
     at = field(at, 32, "commitment")
     at = field(at, 48, "the file key, wrapped, and its tag")
-    at = field(at, 32, "header MAC, of the 60 + 132 bytes above")
+    at = field(at, 32, "header MAC, of the 76 + 132 bytes above")
     lines.append("; cell block 0")
     block_at, r, c = parts["block"]
     assert at == block_at
     at = field(at, 4, 'tag "BHCE"')
     at = field(at, 4, f"sealed record length {r}")
     at = field(at, 4, f"sealed cell length {c}")
+    at = field(at, 12, "the record's nonce")
     at = field(at, r, "the sealed record: cell id, record head, journal, tag")
     at = field(at, c, "the sealed cell: one segment of 10 bytes, and its tag")
     lines.append("; the index block")
@@ -482,20 +488,21 @@ def listing(f, parts):
 
 def slot_vectors(out):
     fk = rnd("slot file key", 32)
-    v = {"file_key": fk.hex()}
+    kid = rnd("slot key id", 16)
+    v = {"file_key": fk.hex(), "key_id": kid.hex()}
 
     pw_nfd = unicodedata.normalize("NFD", "Grüße, Jürgen")
     salt = rnd("slot password salt", 32)
     m, t, p = 256, 2, 4
     secret = argon2id(unicodedata.normalize("NFC", pw_nfd).encode(), salt, t, m, p, 32)
     public = bytes([0x13, 0, 0, 0]) + struct.pack("<III", m, t, p) + salt
-    _, sv = make_slot(1, public, secret, fk)
+    _, sv = make_slot(1, public, secret, fk, kid)
     v["password"] = {"password_as_typed_nfd": pw_nfd, "memory_kib": m, "passes": t, "lanes": p, **sv}
 
     key = rnd("recovery key", 16)
     groups = [(key[2 * i] + 256 * key[2 * i + 1]) * 11 for i in range(8)]
     digits = "-".join(f"{g:06d}" for g in groups)
-    _, sv = make_slot(2, rnd("recovery salt", 32), key, fk)
+    _, sv = make_slot(2, rnd("recovery salt", 32), key, fk, kid)
     v["recovery_key"] = {"digits": digits, "key": key.hex(), **sv}
 
     sk = rnd("x25519 recipient", 32)
@@ -503,7 +510,7 @@ def slot_vectors(out):
     esk = rnd("x25519 ephemeral", 32)
     share = x25519.public_key(esk)
     ss = x25519.x25519(esk, pk)
-    _, sv = make_slot(3, share, ss, fk, pk)
+    _, sv = make_slot(3, share, ss, fk, kid, pk)
     v["x25519"] = {
         "recipient_secret": sk.hex(), "recipient_public": pk.hex(),
         "recipient_text": bech32("age", pk), "secret_text": bech32("AGE-SECRET-KEY-", sk),
@@ -515,7 +522,7 @@ def slot_vectors(out):
     eseed = rnd("xwing encapsulation", 64)
     ss, ct = xwing.encaps_derand(xpk, eseed)
     assert xwing.decaps(seed, ct) == ss
-    _, sv = make_slot(4, ct, ss, fk)
+    _, sv = make_slot(4, ct, ss, fk, kid)
     v["xwing"] = {
         "recipient_seed": seed.hex(), "recipient_public": xpk.hex(),
         "recipient_text": bech32("age1pq", xpk), "secret_text": bech32("AGE-SECRET-KEY-PQ-", seed),
@@ -532,7 +539,7 @@ def slot_vectors(out):
     assert oaep_decrypt(n, d, ctr) == s
     tag = tag_of(spki, 5, ctr)
     public = tag + struct.pack("<H", len(ctr)) + ctr
-    _, sv = make_slot(5, public, s, fk)
+    _, sv = make_slot(5, public, s, fk, kid)
     v["rsa"] = {
         "pkcs8": rsa_pkcs8(n, e, d, pr, qr).hex(), "spki": spki.hex(),
         "oaep_seed": rnd("rsa oaep seed", 32).hex(), "tag": tag.hex(), **sv,
@@ -549,7 +556,7 @@ def slot_vectors(out):
         assert z == ecdh.shared_x(c, dr, eph)
         spki = ec_spki(name, q)
         tag = tag_of(spki, kind, eph)
-        _, sv = make_slot(kind, tag + eph, z, fk, q)
+        _, sv = make_slot(kind, tag + eph, z, fk, kid, q)
         v[name.lower().replace("-", "")] = {
             "pkcs8": ec_pkcs8(name, dr, c.size, q).hex(), "spki": spki.hex(),
             "recipient_public": q.hex(), "ephemeral_scalar": f"{de:x}", "tag": tag.hex(), **sv,
@@ -560,7 +567,7 @@ def slot_vectors(out):
     salt = rnd("fido2 salt", 32)
     hs = rnd("fido2 hmac-secret output", 32)
     public = bytes([0b10, 0]) + struct.pack("<H", len(cred)) + cred + bytes([len(rp)]) + rp + salt
-    _, sv = make_slot(8, public, hs, fk)
+    _, sv = make_slot(8, public, hs, fk, kid)
     v["fido2"] = {
         "credential_id": cred.hex(), "rp_id": rp.decode(), "salt": salt.hex(),
         "note": "secret stands for the authenticator's hmac-secret output for the salt", **sv,
@@ -600,9 +607,10 @@ def signed_example(out, exe, previous):
     digests = hashlib.sha256(cell).digest()
     sec2 = uvarint(2) + uvarint(len(digests)) + digests
     # The manifest.
+    header = struct.pack("<HI", 1, 0 & ~1)
     cells = struct.pack("<Q", 1) + row[12:16] + row[16:18] + row[18:26]
     entries = struct.pack("<QQ", 4, len(items)) + items
-    manifest = hashlib.sha256(b"bhive1 manifest" + cells + entries + sec2).digest()
+    manifest = hashlib.sha256(b"bhive1 manifest" + header + cells + entries + sec2).digest()
 
     ed_seed = rnd("signing ed25519", 32)
     ml_seed = rnd("signing ml-dsa-65", 32)

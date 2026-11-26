@@ -10,6 +10,8 @@ use crate::{Ctx, Result};
 #[allow(dead_code, reason = "PR A builds what reads these")]
 pub struct Envelope {
     pub(crate) file_key: FileKey,
+    /// Made with the file key, kept with it (bhive.md §12.2).
+    pub(crate) key_id: [u8; 16],
     pub(crate) archive_id: [u8; 32],
     /// The key block, from its `BHKY` tag through the header MAC.
     pub(crate) key_block: Vec<u8>,
@@ -60,8 +62,9 @@ impl Envelope {
         Err(not_built("sealing a cell"))
     }
 
-    /// A whole `BHCE` block for the cell block at `offset`: its 12-byte head and the sealed
-    /// record of `id`, `head` and `journal` (bhive.md §12.6). The sealed cell follows it.
+    /// A whole `BHCE` block for the cell block at `offset`: its 24-byte head with a fresh
+    /// nonce, and the sealed record of `id`, `head` and `journal`, the offset in its associated
+    /// data (bhive.md §12.6). The sealed cell follows it.
     pub fn record_block(
         &self,
         offset: u64,
@@ -86,6 +89,7 @@ impl Envelope {
 #[allow(dead_code, reason = "PR A builds what reads these")]
 pub struct Unlocked {
     pub(crate) file_key: FileKey,
+    pub(crate) key_id: [u8; 16],
     pub(crate) archive_id: [u8; 32],
     /// The slots' bytes, as the key block holds them, for an edit to keep.
     pub(crate) slots: Vec<u8>,
@@ -100,6 +104,7 @@ pub struct Unlocked {
 pub struct KeyBlock {
     pub suite: u8,
     pub archive_id: [u8; 32],
+    pub key_id: [u8; 16],
     /// Each slot's kind (`None` for a kind this BeeZip doesn't know) and its bytes' range in
     /// `bytes`.
     pub slots: Vec<(Option<super::SlotKind>, std::ops::Range<usize>)>,
@@ -138,7 +143,7 @@ impl Unlocked {
         Err(not_built("opening an encrypted .bhive"))
     }
 
-    /// A sealed record: the block at `offset` (its 12-byte head and the sealed record) gives
+    /// A sealed record: the block at `offset` (its 24-byte head and the sealed record) gives
     /// the cell's id, record head and journal as stored.
     pub fn open_record(&self, offset: u64, block: &[u8]) -> Result<([u8; 32], [u8; 48], Vec<u8>)> {
         let _ = (offset, block);

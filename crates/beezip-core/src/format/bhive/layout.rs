@@ -35,8 +35,10 @@ pub const FEATURE_ENCRYPTED: u32 = 1;
 pub const KEY_TAG: [u8; 4] = *b"BHKY";
 pub const SEALED_CELL_TAG: [u8; 4] = *b"BHCE";
 pub const SEALED_INDEX_TAG: [u8; 4] = *b"BHIE";
-pub const KEY_BLOCK_HEAD_LEN: usize = 44;
-pub const SEALED_CELL_HEAD_LEN: usize = 12;
+/// A key block's fields before its slots: tag, suite, counts, archive id, key id.
+pub const KEY_BLOCK_HEAD_LEN: usize = 60;
+/// A sealed cell block's head: tag, two lengths, the record's nonce.
+pub const SEALED_CELL_HEAD_LEN: usize = 24;
 pub const SEALED_INDEX_HEAD_LEN: usize = 48;
 /// A cell's row in an encrypted archive's table: the row, then the cell's id.
 pub const SEALED_ROW_LEN: usize = ROW_LEN + 32;
@@ -334,6 +336,11 @@ impl<'a> Bytes<'a> {
             }
             v |= u64::from(b & 0x7F) << (7 * i);
             if b & 0x80 == 0 {
+                // The shortest form only (docs/bhive.md §2): a last byte of 0 after others
+                // is a longer form of the same number.
+                if i > 0 && b == 0 {
+                    return Err(bad("a number not in its shortest form"));
+                }
                 return Ok(v);
             }
         }
@@ -855,6 +862,10 @@ pub fn parse_index_with(
     while b.left() > 0 {
         let id = b.uvarint()?;
         let body = b.bytes()?;
+        // Strictly increasing, each id once (docs/bhive.md §6).
+        if sections.last().is_some_and(|s: &Section| s.id >= id) {
+            return Err(bad(format!("index section {id} is out of order")));
+        }
         if id == SECTION_LEVEL && body.len() == 1 {
             level = Some(body[0]);
         }

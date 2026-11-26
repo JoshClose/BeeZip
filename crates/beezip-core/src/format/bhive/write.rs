@@ -738,7 +738,19 @@ impl BhiveWriter {
                 .filter(|(id, _)| id % 2 == 0)
                 .map(|(id, b)| (*id, b.as_slice()))
                 .collect();
-            let manifest = sign::manifest_of(&self.cells, self.entries, &self.items, &covered)?;
+            let features = if self.finish.envelope.is_some() {
+                layout::FEATURE_ENCRYPTED
+            } else {
+                0
+            };
+            let manifest = sign::manifest_of(
+                layout::VERSION,
+                features,
+                &self.cells,
+                self.entries,
+                &self.items,
+                &covered,
+            )?;
             sections.push((SECTION_SIGNATURES, sign::section(signing, &manifest)?));
         }
         let envelope = self.finish.envelope.clone();

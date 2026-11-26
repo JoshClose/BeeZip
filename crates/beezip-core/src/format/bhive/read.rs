@@ -78,12 +78,13 @@ fn memory_limit(what: &str, need: u64, limits: &Limits) -> Result<()> {
 /// The index, found from the footer and checked, and its signatures checked against it.
 fn read_index(
     input: &mut Input,
+    header: &[u8; HEADER_LEN],
     limits: &Limits,
     unlocked: Option<&Unlocked>,
     key_block_len: u64,
 ) -> Result<(Index, sign::Report)> {
     if let Some(unlocked) = unlocked {
-        return read_sealed_index(input, limits, unlocked, key_block_len);
+        return read_sealed_index(input, header, limits, unlocked, key_block_len);
     }
     let len = input.len();
     let least = (HEADER_LEN + INDEX_HEAD_LEN + FOOTER_LEN) as u64;
@@ -117,7 +118,7 @@ fn read_index(
         return Err(bad("the index fails its checksum"));
     }
     let index = layout::parse_index(&raw, offset, limits.max_entries)?;
-    let report = sign::check(&raw, &index);
+    let report = sign::check(header, &raw, &index);
     Ok((index, report))
 }
 
@@ -125,11 +126,12 @@ fn read_index(
 /// opened, then read as §5's index block with a sealed table. PR A builds it.
 fn read_sealed_index(
     input: &mut Input,
+    header: &[u8; HEADER_LEN],
     limits: &Limits,
     unlocked: &Unlocked,
     key_block_len: u64,
 ) -> Result<(Index, sign::Report)> {
-    let _ = (input, limits, unlocked, key_block_len);
+    let _ = (input, header, limits, unlocked, key_block_len);
     Err(super::crypt::not_built("reading a sealed index"))
 }
 
@@ -604,12 +606,11 @@ impl BhiveReader {
         if input.len() < HEADER_LEN as u64 {
             return Err(bad("the file is too short to be a .bhive"));
         }
-        let header = read_at(&mut input, 0, HEADER_LEN)?;
-        let features = layout::check_header(&header)?;
+        let mut head = [0u8; HEADER_LEN];
+        head.copy_from_slice(&read_at(&mut input, 0, HEADER_LEN)?);
+        let features = layout::check_header(&head)?;
         // An encrypted archive: its key block, and a way in before anything else is read.
         let (unlocked, key_block_len) = if features & layout::FEATURE_ENCRYPTED != 0 {
-            let mut head = [0u8; HEADER_LEN];
-            head.copy_from_slice(&header);
             input
                 .seek(SeekFrom::Start(HEADER_LEN as u64))
                 .map_err(|e| read_error(&e))?;
@@ -621,6 +622,7 @@ impl BhiveReader {
         };
         let (index, recovered, signatures) = match read_index(
             &mut input,
+            &head,
             &source.limits,
             unlocked.as_deref(),
             key_block_len,

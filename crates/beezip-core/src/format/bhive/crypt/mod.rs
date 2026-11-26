@@ -39,6 +39,11 @@ pub const MAX_SLOTS: usize = 64;
 pub const MAX_SLOTS_LEN: usize = 65_536;
 /// A slot's commitment and wrapped file key, after its public part (bhive.md §12.4).
 pub const SLOT_TAIL_LEN: usize = 32 + 48;
+/// The key id's length (bhive.md §12.2).
+pub const KEY_ID_LEN: usize = 16;
+/// At most this many password slots in a key block: a reader may run Argon2 for each
+/// (bhive.md §12.5).
+pub const MAX_PASSWORD_SLOTS: usize = 4;
 /// Cells and the index are sealed in segments of this much plaintext (bhive.md §12.8).
 pub const SEGMENT: usize = 1 << 20;
 /// An AES-256-GCM tag.
@@ -131,6 +136,8 @@ pub struct SlotView<'a> {
     /// Its place in the key block, from 0.
     pub index: usize,
     pub kind: SlotKind,
+    /// The key block's key id, which every slot's context includes.
+    pub key_id: &'a [u8; KEY_ID_LEN],
     /// The slot's first 4 + p bytes: its head and public part. The context, the wrap key's
     /// associated data and the tags are computed over these.
     pub framed: &'a [u8],
@@ -139,11 +146,13 @@ pub struct SlotView<'a> {
 }
 
 impl SlotView<'_> {
-    /// `SHA-256("bhive1 slot" ‖ framed ‖ recipient key)` (bhive.md §12.4 step 1). A key source
-    /// whose secret never leaves its device (CNG's `BCRYPT_KDF_HMAC`) keys its HMAC with this.
+    /// `SHA-256("bhive1 slot" ‖ key id ‖ framed ‖ recipient key)` (bhive.md §12.4 step 1). A
+    /// key source whose secret never leaves its device (CNG's `BCRYPT_KDF_HMAC`) keys its HMAC
+    /// with this.
     pub fn context(&self, recipient_key: &[u8]) -> [u8; 32] {
         let mut h = ring::digest::Context::new(&ring::digest::SHA256);
         h.update(label::SLOT);
+        h.update(self.key_id);
         h.update(self.framed);
         h.update(recipient_key);
         let mut out = [0; 32];
@@ -446,6 +455,7 @@ mod tests {
                 .collect()
         };
         let slots = &v["slots"];
+        let key_id: [u8; KEY_ID_LEN] = hex(&slots["key_id"]).try_into().unwrap();
         for name in [
             "password",
             "recovery_key",
@@ -465,6 +475,7 @@ mod tests {
             let view = SlotView {
                 index: 0,
                 kind,
+                key_id: &key_id,
                 framed,
                 public: &framed[4..],
             };
