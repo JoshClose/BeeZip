@@ -85,7 +85,7 @@ describe("who can open an encrypted .bhive (docs/M14.md §3, §8)", () => {
     fake.handlers.set("archive.protection", () => ({ encrypted: true, ways: [ways[0], ways[4]], post_quantum: false }));
     render(<WhoCanOpenDialog tab={tab} onClose={() => {}} />);
     expect(await screen.findByRole("button", { name: "Remove Password" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Remove EC certificate or This PC (P-256): This PC" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Remove This PC" })).toBeEnabled();
   });
 
   it("adds a password and a recovery key, and shows the new key once", async () => {
@@ -121,12 +121,36 @@ describe("who can open an encrypted .bhive (docs/M14.md §3, §8)", () => {
     expect(recipients).toHaveTextContent(STRANGER);
     expect(within(confirm).getByRole("checkbox", { name: /Ann, your contact Ann/ })).toBeChecked();
     expect(within(confirm).getByRole("checkbox", { name: /Ann's laptop/ })).not.toBeChecked();
-    expect(confirm).toHaveTextContent("BeeZip asks for each password again.");
     expect(confirm).toHaveTextContent("This PC may ask for its PIN.");
+    // The old password can't be read back: it is typed again for the one new password slot.
+    expect(confirm).toHaveTextContent(/Type its password again, or a new one/);
+    await user.type(within(confirm).getByLabelText("Password"), "the new one");
+    // A recipient that isn't a contact is rebuilt only when confirmed.
     await user.click(within(confirm).getByRole("checkbox", { name: "RSA certificate" }));
     await user.click(within(confirm).getByRole("button", { name: /Make a new key/ }));
     await waitFor(() => expect(fake.calls.some((c) => c.name === "archive.protect")).toBe(true));
-    expect(fake.calls.find((c) => c.name === "archive.protect")?.args).toEqual({ archive: tab.path, new_key: true, remove: [2], password: "pw" });
+    expect(fake.calls.find((c) => c.name === "archive.protect")?.args).toEqual({ archive: tab.path, new_key: true, add_password: "the new one", confirm: [3], remove: [2], password: "pw" });
+    // The tab keeps the new password, since the old one no longer opens it.
+    await waitFor(() => expect(useArchives.getState().tabs[0].password).toBe("the new one"));
+  });
+
+  it("removes the password with a new key when none is typed", async () => {
+    const user = userEvent.setup();
+    fake.handlers.set("archive.protect", () => ({ ways: ways.slice(1), post_quantum: false }));
+    render(<WhoCanOpenDialog tab={tab} onClose={() => {}} />);
+    await user.click(await screen.findByRole("button", { name: /New key/ }));
+    const confirm = await screen.findByRole("dialog", { name: "Make a new key" });
+    await user.click(within(confirm).getByRole("button", { name: /Make a new key/ }));
+    await waitFor(() => expect(fake.calls.some((c) => c.name === "archive.protect")).toBe(true));
+    expect(fake.calls.find((c) => c.name === "archive.protect")?.args).toEqual({ archive: tab.path, new_key: true, remove: [0, 2, 3], password: "pw" });
+    await waitFor(() => expect(useArchives.getState().tabs[0].password).toBeUndefined());
+  });
+
+  it("names This PC and Windows Hello by where they work", () => {
+    expect(wayTitle({ slot: 5, kind: "security-key", machine_bound: true, post_quantum: true })).toBe("Windows Hello");
+    expect(wayTitle({ slot: 6, kind: "security-key", machine_bound: false, post_quantum: true })).toBe("Security key");
+    expect(wayTitle(ways[4])).toBe("This PC");
+    expect(wayTitle({ slot: 7, kind: "ec-p256", recipient: "CN=Bob", machine_bound: false, post_quantum: false })).toBe("EC certificate (P-256)");
   });
 
   it("passes only the way in, not a name encoding, and reads once though the tab changes", async () => {
@@ -166,6 +190,18 @@ describe("who can open an encrypted .bhive (docs/M14.md §3, §8)", () => {
     expect(within(confirm).getAllByText(/Only the certificate's subject is known here/)).toHaveLength(1);
     // Matched by its fingerprint, a contact's way in comes ticked.
     expect(contactFor(withPrint[2], [{ ...keys[0], name: "Sam", public: "age1other", fingerprint: "SSSS-TTTT-RRRR-AAAA" }])?.name).toBe("Sam");
+  });
+
+  it("takes the ways in from archive.info when it has them, and keeps them there after a change", async () => {
+    const user = userEvent.setup();
+    const t: Tab = { ...tab, info: { ...tab.info, protection: { encrypted: true, ways, post_quantum: false } } as ArchiveInfoOutput };
+    useArchives.setState({ tabs: [t], active: t.id });
+    fake.handlers.set("archive.protect", () => ({ ways: ways.filter((w) => w.slot !== 3), post_quantum: false }));
+    render(<WhoCanOpenDialog tab={t} onClose={() => {}} />);
+    expect(screen.getByRole("list", { name: "Ways in" })).toHaveTextContent("RSA certificate");
+    expect(fake.calls.some((c) => c.name === "archive.protection")).toBe(false);
+    await user.click(screen.getByRole("button", { name: "Remove RSA certificate" }));
+    await waitFor(() => expect(useArchives.getState().tabs[0].info?.protection?.ways).toHaveLength(4));
   });
 
   it("says why it can't read the ways in", async () => {

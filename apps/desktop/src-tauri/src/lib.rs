@@ -80,6 +80,11 @@ pub fn run() {
             }
         })
         .setup(move |app| {
+            // Whether a password may take more than half this machine's memory (docs/M14.md
+            // §5): a message box on the window in front, asked from the job's thread.
+            let handle = app.handle().clone();
+            app.state::<Arc<GuiInteractor>>()
+                .ask_memory_with(move |_job, need, total| ask_memory(&handle, need, total));
             let handle = app.handle().clone();
             app.listen_any(OPENED_FORGET, move |event| {
                 if let Ok(forget) = serde_json::from_str::<Forget>(event.payload()) {
@@ -141,6 +146,30 @@ fn tauri_theme(theme: Theme) -> Option<tauri::Theme> {
         Theme::Light => Some(tauri::Theme::Light),
         Theme::Dark => Some(tauri::Theme::Dark),
     }
+}
+
+/// Asks whether a password slot may use `need` MiB of this machine's `total`, in a message box
+/// on BeeZip's window in front, or the main one. It waits on the job's thread; no by default.
+fn ask_memory(app: &tauri::AppHandle, need: u64, total: u64) -> bool {
+    use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
+    let mut dialog = app
+        .dialog()
+        .message(prompts::memory_question(need, total))
+        .title("BeeZip")
+        .kind(MessageDialogKind::Warning)
+        .buttons(MessageDialogButtons::OkCancelCustom(
+            "Use it".to_string(),
+            "Don't open it".to_string(),
+        ));
+    let windows = app.webview_windows();
+    let front = windows
+        .values()
+        .find(|w| w.is_focused().unwrap_or(false))
+        .or_else(|| windows.get(MAIN));
+    if let Some(window) = front {
+        dialog = dialog.parent(window);
+    }
+    dialog.blocking_show()
 }
 
 /// Cancels whatever still runs and waits, up to [`EXIT_WAIT`], for it to clean up. Quitting

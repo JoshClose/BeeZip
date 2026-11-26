@@ -10,7 +10,7 @@ import type { ArchiveInfoOutput, KeyInfo } from "../gen/commands";
 import { type Tab, useArchives } from "../lib/archives";
 import { useKeyring } from "../lib/keyring";
 import { useUi } from "../lib/ui";
-import { changedSinceSigned, ownSigners, type Signature, signaturesOf, summarize } from "../lib/signatures";
+import { changedSinceSigned, contactKey, ownSigners, type Signature, signaturesOf, summarize } from "../lib/signatures";
 import { fake } from "./fakeEngine";
 
 vi.mock("../lib/engine", () => import("./fakeEngine"));
@@ -48,7 +48,7 @@ describe("what the signature line says (docs/M14.md §11)", () => {
     expect(summarize([base, { ...cert, status: "changed", trust: undefined }])).toEqual({ tone: "bad", text: "Changed after it was signed" });
   });
 
-  it("reads `archive.info`'s signatures, which PR 0 left out of its type", () => {
+  it("reads `archive.info`'s signatures", () => {
     expect(signaturesOf(undefined)).toEqual([]);
     expect(signaturesOf({ format: "zip" } as ArchiveInfoOutput)).toEqual([]);
     expect(signaturesOf(info([base]))).toEqual([base]);
@@ -95,7 +95,10 @@ describe("what the signature line says (docs/M14.md §11)", () => {
 describe("an unknown signer's certificate (docs/M14.md §11)", () => {
   it("shows its subject beside \"an unknown signer\", in the line and the details", async () => {
     const user = userEvent.setup();
-    const stranger: Signature = { ...cert, trust: "unknown", signer: "CN=Someone Else", issuer: "CN=Nobody's CA" };
+    const stranger: Signature = { ...cert, trust: "unknown", signer: "CN=Someone Else", issuer: "CN=Nobody's CA", public: "-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----\n" };
+    // keys.import takes keys, not certificates: no "Add to contacts" for one.
+    expect(contactKey(stranger)).toBeUndefined();
+    expect(contactKey(unknown)).toBe("bzsig1stranger");
     render(<SignatureLine tab={tab([stranger])} />);
     const line = screen.getByRole("status", { name: "Signature" });
     expect(line).toHaveTextContent("Signed by an unknown signer");
@@ -106,6 +109,8 @@ describe("an unknown signer's certificate (docs/M14.md §11)", () => {
     expect(dialog).toHaveTextContent("Certificate forCN=Someone Else, as the certificate says");
     expect(dialog).toHaveTextContent("Issued byCN=Nobody's CA");
     expect(dialog).toHaveTextContent("AAAA-BBBB-CCCC-DDDD");
+    expect(within(dialog).queryByRole("button", { name: /Add to contacts/ })).toBeNull();
+    expect(dialog).toHaveTextContent("Windows doesn't trust this certificate.");
   });
 });
 
@@ -138,7 +143,7 @@ describe("Sign", () => {
     expect(useArchives.getState().tabs[0].info).toBeUndefined();
   });
 
-  it("removes one signature by its place, or all of them", async () => {
+  it("removes one signature by its place from 1, as archive.info numbers them, or all of them", async () => {
     const user = userEvent.setup();
     const t = tab([base, cert]);
     fake.handlers.set("archive.sign", () => ({ signatures: [] }));
@@ -146,7 +151,7 @@ describe("Sign", () => {
     await user.click(screen.getByText(/Remove CN=Ann Example's signature/));
     await user.click(screen.getByRole("button", { name: "Remove" }));
     await waitFor(() => expect(fake.calls.some((c) => c.name === "archive.sign")).toBe(true));
-    expect(fake.calls.find((c) => c.name === "archive.sign")?.args).toEqual({ archive: t.path, remove: [1] });
+    expect(fake.calls.find((c) => c.name === "archive.sign")?.args).toEqual({ archive: t.path, remove: [2] });
     unmount();
 
     fake.calls = [];

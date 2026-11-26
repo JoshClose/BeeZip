@@ -181,7 +181,7 @@ export function convertFormat(source: string): ArchiveFormatName {
  * written without one: only when the new archive gets no way in at all. */
 export function convertArgs(source: Tab, f: CreateForm, decrypt: boolean, formats?: FormatsListOutput): ArchiveConvertInput {
   const { inputs: _, password, ...rest } = createArgs(f, formats);
-  const wayIn = !!password || !!rest.recovery_key || (rest.to?.length ?? 0) > 0 || (rest.to_cert?.length ?? 0) > 0 || !!rest.this_pc || !!rest.security_key;
+  const wayIn = !!password || !!rest.recovery_key || (rest.to?.length ?? 0) > 0 || (rest.to_cert?.length ?? 0) > 0 || !!rest.this_pc || !!rest.security_key || !!rest.windows_hello;
   return {
     archive: source.path,
     ...rest,

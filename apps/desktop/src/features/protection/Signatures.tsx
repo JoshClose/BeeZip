@@ -9,7 +9,7 @@ import { Input } from "../../components/ui/input";
 import { type Tab, useArchives } from "../../lib/archives";
 import { useJobs } from "../../lib/jobs";
 import { useKeyring } from "../../lib/keyring";
-import { ALGORITHMS, type Signature, signaturesOf, signerPhrase, summarize, unknownSubject } from "../../lib/signatures";
+import { ALGORITHMS, contactKey, type Signature, signaturesOf, signerPhrase, summarize, unknownSubject } from "../../lib/signatures";
 import { toastError, toastInfo } from "../../lib/toasts";
 
 const STATUS: Record<Signature["status"], string> = {
@@ -24,15 +24,16 @@ function claimed(seconds: number): string {
   return new Date(seconds * 1000).toLocaleString();
 }
 
-/** "Add to contacts": the signer's key or certificate, under a name, with `keys.import`. */
+/** "Add to contacts": the signer's `bzsig1…` key, under a name, with `keys.import`. */
 function AddContact({ sig, tab }: { sig: Signature; tab: Tab }) {
   const [name, setName] = useState(sig.signer === sig.fingerprint ? "" : sig.signer);
   const [busy, setBusy] = useState(false);
-  if (!sig.public) return null;
+  const text = contactKey(sig);
+  if (!text) return null;
   const add = async () => {
     setBusy(true);
     try {
-      await useJobs.getState().track("keys.import", { name: name.trim(), text: sig.public }, { title: `Adding ${name.trim()} to your contacts` });
+      await useJobs.getState().track("keys.import", { name: name.trim(), text }, { title: `Adding ${name.trim()} to your contacts` });
       await useKeyring.getState().load(true);
       // Read again, so the signature shows as a contact's.
       useArchives.getState().update(tab.id, { info: undefined });
@@ -93,11 +94,14 @@ export function SignatureDetails({ tab, sigs, onClose }: { tab: Tab; sigs: Signa
               {s.claimed_time !== undefined && <Row label="Signed at">{claimed(s.claimed_time)}, as the signer claims: not proved</Row>}
               {s.note && <Row label="Note">{s.note}</Row>}
             </dl>
-            {s.status === "valid" && s.trust === "unknown" && (
+            {s.status === "valid" && s.trust === "unknown" && contactKey(s) && (
               <div className="pt-2">
                 <p className="pb-1.5 text-[12px] text-muted">Check the fingerprint with the signer, by phone or in person, before you add them.</p>
                 <AddContact sig={s} tab={tab} />
               </div>
+            )}
+            {s.status === "valid" && s.trust === "unknown" && !contactKey(s) && s.issuer && (
+              <p className="pt-2 text-[12px] text-muted">Windows doesn't trust this certificate. Check the fingerprint with the signer before you trust what they signed.</p>
             )}
           </li>
         ))}

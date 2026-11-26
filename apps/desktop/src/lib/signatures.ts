@@ -3,18 +3,18 @@
 // that changed after it was signed.
 import type { ArchiveInfoOutput, SignatureAlgorithmName, SignatureReport } from "../gen/commands";
 
-/** A signature, with the signer's public key or certificate when the engine gives it, for
- * "Add to contacts". */
-export type Signature = SignatureReport & {
-  /** The signer's `bzsig1…` key, or its certificate in PEM. */
-  public?: string;
-};
+/** A signature, as `archive.info` and `archive.test` report it. */
+export type Signature = SignatureReport;
 
-/** `archive.info`'s signatures. PR 0 left them out of `ArchiveInfoOutput`; the commands PR adds
- * them (docs/M14.md §11, "`archive.info` and `archive.test` report signatures"). */
-export function signaturesOf(info: ArchiveInfoOutput | undefined): Signature[] {
-  const sigs = (info as (ArchiveInfoOutput & { signatures?: Signature[] }) | undefined)?.signatures;
-  return Array.isArray(sigs) ? sigs : [];
+/** `archive.info`'s signatures: none for an unsigned archive or another format. */
+export function signaturesOf(info: Pick<ArchiveInfoOutput, "signatures"> | undefined): Signature[] {
+  return info?.signatures ?? [];
+}
+
+/** What "Add to contacts" adds: a signer's `bzsig1…` key. A certificate can't be a contact
+ * yet (`keys.import` takes keys); the system's stores say whether to trust one. */
+export function contactKey(s: Signature): string | undefined {
+  return s.public?.startsWith("bzsig1") ? s.public : undefined;
 }
 
 export const ALGORITHMS: Record<SignatureAlgorithmName, string> = {

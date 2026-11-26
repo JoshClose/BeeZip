@@ -179,15 +179,16 @@ describe("the protection arguments", () => {
   it("sends only what is set, and the strength only with a password", () => {
     expect(protectionArgs(NO_PROTECTION, "")).toEqual({});
     expect(protectionArgs(form({ strength: "strong" }), "")).toEqual({});
-    expect(protectionArgs(form({ strength: "strong", recoveryKey: true, thisPc: true, thisPcPin: "1234", securityKey: true }), "pw")).toEqual({
+    expect(protectionArgs(form({ strength: "strong", recoveryKey: true, thisPc: true, thisPcPin: "1234", securityKey: true, windowsHello: true }), "pw")).toEqual({
       strength: "strong",
       recovery_key: true,
       this_pc: true,
       this_pc_pin: "1234",
       security_key: true,
+      windows_hello: true,
     });
-    // This PC and security keys are Windows'.
-    expect(protectionArgs(form({ thisPc: true, securityKey: true }), "pw", false)).toEqual({});
+    // This PC, security keys and Windows Hello are Windows'.
+    expect(protectionArgs(form({ thisPc: true, securityKey: true, windowsHello: true }), "pw", false)).toEqual({});
   });
 
   it("adds ways with `archive.protect`'s names", () => {
@@ -206,6 +207,17 @@ describe("what the dialogs say about the ways in", () => {
     // Adding This PC to an archive that already has a portable way in.
     const existing: WayIn[] = [{ slot: 0, kind: "password", machine_bound: false, post_quantum: true }];
     expect(checkProtection(form({ thisPc: true }), "", true, existing).problem).toBeUndefined();
+  });
+
+  it("refuses Windows Hello alone too, but not a security key, which goes with its holder", () => {
+    expect(checkProtection(form({ windowsHello: true }), "").problem).toMatch(/^Windows Hello opens it only on this computer/);
+    expect(checkProtection(form({ windowsHello: true, thisPc: true }), "").problem).toMatch(/^This PC and Windows Hello open it only on this computer/);
+    expect(checkProtection(form({ windowsHello: true }), "pw").problem).toBeUndefined();
+    expect(checkProtection(form({ securityKey: true }), "")).toMatchObject({ ways: 1, problem: undefined, warnings: [] });
+    expect(checkProtection(form({ securityKey: true, windowsHello: true }), "").problem).toBeUndefined();
+    // An archive whose only way in is Windows Hello already: adding This PC doesn't help.
+    const hello: WayIn = { slot: 0, kind: "security-key", machine_bound: true, post_quantum: true };
+    expect(checkProtection(form({ thisPc: true }), "", true, [hello]).problem).toMatch(/only on this computer/);
   });
 
   it("warns when a password is mixed with someone else's key, not your own (decision 12)", () => {

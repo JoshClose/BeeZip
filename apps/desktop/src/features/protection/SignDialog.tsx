@@ -31,7 +31,8 @@ export function SignDialog({ tab, initial = [], note, onClose }: { tab: Tab; ini
         {
           archive: tab.path,
           ...(sign.length > 0 ? { sign } : {}),
-          ...(removeAll ? { remove_all: true } : remove.length > 0 ? { remove } : {}),
+          // By their place in archive.info's list, from 1.
+          ...(removeAll ? { remove_all: true } : remove.length > 0 ? { remove: remove.map((i) => i + 1) } : {}),
           ...keptWayIn(tab),
         },
         { title, tab: tab.id },

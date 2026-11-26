@@ -1,7 +1,7 @@
 // A .bhive's Protection section, in the create, convert and "Who can open this" dialogs
 // (docs/M14.md §8): a password with its strength and "Suggest one", a recovery key, people and
-// keys (a pasted key, a contact, a certificate, a certificate file), This PC and a security key
-// on Windows, and what it all means. And "Sign with", in create, convert and add (§11).
+// keys (a pasted key, a contact, a certificate, a certificate file), This PC, a security key and
+// Windows Hello on Windows, and what it all means. And "Sign with", in create, convert and add (§11).
 import { open as pickFiles } from "@tauri-apps/plugin-dialog";
 import { Eye, EyeOff, FileKey, Plus, Sparkles, X } from "lucide-react";
 import { useMemo, useState } from "react";
@@ -193,8 +193,9 @@ function RecipientsField({ id, recipients, onChange }: { id: string; recipients:
 }
 
 /**
- * The ways in beside the password: recovery key, people and keys, This PC and a security key,
- * then what the choice means: This PC alone refused, mixing warned of, quantum resistance said.
+ * The ways in beside the password: recovery key, people and keys, This PC, a security key and
+ * Windows Hello, then what the choice means: This PC or Windows Hello alone refused, mixing
+ * warned of, quantum resistance said.
  * `existing` are the archive's ways in, when adding to them.
  */
 export function ProtectionFields({
@@ -250,10 +251,15 @@ export function ProtectionFields({
           </Field>
           <Field label="Security key">
             <div className="pt-1">
+              <Checkbox checked={value.securityKey} onChange={(securityKey) => set({ securityKey })} label="Let a security key open it: Windows asks for a touch" />
+            </div>
+          </Field>
+          <Field label="Windows Hello">
+            <div className="pt-1">
               <Checkbox
-                checked={value.securityKey}
-                onChange={(securityKey) => set({ securityKey })}
-                label="Let a security key or Windows Hello open it: Windows asks for a touch"
+                checked={value.windowsHello}
+                onChange={(windowsHello) => set({ windowsHello })}
+                label="Let Windows Hello open it: your face, a fingerprint or its PIN, on this PC only"
               />
             </div>
           </Field>

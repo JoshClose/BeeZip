@@ -26,9 +26,10 @@ export type ProtectionForm = {
   thisPc: boolean;
   thisPcPin: string;
   securityKey: boolean;
+  windowsHello: boolean;
 };
 
-export const NO_PROTECTION: ProtectionForm = { strength: "standard", recoveryKey: false, recipients: [], thisPc: false, thisPcPin: "", securityKey: false };
+export const NO_PROTECTION: ProtectionForm = { strength: "standard", recoveryKey: false, recipients: [], thisPc: false, thisPcPin: "", securityKey: false, windowsHello: false };
 
 /** What each kind of way in is called. */
 export const SLOT_NAMES: Record<SlotKindName, string> = {
@@ -41,6 +42,16 @@ export const SLOT_NAMES: Record<SlotKindName, string> = {
   "ec-p384": "EC certificate (P-384)",
   "security-key": "Security key or Windows Hello",
 };
+
+/** What a way in is called, telling This PC from a certificate and Windows Hello from a
+ * security key by whether it works only on this machine. */
+export function wayKindName(w: Pick<WayIn, "kind" | "machine_bound">): string {
+  if (w.machine_bound && w.kind === "security-key") return "Windows Hello";
+  if (w.machine_bound && w.kind === "ec-p256") return "This PC";
+  if (w.kind === "security-key") return "Security key";
+  if (w.kind === "ec-p256") return "EC certificate (P-256)";
+  return SLOT_NAMES[w.kind];
+}
 
 /** Ways in a quantum computer couldn't open (docs/M14.md §1): passwords, recovery keys,
  * post-quantum keys and security keys. */
@@ -119,7 +130,7 @@ export function recipientArgs(recipients: Recipient[]): { to?: string[]; to_cert
   return { ...(to.length > 0 ? { to } : {}), ...(certs.length > 0 ? { to_cert: certs } : {}) };
 }
 
-type ProtectionArgs = Pick<ArchiveCreateInput, "recovery_key" | "to" | "to_cert" | "this_pc" | "this_pc_pin" | "security_key" | "strength">;
+type ProtectionArgs = Pick<ArchiveCreateInput, "recovery_key" | "to" | "to_cert" | "this_pc" | "this_pc_pin" | "security_key" | "windows_hello" | "strength">;
 
 /** The protection fields as `archive.create` and `archive.convert` take them, beside the
  * password (which goes in `password` or `new_password`). Only what is set. */
@@ -130,6 +141,7 @@ export function protectionArgs(p: ProtectionForm, password: string, windows = tr
     ...(windows && p.thisPc ? { this_pc: true } : {}),
     ...(windows && p.thisPc && p.thisPcPin ? { this_pc_pin: p.thisPcPin } : {}),
     ...(windows && p.securityKey ? { security_key: true } : {}),
+    ...(windows && p.windowsHello ? { windows_hello: true } : {}),
     ...(password && p.strength !== "standard" ? { strength: p.strength } : {}),
   };
 }
@@ -140,12 +152,11 @@ export function addWaysArgs(p: ProtectionForm, password: string, windows = true)
   return { ...(password ? { add_password: password } : {}), ...rest, ...(strength ? { strength } : {}) };
 }
 
-/** A way in's fingerprint, or a certificate's thumbprint, when the engine gives one. PR 0's
- * `WayIn` has only the public key or the certificate's subject, which is a claim anyone who
- * held the file key could rewrite (docs/bhive.md §12.9); the commands PR is asked to add it. */
+/** A way in's fingerprint: of its public key or certificate, for a recipient. The public key
+ * text or the certificate's subject beside it is a claim anyone who held the file key could
+ * rewrite (docs/bhive.md §12.9); the fingerprint is what people compare. */
 export function wayFingerprint(w: WayIn): string | undefined {
-  const fingerprint = (w as WayIn & { fingerprint?: string }).fingerprint;
-  return typeof fingerprint === "string" && fingerprint ? fingerprint : undefined;
+  return w.fingerprint || undefined;
 }
 
 /** The contact or key of yours a way in is to: by its fingerprint when there is one, else by
@@ -180,13 +191,15 @@ export type ProtectionCheck = {
 export function checkProtection(p: ProtectionForm, password: string, windows = true, existing: WayIn[] = [], keys: KeyInfo[] = []): ProtectionCheck {
   const thisPc = windows && p.thisPc;
   const securityKey = windows && p.securityKey;
-  const ways = (password ? 1 : 0) + (p.recoveryKey ? 1 : 0) + p.recipients.length + (thisPc ? 1 : 0) + (securityKey ? 1 : 0);
+  const hello = windows && p.windowsHello;
+  const ways = (password ? 1 : 0) + (p.recoveryKey ? 1 : 0) + p.recipients.length + (thisPc ? 1 : 0) + (securityKey ? 1 : 0) + (hello ? 1 : 0);
   const warnings: string[] = [];
-  const portable = password !== "" || p.recoveryKey || p.recipients.length > 0 || existing.some((w) => !w.machine_bound);
+  // A security key goes with its holder; This PC and Windows Hello stay on this machine.
+  const portable = password !== "" || p.recoveryKey || p.recipients.length > 0 || securityKey || existing.some((w) => !w.machine_bound);
   let problem: string | undefined;
-  if (thisPc && !portable) problem = "This PC opens it only on this computer. Add a password, a recovery key or someone's key too, so it can be opened elsewhere.";
-  if (securityKey && !portable && !thisPc)
-    warnings.push("If Windows offers Windows Hello rather than a security key, it opens only on this PC: a password or a recovery key as well is safer.");
+  const bound = [...(thisPc ? ["This PC"] : []), ...(hello ? ["Windows Hello"] : [])];
+  if (bound.length > 0 && !portable)
+    problem = `${bound.join(" and ")} ${bound.length === 1 ? "opens" : "open"} it only on this computer. Add a password, a recovery key, a security key or someone's key too, so it can be opened elsewhere.`;
   // Decision 12, either way round: a password added beside someone else's key, new or already
   // there, or someone else's key added beside a password.
   const newOthers = p.recipients.some((r) => !(r.kind === "contact" && r.own));
@@ -199,7 +212,7 @@ export function checkProtection(p: ProtectionForm, password: string, windows = t
   const classic = [
     ...p.recipients.filter((r) => !recipientPostQuantum(r)).map(recipientLabel),
     ...(thisPc ? ["This PC"] : []),
-    ...existing.filter((w) => !w.post_quantum).map((w) => w.label ?? SLOT_NAMES[w.kind]),
+    ...existing.filter((w) => !w.post_quantum).map((w) => w.label ?? wayKindName(w)),
   ];
   const postQuantum = classic.length === 0;
   const quantum = postQuantum

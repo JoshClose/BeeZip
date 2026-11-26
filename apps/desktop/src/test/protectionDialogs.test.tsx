@@ -128,6 +128,7 @@ describe("the create dialog's Protection section (docs/M14.md §8)", () => {
     await user.click(screen.getByText(/Let this PC open it/));
     await user.type(screen.getByLabelText("PIN for This PC"), "2468");
     await user.click(screen.getByText(/Let a security key/));
+    await user.click(screen.getByText(/Let Windows Hello open it/));
     await user.selectOptions(screen.getByLabelText("Sign with"), "Mine");
 
     await user.click(screen.getByRole("button", { name: "Create" }));
@@ -143,6 +144,7 @@ describe("the create dialog's Protection section (docs/M14.md §8)", () => {
       this_pc: true,
       this_pc_pin: "2468",
       security_key: true,
+      windows_hello: true,
       strength: "strong",
       sign: ["Mine"],
     });

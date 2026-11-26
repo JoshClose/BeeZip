@@ -9,18 +9,19 @@ import { Button } from "../../components/ui/button";
 import { Checkbox } from "../../components/ui/checkbox";
 import { Dialog } from "../../components/ui/dialog";
 import type { ArchiveProtectInput, ArchiveProtectionOutput, KeyInfo, WayIn } from "../../gen/commands";
-import { keptWayIn, type Tab } from "../../lib/archives";
+import { keptWayIn, type Tab, useArchives } from "../../lib/archives";
 import { describeError } from "../../lib/format";
 import { useJobs } from "../../lib/jobs";
 import { useKeys } from "../../lib/keyring";
-import { addWaysArgs, checkProtection, contactFor, NO_PROTECTION, type ProtectionForm, SLOT_NAMES, wayFingerprint } from "../../lib/protection";
+import { addWaysArgs, checkProtection, contactFor, NO_PROTECTION, type ProtectionForm, wayFingerprint, wayKindName } from "../../lib/protection";
 import { startup } from "../../lib/startup";
 import { NewPasswordField, ProtectionFields } from "./ProtectionFields";
 import { showRecoveryKey } from "./RecoveryKey";
 
 /** A way in, by what it is and what the writer called it. */
 export function wayTitle(w: WayIn): string {
-  return w.label && w.label !== SLOT_NAMES[w.kind] ? `${SLOT_NAMES[w.kind]}: ${w.label}` : SLOT_NAMES[w.kind];
+  const kind = wayKindName(w);
+  return w.label && w.label !== kind ? `${kind}: ${w.label}` : kind;
 }
 
 /** Ways in that New key rebuilds from the archive's own description of them: someone's key or
@@ -41,11 +42,19 @@ export function leavesPortable(ways: WayIn[], removing: number[]): boolean {
   return ways.some((w) => !removing.includes(w.slot) && !w.machine_bound);
 }
 
-/** The New key confirmation: each recipient's key or certificate, ticked when it's a contact. */
-function NewKeyDialog({ ways, keys, onCancel, onConfirm }: { ways: WayIn[]; keys: KeyInfo[]; onCancel: () => void; onConfirm: (drop: number[]) => void }) {
+/** What New key sends beside `new_key`: the slots to drop, the recipients the person confirmed
+ * that aren't contacts or your keys, and the password the one password slot is rebuilt with. */
+export type NewKeyChoice = { remove: number[]; confirm: number[]; password: string };
+
+/** The New key confirmation: each recipient's key or certificate, ticked when it's a contact,
+ * and the password again, since the old one can't be read back: the new key has one. */
+function NewKeyDialog({ ways, keys, onCancel, onConfirm }: { ways: WayIn[]; keys: KeyInfo[]; onCancel: () => void; onConfirm: (choice: NewKeyChoice) => void }) {
   const recipients = recipientWays(ways);
   const [keep, setKeep] = useState<number[]>(() => recipients.filter((w) => contactFor(w, keys)).map((w) => w.slot));
-  const drop = recipients.filter((w) => !keep.includes(w.slot)).map((w) => w.slot);
+  const [password, setPassword] = useState("");
+  const passwords = ways.filter((w) => w.kind === "password");
+  const drop = [...recipients.filter((w) => !keep.includes(w.slot)), ...(password ? [] : passwords)].map((w) => w.slot).sort((a, b) => a - b);
+  const confirm = recipients.filter((w) => keep.includes(w.slot) && !contactFor(w, keys)).map((w) => w.slot);
   const others = ways.filter((w) => !recipients.includes(w));
   return (
     <Dialog
@@ -57,7 +66,7 @@ function NewKeyDialog({ ways, keys, onCancel, onConfirm }: { ways: WayIn[]; keys
       footer={
         <>
           <Button onClick={onCancel}>Cancel</Button>
-          <Button variant="primary" disabled={!leavesPortable(ways, drop)} onClick={() => onConfirm(drop)}>
+          <Button variant="primary" disabled={!leavesPortable(ways, drop)} onClick={() => onConfirm({ remove: drop, confirm, password })}>
             <KeyRound /> Make a new key
           </Button>
         </>
@@ -89,10 +98,18 @@ function NewKeyDialog({ ways, keys, onCancel, onConfirm }: { ways: WayIn[]; keys
             </ul>
           </div>
         )}
+        {passwords.length > 0 && (
+          <NewPasswordField
+            id="new-key-password"
+            value={password}
+            onChange={setPassword}
+            hint={`Type its password again, or a new one: the old one can't be read back.${passwords.length > 1 ? ` It has ${passwords.length} passwords; the new key has one.` : ""} Leave it empty to remove the password.`}
+          />
+        )}
         <ul className="flex flex-col gap-0.5 text-[12px] text-muted">
-          {others.some((w) => w.kind === "password") && <li>BeeZip asks for each password again.</li>}
           {others.some((w) => w.kind === "recovery-key") && <li>The recovery key is replaced by a new one, shown once: the old one stops working.</li>}
-          {others.some((w) => w.kind === "security-key") && <li>Each security key needs a touch.</li>}
+          {others.some((w) => w.kind === "security-key" && !w.machine_bound) && <li>Each security key needs a touch.</li>}
+          {others.some((w) => w.kind === "security-key" && w.machine_bound) && <li>Windows Hello asks for your face, a fingerprint or its PIN.</li>}
           {others.some((w) => w.machine_bound && w.kind !== "security-key") && <li>This PC may ask for its PIN.</li>}
         </ul>
         {!leavesPortable(ways, drop) && (
@@ -108,7 +125,8 @@ function NewKeyDialog({ ways, keys, onCancel, onConfirm }: { ways: WayIn[]; keys
 export function WhoCanOpenDialog({ tab, onClose }: { tab: Tab; onClose: () => void }) {
   const { keys = [] } = useKeys();
   const windows = startup().platform === "windows";
-  const [state, setState] = useState<ArchiveProtectionOutput>();
+  // archive.info reports the ways in of an encrypted .bhive it opened: no second read.
+  const [state, setState] = useState<ArchiveProtectionOutput | undefined>(() => tab.info?.protection);
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState(false);
   const [adding, setAdding] = useState(false);
@@ -119,6 +137,7 @@ export function WhoCanOpenDialog({ tab, onClose }: { tab: Tab; onClose: () => vo
   // Read once for the archive, not on every change to its tab: a way in typed into this read's
   // own prompt is kept on the tab, and reading again would ask again.
   useEffect(() => {
+    if (state) return;
     let live = true;
     useJobs
       .getState()
@@ -137,7 +156,10 @@ export function WhoCanOpenDialog({ tab, onClose }: { tab: Tab; onClose: () => vo
     setError(undefined);
     try {
       const out = await useJobs.getState().track("archive.protect", { archive: tab.path, ...args, ...keptWayIn(tab) }, { title, tab: tab.id });
-      setState({ encrypted: true, ways: out.ways, post_quantum: out.post_quantum });
+      const now = { encrypted: true, ways: out.ways, post_quantum: out.post_quantum };
+      setState(now);
+      const info = useArchives.getState().tabs.find((t) => t.id === tab.id)?.info;
+      if (info) useArchives.getState().update(tab.id, { info: { ...info, protection: now } });
       showRecoveryKey(tab.path, out);
       return true;
     } catch (e) {
@@ -268,9 +290,12 @@ It won't open the archive any more. Someone who opened it before could have kept
           ways={ways}
           keys={keys}
           onCancel={() => setNewKey(false)}
-          onConfirm={(drop) => {
+          onConfirm={async ({ remove, confirm, password: again }) => {
             setNewKey(false);
-            void protect({ new_key: true, ...(drop.length > 0 ? { remove: drop } : {}) }, `Making a new key for ${tab.name}`);
+            const args = { new_key: true, ...(again ? { add_password: again } : {}), ...(confirm.length > 0 ? { confirm } : {}), ...(remove.length > 0 ? { remove } : {}) };
+            // The old password or recovery key kept for the tab no longer opens it; the new
+            // password does.
+            if (await protect(args, `Making a new key for ${tab.name}`)) useArchives.getState().update(tab.id, { password: again || undefined });
           }}
         />
       )}
