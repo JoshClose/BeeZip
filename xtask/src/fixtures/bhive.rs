@@ -18,6 +18,7 @@ use beezip_core::{
     format::bhive::{
         BhiveWriteOptions, BhiveWriter, Level,
         build::{Build, extent},
+        crypt::{Labelled, Protection, Recipient, Strength, prim, recovery},
         layout::{self, Cell, Coder, Extent, ItemRef, Kind, Record, checksum},
     },
     time::from_unix,
@@ -213,14 +214,26 @@ impl Seek for Shared {
 
 /// `entries` through BeeZip's writer.
 fn written(entries: &[Planted], level: Level, cell_size: Option<u32>) -> anyhow::Result<Vec<u8>> {
+    written_with(entries, level, cell_size, None)
+}
+
+/// [`written`], encrypted for `protection` when there is one.
+fn written_with(
+    entries: &[Planted],
+    level: Level,
+    cell_size: Option<u32>,
+    protection: Option<Protection>,
+) -> anyhow::Result<Vec<u8>> {
     let out = Shared::default();
     let opts = BhiveWriteOptions {
         level,
-        // One thread and several write the same bytes; one keeps the generator simple.
+        // One thread and several write the same bytes; one keeps the generator simple, and
+        // keeps an encrypted fixture's random bytes on the thread that seeds them.
         threads: 1,
         memory: None,
         cell_size,
         inherit: false,
+        protection,
         ..BhiveWriteOptions::default()
     };
     let mut cx = SimpleCtx::new();
@@ -413,8 +426,107 @@ fn spec_small() -> (Vec<u8>, Vec<Planted>) {
     (b.finish(), entries)
 }
 
-/// Every fixture of `tests/fixtures/bhive/`, and `manifest.json` last.
+/// The encrypted fixtures' test secrets: never a real archive's.
+const SEALED_PASSWORD: &str = "honey";
+const SEALED_RECOVERY_KEY: [u8; 16] = *b"BeeZip test key!";
+
+/// An encrypted fixture: `entries` at `level` for these ways in, its random bytes made from
+/// `name`, so that the generator writes the same file every time.
+fn sealed(
+    name: &str,
+    entries: &[Planted],
+    level: Level,
+    passwords: &[&str],
+    recovery: bool,
+) -> anyhow::Result<Vec<u8>> {
+    // Argon2 at a cost a test can afford; BeeZip writes 1 GiB or 2 GiB.
+    let cost = Strength::Cost {
+        memory_kib: 256,
+        passes: 2,
+        lanes: 4,
+    };
+    let mut ways: Vec<Labelled> = passwords
+        .iter()
+        .map(|p| Labelled {
+            recipient: Recipient::password(p, cost),
+            label: Some("Password".into()),
+        })
+        .collect();
+    if recovery {
+        ways.push(Labelled {
+            recipient: Recipient::recovery_key(&SEALED_RECOVERY_KEY),
+            label: Some("Recovery key".into()),
+        });
+    }
+    let mut seed = [0u8; 32];
+    seed.copy_from_slice(&Sha256::digest(format!("bhive fixture {name}")));
+    prim::seeded(seed, || {
+        written_with(entries, level, None, Some(Protection::New(ways)))
+    })
+}
+
+/// The encrypted fixtures (docs/bhive.md §12), and `sealed.json`, which says what each holds
+/// and what opens it: the tree at every level behind a password and a recovery key, the tree
+/// behind two passwords, and behind a recovery key alone (cheap to open, for mutating).
+fn sealed_fixtures() -> anyhow::Result<Vec<(String, Vec<u8>)>> {
+    let tree = tree();
+    let digits = recovery::format(&SEALED_RECOVERY_KEY).to_string();
+    let mut all = Vec::new();
+    for level in Level::ALL {
+        let file: &'static str = match level {
+            Level::None => "sealed-none.bhive",
+            Level::Fast => "sealed-fast.bhive",
+            Level::Balanced => "sealed-balanced.bhive",
+            Level::High => "sealed-high.bhive",
+            Level::Max => "sealed-max.bhive",
+        };
+        let bytes = sealed(file, &tree, level, &[SEALED_PASSWORD], true)?;
+        let what = format!("the tree at level {}, encrypted", level.name());
+        all.push(
+            fixture(file, &what, bytes, &tree)
+                .with("level", json!(level.name()))
+                .with("passwords", json!([SEALED_PASSWORD]))
+                .with("recovery_key", json!(digits)),
+        );
+    }
+    let file = "sealed-two-passwords.bhive";
+    let bytes = sealed(file, &tree, Level::Fast, &[SEALED_PASSWORD, "bees"], false)?;
+    all.push(
+        fixture(
+            file,
+            "the tree behind either of two passwords",
+            bytes,
+            &tree,
+        )
+        .with("level", json!("fast"))
+        .with("passwords", json!([SEALED_PASSWORD, "bees"])),
+    );
+    let file = "sealed-recovery.bhive";
+    let bytes = sealed(file, &tree, Level::Fast, &[], true)?;
+    all.push(
+        fixture(file, "the tree behind a recovery key alone", bytes, &tree)
+            .with("level", json!("fast"))
+            .with("passwords", json!([]))
+            .with("recovery_key", json!(digits)),
+    );
+    let manifest = json!({
+        "note": "Written by `cargo xtask gen-fixtures` (xtask/src/fixtures/bhive.rs). Encrypted                  archives (docs/bhive.md §12), each opened by the passwords and the recovery key                  its record lists. These are test secrets, never a real archive's.",
+        "fixtures": all.iter().map(|f| f.record.clone()).collect::<Vec<_>>(),
+    });
+    let mut out: Vec<(String, Vec<u8>)> = all
+        .into_iter()
+        .map(|f| (f.file.to_owned(), f.bytes))
+        .collect();
+    let mut text = serde_json::to_string_pretty(&manifest)?;
+    text.push('\n');
+    out.push(("sealed.json".to_owned(), text.into_bytes()));
+    Ok(out)
+}
+
+/// Every fixture of `tests/fixtures/bhive/`, and `manifest.json` last; the encrypted ones and
+/// `sealed.json` before it.
 pub fn fixtures() -> anyhow::Result<Vec<(String, Vec<u8>)>> {
+    let sealed = sealed_fixtures()?;
     let tree = tree();
     let mut all = Vec::new();
     for level in Level::ALL {
@@ -549,6 +661,7 @@ pub fn fixtures() -> anyhow::Result<Vec<(String, Vec<u8>)>> {
         .collect();
     let mut text = serde_json::to_string_pretty(&manifest)?;
     text.push('\n');
+    out.splice(0..0, sealed);
     out.push(("manifest.json".to_owned(), text.into_bytes()));
     Ok(out)
 }

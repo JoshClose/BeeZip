@@ -340,6 +340,19 @@ pub enum Recipient {
 }
 
 impl Recipient {
+    /// A password slot's recipient, for callers that don't hold a `Zeroizing` of their own.
+    pub fn password(password: &str, strength: Strength) -> Self {
+        Self::Password {
+            password: Zeroizing::new(password.to_owned()),
+            strength,
+        }
+    }
+
+    /// A recovery key's recipient, from its 16 bytes.
+    pub fn recovery_key(key: &[u8; 16]) -> Self {
+        Self::RecoveryKey(Zeroizing::new(*key))
+    }
+
     pub const fn kind(&self) -> SlotKind {
         match self {
             Self::Password { .. } => SlotKind::Password,

@@ -1038,8 +1038,9 @@ fn tight() -> Limits {
     }
 }
 
-/// What the `bhive` fuzz target does with an input.
-fn exercise(path: &Path) {
+/// What the `bhive` fuzz target does with an input, with an answer to an encrypted archive's
+/// unlock.
+fn exercise_as(path: &Path, answer: Option<&str>) {
     for (recover, n) in [(false, 1), (true, 1), (false, 3)] {
         let opts = OpenOptions {
             recover,
@@ -1047,7 +1048,7 @@ fn exercise(path: &Path) {
             min_parallel_files: 1,
             ..OpenOptions::new(tight())
         };
-        let mut cx = SimpleCtx::new();
+        let mut cx = ctx(answer);
         let Ok(source) = Source::new(path, Vec::new(), &opts) else {
             return;
         };
@@ -1142,13 +1143,23 @@ fn fixtures_and_their_mutations_never_panic() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("input.bhive");
     let mut next = rng(0x00BE_E21F);
+    // The encrypted fixture that a recovery key alone opens: no mutation of it can make a
+    // reader spend Argon2's memory, and every check behind its MAC and tags is reached.
+    let recovery = sealed_manifest()
+        .iter()
+        .find(|f| f["file"] == "sealed-recovery.bhive")
+        .and_then(|f| f["recovery_key"].as_str().map(str::to_owned))
+        .unwrap();
     for (i, data) in corpus.iter().enumerate() {
         let other = &corpus[(i + 1) % corpus.len()];
+        let answer = files[i]
+            .ends_with("sealed-recovery.bhive")
+            .then_some(recovery.as_str());
         fs::write(&path, data).unwrap();
-        exercise(&path);
+        exercise_as(&path, answer);
         for _ in 0..per {
             fs::write(&path, mutate(data, other, &mut next)).unwrap();
-            exercise(&path);
+            exercise_as(&path, answer);
         }
 
         // Behind its checksum: the archive's own index, mutated.
@@ -1721,7 +1732,10 @@ fn unlocked(archive: &Path, answer: &str) -> std::sync::Arc<Unlocked> {
 }
 
 /// Each cell's bytes as they are in the file (sealed), and its table row less its offset.
-fn sealed_cells(archive: &Path, answer: &str) -> Vec<(Vec<u8>, (u32, u32, Coder, u64))> {
+/// A cell's table row less its offset: stored and raw lengths, coder, checksum.
+type Row = (u32, u32, Coder, u64);
+
+fn sealed_cells(archive: &Path, answer: &str) -> Vec<(Vec<u8>, Row)> {
     let bytes = fs::read(archive).unwrap();
     reader_as(archive, &OpenOptions::default(), Some(answer))
         .cells()
@@ -1951,7 +1965,7 @@ fn convert_as(
     )
 }
 
-fn rows(cells: &[(Vec<u8>, (u32, u32, Coder, u64))]) -> Vec<(u32, u32, Coder, u64)> {
+fn rows(cells: &[(Vec<u8>, Row)]) -> Vec<Row> {
     cells.iter().map(|c| c.1).collect()
 }
 
@@ -2257,4 +2271,59 @@ fn contents_as_recovered(archive: &Path) -> BTreeMap<String, Vec<u8>> {
         out.insert(e.path.clone(), data);
     }
     out
+}
+
+/// The encrypted fixtures' records, from `sealed.json`.
+fn sealed_manifest() -> Vec<serde_json::Value> {
+    let text = fs::read_to_string(fixture_dir().join("sealed.json")).unwrap();
+    let v: serde_json::Value = serde_json::from_str(&text).unwrap();
+    v["fixtures"].as_array().unwrap().clone()
+}
+
+/// Each encrypted fixture opens with every password and the recovery key its record lists,
+/// holds what it says, tests clean, and opens with nothing else.
+#[test]
+fn every_sealed_fixture_reads_as_its_record_says() {
+    let all = sealed_manifest();
+    assert_eq!(all.len(), 7, "sealed.json lists every encrypted fixture");
+    for fx in &all {
+        let name = fx["file"].as_str().unwrap();
+        let path = fixture_dir().join(name);
+        let mut answers: Vec<String> = fx["passwords"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|p| p.as_str().unwrap().to_owned())
+            .collect();
+        if let Some(k) = fx["recovery_key"].as_str() {
+            answers.push(k.to_owned());
+        }
+        assert!(!answers.is_empty(), "{name}");
+        for (i, answer) in answers.iter().enumerate() {
+            let r = reader_as(&path, &OpenOptions::default(), Some(answer));
+            assert_eq!(r.unlocked().unwrap().opened_by(), i, "{name}");
+            assert_eq!(r.level().map(Level::name), fx["level"].as_str(), "{name}");
+            let dest = tempfile::tempdir().unwrap();
+            extract_as(&path, dest.path(), &threads(4), Some(answer));
+            assert_eq!(hashes(dest.path()), expected_files(fx), "{name}");
+            let test = ops::test(
+                &path,
+                &Selection::all(),
+                &threads(4),
+                &mut ctx(Some(answer)),
+            )
+            .unwrap();
+            assert!(test.ok(), "{name}: {:?}", test.errors);
+        }
+        for wrong in [
+            "Honey",
+            "000000-000000-000000-000000-000000-000000-000000-000000",
+        ] {
+            let source = Source::new(&path, Vec::new(), &OpenOptions::default()).unwrap();
+            let e = BhiveReader::open(source, &mut ctx(Some(wrong)))
+                .err()
+                .unwrap();
+            assert_eq!(e.kind, ErrorKind::WrongPassword, "{name}");
+        }
+    }
 }

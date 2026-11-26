@@ -1,0 +1,2229 @@
+{
+  "fixtures": [
+    {
+      "entries": [
+        {
+          "attributes": 16,
+          "created": [
+            1767139200,
+            500
+          ],
+          "kind": "folder",
+          "mode": 16877,
+          "modified": [
+            1767225600,
+            0
+          ],
+          "path": "tree"
+        },
+        {
+          "attributes": 32,
+          "created": [
+            1767139201,
+            500
+          ],
+          "kind": "file",
+          "mode": 33188,
+          "modified": [
+            1767225661,
+            123456700
+          ],
+          "path": "tree/hello.txt",
+          "sha256": "a357597dcc1f4c3d10721860b7d1f354c8c409c918c15321d4a9709bed42f804",
+          "size": 15
+        },
+        {
+          "attributes": 32,
+          "created": [
+            1767139202,
+            500
+          ],
+          "kind": "file",
+          "mode": 33188,
+          "modified": [
+            1767225722,
+            246913400
+          ],
+          "path": "tree/empty.txt",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "size": 0
+        },
+        {
+          "attributes": 16,
+          "created": [
+            1767139203,
+            500
+          ],
+          "kind": "folder",
+          "mode": 16877,
+          "modified": [
+            1767225783,
+            370370100
+          ],
+          "path": "tree/docs"
+        },
+        {
+          "attributes": 32,
+          "created": [
+            1767139204,
+            500
+          ],
+          "kind": "file",
+          "mode": 33188,
+          "modified": [
+            1767225844,
+            493826800
+          ],
+          "path": "tree/docs/readme.md",
+          "sha256": "d1a2530f18225a94ebb7622e0f927da022bdd3c39d67b4dac5a4e90bd07acc92",
+          "size": 1361
+        },
+        {
+          "attributes": 16,
+          "created": [
+            1767139205,
+            500
+          ],
+          "kind": "folder",
+          "mode": 16877,
+          "modified": [
+            1767225905,
+            617283500
+          ],
+          "path": "tree/data"
+        },
+        {
+          "attributes": 32,
+          "created": [
+            1767139206,
+            500
+          ],
+          "kind": "file",
+          "mode": 33188,
+          "modified": [
+            1767225966,
+            740740200
+          ],
+          "path": "tree/data/random.bin",
+          "sha256": "4e2341514f6f1a3eb6152b703dd5eac37919f8f3ba83764a19d4b6074cc6ae02",
+          "size": 4096
+        },
+        {
+          "attributes": 32,
+          "created": [
+            1767139207,
+            500
+          ],
+          "kind": "file",
+          "mode": 33188,
+          "modified": [
+            1767226027,
+            864196900
+          ],
+          "path": "tree/data/words.txt",
+          "sha256": "53343e6a15732490a02c7151a098df28e3c4540bb922c2b2ab32e186a613cb00",
+          "size": 60000
+        },
+        {
+          "attributes": 32,
+          "created": [
+            1767139208,
+            500
+          ],
+          "kind": "file",
+          "mode": 33188,
+          "modified": [
+            1767226088,
+            987653600
+          ],
+          "path": "tree/data/zeros.bin",
+          "sha256": "9192c25b734fcbadbe32dadc28089c60db0e39f90cc20ce2e5733f57261acc0c",
+          "size": 100000
+        },
+        {
+          "attributes": 16,
+          "created": [
+            1767139209,
+            500
+          ],
+          "kind": "folder",
+          "mode": 16877,
+          "modified": [
+            1767226149,
+            111110300
+          ],
+          "path": "tree/ünïcödé"
+        },
+        {
+          "attributes": 32,
+          "created": [
+            1767139210,
+            500
+          ],
+          "kind": "file",
+          "mode": 33188,
+          "modified": [
+            1767226210,
+            234567000
+          ],
+          "path": "tree/ünïcödé/名前.txt",
+          "sha256": "b9b9ef8148fd166756b41b262c5a2311e4556ee077dd75a4100c5b866ca4aa01",
+          "size": 25
+        },
+        {
+          "attributes": 32,
+          "created": [
+            1767139211,
+            500
+          ],
+          "kind": "file",
+          "mode": 33188,
+          "modified": [
+            1767226271,
+            358023700
+          ],
+          "path": "tree/deep/directory-with-a-long-name-0123456789/another-long-directory-name-abcdefghij/file-with-a-long-name-past-100-characters.txt",
+          "sha256": "da81937d4f93a5a66ab373527413914cbaff9955c01e61404e142939343263b9",
+          "size": 12
+        },
+        {
+          "attributes": 16,
+          "created": [
+            1767139212,
+            500
+          ],
+          "kind": "folder",
+          "mode": 16877,
+          "modified": [
+            1767226332,
+            481480400
+          ],
+          "path": "tree/copies"
+        },
+        {
+          "attributes": 32,
+          "created": [
+            1767139213,
+            500
+          ],
+          "kind": "file",
+          "mode": 33188,
+          "modified": [
+            1767226393,
+            604937100
+          ],
+          "path": "tree/copies/words again.txt",
+          "sha256": "53343e6a15732490a02c7151a098df28e3c4540bb922c2b2ab32e186a613cb00",
+          "size": 60000
+        },
+        {
+          "attributes": 32,
+          "created": [
+            1767139214,
+            500
+          ],
+          "kind": "file",
+          "mode": 33188,
+          "modified": [
+            1767226454,
+            728393800
+          ],
+          "path": "tree/copies/words shifted.txt",
+          "sha256": "a419d1277a34b992fca84bd483de591823d65cf6606acb41031a7bcbfa3ce2b6",
+          "size": 60044
+        },
+        {
+          "attributes": 32,
+          "created": [
+            1767139215,
+            500
+          ],
+          "kind": "file",
+          "mode": 33188,
+          "modified": [
+            1767226515,
+            851850500
+          ],
+          "path": "tree/copies/hello again.txt",
+          "sha256": "a357597dcc1f4c3d10721860b7d1f354c8c409c918c15321d4a9709bed42f804",
+          "size": 15
+        },
+        {
+          "attributes": 16,
+          "created": [
+            1767139216,
+            500
+          ],
+          "kind": "folder",
+          "mode": 16877,
+          "modified": [
+            1767226576,
+            975307200
+          ],
+          "path": "tree/empty folder"
+        },
+        {
+          "attributes": 32,
+          "created": [
+            1767139217,
+            500
+          ],
+          "kind": "link",
+          "mode": 41471,
+          "modified": [
+            1767226637,
+            98763900
+          ],
+          "path": "tree/link to hello",
+          "target": "hello.txt"
+        },
+        {
+          "attributes": 32,
+          "created": [
+            1767139218,
+            500
+          ],
+          "kind": "file",
+          "mode": 33261,
+          "modified": [
+            1767226698,
+            222220600
+          ],
+          "path": "tree/script.sh",
+          "sha256": "c107d37976d9c766a8794ea46380e9d4c8003afb27dbe1e03145dee8a05c0eb4",
+          "size": 19
+        },
+        {
+          "attributes": 33,
+          "created": [
+            1767139219,
+            500
+          ],
+          "kind": "file",
+          "mode": 33188,
+          "modified": [
+            1767226759,
+            345677300
+          ],
+          "path": "tree/read only.txt",
+          "sha256": "7753efca65655d40749e5144d61ba991553e7c4cecdd4c34f263d2da181fee1a",
+          "size": 18
+        }
+      ],
+      "file": "sealed-none.bhive",
+      "level": "none",
+      "passwords": [
+        "honey"
+      ],
+      "recovery_key": "285142-254551-316547-327008-324951-091388-285593-094259",
+      "what": "the tree at level none, encrypted"
+    },
+    {
+      "entries": [
+        {
+          "attributes": 16,
+          "created": [
+            1767139200,
+            500
+          ],
+          "kind": "folder",
+          "mode": 16877,
+          "modified": [
+            1767225600,
+            0
+          ],
+          "path": "tree"
+        },
+        {
+          "attributes": 32,
+          "created": [
+            1767139201,
+            500
+          ],
+          "kind": "file",
+          "mode": 33188,
+          "modified": [
+            1767225661,
+            123456700
+          ],
+          "path": "tree/hello.txt",
+          "sha256": "a357597dcc1f4c3d10721860b7d1f354c8c409c918c15321d4a9709bed42f804",
+          "size": 15
+        },
+        {
+          "attributes": 32,
+          "created": [
+            1767139202,
+            500
+          ],
+          "kind": "file",
+          "mode": 33188,
+          "modified": [
+            1767225722,
+            246913400
+          ],
+          "path": "tree/empty.txt",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "size": 0
+        },
+        {
+          "attributes": 16,
+          "created": [
+            1767139203,
+            500
+          ],
+          "kind": "folder",
+          "mode": 16877,
+          "modified": [
+            1767225783,
+            370370100
+          ],
+          "path": "tree/docs"
+        },
+        {
+          "attributes": 32,
+          "created": [
+            1767139204,
+            500
+          ],
+          "kind": "file",
+          "mode": 33188,
+          "modified": [
+            1767225844,
+            493826800
+          ],
+          "path": "tree/docs/readme.md",
+          "sha256": "d1a2530f18225a94ebb7622e0f927da022bdd3c39d67b4dac5a4e90bd07acc92",
+          "size": 1361
+        },
+        {
+          "attributes": 16,
+          "created": [
+            1767139205,
+            500
+          ],
+          "kind": "folder",
+          "mode": 16877,
+          "modified": [
+            1767225905,
+            617283500
+          ],
+          "path": "tree/data"
+        },
+        {
+          "attributes": 32,
+          "created": [
+            1767139206,
+            500
+          ],
+          "kind": "file",
+          "mode": 33188,
+          "modified": [
+            1767225966,
+            740740200
+          ],
+          "path": "tree/data/random.bin",
+          "sha256": "4e2341514f6f1a3eb6152b703dd5eac37919f8f3ba83764a19d4b6074cc6ae02",
+          "size": 4096
+        },
+        {
+          "attributes": 32,
+          "created": [
+            1767139207,
+            500
+          ],
+          "kind": "file",
+          "mode": 33188,
+          "modified": [
+            1767226027,
+            864196900
+          ],
+          "path": "tree/data/words.txt",
+          "sha256": "53343e6a15732490a02c7151a098df28e3c4540bb922c2b2ab32e186a613cb00",
+          "size": 60000
+        },
+        {
+          "attributes": 32,
+          "created": [
+            1767139208,
+            500
+          ],
+          "kind": "file",
+          "mode": 33188,
+          "modified": [
+            1767226088,
+            987653600
+          ],
+          "path": "tree/data/zeros.bin",
+          "sha256": "9192c25b734fcbadbe32dadc28089c60db0e39f90cc20ce2e5733f57261acc0c",
+          "size": 100000
+        },
+        {
+          "attributes": 16,
+          "created": [
+            1767139209,
+            500
+          ],
+          "kind": "folder",
+          "mode": 16877,
+          "modified": [
+            1767226149,
+            111110300
+          ],
+          "path": "tree/ünïcödé"
+        },
+        {
+          "attributes": 32,
+          "created": [
+            1767139210,
+            500
+          ],
+          "kind": "file",
+          "mode": 33188,
+          "modified": [
+            1767226210,
+            234567000
+          ],
+          "path": "tree/ünïcödé/名前.txt",
+          "sha256": "b9b9ef8148fd166756b41b262c5a2311e4556ee077dd75a4100c5b866ca4aa01",
+          "size": 25
+        },
+        {
+          "attributes": 32,
+          "created": [
+            1767139211,
+            500
+          ],
+          "kind": "file",
+          "mode": 33188,
+          "modified": [
+            1767226271,
+            358023700
+          ],
+          "path": "tree/deep/directory-with-a-long-name-0123456789/another-long-directory-name-abcdefghij/file-with-a-long-name-past-100-characters.txt",
+          "sha256": "da81937d4f93a5a66ab373527413914cbaff9955c01e61404e142939343263b9",
+          "size": 12
+        },
+        {
+          "attributes": 16,
+          "created": [
+            1767139212,
+            500
+          ],
+          "kind": "folder",
+          "mode": 16877,
+          "modified": [
+            1767226332,
+            481480400
+          ],
+          "path": "tree/copies"
+        },
+        {
+          "attributes": 32,
+          "created": [
+            1767139213,
+            500
+          ],
+          "kind": "file",
+          "mode": 33188,
+          "modified": [
+            1767226393,
+            604937100
+          ],
+          "path": "tree/copies/words again.txt",
+          "sha256": "53343e6a15732490a02c7151a098df28e3c4540bb922c2b2ab32e186a613cb00",
+          "size": 60000
+        },
+        {
+          "attributes": 32,
+          "created": [
+            1767139214,
+            500
+          ],
+          "kind": "file",
+          "mode": 33188,
+          "modified": [
+            1767226454,
+            728393800
+          ],
+          "path": "tree/copies/words shifted.txt",
+          "sha256": "a419d1277a34b992fca84bd483de591823d65cf6606acb41031a7bcbfa3ce2b6",
+          "size": 60044
+        },
+        {
+          "attributes": 32,
+          "created": [
+            1767139215,
+            500
+          ],
+          "kind": "file",
+          "mode": 33188,
+          "modified": [
+            1767226515,
+            851850500
+          ],
+          "path": "tree/copies/hello again.txt",
+          "sha256": "a357597dcc1f4c3d10721860b7d1f354c8c409c918c15321d4a9709bed42f804",
+          "size": 15
+        },
+        {
+          "attributes": 16,
+          "created": [
+            1767139216,
+            500
+          ],
+          "kind": "folder",
+          "mode": 16877,
+          "modified": [
+            1767226576,
+            975307200
+          ],
+          "path": "tree/empty folder"
+        },
+        {
+          "attributes": 32,
+          "created": [
+            1767139217,
+            500
+          ],
+          "kind": "link",
+          "mode": 41471,
+          "modified": [
+            1767226637,
+            98763900
+          ],
+          "path": "tree/link to hello",
+          "target": "hello.txt"
+        },
+        {
+          "attributes": 32,
+          "created": [
+            1767139218,
+            500
+          ],
+          "kind": "file",
+          "mode": 33261,
+          "modified": [
+            1767226698,
+            222220600
+          ],
+          "path": "tree/script.sh",
+          "sha256": "c107d37976d9c766a8794ea46380e9d4c8003afb27dbe1e03145dee8a05c0eb4",
+          "size": 19
+        },
+        {
+          "attributes": 33,
+          "created": [
+            1767139219,
+            500
+          ],
+          "kind": "file",
+          "mode": 33188,
+          "modified": [
+            1767226759,
+            345677300
+          ],
+          "path": "tree/read only.txt",
+          "sha256": "7753efca65655d40749e5144d61ba991553e7c4cecdd4c34f263d2da181fee1a",
+          "size": 18
+        }
+      ],
+      "file": "sealed-fast.bhive",
+      "level": "fast",
+      "passwords": [
+        "honey"
+      ],
+      "recovery_key": "285142-254551-316547-327008-324951-091388-285593-094259",
+      "what": "the tree at level fast, encrypted"
+    },
+    {
+      "entries": [
+        {
+          "attributes": 16,
+          "created": [
+            1767139200,
+            500
+          ],
+          "kind": "folder",
+          "mode": 16877,
+          "modified": [
+            1767225600,
+            0
+          ],
+          "path": "tree"
+        },
+        {
+          "attributes": 32,
+          "created": [
+            1767139201,
+            500
+          ],
+          "kind": "file",
+          "mode": 33188,
+          "modified": [
+            1767225661,
+            123456700
+          ],
+          "path": "tree/hello.txt",
+          "sha256": "a357597dcc1f4c3d10721860b7d1f354c8c409c918c15321d4a9709bed42f804",
+          "size": 15
+        },
+        {
+          "attributes": 32,
+          "created": [
+            1767139202,
+            500
+          ],
+          "kind": "file",
+          "mode": 33188,
+          "modified": [
+            1767225722,
+            246913400
+          ],
+          "path": "tree/empty.txt",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "size": 0
+        },
+        {
+          "attributes": 16,
+          "created": [
+            1767139203,
+            500
+          ],
+          "kind": "folder",
+          "mode": 16877,
+          "modified": [
+            1767225783,
+            370370100
+          ],
+          "path": "tree/docs"
+        },
+        {
+          "attributes": 32,
+          "created": [
+            1767139204,
+            500
+          ],
+          "kind": "file",
+          "mode": 33188,
+          "modified": [
+            1767225844,
+            493826800
+          ],
+          "path": "tree/docs/readme.md",
+          "sha256": "d1a2530f18225a94ebb7622e0f927da022bdd3c39d67b4dac5a4e90bd07acc92",
+          "size": 1361
+        },
+        {
+          "attributes": 16,
+          "created": [
+            1767139205,
+            500
+          ],
+          "kind": "folder",
+          "mode": 16877,
+          "modified": [
+            1767225905,
+            617283500
+          ],
+          "path": "tree/data"
+        },
+        {
+          "attributes": 32,
+          "created": [
+            1767139206,
+            500
+          ],
+          "kind": "file",
+          "mode": 33188,
+          "modified": [
+            1767225966,
+            740740200
+          ],
+          "path": "tree/data/random.bin",
+          "sha256": "4e2341514f6f1a3eb6152b703dd5eac37919f8f3ba83764a19d4b6074cc6ae02",
+          "size": 4096
+        },
+        {
+          "attributes": 32,
+          "created": [
+            1767139207,
+            500
+          ],
+          "kind": "file",
+          "mode": 33188,
+          "modified": [
+            1767226027,
+            864196900
+          ],
+          "path": "tree/data/words.txt",
+          "sha256": "53343e6a15732490a02c7151a098df28e3c4540bb922c2b2ab32e186a613cb00",
+          "size": 60000
+        },
+        {
+          "attributes": 32,
+          "created": [
+            1767139208,
+            500
+          ],
+          "kind": "file",
+          "mode": 33188,
+          "modified": [
+            1767226088,
+            987653600
+          ],
+          "path": "tree/data/zeros.bin",
+          "sha256": "9192c25b734fcbadbe32dadc28089c60db0e39f90cc20ce2e5733f57261acc0c",
+          "size": 100000
+        },
+        {
+          "attributes": 16,
+          "created": [
+            1767139209,
+            500
+          ],
+          "kind": "folder",
+          "mode": 16877,
+          "modified": [
+            1767226149,
+            111110300
+          ],
+          "path": "tree/ünïcödé"
+        },
+        {
+          "attributes": 32,
+          "created": [
+            1767139210,
+            500
+          ],
+          "kind": "file",
+          "mode": 33188,
+          "modified": [
+            1767226210,
+            234567000
+          ],
+          "path": "tree/ünïcödé/名前.txt",
+          "sha256": "b9b9ef8148fd166756b41b262c5a2311e4556ee077dd75a4100c5b866ca4aa01",
+          "size": 25
+        },
+        {
+          "attributes": 32,
+          "created": [
+            1767139211,
+            500
+          ],
+          "kind": "file",
+          "mode": 33188,
+          "modified": [
+            1767226271,
+            358023700
+          ],
+          "path": "tree/deep/directory-with-a-long-name-0123456789/another-long-directory-name-abcdefghij/file-with-a-long-name-past-100-characters.txt",
+          "sha256": "da81937d4f93a5a66ab373527413914cbaff9955c01e61404e142939343263b9",
+          "size": 12
+        },
+        {
+          "attributes": 16,
+          "created": [
+            1767139212,
+            500
+          ],
+          "kind": "folder",
+          "mode": 16877,
+          "modified": [
+            1767226332,
+            481480400
+          ],
+          "path": "tree/copies"
+        },
+        {
+          "attributes": 32,
+          "created": [
+            1767139213,
+            500
+          ],
+          "kind": "file",
+          "mode": 33188,
+          "modified": [
+            1767226393,
+            604937100
+          ],
+          "path": "tree/copies/words again.txt",
+          "sha256": "53343e6a15732490a02c7151a098df28e3c4540bb922c2b2ab32e186a613cb00",
+          "size": 60000
+        },
+        {
+          "attributes": 32,
+          "created": [
+            1767139214,
+            500
+          ],
+          "kind": "file",
+          "mode": 33188,
+          "modified": [
+            1767226454,
+            728393800
+          ],
+          "path": "tree/copies/words shifted.txt",
+          "sha256": "a419d1277a34b992fca84bd483de591823d65cf6606acb41031a7bcbfa3ce2b6",
+          "size": 60044
+        },
+        {
+          "attributes": 32,
+          "created": [
+            1767139215,
+            500
+          ],
+          "kind": "file",
+          "mode": 33188,
+          "modified": [
+            1767226515,
+            851850500
+          ],
+          "path": "tree/copies/hello again.txt",
+          "sha256": "a357597dcc1f4c3d10721860b7d1f354c8c409c918c15321d4a9709bed42f804",
+          "size": 15
+        },
+        {
+          "attributes": 16,
+          "created": [
+            1767139216,
+            500
+          ],
+          "kind": "folder",
+          "mode": 16877,
+          "modified": [
+            1767226576,
+            975307200
+          ],
+          "path": "tree/empty folder"
+        },
+        {
+          "attributes": 32,
+          "created": [
+            1767139217,
+            500
+          ],
+          "kind": "link",
+          "mode": 41471,
+          "modified": [
+            1767226637,
+            98763900
+          ],
+          "path": "tree/link to hello",
+          "target": "hello.txt"
+        },
+        {
+          "attributes": 32,
+          "created": [
+            1767139218,
+            500
+          ],
+          "kind": "file",
+          "mode": 33261,
+          "modified": [
+            1767226698,
+            222220600
+          ],
+          "path": "tree/script.sh",
+          "sha256": "c107d37976d9c766a8794ea46380e9d4c8003afb27dbe1e03145dee8a05c0eb4",
+          "size": 19
+        },
+        {
+          "attributes": 33,
+          "created": [
+            1767139219,
+            500
+          ],
+          "kind": "file",
+          "mode": 33188,
+          "modified": [
+            1767226759,
+            345677300
+          ],
+          "path": "tree/read only.txt",
+          "sha256": "7753efca65655d40749e5144d61ba991553e7c4cecdd4c34f263d2da181fee1a",
+          "size": 18
+        }
+      ],
+      "file": "sealed-balanced.bhive",
+      "level": "balanced",
+      "passwords": [
+        "honey"
+      ],
+      "recovery_key": "285142-254551-316547-327008-324951-091388-285593-094259",
+      "what": "the tree at level balanced, encrypted"
+    },
+    {
+      "entries": [
+        {
+          "attributes": 16,
+          "created": [
+            1767139200,
+            500
+          ],
+          "kind": "folder",
+          "mode": 16877,
+          "modified": [
+            1767225600,
+            0
+          ],
+          "path": "tree"
+        },
+        {
+          "attributes": 32,
+          "created": [
+            1767139201,
+            500
+          ],
+          "kind": "file",
+          "mode": 33188,
+          "modified": [
+            1767225661,
+            123456700
+          ],
+          "path": "tree/hello.txt",
+          "sha256": "a357597dcc1f4c3d10721860b7d1f354c8c409c918c15321d4a9709bed42f804",
+          "size": 15
+        },
+        {
+          "attributes": 32,
+          "created": [
+            1767139202,
+            500
+          ],
+          "kind": "file",
+          "mode": 33188,
+          "modified": [
+            1767225722,
+            246913400
+          ],
+          "path": "tree/empty.txt",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "size": 0
+        },
+        {
+          "attributes": 16,
+          "created": [
+            1767139203,
+            500
+          ],
+          "kind": "folder",
+          "mode": 16877,
+          "modified": [
+            1767225783,
+            370370100
+          ],
+          "path": "tree/docs"
+        },
+        {
+          "attributes": 32,
+          "created": [
+            1767139204,
+            500
+          ],
+          "kind": "file",
+          "mode": 33188,
+          "modified": [
+            1767225844,
+            493826800
+          ],
+          "path": "tree/docs/readme.md",
+          "sha256": "d1a2530f18225a94ebb7622e0f927da022bdd3c39d67b4dac5a4e90bd07acc92",
+          "size": 1361
+        },
+        {
+          "attributes": 16,
+          "created": [
+            1767139205,
+            500
+          ],
+          "kind": "folder",
+          "mode": 16877,
+          "modified": [
+            1767225905,
+            617283500
+          ],
+          "path": "tree/data"
+        },
+        {
+          "attributes": 32,
+          "created": [
+            1767139206,
+            500
+          ],
+          "kind": "file",
+          "mode": 33188,
+          "modified": [
+            1767225966,
+            740740200
+          ],
+          "path": "tree/data/random.bin",
+          "sha256": "4e2341514f6f1a3eb6152b703dd5eac37919f8f3ba83764a19d4b6074cc6ae02",
+          "size": 4096
+        },
+        {
+          "attributes": 32,
+          "created": [
+            1767139207,
+            500
+          ],
+          "kind": "file",
+          "mode": 33188,
+          "modified": [
+            1767226027,
+            864196900
+          ],
+          "path": "tree/data/words.txt",
+          "sha256": "53343e6a15732490a02c7151a098df28e3c4540bb922c2b2ab32e186a613cb00",
+          "size": 60000
+        },
+        {
+          "attributes": 32,
+          "created": [
+            1767139208,
+            500
+          ],
+          "kind": "file",
+          "mode": 33188,
+          "modified": [
+            1767226088,
+            987653600
+          ],
+          "path": "tree/data/zeros.bin",
+          "sha256": "9192c25b734fcbadbe32dadc28089c60db0e39f90cc20ce2e5733f57261acc0c",
+          "size": 100000
+        },
+        {
+          "attributes": 16,
+          "created": [
+            1767139209,
+            500
+          ],
+          "kind": "folder",
+          "mode": 16877,
+          "modified": [
+            1767226149,
+            111110300
+          ],
+          "path": "tree/ünïcödé"
+        },
+        {
+          "attributes": 32,
+          "created": [
+            1767139210,
+            500
+          ],
+          "kind": "file",
+          "mode": 33188,
+          "modified": [
+            1767226210,
+            234567000
+          ],
+          "path": "tree/ünïcödé/名前.txt",
+          "sha256": "b9b9ef8148fd166756b41b262c5a2311e4556ee077dd75a4100c5b866ca4aa01",
+          "size": 25
+        },
+        {
+          "attributes": 32,
+          "created": [
+            1767139211,
+            500
+          ],
+          "kind": "file",
+          "mode": 33188,
+          "modified": [
+            1767226271,
+            358023700
+          ],
+          "path": "tree/deep/directory-with-a-long-name-0123456789/another-long-directory-name-abcdefghij/file-with-a-long-name-past-100-characters.txt",
+          "sha256": "da81937d4f93a5a66ab373527413914cbaff9955c01e61404e142939343263b9",
+          "size": 12
+        },
+        {
+          "attributes": 16,
+          "created": [
+            1767139212,
+            500
+          ],
+          "kind": "folder",
+          "mode": 16877,
+          "modified": [
+            1767226332,
+            481480400
+          ],
+          "path": "tree/copies"
+        },
+        {
+          "attributes": 32,
+          "created": [
+            1767139213,
+            500
+          ],
+          "kind": "file",
+          "mode": 33188,
+          "modified": [
+            1767226393,
+            604937100
+          ],
+          "path": "tree/copies/words again.txt",
+          "sha256": "53343e6a15732490a02c7151a098df28e3c4540bb922c2b2ab32e186a613cb00",
+          "size": 60000
+        },
+        {
+          "attributes": 32,
+          "created": [
+            1767139214,
+            500
+          ],
+          "kind": "file",
+          "mode": 33188,
+          "modified": [
+            1767226454,
+            728393800
+          ],
+          "path": "tree/copies/words shifted.txt",
+          "sha256": "a419d1277a34b992fca84bd483de591823d65cf6606acb41031a7bcbfa3ce2b6",
+          "size": 60044
+        },
+        {
+          "attributes": 32,
+          "created": [
+            1767139215,
+            500
+          ],
+          "kind": "file",
+          "mode": 33188,
+          "modified": [
+            1767226515,
+            851850500
+          ],
+          "path": "tree/copies/hello again.txt",
+          "sha256": "a357597dcc1f4c3d10721860b7d1f354c8c409c918c15321d4a9709bed42f804",
+          "size": 15
+        },
+        {
+          "attributes": 16,
+          "created": [
+            1767139216,
+            500
+          ],
+          "kind": "folder",
+          "mode": 16877,
+          "modified": [
+            1767226576,
+            975307200
+          ],
+          "path": "tree/empty folder"
+        },
+        {
+          "attributes": 32,
+          "created": [
+            1767139217,
+            500
+          ],
+          "kind": "link",
+          "mode": 41471,
+          "modified": [
+            1767226637,
+            98763900
+          ],
+          "path": "tree/link to hello",
+          "target": "hello.txt"
+        },
+        {
+          "attributes": 32,
+          "created": [
+            1767139218,
+            500
+          ],
+          "kind": "file",
+          "mode": 33261,
+          "modified": [
+            1767226698,
+            222220600
+          ],
+          "path": "tree/script.sh",
+          "sha256": "c107d37976d9c766a8794ea46380e9d4c8003afb27dbe1e03145dee8a05c0eb4",
+          "size": 19
+        },
+        {
+          "attributes": 33,
+          "created": [
+            1767139219,
+            500
+          ],
+          "kind": "file",
+          "mode": 33188,
+          "modified": [
+            1767226759,
+            345677300
+          ],
+          "path": "tree/read only.txt",
+          "sha256": "7753efca65655d40749e5144d61ba991553e7c4cecdd4c34f263d2da181fee1a",
+          "size": 18
+        }
+      ],
+      "file": "sealed-high.bhive",
+      "level": "high",
+      "passwords": [
+        "honey"
+      ],
+      "recovery_key": "285142-254551-316547-327008-324951-091388-285593-094259",
+      "what": "the tree at level high, encrypted"
+    },
+    {
+      "entries": [
+        {
+          "attributes": 16,
+          "created": [
+            1767139200,
+            500
+          ],
+          "kind": "folder",
+          "mode": 16877,
+          "modified": [
+            1767225600,
+            0
+          ],
+          "path": "tree"
+        },
+        {
+          "attributes": 32,
+          "created": [
+            1767139201,
+            500
+          ],
+          "kind": "file",
+          "mode": 33188,
+          "modified": [
+            1767225661,
+            123456700
+          ],
+          "path": "tree/hello.txt",
+          "sha256": "a357597dcc1f4c3d10721860b7d1f354c8c409c918c15321d4a9709bed42f804",
+          "size": 15
+        },
+        {
+          "attributes": 32,
+          "created": [
+            1767139202,
+            500
+          ],
+          "kind": "file",
+          "mode": 33188,
+          "modified": [
+            1767225722,
+            246913400
+          ],
+          "path": "tree/empty.txt",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "size": 0
+        },
+        {
+          "attributes": 16,
+          "created": [
+            1767139203,
+            500
+          ],
+          "kind": "folder",
+          "mode": 16877,
+          "modified": [
+            1767225783,
+            370370100
+          ],
+          "path": "tree/docs"
+        },
+        {
+          "attributes": 32,
+          "created": [
+            1767139204,
+            500
+          ],
+          "kind": "file",
+          "mode": 33188,
+          "modified": [
+            1767225844,
+            493826800
+          ],
+          "path": "tree/docs/readme.md",
+          "sha256": "d1a2530f18225a94ebb7622e0f927da022bdd3c39d67b4dac5a4e90bd07acc92",
+          "size": 1361
+        },
+        {
+          "attributes": 16,
+          "created": [
+            1767139205,
+            500
+          ],
+          "kind": "folder",
+          "mode": 16877,
+          "modified": [
+            1767225905,
+            617283500
+          ],
+          "path": "tree/data"
+        },
+        {
+          "attributes": 32,
+          "created": [
+            1767139206,
+            500
+          ],
+          "kind": "file",
+          "mode": 33188,
+          "modified": [
+            1767225966,
+            740740200
+          ],
+          "path": "tree/data/random.bin",
+          "sha256": "4e2341514f6f1a3eb6152b703dd5eac37919f8f3ba83764a19d4b6074cc6ae02",
+          "size": 4096
+        },
+        {
+          "attributes": 32,
+          "created": [
+            1767139207,
+            500
+          ],
+          "kind": "file",
+          "mode": 33188,
+          "modified": [
+            1767226027,
+            864196900
+          ],
+          "path": "tree/data/words.txt",
+          "sha256": "53343e6a15732490a02c7151a098df28e3c4540bb922c2b2ab32e186a613cb00",
+          "size": 60000
+        },
+        {
+          "attributes": 32,
+          "created": [
+            1767139208,
+            500
+          ],
+          "kind": "file",
+          "mode": 33188,
+          "modified": [
+            1767226088,
+            987653600
+          ],
+          "path": "tree/data/zeros.bin",
+          "sha256": "9192c25b734fcbadbe32dadc28089c60db0e39f90cc20ce2e5733f57261acc0c",
+          "size": 100000
+        },
+        {
+          "attributes": 16,
+          "created": [
+            1767139209,
+            500
+          ],
+          "kind": "folder",
+          "mode": 16877,
+          "modified": [
+            1767226149,
+            111110300
+          ],
+          "path": "tree/ünïcödé"
+        },
+        {
+          "attributes": 32,
+          "created": [
+            1767139210,
+            500
+          ],
+          "kind": "file",
+          "mode": 33188,
+          "modified": [
+            1767226210,
+            234567000
+          ],
+          "path": "tree/ünïcödé/名前.txt",
+          "sha256": "b9b9ef8148fd166756b41b262c5a2311e4556ee077dd75a4100c5b866ca4aa01",
+          "size": 25
+        },
+        {
+          "attributes": 32,
+          "created": [
+            1767139211,
+            500
+          ],
+          "kind": "file",
+          "mode": 33188,
+          "modified": [
+            1767226271,
+            358023700
+          ],
+          "path": "tree/deep/directory-with-a-long-name-0123456789/another-long-directory-name-abcdefghij/file-with-a-long-name-past-100-characters.txt",
+          "sha256": "da81937d4f93a5a66ab373527413914cbaff9955c01e61404e142939343263b9",
+          "size": 12
+        },
+        {
+          "attributes": 16,
+          "created": [
+            1767139212,
+            500
+          ],
+          "kind": "folder",
+          "mode": 16877,
+          "modified": [
+            1767226332,
+            481480400
+          ],
+          "path": "tree/copies"
+        },
+        {
+          "attributes": 32,
+          "created": [
+            1767139213,
+            500
+          ],
+          "kind": "file",
+          "mode": 33188,
+          "modified": [
+            1767226393,
+            604937100
+          ],
+          "path": "tree/copies/words again.txt",
+          "sha256": "53343e6a15732490a02c7151a098df28e3c4540bb922c2b2ab32e186a613cb00",
+          "size": 60000
+        },
+        {
+          "attributes": 32,
+          "created": [
+            1767139214,
+            500
+          ],
+          "kind": "file",
+          "mode": 33188,
+          "modified": [
+            1767226454,
+            728393800
+          ],
+          "path": "tree/copies/words shifted.txt",
+          "sha256": "a419d1277a34b992fca84bd483de591823d65cf6606acb41031a7bcbfa3ce2b6",
+          "size": 60044
+        },
+        {
+          "attributes": 32,
+          "created": [
+            1767139215,
+            500
+          ],
+          "kind": "file",
+          "mode": 33188,
+          "modified": [
+            1767226515,
+            851850500
+          ],
+          "path": "tree/copies/hello again.txt",
+          "sha256": "a357597dcc1f4c3d10721860b7d1f354c8c409c918c15321d4a9709bed42f804",
+          "size": 15
+        },
+        {
+          "attributes": 16,
+          "created": [
+            1767139216,
+            500
+          ],
+          "kind": "folder",
+          "mode": 16877,
+          "modified": [
+            1767226576,
+            975307200
+          ],
+          "path": "tree/empty folder"
+        },
+        {
+          "attributes": 32,
+          "created": [
+            1767139217,
+            500
+          ],
+          "kind": "link",
+          "mode": 41471,
+          "modified": [
+            1767226637,
+            98763900
+          ],
+          "path": "tree/link to hello",
+          "target": "hello.txt"
+        },
+        {
+          "attributes": 32,
+          "created": [
+            1767139218,
+            500
+          ],
+          "kind": "file",
+          "mode": 33261,
+          "modified": [
+            1767226698,
+            222220600
+          ],
+          "path": "tree/script.sh",
+          "sha256": "c107d37976d9c766a8794ea46380e9d4c8003afb27dbe1e03145dee8a05c0eb4",
+          "size": 19
+        },
+        {
+          "attributes": 33,
+          "created": [
+            1767139219,
+            500
+          ],
+          "kind": "file",
+          "mode": 33188,
+          "modified": [
+            1767226759,
+            345677300
+          ],
+          "path": "tree/read only.txt",
+          "sha256": "7753efca65655d40749e5144d61ba991553e7c4cecdd4c34f263d2da181fee1a",
+          "size": 18
+        }
+      ],
+      "file": "sealed-max.bhive",
+      "level": "max",
+      "passwords": [
+        "honey"
+      ],
+      "recovery_key": "285142-254551-316547-327008-324951-091388-285593-094259",
+      "what": "the tree at level max, encrypted"
+    },
+    {
+      "entries": [
+        {
+          "attributes": 16,
+          "created": [
+            1767139200,
+            500
+          ],
+          "kind": "folder",
+          "mode": 16877,
+          "modified": [
+            1767225600,
+            0
+          ],
+          "path": "tree"
+        },
+        {
+          "attributes": 32,
+          "created": [
+            1767139201,
+            500
+          ],
+          "kind": "file",
+          "mode": 33188,
+          "modified": [
+            1767225661,
+            123456700
+          ],
+          "path": "tree/hello.txt",
+          "sha256": "a357597dcc1f4c3d10721860b7d1f354c8c409c918c15321d4a9709bed42f804",
+          "size": 15
+        },
+        {
+          "attributes": 32,
+          "created": [
+            1767139202,
+            500
+          ],
+          "kind": "file",
+          "mode": 33188,
+          "modified": [
+            1767225722,
+            246913400
+          ],
+          "path": "tree/empty.txt",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "size": 0
+        },
+        {
+          "attributes": 16,
+          "created": [
+            1767139203,
+            500
+          ],
+          "kind": "folder",
+          "mode": 16877,
+          "modified": [
+            1767225783,
+            370370100
+          ],
+          "path": "tree/docs"
+        },
+        {
+          "attributes": 32,
+          "created": [
+            1767139204,
+            500
+          ],
+          "kind": "file",
+          "mode": 33188,
+          "modified": [
+            1767225844,
+            493826800
+          ],
+          "path": "tree/docs/readme.md",
+          "sha256": "d1a2530f18225a94ebb7622e0f927da022bdd3c39d67b4dac5a4e90bd07acc92",
+          "size": 1361
+        },
+        {
+          "attributes": 16,
+          "created": [
+            1767139205,
+            500
+          ],
+          "kind": "folder",
+          "mode": 16877,
+          "modified": [
+            1767225905,
+            617283500
+          ],
+          "path": "tree/data"
+        },
+        {
+          "attributes": 32,
+          "created": [
+            1767139206,
+            500
+          ],
+          "kind": "file",
+          "mode": 33188,
+          "modified": [
+            1767225966,
+            740740200
+          ],
+          "path": "tree/data/random.bin",
+          "sha256": "4e2341514f6f1a3eb6152b703dd5eac37919f8f3ba83764a19d4b6074cc6ae02",
+          "size": 4096
+        },
+        {
+          "attributes": 32,
+          "created": [
+            1767139207,
+            500
+          ],
+          "kind": "file",
+          "mode": 33188,
+          "modified": [
+            1767226027,
+            864196900
+          ],
+          "path": "tree/data/words.txt",
+          "sha256": "53343e6a15732490a02c7151a098df28e3c4540bb922c2b2ab32e186a613cb00",
+          "size": 60000
+        },
+        {
+          "attributes": 32,
+          "created": [
+            1767139208,
+            500
+          ],
+          "kind": "file",
+          "mode": 33188,
+          "modified": [
+            1767226088,
+            987653600
+          ],
+          "path": "tree/data/zeros.bin",
+          "sha256": "9192c25b734fcbadbe32dadc28089c60db0e39f90cc20ce2e5733f57261acc0c",
+          "size": 100000
+        },
+        {
+          "attributes": 16,
+          "created": [
+            1767139209,
+            500
+          ],
+          "kind": "folder",
+          "mode": 16877,
+          "modified": [
+            1767226149,
+            111110300
+          ],
+          "path": "tree/ünïcödé"
+        },
+        {
+          "attributes": 32,
+          "created": [
+            1767139210,
+            500
+          ],
+          "kind": "file",
+          "mode": 33188,
+          "modified": [
+            1767226210,
+            234567000
+          ],
+          "path": "tree/ünïcödé/名前.txt",
+          "sha256": "b9b9ef8148fd166756b41b262c5a2311e4556ee077dd75a4100c5b866ca4aa01",
+          "size": 25
+        },
+        {
+          "attributes": 32,
+          "created": [
+            1767139211,
+            500
+          ],
+          "kind": "file",
+          "mode": 33188,
+          "modified": [
+            1767226271,
+            358023700
+          ],
+          "path": "tree/deep/directory-with-a-long-name-0123456789/another-long-directory-name-abcdefghij/file-with-a-long-name-past-100-characters.txt",
+          "sha256": "da81937d4f93a5a66ab373527413914cbaff9955c01e61404e142939343263b9",
+          "size": 12
+        },
+        {
+          "attributes": 16,
+          "created": [
+            1767139212,
+            500
+          ],
+          "kind": "folder",
+          "mode": 16877,
+          "modified": [
+            1767226332,
+            481480400
+          ],
+          "path": "tree/copies"
+        },
+        {
+          "attributes": 32,
+          "created": [
+            1767139213,
+            500
+          ],
+          "kind": "file",
+          "mode": 33188,
+          "modified": [
+            1767226393,
+            604937100
+          ],
+          "path": "tree/copies/words again.txt",
+          "sha256": "53343e6a15732490a02c7151a098df28e3c4540bb922c2b2ab32e186a613cb00",
+          "size": 60000
+        },
+        {
+          "attributes": 32,
+          "created": [
+            1767139214,
+            500
+          ],
+          "kind": "file",
+          "mode": 33188,
+          "modified": [
+            1767226454,
+            728393800
+          ],
+          "path": "tree/copies/words shifted.txt",
+          "sha256": "a419d1277a34b992fca84bd483de591823d65cf6606acb41031a7bcbfa3ce2b6",
+          "size": 60044
+        },
+        {
+          "attributes": 32,
+          "created": [
+            1767139215,
+            500
+          ],
+          "kind": "file",
+          "mode": 33188,
+          "modified": [
+            1767226515,
+            851850500
+          ],
+          "path": "tree/copies/hello again.txt",
+          "sha256": "a357597dcc1f4c3d10721860b7d1f354c8c409c918c15321d4a9709bed42f804",
+          "size": 15
+        },
+        {
+          "attributes": 16,
+          "created": [
+            1767139216,
+            500
+          ],
+          "kind": "folder",
+          "mode": 16877,
+          "modified": [
+            1767226576,
+            975307200
+          ],
+          "path": "tree/empty folder"
+        },
+        {
+          "attributes": 32,
+          "created": [
+            1767139217,
+            500
+          ],
+          "kind": "link",
+          "mode": 41471,
+          "modified": [
+            1767226637,
+            98763900
+          ],
+          "path": "tree/link to hello",
+          "target": "hello.txt"
+        },
+        {
+          "attributes": 32,
+          "created": [
+            1767139218,
+            500
+          ],
+          "kind": "file",
+          "mode": 33261,
+          "modified": [
+            1767226698,
+            222220600
+          ],
+          "path": "tree/script.sh",
+          "sha256": "c107d37976d9c766a8794ea46380e9d4c8003afb27dbe1e03145dee8a05c0eb4",
+          "size": 19
+        },
+        {
+          "attributes": 33,
+          "created": [
+            1767139219,
+            500
+          ],
+          "kind": "file",
+          "mode": 33188,
+          "modified": [
+            1767226759,
+            345677300
+          ],
+          "path": "tree/read only.txt",
+          "sha256": "7753efca65655d40749e5144d61ba991553e7c4cecdd4c34f263d2da181fee1a",
+          "size": 18
+        }
+      ],
+      "file": "sealed-two-passwords.bhive",
+      "level": "fast",
+      "passwords": [
+        "honey",
+        "bees"
+      ],
+      "what": "the tree behind either of two passwords"
+    },
+    {
+      "entries": [
+        {
+          "attributes": 16,
+          "created": [
+            1767139200,
+            500
+          ],
+          "kind": "folder",
+          "mode": 16877,
+          "modified": [
+            1767225600,
+            0
+          ],
+          "path": "tree"
+        },
+        {
+          "attributes": 32,
+          "created": [
+            1767139201,
+            500
+          ],
+          "kind": "file",
+          "mode": 33188,
+          "modified": [
+            1767225661,
+            123456700
+          ],
+          "path": "tree/hello.txt",
+          "sha256": "a357597dcc1f4c3d10721860b7d1f354c8c409c918c15321d4a9709bed42f804",
+          "size": 15
+        },
+        {
+          "attributes": 32,
+          "created": [
+            1767139202,
+            500
+          ],
+          "kind": "file",
+          "mode": 33188,
+          "modified": [
+            1767225722,
+            246913400
+          ],
+          "path": "tree/empty.txt",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "size": 0
+        },
+        {
+          "attributes": 16,
+          "created": [
+            1767139203,
+            500
+          ],
+          "kind": "folder",
+          "mode": 16877,
+          "modified": [
+            1767225783,
+            370370100
+          ],
+          "path": "tree/docs"
+        },
+        {
+          "attributes": 32,
+          "created": [
+            1767139204,
+            500
+          ],
+          "kind": "file",
+          "mode": 33188,
+          "modified": [
+            1767225844,
+            493826800
+          ],
+          "path": "tree/docs/readme.md",
+          "sha256": "d1a2530f18225a94ebb7622e0f927da022bdd3c39d67b4dac5a4e90bd07acc92",
+          "size": 1361
+        },
+        {
+          "attributes": 16,
+          "created": [
+            1767139205,
+            500
+          ],
+          "kind": "folder",
+          "mode": 16877,
+          "modified": [
+            1767225905,
+            617283500
+          ],
+          "path": "tree/data"
+        },
+        {
+          "attributes": 32,
+          "created": [
+            1767139206,
+            500
+          ],
+          "kind": "file",
+          "mode": 33188,
+          "modified": [
+            1767225966,
+            740740200
+          ],
+          "path": "tree/data/random.bin",
+          "sha256": "4e2341514f6f1a3eb6152b703dd5eac37919f8f3ba83764a19d4b6074cc6ae02",
+          "size": 4096
+        },
+        {
+          "attributes": 32,
+          "created": [
+            1767139207,
+            500
+          ],
+          "kind": "file",
+          "mode": 33188,
+          "modified": [
+            1767226027,
+            864196900
+          ],
+          "path": "tree/data/words.txt",
+          "sha256": "53343e6a15732490a02c7151a098df28e3c4540bb922c2b2ab32e186a613cb00",
+          "size": 60000
+        },
+        {
+          "attributes": 32,
+          "created": [
+            1767139208,
+            500
+          ],
+          "kind": "file",
+          "mode": 33188,
+          "modified": [
+            1767226088,
+            987653600
+          ],
+          "path": "tree/data/zeros.bin",
+          "sha256": "9192c25b734fcbadbe32dadc28089c60db0e39f90cc20ce2e5733f57261acc0c",
+          "size": 100000
+        },
+        {
+          "attributes": 16,
+          "created": [
+            1767139209,
+            500
+          ],
+          "kind": "folder",
+          "mode": 16877,
+          "modified": [
+            1767226149,
+            111110300
+          ],
+          "path": "tree/ünïcödé"
+        },
+        {
+          "attributes": 32,
+          "created": [
+            1767139210,
+            500
+          ],
+          "kind": "file",
+          "mode": 33188,
+          "modified": [
+            1767226210,
+            234567000
+          ],
+          "path": "tree/ünïcödé/名前.txt",
+          "sha256": "b9b9ef8148fd166756b41b262c5a2311e4556ee077dd75a4100c5b866ca4aa01",
+          "size": 25
+        },
+        {
+          "attributes": 32,
+          "created": [
+            1767139211,
+            500
+          ],
+          "kind": "file",
+          "mode": 33188,
+          "modified": [
+            1767226271,
+            358023700
+          ],
+          "path": "tree/deep/directory-with-a-long-name-0123456789/another-long-directory-name-abcdefghij/file-with-a-long-name-past-100-characters.txt",
+          "sha256": "da81937d4f93a5a66ab373527413914cbaff9955c01e61404e142939343263b9",
+          "size": 12
+        },
+        {
+          "attributes": 16,
+          "created": [
+            1767139212,
+            500
+          ],
+          "kind": "folder",
+          "mode": 16877,
+          "modified": [
+            1767226332,
+            481480400
+          ],
+          "path": "tree/copies"
+        },
+        {
+          "attributes": 32,
+          "created": [
+            1767139213,
+            500
+          ],
+          "kind": "file",
+          "mode": 33188,
+          "modified": [
+            1767226393,
+            604937100
+          ],
+          "path": "tree/copies/words again.txt",
+          "sha256": "53343e6a15732490a02c7151a098df28e3c4540bb922c2b2ab32e186a613cb00",
+          "size": 60000
+        },
+        {
+          "attributes": 32,
+          "created": [
+            1767139214,
+            500
+          ],
+          "kind": "file",
+          "mode": 33188,
+          "modified": [
+            1767226454,
+            728393800
+          ],
+          "path": "tree/copies/words shifted.txt",
+          "sha256": "a419d1277a34b992fca84bd483de591823d65cf6606acb41031a7bcbfa3ce2b6",
+          "size": 60044
+        },
+        {
+          "attributes": 32,
+          "created": [
+            1767139215,
+            500
+          ],
+          "kind": "file",
+          "mode": 33188,
+          "modified": [
+            1767226515,
+            851850500
+          ],
+          "path": "tree/copies/hello again.txt",
+          "sha256": "a357597dcc1f4c3d10721860b7d1f354c8c409c918c15321d4a9709bed42f804",
+          "size": 15
+        },
+        {
+          "attributes": 16,
+          "created": [
+            1767139216,
+            500
+          ],
+          "kind": "folder",
+          "mode": 16877,
+          "modified": [
+            1767226576,
+            975307200
+          ],
+          "path": "tree/empty folder"
+        },
+        {
+          "attributes": 32,
+          "created": [
+            1767139217,
+            500
+          ],
+          "kind": "link",
+          "mode": 41471,
+          "modified": [
+            1767226637,
+            98763900
+          ],
+          "path": "tree/link to hello",
+          "target": "hello.txt"
+        },
+        {
+          "attributes": 32,
+          "created": [
+            1767139218,
+            500
+          ],
+          "kind": "file",
+          "mode": 33261,
+          "modified": [
+            1767226698,
+            222220600
+          ],
+          "path": "tree/script.sh",
+          "sha256": "c107d37976d9c766a8794ea46380e9d4c8003afb27dbe1e03145dee8a05c0eb4",
+          "size": 19
+        },
+        {
+          "attributes": 33,
+          "created": [
+            1767139219,
+            500
+          ],
+          "kind": "file",
+          "mode": 33188,
+          "modified": [
+            1767226759,
+            345677300
+          ],
+          "path": "tree/read only.txt",
+          "sha256": "7753efca65655d40749e5144d61ba991553e7c4cecdd4c34f263d2da181fee1a",
+          "size": 18
+        }
+      ],
+      "file": "sealed-recovery.bhive",
+      "level": "fast",
+      "passwords": [],
+      "recovery_key": "285142-254551-316547-327008-324951-091388-285593-094259",
+      "what": "the tree behind a recovery key alone"
+    }
+  ],
+  "note": "Written by `cargo xtask gen-fixtures` (xtask/src/fixtures/bhive.rs). Encrypted                  archives (docs/bhive.md §12), each opened by the passwords and the recovery key                  its record lists. These are test secrets, never a real archive's."
+}
