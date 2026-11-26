@@ -98,7 +98,7 @@ dependencies = [
 
 [[package]]
 name = "beezip-core"
-version = "0.8.3"
+version = "0.8.4"
 dependencies = [
  "backhand",
  "beezip-unrar",
@@ -155,7 +155,7 @@ dependencies = [
 
 [[package]]
 name = "beezip-menu"
-version = "0.8.3"
+version = "0.8.4"
 dependencies = [
  "serde",
  "serde_json",
@@ -163,7 +163,7 @@ dependencies = [
 
 [[package]]
 name = "beezip-unrar"
-version = "0.8.3"
+version = "0.8.4"
 dependencies = [
  "unrar_sys",
 ]

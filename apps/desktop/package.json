@@ -1,7 +1,7 @@
 {
   "name": "beezip-desktop",
   "private": true,
-  "version": "0.8.3",
+  "version": "0.8.4",
   "type": "module",
   "packageManager": "pnpm@12.16.1",
   "scripts": {
