@@ -922,3 +922,283 @@ fn new_key_changes_every_slot_and_add_keeps_them() {
     assert_eq!(e.code, ErrorCode::InvalidArgs, "{e:?}");
     assert!(e.message.contains("no way in"), "{}", e.message);
 }
+
+/// The test keys and certificates of `beezip-keys` (its `files/testdata`, published on purpose).
+fn testdata(name: &str) -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../beezip-keys/src/files/testdata")
+        .join(name)
+}
+
+/// Engines over one settings folder, so that several share one set of keys and contacts; each
+/// with the key files given (`--identity`).
+struct At<'a>(&'a Path);
+
+impl At<'_> {
+    fn engine(&self, identities: &[&str]) -> Engine {
+        Engine::with_options(
+            registry(),
+            EngineOptions {
+                policy: Policy {
+                    identities: identities.iter().map(|f| testdata(f)).collect(),
+                    ..Policy::unrestricted()
+                },
+                config_path: Some(self.0.join("config.toml")),
+                system_keys: SystemKeys::Off,
+                ..EngineOptions::default()
+            },
+        )
+    }
+
+    /// Runs a command with `identities`, with the warnings it logged.
+    fn run(
+        &self,
+        identities: &[&str],
+        name: &str,
+        args: Value,
+    ) -> (Result<Value, CmdError>, Vec<String>) {
+        let logs = Arc::new(Mutex::new(Vec::new()));
+        let seen = Arc::clone(&logs);
+        let sink: EventSink = Arc::new(move |e| {
+            if let JobEvent::Log {
+                level: LogLevel::Warn,
+                message,
+            } = e
+            {
+                seen.lock().unwrap().push(message);
+            }
+        });
+        let r = self
+            .engine(identities)
+            .invoke(name, args, Arc::new(NonInteractive), sink)
+            .unwrap()
+            .join();
+        let logs = logs.lock().unwrap().clone();
+        (r, logs)
+    }
+
+    fn ok(&self, identities: &[&str], name: &str, args: Value) -> Value {
+        self.run(identities, name, args).0.unwrap()
+    }
+
+    fn err(&self, identities: &[&str], name: &str, args: Value) -> CmdError {
+        self.run(identities, name, args).0.unwrap_err()
+    }
+}
+
+/// Someone's certificate as a contact (docs/M14.md §6): added from a PEM file, a DER file and
+/// pasted PEM; encrypted to by name and opened with its key file; known as the signer of what
+/// its key signs; named by `require_signer`; and a slot for it is rebuilt by "New key" without
+/// asking. On every system, with key files only.
+#[test]
+fn a_certificate_contact_is_encrypted_to_and_known_as_a_signer() {
+    let settings = tempfile::tempdir().unwrap();
+    let at = At(settings.path());
+    let work = tempfile::tempdir().unwrap();
+    let input = fixtures().join("bhive/README.md");
+
+    let bob = at.ok(
+        &[],
+        "keys.import",
+        json!({ "name": "Bob", "file": testdata("rsa.crt") }),
+    );
+    assert_eq!(bob["kind"], "certificate", "{bob}");
+    assert_eq!(bob["own"], false);
+    assert_eq!(bob["subject"], "BeeZip test rsa");
+    assert_eq!(bob["issuer"], "BeeZip test rsa");
+    assert!(bob["not_after"].as_i64().unwrap() > 4_000_000_000);
+    assert!(
+        bob["public"]
+            .as_str()
+            .unwrap()
+            .starts_with("-----BEGIN CERTIFICATE-----")
+    );
+    // The same certificate in DER is already Bob.
+    let e = at.err(
+        &[],
+        "keys.import",
+        json!({ "name": "Bob again", "file": testdata("rsa.der") }),
+    );
+    assert_eq!(e.code, ErrorCode::Conflict);
+    // P-384 in DER, written from its PEM; pasted PEM.
+    let p384 = beezip_core::format::bhive::crypt::cert::parse(
+        &std::fs::read(testdata("p384.crt")).unwrap(),
+    )
+    .unwrap();
+    let der = work.path().join("carol.cer");
+    std::fs::write(&der, &p384.der).unwrap();
+    at.ok(&[], "keys.import", json!({ "name": "Carol", "file": der }));
+    let pem = std::fs::read_to_string(testdata("rsa-expired.crt")).unwrap();
+    at.ok(&[], "keys.import", json!({ "name": "Old", "text": pem }));
+    at.ok(
+        &[],
+        "keys.import",
+        json!({ "name": "Ecdsa", "file": testdata("p256-ecdsa.crt") }),
+    );
+    let exported = at.ok(&[], "keys.export", json!({ "name": "Bob" }));
+    assert_eq!(exported["text"], bob["public"]);
+    let e = at.err(&[], "keys.export", json!({ "name": "Bob", "secret": true }));
+    assert_eq!(e.code, ErrorCode::InvalidArgs);
+
+    // Encrypted to Bob and Carol by name; each one's key file opens it, and nothing else does.
+    let archive = work.path().join("a.bhive");
+    at.ok(
+        &[],
+        "archive.create",
+        json!({ "output": archive, "inputs": [input], "to": ["Bob", "Carol"] }),
+    );
+    assert!(encrypted(&archive));
+    for key in ["rsa.key", "p384.key"] {
+        at.ok(&[key], "archive.test", json!({ "archive": archive }));
+    }
+    let e = at.err(&["p256.key"], "archive.test", json!({ "archive": archive }));
+    assert_eq!(e.code, ErrorCode::KeyRequired);
+    let ways = at.ok(
+        &["rsa.key"],
+        "archive.protection",
+        json!({ "archive": archive }),
+    );
+    let labels: Vec<&str> = ways["ways"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|w| w["label"].as_str().unwrap())
+        .collect();
+    assert_eq!(labels, ["Bob", "Carol"], "{ways}");
+    assert_eq!(ways["ways"][0]["fingerprint"], bob["fingerprint"], "{ways}");
+    // Both are contacts, so a new key rebuilds their slots without asking.
+    let (before, _) = key_block(&archive);
+    at.ok(
+        &["rsa.key"],
+        "archive.protect",
+        json!({ "archive": archive, "new_key": true }),
+    );
+    let (after, _) = key_block(&archive);
+    assert_eq!(after.len(), 2);
+    assert_ne!(after, before);
+    at.ok(&["p384.key"], "archive.test", json!({ "archive": archive }));
+
+    // An expired contact is encrypted to with a warning; an ECDSA one can't be, and says why.
+    let (r, warned) = at.run(
+        &[],
+        "archive.create",
+        json!({ "output": work.path().join("old.bhive"), "inputs": [input], "to": ["Old"] }),
+    );
+    r.unwrap();
+    assert!(
+        warned
+            .iter()
+            .any(|w| w.contains("Old's certificate has expired")),
+        "{warned:?}"
+    );
+    let e = at.err(
+        &[],
+        "archive.create",
+        json!({ "output": work.path().join("ecdsa.bhive"), "inputs": [input], "to": ["Ecdsa"] }),
+    );
+    assert_eq!(e.code, ErrorCode::InvalidArgs);
+    assert!(e.message.contains("ECDSA"), "{}", e.message);
+
+    // Signed with Bob's key file: the signature is Bob's, and `require_signer` takes his name.
+    let signed = work.path().join("s.bhive");
+    at.ok(
+        &[],
+        "archive.create",
+        json!({ "output": signed, "inputs": [input], "sign": [testdata("rsa.crt")] }),
+    );
+    let info = at.ok(&[], "archive.info", json!({ "archive": signed }));
+    let s = &info["signatures"][0];
+    assert_eq!(s["trust"], "contact", "{info}");
+    assert_eq!(s["signer"], "Bob");
+    // A signature's fingerprint is of its signer bytes; Bob's, of his certificate, as his way
+    // into an archive shows it.
+    assert_ne!(s["fingerprint"], bob["fingerprint"]);
+    at.ok(&[], "archive.verify", json!({ "archive": signed }));
+    at.ok(
+        &[],
+        "archive.verify",
+        json!({ "archive": signed, "require_signer": ["Bob"] }),
+    );
+    let e = at.err(
+        &[],
+        "archive.verify",
+        json!({ "archive": signed, "require_signer": ["Carol"] }),
+    );
+    assert_eq!(e.code, ErrorCode::SignatureRequired);
+
+    // Gone as a contact, the signer is a stranger again.
+    at.ok(&[], "keys.delete", json!({ "name": "Bob" }));
+    let info = at.ok(&[], "archive.info", json!({ "archive": signed }));
+    assert_eq!(info["signatures"][0]["trust"], "unknown", "{info}");
+}
+
+/// A `.pfx` given to open or to sign: on Windows it is opened in memory, its password asked
+/// for; elsewhere it is refused with what to do instead, before anything is asked.
+#[test]
+fn a_pfx_opens_and_signs_on_windows_and_is_refused_elsewhere() {
+    let settings = tempfile::tempdir().unwrap();
+    let at = At(settings.path());
+    let work = tempfile::tempdir().unwrap();
+    let input = fixtures().join("bhive/README.md");
+    let archive = work.path().join("a.bhive");
+    at.ok(
+        &[],
+        "archive.create",
+        json!({ "output": archive, "inputs": [input], "to_cert": [testdata("rsa.crt")] }),
+    );
+    // Its password is asked for, and nobody is here to type it.
+    let opened = at.err(&["rsa.pfx"], "archive.test", json!({ "archive": archive }));
+    // Signing with one whose password is empty needs nobody.
+    let signed = work.path().join("s.bhive");
+    let (sign, _) = at.run(
+        &[],
+        "archive.create",
+        json!({ "output": signed, "inputs": [input], "sign": [testdata("p256-ecdsa.pfx")] }),
+    );
+    if cfg!(windows) {
+        assert_eq!(opened.code, ErrorCode::PasswordRequired, "{opened:?}");
+        assert!(
+            opened.message.contains("under a password"),
+            "{}",
+            opened.message
+        );
+        sign.unwrap();
+        let info = at.ok(&[], "archive.info", json!({ "archive": signed }));
+        assert_eq!(info["signatures"][0]["status"], "valid", "{info}");
+        assert_eq!(info["signatures"][0]["algorithm"], "ecdsa-p256");
+        // Someone types the password: a wrong one is asked for again, the right one opens it.
+        let asked = Scripted::new(vec![
+            PromptReply::Password {
+                password: "comb".into(),
+            },
+            PromptReply::Password {
+                password: "honey".into(),
+            },
+        ]);
+        at.engine(&["rsa.pfx"])
+            .invoke(
+                "archive.test",
+                json!({ "archive": archive }),
+                asked.clone(),
+                Arc::new(|_| {}),
+            )
+            .unwrap()
+            .join()
+            .unwrap();
+        let prompts = asked.asked.lock().unwrap().clone();
+        assert_eq!(prompts.len(), 2, "{prompts:?}");
+        assert!(
+            matches!(&prompts[0], Prompt::Password { entry: Some(e) } if e.contains("rsa.pfx")),
+            "{prompts:?}"
+        );
+    } else {
+        assert_eq!(opened.code, ErrorCode::UnsupportedOperation, "{opened:?}");
+        assert!(
+            opened.message.contains("openssl pkcs12"),
+            "{}",
+            opened.message
+        );
+        let e = sign.unwrap_err();
+        assert_eq!(e.code, ErrorCode::UnsupportedOperation, "{e:?}");
+    }
+}

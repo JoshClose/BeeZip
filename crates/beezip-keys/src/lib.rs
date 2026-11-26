@@ -5,7 +5,8 @@
 //!
 //! - [`identity`]: your own keys and your contacts, sealed by the system (DPAPI-NG, the login
 //!   Keychain, a 0600 file) (PR C); [`identity::signing`], your signing key (PR H).
-//! - [`files`]: key files and certificate files, everywhere (PR D).
+//! - [`files`]: key files and certificate files, everywhere (PR D); [`pfx`], `.pfx` files,
+//!   opened in memory on Windows.
 //! - [`trust`]: whom a signature is from (PR D, with PR H).
 //! - `cng` (Windows): certificate stores, smart cards, TPM keys and "This PC", chain checks
 //!   (PR D). `mac` (macOS): Keychain identities (PR D).
@@ -22,6 +23,7 @@ use beezip_core::{
 
 pub mod files;
 pub mod identity;
+pub mod pfx;
 pub mod trust;
 
 #[cfg(windows)]

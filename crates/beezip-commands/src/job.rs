@@ -445,10 +445,9 @@ impl JobCtx {
     }
 
     /// The key file at `path` (`--identity`): an age identity file (`AGE-SECRET-KEY-…`
-    /// lines), or a PEM or DER private key, which under a password asks for it, without echo,
-    /// up to [`PASSWORD_PROMPTS`] times.
+    /// lines), a PEM or DER private key, or a `.pfx`, opened in memory on Windows; one under a
+    /// password asks for it ([`JobCtx::with_file_password`]).
     fn key_file(&mut self, path: &Path) -> Result<Box<dyn KeySource + Send>, CmdError> {
-        use beezip_core::ErrorKind;
         let in_file = |e: beezip_core::Error| {
             let e = CmdError::from(e);
             CmdError::new(e.code, format!("{}: {}", path.display(), e.message))
@@ -462,11 +461,33 @@ impl JobCtx {
         {
             return beezip_keys::identity::identity_file(text).map_err(in_file);
         }
+        if beezip_keys::pfx::is_pfx(&bytes) {
+            return self.with_file_password(path, |password| {
+                beezip_keys::pfx::source(&bytes, password).map_err(|e| {
+                    beezip_core::Error::new(e.kind, format!("{}: {}", path.display(), e.message))
+                })
+            });
+        }
+        self.with_file_password(path, |password| {
+            beezip_keys::files::source(&[path], password)
+        })
+    }
+
+    /// `open` with no password; then, while it says the key file at `path` needs one or was
+    /// given a wrong one, with the one the user types for it, without echo, up to
+    /// [`PASSWORD_PROMPTS`] times. With nobody to ask, the error says to run the command in a
+    /// terminal.
+    pub(crate) fn with_file_password<T>(
+        &mut self,
+        path: &Path,
+        mut open: impl FnMut(Option<&str>) -> beezip_core::Result<T>,
+    ) -> Result<T, CmdError> {
+        use beezip_core::ErrorKind;
         let mut passphrase: Option<String> = None;
         let mut asked = 0;
         loop {
-            match beezip_keys::files::source(&[path], passphrase.as_deref()) {
-                Ok(source) => return Ok(source),
+            match open(passphrase.as_deref()) {
+                Ok(opened) => return Ok(opened),
                 Err(e)
                     if matches!(
                         e.kind,

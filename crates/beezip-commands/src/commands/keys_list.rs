@@ -11,7 +11,8 @@ use crate::{
     policy::Access,
 };
 
-/// List your keys (for opening archives and for signing them) and your contacts' public keys.
+/// List your keys (for opening archives and for signing them) and your contacts' public keys
+/// and certificates.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema, clap::Args, TS)]
 #[serde(deny_unknown_fields)]
 pub struct KeysListInput {}
@@ -61,6 +62,12 @@ impl Command for KeysList {
         for k in &out.keys {
             let whose = if k.own { "yours" } else { "contact" };
             let pad = width - k.name.chars().count();
+            // A certificate's PEM runs over lines: its subject and expiry instead.
+            let shown = match (&k.subject, k.not_after) {
+                (Some(subject), Some(until)) => format!("{subject}, until {}", date(until)),
+                (Some(subject), None) => subject.clone(),
+                _ => short(&k.public),
+            };
             s.push_str(&format!(
                 "{}{}  {:<12}  {:<7}  {}  {}\n",
                 k.name,
@@ -68,7 +75,7 @@ impl Command for KeysList {
                 kind_label(k.kind),
                 whose,
                 k.fingerprint,
-                short(&k.public),
+                shown,
             ));
         }
         s.pop();
@@ -105,6 +112,7 @@ pub(crate) fn keys_dir() -> Option<PathBuf> {
 }
 
 pub(crate) fn info(e: KeyEntry) -> KeyInfo {
+    let certificate = e.certificate;
     KeyInfo {
         name: e.name,
         kind: kind_name(e.kind),
@@ -112,6 +120,10 @@ pub(crate) fn info(e: KeyEntry) -> KeyInfo {
         fingerprint: e.fingerprint,
         own: e.own,
         created: e.created,
+        subject: certificate.as_ref().map(|c| c.subject.clone()),
+        issuer: certificate.as_ref().map(|c| c.issuer.clone()),
+        not_after: certificate.as_ref().map(|c| c.not_after),
+        refused: certificate.and_then(|c| c.slot_kind().err()),
     }
 }
 
@@ -120,6 +132,7 @@ pub(crate) const fn kind_name(kind: KeyKind) -> KeyKindName {
         KeyKind::X25519 => KeyKindName::Classic,
         KeyKind::XWing => KeyKindName::PostQuantum,
         KeyKind::Signing => KeyKindName::Signing,
+        KeyKind::Certificate => KeyKindName::Certificate,
     }
 }
 
@@ -128,7 +141,14 @@ pub(crate) const fn kind_label(kind: KeyKindName) -> &'static str {
         KeyKindName::PostQuantum => "post-quantum",
         KeyKindName::Classic => "classic",
         KeyKindName::Signing => "signing",
+        KeyKindName::Certificate => "certificate",
     }
+}
+
+/// A day, `2026-11-26`, from seconds since 1970 (UTC).
+pub(crate) fn date(seconds: i64) -> String {
+    time::OffsetDateTime::from_unix_timestamp(seconds)
+        .map_or_else(|_| seconds.to_string(), |t| t.date().to_string())
 }
 
 /// A public key cut to its start and end: post-quantum ones run to 1,959 characters. By

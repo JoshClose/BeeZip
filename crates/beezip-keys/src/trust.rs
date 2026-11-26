@@ -95,13 +95,12 @@ fn known(store: &Store, signer: &[u8]) -> Result<Option<Trust>> {
 }
 
 /// The contact whose certificate is the signer's own, matched on the whole certificate (never a
-/// fingerprint). A contact's certificate is kept as its PEM text; until contacts can hold
-/// certificates (`keys.import` of one is not built yet), nobody matches.
+/// fingerprint). A contact's certificate is kept as its PEM text (`keys.import`).
 fn certificate_contact(store: &Store, leaf: &[u8]) -> Result<Option<String>> {
     Ok(entries(store)?
         .into_iter()
-        .filter(|e| !e.own && e.public.contains("-----BEGIN"))
-        .find(|e| cert::parse(e.public.as_bytes()).is_ok_and(|c| c.der == leaf))
+        .filter(|e| !e.own && e.kind == KeyKind::Certificate)
+        .find(|e| e.certificate.as_ref().is_some_and(|c| c.der == leaf))
         .map(|e| e.name))
 }
 
@@ -279,5 +278,52 @@ mod tests {
             trust(&store, &signature(4, vec![1, 2])).unwrap(),
             Trust::Unknown { .. }
         ));
+    }
+    /// A certificate someone added as a contact is theirs, by the name they gave it, on every
+    /// system: matched on the whole certificate, whatever chain the signature carries after
+    /// it. Once expired it is shown as expired.
+    #[test]
+    fn a_certificate_contact_is_known_by_its_name() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::new(dir.path().to_owned());
+        let read = |f: &str| std::fs::read(data(f)).unwrap();
+        let der = |f: &str| cert::parse(&read(f)).unwrap().der;
+        store.import_file("Bob", &read("rsa.der")).unwrap();
+        let rsa = sig::signer_bytes(&[der("rsa.crt")]).unwrap();
+        assert_eq!(
+            trust(&store, &signature(2, rsa.clone())).unwrap(),
+            Trust::Contact("Bob".into())
+        );
+        assert_eq!(
+            trust(&store, &signature(3, rsa)).unwrap(),
+            Trust::Contact("Bob".into())
+        );
+        // Another certificate of the same key isn't Bob's.
+        let sign_only = sig::signer_bytes(&[der("rsa-sign-only.crt")]).unwrap();
+        assert!(matches!(
+            trust(&store, &signature(2, sign_only)).unwrap(),
+            Trust::Unknown { .. }
+        ));
+
+        // A chain's leaf as a contact: the signature carries the leaf and its issuer.
+        store.import_file("Leaf", &read("chain.pem")).unwrap();
+        let chain: Vec<_> = cert::parse_all(&read("chain.pem"))
+            .unwrap()
+            .into_iter()
+            .map(|c| c.der)
+            .collect();
+        assert_eq!(
+            trust(&store, &signature(4, sig::signer_bytes(&chain).unwrap())).unwrap(),
+            Trust::Contact("Leaf".into())
+        );
+
+        store.import_file("Old", &read("rsa-expired.crt")).unwrap();
+        let expired = sig::signer_bytes(&[der("rsa-expired.crt")]).unwrap();
+        assert_eq!(
+            trust(&store, &signature(2, expired)).unwrap(),
+            Trust::Expired {
+                subject: "BeeZip test rsa-expired".into()
+            }
+        );
     }
 }

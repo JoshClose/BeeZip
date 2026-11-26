@@ -44,6 +44,11 @@ impl Command for KeysCreate {
             KeyKindName::PostQuantum => KeyKind::XWing,
             KeyKindName::Classic => KeyKind::X25519,
             KeyKindName::Signing => KeyKind::Signing,
+            KeyKindName::Certificate => {
+                return Err(CmdError::invalid_args(
+                    "BeeZip doesn't make certificates: add someone's with `keys.import`",
+                ));
+            }
         };
         Ok(info(store(cx)?.create(&input.name, kind)?))
     }
@@ -57,8 +62,23 @@ impl Command for KeysCreate {
     }
 }
 
-/// What `keys.create` and `keys.import` print: the key, and its public key to share.
+/// What `keys.create` and `keys.import` print: the key, and its public key to share; for a
+/// certificate, whose it is and until when.
 pub(crate) fn made(out: &KeyInfo, verb: &str) -> String {
+    if let Some(subject) = &out.subject {
+        let until = out
+            .not_after
+            .map(|t| format!(", valid until {}", super::keys_list::date(t)))
+            .unwrap_or_default();
+        let issuer = out.issuer.as_ref().filter(|i| *i != subject).map_or_else(
+            || " (self-signed)".to_owned(),
+            |i| format!(" issued by {i}"),
+        );
+        return format!(
+            "{verb} `{}`, a contact's certificate: {subject}{issuer}{until}, fingerprint {}.",
+            out.name, out.fingerprint
+        );
+    }
     let whose = if out.own { "your" } else { "a contact's" };
     format!(
         "{verb} `{}`, {whose} {} key, fingerprint {}.\nIts public key, to share:\n{}",

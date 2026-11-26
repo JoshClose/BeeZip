@@ -1,6 +1,7 @@
 //! macOS: Keychain identities through Security.framework (docs/M14.md §6, §11): certificate
-//! slots opened with an identity's key (RSA-OAEP, ECDH), signing with it (RSA-PSS, ECDSA), and
-//! the system's trust evaluation for signers.
+//! slots opened with an identity's key (RSA-OAEP, ECDH), signing with it (RSA-PSS, ECDSA), the
+//! system's trust evaluation for signers, and the Keychain's certificates for
+//! `certificates.list`.
 //!
 //! The Keychain may ask the user before an app uses a private key, so an identity's key is
 //! only used for a way in the user chose (a slot's `device`), or to sign. Finding which slot
@@ -24,7 +25,10 @@ use security_framework::{
     identity::SecIdentity,
     item::{ItemClass, ItemSearchOptions, Limit, Reference, SearchResult},
     key::{Algorithm as SecAlgorithm, SecKey},
-    os::macos::import_export::{ImportOptions, SecItems},
+    os::macos::{
+        import_export::{ImportOptions, SecItems},
+        keychain::SecKeychain,
+    },
     policy::SecPolicy,
     trust::{SecTrust, TrustOptions},
 };
@@ -54,6 +58,90 @@ fn identities() -> Vec<(SecIdentity, Certificate)> {
             _ => None,
         })
         .collect()
+}
+
+/// A certificate in the Keychain, as `certificates.list` shows it: what Windows'
+/// `cng::certificates` lists from Personal and Other People, from the Keychain's identities and
+/// the certificates it holds without a key.
+#[derive(Debug, Clone)]
+pub struct KeychainCertificate {
+    pub certificate: Certificate,
+    /// `personal` for an identity, whose private key is in the Keychain; `other-people` for a
+    /// certificate alone.
+    pub store: String,
+    /// Its private key is in the Keychain.
+    pub key: bool,
+    /// macOS trusts its chain, from what this Mac has (never online), its dates aside.
+    pub trusted: bool,
+}
+
+/// The Keychain's identities ("personal"), then the certificates without a key in the default
+/// keychain, the login one ("other-people"): not the System keychain's, which holds the
+/// machine's authorities rather than people. Certificates that don't parse are left out. Only
+/// certificates are read: no private key is touched, so the Keychain asks nothing.
+pub fn certificates() -> Result<Vec<KeychainCertificate>> {
+    let mut out: Vec<KeychainCertificate> = Vec::new();
+    for (_, certificate) in identities() {
+        // The same identity in two keychains is listed once.
+        if out.iter().any(|k| k.certificate.der == certificate.der) {
+            continue;
+        }
+        out.push(KeychainCertificate {
+            trusted: trusted_offline(&certificate.der),
+            certificate,
+            store: "personal".into(),
+            key: true,
+        });
+    }
+    // No default keychain (a session without a login keychain): the identities alone.
+    let Ok(login) = SecKeychain::default() else {
+        return Ok(out);
+    };
+    let found = ItemSearchOptions::new()
+        .class(ItemClass::certificate())
+        .keychains(&[login])
+        .load_refs(true)
+        .limit(Limit::All)
+        .search()
+        .unwrap_or_default();
+    for r in found {
+        let SearchResult::Ref(Reference::Certificate(c)) = r else {
+            continue;
+        };
+        let der = c.to_der();
+        // An identity's certificate is listed once, as personal.
+        if out.iter().any(|k| k.certificate.der == der) {
+            continue;
+        }
+        let Ok(certificate) = cert::parse_der(&der) else {
+            continue;
+        };
+        out.push(KeychainCertificate {
+            trusted: trusted_offline(&der),
+            certificate,
+            store: "other-people".into(),
+            key: false,
+        });
+    }
+    Ok(out)
+}
+
+/// Whether macOS trusts a certificate's chain from what this Mac has, its dates aside, as
+/// Windows' listing does from what Windows has cached: never online, since listing must be
+/// quick and tell nobody what is listed.
+fn trusted_offline(der: &[u8]) -> bool {
+    let Ok(leaf) = SecCertificate::from_der(der) else {
+        return false;
+    };
+    let Ok(mut trust) = SecTrust::create_with_certificates(&[leaf], &[SecPolicy::create_x509()])
+    else {
+        return false;
+    };
+    trust.set_network_fetch_allowed(false).is_ok()
+        && trust
+            .set_options(TrustOptions::ALLOW_EXPIRED | TrustOptions::ALLOW_EXPIRED_ROOT)
+            .is_ok()
+        && trust.evaluate_with_error().is_ok()
 }
 
 /// The Keychain's identities, as a key source.
@@ -377,6 +465,33 @@ mod tests {
         let root = cert::parse_all(&pem).unwrap()[1].der.clone();
         assert!(cert::self_issued(&root));
         assert!(!cert::self_issued(&leaf));
+    }
+
+    /// Listing reads only certificates, whatever the Keychain holds (CI's holds none of the
+    /// user's): it never fails, every entry parses and is where it says, and it asks nothing.
+    #[test]
+    fn the_keychains_certificates_are_listed_without_asking() {
+        let listed = certificates().unwrap();
+        for c in &listed {
+            assert_eq!(c.certificate.thumbprint_hex().len(), 40);
+            assert_eq!(cert::parse_der(&c.certificate.der).unwrap(), c.certificate);
+            match c.store.as_str() {
+                "personal" => assert!(c.key),
+                "other-people" => assert!(!c.key),
+                other => panic!("a certificate listed in {other}"),
+            }
+        }
+        // Each certificate once.
+        let mut ders: Vec<_> = listed.iter().map(|c| &c.certificate.der).collect();
+        ders.sort();
+        ders.dedup();
+        assert_eq!(ders.len(), listed.len());
+        // A self-signed test certificate is nothing macOS trusts.
+        let der = cert::parse(&std::fs::read(data("rsa.crt")).unwrap())
+            .unwrap()
+            .der;
+        assert!(!trusted_offline(&der));
+        assert!(!trusted_offline(&[1, 2, 3]));
     }
 
     #[test]

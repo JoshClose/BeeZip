@@ -19,3 +19,6 @@ from 2020 to 2126, so a machine whose clock is behind still finds it valid, exce
 | `p256.pub` | `p256.key`'s public key alone (`PUBLIC KEY`) |
 | `p384-encrypted.key` | `p384.key` as encrypted PKCS #8 (PBES2, PBKDF2-SHA256, AES-256-CBC), password `honey` |
 | `chain.pem` | `p256.key`'s certificate issued by a test CA, then the CA's certificate (its key isn't kept) |
+| `rsa.pfx`, `p256.pfx` | `rsa.key` with `rsa.crt`, `p256.key` with `p256.crt`, as PKCS #12 (OpenSSL 3's defaults: PBES2, PBKDF2-SHA256, AES-256-CBC, an HMAC-SHA256 MAC), password `honey` |
+| `rsa-3des.pfx` | `rsa.pfx` with the older encryption many tools still write (`pbeWithSHA1And3-KeyTripleDES-CBC`, an HMAC-SHA1 MAC), password `honey` |
+| `p256-ecdsa.pfx` | `p256.key` with `p256-ecdsa.crt`, as `rsa.pfx` is made but with an empty password |

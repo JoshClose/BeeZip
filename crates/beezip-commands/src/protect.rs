@@ -356,7 +356,8 @@ pub fn now() -> i64 {
     time::OffsetDateTime::now_utc().unix_timestamp()
 }
 
-/// An `age1…` or `age1pq1…` key, or a contact's (or your own key's) name.
+/// An `age1…` or `age1pq1…` key, or a contact's (or your own key's) name: a contact's
+/// certificate is encrypted to as `to_cert` would be, with a warning when it has expired.
 pub fn public_key(text: &str, cx: &JobCtx) -> Result<Labelled, CmdError> {
     let text = text.trim();
     if text.to_ascii_lowercase().starts_with("age1") {
@@ -369,7 +370,13 @@ pub fn public_key(text: &str, cx: &JobCtx) -> Result<Labelled, CmdError> {
         .key_store()?
         .list()?
         .into_iter()
-        .find(|k| k.name == text && matches!(k.kind, KeyKind::X25519 | KeyKind::XWing))
+        .find(|k| {
+            k.name == text
+                && matches!(
+                    k.kind,
+                    KeyKind::X25519 | KeyKind::XWing | KeyKind::Certificate
+                )
+        })
         .ok_or_else(|| {
             CmdError::new(
                 ErrorCode::NotFound,
@@ -379,6 +386,33 @@ pub fn public_key(text: &str, cx: &JobCtx) -> Result<Labelled, CmdError> {
                 ),
             )
         })?;
+    if entry.kind == KeyKind::Certificate {
+        let c = entry.certificate.ok_or_else(|| {
+            CmdError::new(
+                ErrorCode::Corrupt,
+                format!("the contact `{}`'s certificate is damaged", entry.name),
+            )
+        })?;
+        let recipient = c.recipient(false).map_err(|why| {
+            CmdError::invalid_args(format!(
+                "an archive can't be encrypted to {}'s certificate: {why}",
+                entry.name
+            ))
+        })?;
+        if c.not_after < now() {
+            cx.log(
+                LogLevel::Warn,
+                format!(
+                    "{}'s certificate has expired; it can still open the archive",
+                    entry.name
+                ),
+            );
+        }
+        return Ok(Labelled {
+            recipient,
+            label: Some(entry.name),
+        });
+    }
     Ok(Labelled {
         recipient: key_recipient(bech32::parse_key(&entry.public)?, text)?,
         label: Some(entry.name),
@@ -438,10 +472,27 @@ fn store_certificate(thumbprint: &[u8; 20]) -> Result<Certificate, CmdError> {
         })
 }
 
-#[cfg(not(windows))]
+/// The Keychain's certificates, as `certificates.list` lists them on macOS.
+#[cfg(target_os = "macos")]
+fn store_certificate(thumbprint: &[u8; 20]) -> Result<Certificate, CmdError> {
+    beezip_keys::mac::certificates()?
+        .into_iter()
+        .map(|c| c.certificate)
+        .find(|c| c.thumbprint == *thumbprint)
+        .ok_or_else(|| {
+            CmdError::new(
+                ErrorCode::NotFound,
+                "no certificate with that thumbprint is in the Keychain (`certificates.list` \
+                 shows them)",
+            )
+        })
+}
+
+#[cfg(not(any(windows, target_os = "macos")))]
 fn store_certificate(_: &[u8; 20]) -> Result<Certificate, CmdError> {
     Err(CmdError::invalid_args(
-        "a thumbprint names a certificate in Windows' stores; pass a certificate file",
+        "a thumbprint names a certificate in Windows' stores or the macOS Keychain; pass a \
+         certificate file",
     ))
 }
 
@@ -532,8 +583,9 @@ fn security_key(_: bool, _: Option<&[u8]>) -> Result<Labelled, CmdError> {
     ))
 }
 
-/// Whom `sign` names: your signing key by name, a certificate's thumbprint in your stores, or
-/// a certificate file with its key beside it (`name.key`, or in the same PEM file).
+/// Whom `sign` names: your signing key by name, a certificate's thumbprint in your stores, a
+/// certificate file with its key beside it (`name.key`, or in the same PEM file), or a `.pfx`
+/// (opened in memory, on Windows). A key file under a password asks for it.
 pub fn signing(names: &[String], cx: &mut JobCtx) -> Result<Option<Signing>, CmdError> {
     if names.is_empty() {
         return Ok(None);
@@ -556,14 +608,26 @@ pub fn signing(names: &[String], cx: &mut JobCtx) -> Result<Option<Signing>, Cmd
     Ok(Some(signing))
 }
 
-fn signer(text: &str, cx: &JobCtx) -> Result<Arc<dyn sign::Signer>, CmdError> {
+fn signer(text: &str, cx: &mut JobCtx) -> Result<Arc<dyn sign::Signer>, CmdError> {
     if let Some(t) = thumbprint(text) {
         return store_signer(&t);
     }
     let path = Path::new(text);
     if path.is_file() {
+        let bytes = std::fs::read(path)
+            .map_err(|e| beezip_core::Error::io(format!("reading {}", path.display()), &e))?;
+        // A .pfx holds its key, opened in memory (Windows); its password is asked for.
+        if beezip_keys::pfx::is_pfx(&bytes) {
+            return cx.with_file_password(path, |password| {
+                beezip_keys::pfx::signer(&bytes, password).map_err(|e| {
+                    beezip_core::Error::new(e.kind, format!("{}: {}", path.display(), e.message))
+                })
+            });
+        }
         let key = key_beside(path);
-        return Ok(beezip_keys::files::signer(path, &key, None)?);
+        return cx.with_file_password(&key, |password| {
+            beezip_keys::files::signer(path, &key, password)
+        });
     }
     Ok(beezip_keys::identity::signing::signer(
         &cx.key_store()?,
@@ -587,11 +651,17 @@ fn store_signer(thumbprint: &[u8; 20]) -> Result<Arc<dyn sign::Signer>, CmdError
     Ok(beezip_keys::cng::signer(thumbprint)?)
 }
 
-#[cfg(not(windows))]
+/// A Keychain identity, which may show the Keychain's prompt when it signs.
+#[cfg(target_os = "macos")]
+fn store_signer(thumbprint: &[u8; 20]) -> Result<Arc<dyn sign::Signer>, CmdError> {
+    Ok(beezip_keys::mac::signer(thumbprint)?)
+}
+
+#[cfg(not(any(windows, target_os = "macos")))]
 fn store_signer(_: &[u8; 20]) -> Result<Arc<dyn sign::Signer>, CmdError> {
     Err(CmdError::invalid_args(
-        "a thumbprint names a certificate in Windows' stores; pass a certificate file and its \
-         key",
+        "a thumbprint names a certificate in Windows' stores or the macOS Keychain; pass a \
+         certificate file and its key",
     ))
 }
 
@@ -695,7 +765,7 @@ fn wanted_one(text: &str, cx: &JobCtx) -> Result<Wanted, CmdError> {
         .key_store()?
         .list()?
         .into_iter()
-        .find(|k| k.name == text && k.kind == KeyKind::Signing)
+        .find(|k| k.name == text && matches!(k.kind, KeyKind::Signing | KeyKind::Certificate))
         .ok_or_else(|| {
             CmdError::new(
                 ErrorCode::NotFound,
@@ -705,6 +775,9 @@ fn wanted_one(text: &str, cx: &JobCtx) -> Result<Wanted, CmdError> {
                 ),
             )
         })?;
+    if let Some(c) = &entry.certificate {
+        return Ok(Wanted::Certificate(sha256(&c.der)));
+    }
     signing_key(bech32::parse_key(&entry.public)?)
 }
 
@@ -1146,11 +1219,20 @@ pub fn known_recipient(slot: &Slot, store: Option<&Store>, this_pc: &[Vec<u8>]) 
         let spki = cert::parse(bytes).map_or_else(|_| bytes.to_vec(), |c| c.spki);
         return slot.kind == SlotKind::EcP256 && this_pc.contains(&spki);
     }
-    let Some(key) = d.public_key.as_deref() else {
-        // Certificates aren't among the contacts yet: each is confirmed.
+    let Some(store) = store else {
         return false;
     };
-    let Some(store) = store else {
+    if matches!(
+        slot.kind,
+        SlotKind::Rsa | SlotKind::EcP256 | SlotKind::EcP384
+    ) {
+        // A contact's certificate, compared whole; a key without one is confirmed.
+        return d
+            .certificate
+            .as_deref()
+            .is_some_and(|der| store.find_certificate(der).ok().flatten().is_some());
+    }
+    let Some(key) = d.public_key.as_deref() else {
         return false;
     };
     store.list().unwrap_or_default().iter().any(|k| {

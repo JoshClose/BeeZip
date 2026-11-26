@@ -204,6 +204,9 @@ pub enum KeyKindName {
     Classic,
     /// Signs archives (`bzsig1…`).
     Signing,
+    /// Someone else's certificate, a contact: added with `keys.import`, never made.
+    #[value(skip)]
+    Certificate,
 }
 
 /// A key or contact, as `keys.list` shows it.
@@ -211,13 +214,30 @@ pub enum KeyKindName {
 pub struct KeyInfo {
     pub name: String,
     pub kind: KeyKindName,
-    /// The public key as text, to share.
+    /// The public key as text, to share; a certificate's PEM.
     pub public: String,
     pub fingerprint: String,
     /// Yours, with its private key here; or a contact's.
     pub own: bool,
     /// Seconds since 1970.
     pub created: i64,
+    /// A certificate's subject.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub subject: Option<String>,
+    /// A certificate's issuer.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub issuer: Option<String>,
+    /// When a certificate expires, in seconds since 1970.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub not_after: Option<i64>,
+    /// Why an archive can't be encrypted to a certificate, when it can't (an ECDSA-only key,
+    /// RSA under 2,048 bits…): it may still be known as a signer.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub refused: Option<String>,
 }
 
 /// Where a certificate's private key is.

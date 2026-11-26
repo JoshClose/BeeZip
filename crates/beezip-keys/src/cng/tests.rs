@@ -208,11 +208,19 @@ fn signing_is_refused_with_the_reason() {
     };
     let expired = refused("rsa-expired.crt", import_rsa(&pkcs8_of("rsa.key")));
     assert!(expired.message.contains("valid now"), "{}", expired.message);
-    let ecdh = refused(
+    // The software provider's ECDH keys sign too (as a .pfx's EC keys, which it imports as
+    // ECDH, must); only another provider's ECDH key is refused, which needs a TPM or a card.
+    let (store, cert) = store_with(
         "p256.crt",
         import_ec(&pkcs8_of("p256.key"), Curve::P256, true),
     );
-    assert!(ecdh.message.contains("can't sign"), "{}", ecdh.message);
+    let thumbprint = cert::parse(cert.der()).unwrap().thumbprint;
+    let ecdh = signer_in(&store, &thumbprint).unwrap();
+    assert_eq!(ecdh.algorithm(), Algorithm::EcdsaP256);
+    let message = [8; MESSAGE_LEN];
+    let hash = cert::digest(Algorithm::EcdsaP256, &message).unwrap();
+    let sig = ecdh.sign(&message).unwrap();
+    assert!(cert.verify(Algorithm::EcdsaP256, &hash, &sig).unwrap());
     let store = Store::memory().unwrap();
     assert_eq!(
         signer_in(&store, &[0; 20]).err().unwrap().kind,

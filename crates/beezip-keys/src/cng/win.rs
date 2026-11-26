@@ -684,6 +684,31 @@ impl Store {
         Ok(Self(h))
     }
 
+    /// A `.pfx`'s certificates in a store in memory, their private keys in CNG's software
+    /// provider, in memory only (`PKCS12_NO_PERSIST_KEY`): nothing is written to the user's
+    /// stores or key containers, and the keys go when their certificates' contexts do. Silent:
+    /// a key the file marks for strong protection asks nothing (`PKCS12_IMPORT_SILENT`).
+    /// `password` `None` is no password at all, which is not the empty one.
+    pub fn pfx(bytes: &[u8], password: Option<&str>) -> WinResult<Self> {
+        let blob = CRYPT_INTEGER_BLOB {
+            cbData: u32::try_from(bytes.len()).map_err(|_| WinError {
+                code: 0,
+                what: "a .pfx file of more than 4 GiB".into(),
+            })?,
+            pbData: bytes.as_ptr().cast_mut(),
+        };
+        let wide = password.map(|p| Zeroizing::new(wz(p)));
+        let password = wide.as_ref().map_or(PCWSTR::null(), |w| PCWSTR(w.as_ptr()));
+        let flags = CRYPT_KEY_FLAGS(
+            PKCS12_NO_PERSIST_KEY.0 | PKCS12_ALWAYS_CNG_KSP.0 | PKCS12_IMPORT_SILENT,
+        );
+        // SAFETY: the file's bytes are only read, and the password outlives the call; the
+        // store returned is closed when dropped.
+        let h = unsafe { PFXImportCertStore(&blob, password, flags) }
+            .map_err(|e| WinError::new(&e, "PFXImportCertStore"))?;
+        Ok(Self(h))
+    }
+
     pub fn handle(&self) -> HCERTSTORE {
         self.0
     }

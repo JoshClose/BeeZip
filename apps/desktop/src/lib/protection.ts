@@ -67,9 +67,10 @@ export function publicKeyKind(text: string): "post-quantum" | "classic" | undefi
   return undefined;
 }
 
-/** Keys an archive can be encrypted to: contacts' and your own, not signing keys. */
+/** Keys an archive can be encrypted to: contacts' (their keys and certificates) and your own,
+ * not signing keys, nor a certificate that only signs. */
 export function encryptionKeys(keys: KeyInfo[]): KeyInfo[] {
-  return keys.filter((k) => k.kind !== "signing");
+  return keys.filter((k) => k.kind !== "signing" && !k.refused);
 }
 
 /** What the person typed into "Public key or contact": a key, a contact's name, or why neither. */

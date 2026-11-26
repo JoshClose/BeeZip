@@ -85,7 +85,8 @@ pub struct ArchiveAddInput {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name_encoding: Option<NameEncoding>,
     /// Sign the archive again after adding: an edit drops its signatures otherwise. Your
-    /// signing key by name, a certificate's thumbprint, or a certificate file. `.bhive` only.
+    /// signing key by name, a certificate's thumbprint, a certificate file, or a `.pfx` (on
+    /// Windows). `.bhive` only.
     #[arg(long, value_name = "SIGNER")]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sign: Option<Vec<String>>,
