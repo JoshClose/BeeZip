@@ -2205,7 +2205,11 @@ signer: string,
 /**
  * 16 characters in groups of four (docs/bhive.md §13.5).
  */
-fingerprint: string, issuer?: string,
+fingerprint: string,
+/**
+ * The signer's public key (`bzsig1…`) or certificate (PEM), for "Add to contacts".
+ */
+public?: string, issuer?: string,
 /**
  * The time the signer claims, in seconds since 1970.
  */
@@ -2402,6 +2406,11 @@ label?: string,
  * The public key as text, or the certificate's subject.
  */
 recipient?: string,
+/**
+ * The fingerprint of its public key or certificate, 16 characters in groups of four, for
+ * people to compare with the key's owner before trusting it (New key's confirmation).
+ */
+fingerprint?: string,
 /**
  * It works only on one machine: a TPM key, Windows Hello.
  */

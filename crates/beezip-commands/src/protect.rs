@@ -871,6 +871,12 @@ fn signature_report(s: &SignatureInfo, store: Result<&Store, &CmdError>) -> Sign
         ),
         Status::NotChecked(why) => (SignatureStatusName::NotChecked, Some(why.clone())),
     };
+    let public = match algorithm {
+        Some(Algorithm::MlDsa65Ed25519) => <[u8; 1984]>::try_from(&s.signer[..])
+            .ok()
+            .map(|k| bech32::key_text(&KeyText::SigningPublic(Box::new(k)))),
+        _ => signer_certificates(&s.signer).and_then(|c| c.first().map(|der| pem(der))),
+    };
     let mut signer = leaf
         .as_ref()
         .map_or_else(|| fingerprint.clone(), |c| c.subject.clone());
@@ -911,11 +917,25 @@ fn signature_report(s: &SignatureInfo, store: Result<&Store, &CmdError>) -> Sign
         trust,
         signer,
         fingerprint,
+        public,
         issuer: leaf.map(|c| c.issuer),
         claimed_time: s.time,
         post_quantum: algorithm.is_some_and(Algorithm::post_quantum),
         note,
     }
+}
+
+/// A certificate in PEM.
+fn pem(der: &[u8]) -> String {
+    use base64::Engine as _;
+    let text = base64::engine::general_purpose::STANDARD.encode(der);
+    let mut out = String::from("-----BEGIN CERTIFICATE-----\n");
+    for line in text.as_bytes().chunks(64) {
+        out.push_str(std::str::from_utf8(line).unwrap_or_default());
+        out.push('\n');
+    }
+    out.push_str("-----END CERTIFICATE-----\n");
+    out
 }
 
 /// The signature each signer will make, as `archive.sign` reports it once written.
@@ -1021,11 +1041,18 @@ pub fn way_in(slot: &Slot) -> WayIn {
         _ => None,
     }
     .filter(|t| !t.is_empty());
+    let fingerprint = match slot.kind {
+        SlotKind::X25519 | SlotKind::XWing => d.public_key.as_deref(),
+        SlotKind::Rsa | SlotKind::EcP256 | SlotKind::EcP384 => d.certificate.as_deref(),
+        _ => None,
+    }
+    .map(bech32::fingerprint);
     WayIn {
         slot: slot.index,
         kind: slot.kind.into(),
         label: d.label.clone(),
         recipient,
+        fingerprint,
         machine_bound: d.machine_bound,
         post_quantum: slot.kind.post_quantum(),
     }
@@ -1282,11 +1309,21 @@ pub fn ways_of(recipients: &[Labelled]) -> Vec<WayIn> {
                 Recipient::Fido2 { machine_bound, .. } => (None, *machine_bound),
                 Recipient::Password { .. } | Recipient::RecoveryKey(_) => (None, false),
             };
+            let fingerprint = match r {
+                Recipient::X25519(k) => Some(bech32::fingerprint(&k[..])),
+                Recipient::XWing(k) => Some(bech32::fingerprint(&k[..])),
+                Recipient::Rsa { spki, certificate }
+                | Recipient::Ec {
+                    spki, certificate, ..
+                } => Some(bech32::fingerprint(certificate.as_deref().unwrap_or(spki))),
+                _ => None,
+            };
             WayIn {
                 slot: i as u32,
                 kind: r.kind().into(),
                 label: l.label.clone(),
                 recipient: recipient.filter(|t| !t.is_empty()),
+                fingerprint,
                 machine_bound,
                 post_quantum: r.kind().post_quantum(),
             }
@@ -1770,6 +1807,7 @@ mod tests {
                     kind: SlotKindName::Password,
                     label: Some("Password".into()),
                     recipient: None,
+                    fingerprint: None,
                     machine_bound: false,
                     post_quantum: true,
                 },
@@ -1778,6 +1816,7 @@ mod tests {
                     kind: SlotKindName::EcP256,
                     label: Some("This PC".into()),
                     recipient: None,
+                    fingerprint: None,
                     machine_bound: true,
                     post_quantum: false,
                 },

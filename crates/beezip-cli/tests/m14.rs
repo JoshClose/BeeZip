@@ -188,6 +188,7 @@ fn age_identities_open_what_was_encrypted_to_them() {
     let info = h.json(&["protection", "pq.bhive", "-i", &pq]);
     assert_eq!(info["post_quantum"], true);
     assert_eq!(info["ways"][0]["recipient"], keys[3].as_str());
+    assert_eq!(info["ways"][0]["fingerprint"].as_str().unwrap().len(), 19);
     let info = h.json(&["protection", "c.bhive", "-i", &classic]);
     assert_eq!(info["post_quantum"], false);
 }
@@ -214,6 +215,7 @@ fn your_keys_open_and_sign() {
     assert_eq!(s["status"], "valid");
     assert_eq!(s["trust"], "yours");
     assert_eq!(s["post_quantum"], true);
+    assert_eq!(s["public"], signer.as_str(), "for Add to contacts");
 
     // Someone else's signing key isn't enough, and a fingerprint is never matched.
     let other = Here::new();
@@ -280,6 +282,12 @@ fn certificate_files_encrypt_and_sign() {
         .map(|w| w["kind"].as_str().unwrap())
         .collect();
     assert_eq!(kinds, ["rsa-certificate", "ec-p256"]);
+    let info = h.json(&["info", "r.bhive", "-i", &testdata("rsa.key")]);
+    let public = info["signatures"][0]["public"].as_str().unwrap();
+    assert!(
+        public.starts_with("-----BEGIN CERTIFICATE-----"),
+        "{public}"
+    );
 
     let id = ["-i", &testdata("rsa.key")];
     h.ok(&[&["verify", "r.bhive", "--require-signer", &rsa][..], &id].concat());
