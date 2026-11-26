@@ -86,7 +86,7 @@ fn read_index(
     limits: &Limits,
     unlocked: Option<&Unlocked>,
     key_block_len: u64,
-) -> Result<(Index, sign::Report)> {
+) -> Result<(Index, sign::Checked)> {
     if let Some(unlocked) = unlocked {
         return read_sealed_index(input, header, limits, unlocked, key_block_len);
     }
@@ -115,7 +115,7 @@ fn read_index(
     let stored = read_at(input, offset + INDEX_HEAD_LEN as u64, head.stored as usize)?;
     let raw = index_raw(&head, stored)?;
     let index = layout::parse_index(&raw, offset, limits.max_entries)?;
-    let report = sign::check(header, &raw, &index);
+    let report = sign::checked(header, &raw, &index);
     Ok((index, report))
 }
 
@@ -146,7 +146,7 @@ fn read_sealed_index(
     limits: &Limits,
     unlocked: &Unlocked,
     key_block_len: u64,
-) -> Result<(Index, sign::Report)> {
+) -> Result<(Index, sign::Checked)> {
     let len = input.len();
     let start = HEADER_LEN as u64 + key_block_len;
     let least = start + (SEALED_INDEX_HEAD_LEN + TAG_LEN + INDEX_HEAD_LEN + FOOTER_LEN) as u64;
@@ -186,7 +186,7 @@ fn read_sealed_index(
     if let Some(body) = index.section(layout::SECTION_SLOTS) {
         unlocked.set_descriptions(body);
     }
-    let report = sign::check(header, &raw, &index);
+    let report = sign::checked(header, &raw, &index);
     Ok((index, report))
 }
 
@@ -749,6 +749,8 @@ pub struct BhiveReader {
     pub(super) crypt: CellCrypt,
     /// The signatures, as the index has them, checked (docs/bhive.md §13).
     signatures: sign::Report,
+    /// Section 3 and the manifest, for a rewrite that keeps the contents to carry over.
+    carried: Option<sign::Carried>,
     pub(super) cache: Cache,
     input: Option<Input>,
     /// For the reads of [`ArchiveReader::open_entry`].
@@ -778,14 +780,14 @@ impl BhiveReader {
         } else {
             (None, 0)
         };
-        let (index, recovered, signatures) = match read_index(
+        let (index, recovered, checked) = match read_index(
             &mut input,
             &head,
             &source.limits,
             unlocked.as_deref(),
             key_block_len,
         ) {
-            Ok((index, signatures)) => (index, None, signatures),
+            Ok((index, checked)) => (index, None, checked),
             Err(e) if e.kind == ErrorKind::Corrupt && source.recover => {
                 let sealed = unlocked.as_deref().map(|u| (u, key_block_len));
                 let (cells, items, ids) = recover(&mut input, &source.limits, sealed, cx)?;
@@ -801,7 +803,7 @@ impl BhiveReader {
                     ids,
                     ..Index::default()
                 };
-                (index, Some(e.message), sign::Report::default())
+                (index, Some(e.message), sign::Checked::default())
             }
             Err(e) if e.kind == ErrorKind::Corrupt => {
                 return Err(Error::corrupt(format!(
@@ -825,7 +827,7 @@ impl BhiveReader {
         let crypt = CellCrypt {
             unlocked,
             ids: index.ids,
-            digests: signatures.digests.clone(),
+            digests: checked.report.digests.clone(),
         };
         Ok(Self {
             source,
@@ -836,7 +838,8 @@ impl BhiveReader {
             level: index.level,
             recovered,
             crypt,
-            signatures,
+            signatures: checked.report,
+            carried: checked.carried,
             cache: Cache::new(budget),
             input: Some(input),
             touched: Counter::new(),
@@ -848,6 +851,12 @@ impl BhiveReader {
     /// trust a signer is the caller's question.
     pub fn signatures(&self) -> &sign::Report {
         &self.signatures
+    }
+
+    /// Section 3 as it is and the manifest it was made over, when the archive is signed: a
+    /// writer that copies the archive keeps them while its contents stay (docs/M14.md §11).
+    pub(super) fn carried(&self) -> Option<&sign::Carried> {
+        self.carried.as_ref()
     }
 
     /// Whether the archive is encrypted, and so how it was opened.
