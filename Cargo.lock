@@ -324,7 +324,7 @@ checksum = "ac07cdecf99051d9a5238b80f35af32cdeba5b336e55d957b318b50137e18da5"
 
 [[package]]
 name = "beezip-cli"
-version = "0.8.3"
+version = "0.8.4"
 dependencies = [
  "anyhow",
  "assert_cmd",
@@ -347,7 +347,7 @@ dependencies = [
 
 [[package]]
 name = "beezip-commands"
-version = "0.8.3"
+version = "0.8.4"
 dependencies = [
  "base64 0.23.1",
  "beezip-core",
@@ -375,7 +375,7 @@ dependencies = [
 
 [[package]]
 name = "beezip-core"
-version = "0.8.3"
+version = "0.8.4"
 dependencies = [
  "backhand",
  "beezip-unrar",
@@ -426,7 +426,7 @@ dependencies = [
 
 [[package]]
 name = "beezip-desktop"
-version = "0.8.3"
+version = "0.8.4"
 dependencies = [
  "beezip-commands",
  "beezip-menu",
@@ -445,7 +445,7 @@ dependencies = [
 
 [[package]]
 name = "beezip-mcp"
-version = "0.8.3"
+version = "0.8.4"
 dependencies = [
  "anyhow",
  "beezip-commands",
@@ -464,7 +464,7 @@ dependencies = [
 
 [[package]]
 name = "beezip-menu"
-version = "0.8.3"
+version = "0.8.4"
 dependencies = [
  "clap",
  "proptest",
@@ -476,7 +476,7 @@ dependencies = [
 
 [[package]]
 name = "beezip-shell"
-version = "0.8.3"
+version = "0.8.4"
 dependencies = [
  "beezip-menu",
  "serde_json",
@@ -487,7 +487,7 @@ dependencies = [
 
 [[package]]
 name = "beezip-unrar"
-version = "0.8.3"
+version = "0.8.4"
 dependencies = [
  "unrar_sys",
 ]
@@ -6784,7 +6784,7 @@ dependencies = [
 
 [[package]]
 name = "xtask"
-version = "0.8.3"
+version = "0.8.4"
 dependencies = [
  "anyhow",
  "beezip-commands",
