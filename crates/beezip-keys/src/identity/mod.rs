@@ -16,7 +16,11 @@ mod dpapi;
 mod seal;
 pub mod signing;
 
-use std::path::{Path, PathBuf};
+use std::{
+    io::Write,
+    path::{Path, PathBuf},
+    sync::atomic::{AtomicU32, Ordering},
+};
 
 use beezip_core::{
     Error, ErrorKind, Result,
@@ -133,11 +137,29 @@ fn now() -> i64 {
         .map_or(0, |d| i64::try_from(d.as_secs()).unwrap_or(i64::MAX))
 }
 
+/// A temporary file's name beside `path`, which no other writer uses: this process's id, a
+/// count and the clock's nanoseconds.
+fn temp_beside(path: &Path) -> PathBuf {
+    static NEXT: AtomicU32 = AtomicU32::new(0);
+    let n = NEXT.fetch_add(1, Ordering::Relaxed);
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.subsec_nanos());
+    let mut name = path.file_name().unwrap_or_default().to_os_string();
+    name.push(format!(".{}-{n}-{nanos:08x}.tmp", std::process::id()));
+    path.with_file_name(name)
+}
+
 /// Writes `bytes` to `path` through a temporary file beside it, so a reader never sees half.
 fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
-    let tmp = path.with_extension("tmp");
-    std::fs::write(&tmp, bytes)?;
-    std::fs::rename(&tmp, path).map_err(|e| {
+    let tmp = temp_beside(path);
+    let written = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&tmp)
+        .and_then(|mut f| f.write_all(bytes))
+        .and_then(|()| std::fs::rename(&tmp, path));
+    written.map_err(|e| {
         let _ = std::fs::remove_file(&tmp);
         e.into()
     })
@@ -191,6 +213,21 @@ impl Store {
         Ok(index)
     }
 
+    /// Holds the store while `keys.json` is read, changed and written back, so the desktop app
+    /// and the CLI changing keys at once don't lose a change. The system lets go when the file
+    /// is closed, also when a process ends without closing it.
+    fn lock(&self) -> Result<std::fs::File> {
+        std::fs::create_dir_all(self.keys_dir())?;
+        let f = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(self.keys_dir().join("keys.lock"))?;
+        f.lock()?;
+        Ok(f)
+    }
+
     fn save(&self, index: &Index) -> Result<()> {
         std::fs::create_dir_all(self.keys_dir())?;
         let mut text = serde_json::to_string_pretty(index)
@@ -199,7 +236,9 @@ impl Store {
         write_atomic(&self.index_path(), text.as_bytes())
     }
 
+    /// The record called `name`, as [`Store::add`] keeps names: trimmed, in any case.
     fn find<'a>(index: &'a Index, name: &str) -> Result<&'a Record> {
+        let name = name.trim();
         index
             .keys
             .iter()
@@ -268,6 +307,7 @@ impl Store {
         if name.chars().any(char::is_control) {
             return Err(invalid("a key's name can't hold control characters"));
         }
+        let _lock = self.lock()?;
         let mut index = self.load()?;
         index.version = VERSION;
         if let Some(r) = index.keys.iter().find(|r| same_name(&r.name, name)) {
@@ -372,25 +412,64 @@ impl Store {
             .map(Record::entry))
     }
 
-    pub fn delete(&self, name: &str) -> Result<()> {
+    /// Deletes the key or contact `name`, and gives what it was. A private key is forgotten
+    /// first, so a failure leaves the key listed, to delete again, never a private key that
+    /// nothing lists.
+    pub fn delete(&self, name: &str) -> Result<KeyEntry> {
+        let _lock = self.lock()?;
         let mut index = self.load()?;
         let record = Self::find(&index, name)?.clone();
-        index.keys.retain(|r| r.name != record.name);
-        self.save(&index)?;
         if record.own {
             seal::remove(&self.keys_dir(), &record.id)?;
         }
-        Ok(())
+        index.keys.retain(|r| r.name != record.name);
+        self.save(&index)?;
+        Ok(record.entry())
     }
 
     /// Your keys that open archives, as a key source: tried silently, before anything is
-    /// asked (docs/M14.md §8). They are unsealed the first time a slot is tried.
+    /// asked (docs/M14.md §8). The list is read and the keys unsealed now. A list that can't be
+    /// read is an error, and so is a key that can't be unsealed when it is your only one; when
+    /// others can be, it is left out, and [`Store::source_with_problems`] says why.
     pub fn source(&self) -> Result<Box<dyn KeySource + Send>> {
-        Ok(Box::new(OwnKeys {
-            store: Some(self.clone()),
-            identities: None,
+        let (keys, problems) = self.own_keys()?;
+        match problems.into_iter().next() {
+            Some(first) if keys.identities.is_empty() => Err(first),
+            _ => Ok(Box::new(keys)),
+        }
+    }
+
+    /// [`Store::source`], and why each key it left out can't be used: a key file others can
+    /// read (Linux), one sealed for another account or PC, a Keychain that refused. The
+    /// commands layer shows them as warnings, so an archive that none of your keys opened
+    /// says why.
+    pub fn source_with_problems(&self) -> Result<(Box<dyn KeySource + Send>, Vec<Error>)> {
+        let (keys, problems) = self.own_keys()?;
+        Ok((Box::new(keys), problems))
+    }
+
+    fn own_keys(&self) -> Result<(OwnKeys, Vec<Error>)> {
+        let index = self.load()?;
+        let mut identities = Vec::new();
+        let mut problems = Vec::new();
+        let opening = index
+            .keys
+            .iter()
+            .filter(|r| r.own && r.kind.slot().is_some());
+        for r in opening {
+            match self.secret_of(r) {
+                Ok(key) => identities.extend(Identity::of(key)),
+                Err(e) => problems.push(Error::new(
+                    e.kind,
+                    format!("your key `{}` can't be used: {}", r.name, e.message),
+                )),
+            }
+        }
+        let keys = OwnKeys {
+            identities,
             matched: Vec::new(),
-        }))
+        };
+        Ok((keys, problems))
     }
 }
 
@@ -417,8 +496,7 @@ pub fn identity_file(text: &str) -> Result<Box<dyn KeySource + Send>> {
         return Err(invalid("there is no key in it"));
     }
     Ok(Box::new(OwnKeys {
-        store: None,
-        identities: Some(identities),
+        identities,
         matched: Vec::new(),
     }))
 }
@@ -447,31 +525,12 @@ impl Identity {
 
 /// Your keys, or an identity file's, as a key source.
 struct OwnKeys {
-    store: Option<Store>,
-    /// Unsealed on first use; a key that can't be (another account's) is left out.
-    identities: Option<Vec<Identity>>,
+    identities: Vec<Identity>,
     /// The slots found so far, by commitment, with the identity that opens each.
     matched: Vec<([u8; 32], usize)>,
 }
 
 impl OwnKeys {
-    fn identities(&mut self) -> &[Identity] {
-        self.identities.get_or_insert_with(|| {
-            let Some(store) = &self.store else {
-                return Vec::new();
-            };
-            let Ok(index) = store.load() else {
-                return Vec::new();
-            };
-            index
-                .keys
-                .iter()
-                .filter(|r| r.own && r.kind != KeyKind::Signing)
-                .filter_map(|r| Identity::of(store.secret_of(r).ok()?))
-                .collect()
-        })
-    }
-
     fn open(slot: &SlotView<'_>, identity: &Identity) -> Option<SlotSecret> {
         let opened = match slot.kind {
             SlotKind::X25519 => x25519::open(slot, &identity.secret),
@@ -486,12 +545,11 @@ impl OwnKeys {
             return None;
         }
         if let Some(&(_, i)) = self.matched.iter().find(|(c, _)| c == slot.commitment) {
-            let identity = &self.identities()[i];
-            return Self::open(slot, identity);
+            return Self::open(slot, &self.identities[i]);
         }
         let kind = slot.kind;
         let found = self
-            .identities()
+            .identities
             .iter()
             .enumerate()
             .filter(|(_, id)| id.kind == kind)

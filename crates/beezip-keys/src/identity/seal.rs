@@ -76,7 +76,10 @@ mod imp {
     /// The Keychain item's service; its account is the store's folder and the key's id.
     const SERVICE: &str = "BeeZip key";
 
+    /// The folder made absolute, so stores reached by relative paths from different working
+    /// folders (a relative `BEEZIP_CONFIG`) never share an account.
     fn account(keys: &Path, id: &str) -> String {
+        let keys = std::path::absolute(keys).unwrap_or_else(|_| keys.to_path_buf());
         format!("{}:{id}", keys.display())
     }
 
@@ -122,18 +125,21 @@ mod imp {
         // The folder too is yours alone.
         std::fs::set_permissions(keys, std::fs::Permissions::from_mode(0o700))?;
         let path = super::file(keys, id, "key");
-        let tmp = path.with_extension("key.tmp");
-        let _ = std::fs::remove_file(&tmp);
-        let mut f = std::fs::OpenOptions::new()
+        let tmp = super::super::temp_beside(&path);
+        let written = std::fs::OpenOptions::new()
             .write(true)
             .create_new(true)
             .mode(0o600)
-            .open(&tmp)?;
-        f.write_all(secret)?;
-        f.sync_all()?;
-        drop(f);
-        std::fs::rename(&tmp, &path)?;
-        Ok(())
+            .open(&tmp)
+            .and_then(|mut f| {
+                f.write_all(secret)?;
+                f.sync_all()
+            })
+            .and_then(|()| std::fs::rename(&tmp, &path));
+        written.map_err(|e| {
+            let _ = std::fs::remove_file(&tmp);
+            e.into()
+        })
     }
 
     pub fn get(keys: &Path, id: &str) -> Result<Zeroizing<Vec<u8>>> {

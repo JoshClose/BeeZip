@@ -150,22 +150,22 @@ fn refusals() {
             "{name:?}"
         );
     }
-    // A bad checksum, a wrong prefix, mixed case, nothing, two keys.
+    // A bad checksum, a wrong prefix (with a good checksum), mixed case, a space, nothing.
     let mut bad = ex[3].clone();
     bad.pop();
     bad.push(if ex[3].ends_with('q') { 'p' } else { 'q' });
+    let ssh = bech32::encode("ssh", &[0; 32]);
     let mixed = format!("AGE{}", &ex[3][3..]);
-    for text in [
-        bad.as_str(),
-        "ssh-ed25519 AAAA",
-        mixed.as_str(),
-        "# only a comment\n",
+    for (text, why) in [
+        (bad.as_str(), "checksum is wrong"),
+        (ssh.as_str(), "`ssh1…` isn't a kind of key"),
+        (mixed.as_str(), "mixes upper- and lowercase"),
+        ("ssh-ed25519 AAAA", "has spaces"),
+        ("# only a comment\n", "no key in it"),
     ] {
-        assert_eq!(
-            s.store.import("Carol", text).unwrap_err().kind,
-            ErrorKind::InvalidArgs,
-            "{text}"
-        );
+        let e = s.store.import("Carol", text).unwrap_err();
+        assert_eq!(e.kind, ErrorKind::InvalidArgs, "{text}");
+        assert!(e.message.contains(why), "{text}: {}", e.message);
     }
     let two = format!("{}\n{}\n", ex[0], ex[2]);
     assert!(
@@ -371,4 +371,73 @@ fn an_identity_file_opens_its_slots() {
         )
         .is_err()
     );
+}
+
+#[test]
+fn a_key_that_cant_be_unsealed_says_why() {
+    let s = Scratch::new();
+    let good = s.store.create("Good", KeyKind::X25519).unwrap();
+    let lost = s.store.create("Lost", KeyKind::XWing).unwrap();
+    // Its private key is gone from the system (or sealed for another account).
+    seal::remove(&s.store.keys_dir(), &record_id(&s.store, &lost.public)).unwrap();
+    let (mut source, problems) = s.store.source_with_problems().unwrap();
+    assert_eq!(problems.len(), 1);
+    assert!(
+        problems[0]
+            .message
+            .starts_with("your key `Lost` can't be used: "),
+        "{}",
+        problems[0].message
+    );
+    // The other keys still open their slots, and the source alone is no error.
+    let key_id = [3; KEY_ID_LEN];
+    let KeyText::X25519Public(to_good) = bech32::parse_key(&good.public).unwrap() else {
+        panic!()
+    };
+    let slot = framed(SlotKind::X25519, &x25519::make(&to_good).unwrap(), &key_id);
+    assert!(source.offers(&view(0, &key_id, &slot)));
+    assert!(s.store.source().is_ok());
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        // A key file others can read is left out, and says how to fix it.
+        use std::os::unix::fs::PermissionsExt;
+        let id = record_id(&s.store, &good.public);
+        let file = s.store.keys_dir().join(format!("{id}.key"));
+        std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o644)).unwrap();
+        let e = s.store.source().err().unwrap();
+        assert_eq!(e.kind, ErrorKind::Unsafe);
+        assert!(e.message.contains("`Good`") && e.message.contains("chmod 600"));
+        std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o600)).unwrap();
+    }
+    // When it is your only key, the source is the error, for the commands layer to show.
+    s.store.delete("Good").unwrap();
+    let e = s.store.source().err().unwrap();
+    assert!(e.message.contains("`Lost`"), "{}", e.message);
+    // So is a list that can't be read.
+    s.store.delete("Lost").unwrap();
+    std::fs::write(s.store.index_path(), "not json").unwrap();
+    assert_eq!(s.store.source().err().unwrap().kind, ErrorKind::Corrupt);
+}
+
+#[test]
+fn keys_added_at_once_are_all_kept() {
+    let s = Scratch::new();
+    std::thread::scope(|t| {
+        for n in 0..4 {
+            let store = s.store.clone();
+            t.spawn(move || {
+                for i in 0..4 {
+                    store
+                        .create(&format!("Key {n}.{i}"), KeyKind::X25519)
+                        .unwrap();
+                }
+            });
+        }
+    });
+    assert_eq!(s.store.list().unwrap().len(), 16);
+    // No temporary file is left behind.
+    for f in std::fs::read_dir(s.store.keys_dir()).unwrap() {
+        let name = f.unwrap().file_name();
+        assert!(!name.to_string_lossy().ends_with(".tmp"), "{name:?}");
+    }
 }

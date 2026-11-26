@@ -26,9 +26,9 @@ pub struct KeysList;
 impl Command for KeysList {
     const NAME: &'static str = "keys.list";
     const EFFECT: Effect = Effect::ReadOnly;
-    // The CLI and the desktop's Settings → Keys; the MCP server opens with your keys by name
-    // but doesn't manage them (docs/M14.md §8).
-    const SURFACES: Surfaces = Surfaces::NO_MCP;
+    // Everywhere: names and public keys only, so a model can encrypt to your keys and
+    // contacts by name (docs/M14.md §8, decision 15). The MCP server doesn't manage them.
+    const SURFACES: Surfaces = Surfaces::ALL;
     const CLI: Option<CliSpec> = Some(CliSpec {
         name: "list",
         aliases: &["ls"],
@@ -131,12 +131,16 @@ pub(crate) const fn kind_label(kind: KeyKindName) -> &'static str {
     }
 }
 
-/// A public key cut to its start and end: post-quantum ones run to 1,959 characters.
+/// A public key cut to its start and end: post-quantum ones run to 1,959 characters. By
+/// characters: `keys.json` is a file anyone can edit.
 fn short(public: &str) -> String {
-    if public.len() <= 40 {
+    let n = public.chars().count();
+    if n <= 40 {
         return public.to_owned();
     }
-    format!("{}…{}", &public[..24], &public[public.len() - 8..])
+    let start: String = public.chars().take(24).collect();
+    let end: String = public.chars().skip(n - 8).collect();
+    format!("{start}…{end}")
 }
 
 #[cfg(test)]
@@ -298,5 +302,20 @@ pub(crate) mod tests {
         let s = short(&format!("age1pq1{}", "q".repeat(1952)));
         assert_eq!(s.chars().count(), 24 + 1 + 8);
         assert_eq!(short("age1short"), "age1short");
+        // A hand-edited `keys.json` may hold anything; cutting it never splits a character.
+        let odd = "é".repeat(50);
+        assert_eq!(short(&odd), format!("{}…{}", "é".repeat(24), "é".repeat(8)));
+    }
+
+    #[test]
+    fn names_are_found_as_they_are_kept() {
+        let k = Keys::new();
+        k.run("keys.create", json!({ "name": " Alice " })).unwrap();
+        let list: KeysListOutput =
+            serde_json::from_value(k.run("keys.list", json!({})).unwrap()).unwrap();
+        assert_eq!(list.keys[0].name, "Alice");
+        k.run("keys.export", json!({ "name": " alice " })).unwrap();
+        let deleted = k.run("keys.delete", json!({ "name": " ALICE " })).unwrap();
+        assert_eq!(deleted["deleted"], json!("Alice"));
     }
 }

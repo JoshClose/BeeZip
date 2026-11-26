@@ -33,19 +33,8 @@ impl Command for KeysDelete {
     type Output = KeysDeleteOutput;
 
     fn run(input: KeysDeleteInput, cx: &mut JobCtx) -> Result<KeysDeleteOutput, CmdError> {
-        let store = store(cx)?;
-        // The name as it is kept, whatever case it was given in (the store finds it either way).
-        let names: Vec<String> = store.list()?.into_iter().map(|e| e.name).collect();
-        let deleted = names
-            .iter()
-            .find(|n| **n == input.name)
-            .or_else(|| {
-                let lower = input.name.to_lowercase();
-                names.iter().find(|n| n.to_lowercase() == lower)
-            })
-            .cloned()
-            .unwrap_or_else(|| input.name.clone());
-        store.delete(&input.name)?;
+        // The name as it is kept, whatever case and spaces it was given with.
+        let deleted = store(cx)?.delete(&input.name)?.name;
         Ok(KeysDeleteOutput { deleted })
     }
 

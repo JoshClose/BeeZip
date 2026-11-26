@@ -40,9 +40,9 @@ fn expand(identity: &[u8; 32]) -> Expanded {
     let mut seed = Zeroizing::new([0u8; 64]);
     seed.copy_from_slice(&wide[..64]);
     let mlkem = DecapsulationKey::from_seed(Seed::from(*seed));
-    let mut sk = [0u8; 32];
+    let mut sk = Zeroizing::new([0u8; 32]);
     sk.copy_from_slice(&wide[64..]);
-    let x25519 = StaticSecret::from(sk);
+    let x25519 = StaticSecret::from(*sk);
     let x25519_public = PublicKey::from(&x25519).to_bytes();
     Expanded {
         mlkem,
@@ -59,7 +59,9 @@ fn combiner(ss_m: &[u8], ss_x: &[u8], ct_x: &[u8], pk_x: &[u8]) -> Zeroizing<Vec
     Digest::update(&mut h, ct_x);
     Digest::update(&mut h, pk_x);
     Digest::update(&mut h, LABEL);
-    Zeroizing::new(h.finalize().to_vec())
+    let mut out = Zeroizing::new([0u8; 32]);
+    h.finalize_into((&mut *out).into());
+    Zeroizing::new(out.to_vec())
 }
 
 fn mlkem_public(public: &[u8; PUBLIC_KEY_LEN]) -> Result<EncapsulationKey> {
@@ -81,9 +83,9 @@ fn encapsulate(
 ) -> Result<(Vec<u8>, Zeroizing<Vec<u8>>)> {
     let ek = mlkem_public(public)?;
     let pk_x: [u8; 32] = public[MLKEM_PUBLIC_LEN..].try_into().expect("32 bytes");
-    let mut ek_x = [0u8; 32];
+    let mut ek_x = Zeroizing::new([0u8; 32]);
     ek_x.copy_from_slice(&eseed[32..]);
-    let ek_x = StaticSecret::from(ek_x);
+    let ek_x = StaticSecret::from(*ek_x);
     let ct_x = PublicKey::from(&ek_x).to_bytes();
     let ss_x = ek_x.diffie_hellman(&PublicKey::from(pk_x));
     let m = B32::try_from(&eseed[..32]).expect("32 bytes");

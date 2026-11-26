@@ -101,7 +101,8 @@ fn from_5bit(values: &[u8]) -> Option<Vec<u8>> {
 /// `hrp` lowercase gives a lowercase string, uppercase an uppercase one.
 pub fn encode(hrp: &str, data: &[u8]) -> String {
     let upper = hrp.bytes().any(|c| c.is_ascii_uppercase());
-    let values = to_5bit(data);
+    // A private key's bits, in another form.
+    let values = Zeroizing::new(to_5bit(data));
     let check = checksum(hrp.as_bytes(), &values);
     let mut s = String::with_capacity(hrp.len() + 1 + values.len() + 6);
     s.push_str(hrp);
@@ -139,7 +140,8 @@ pub fn decode(text: &str) -> Result<(String, Vec<u8>)> {
     if hrp.is_empty() || rest.len() < 6 {
         return Err(invalid("not a key string: it is too short"));
     }
-    let mut values = Vec::with_capacity(rest.len());
+    // A private key's bits, in another form.
+    let mut values = Zeroizing::new(Vec::with_capacity(rest.len()));
     for &c in rest {
         let c = c.to_ascii_lowercase();
         match CHARSET.iter().position(|&x| x == c) {
@@ -157,7 +159,8 @@ pub fn decode(text: &str) -> Result<(String, Vec<u8>)> {
             "its checksum is wrong: a character is mistyped or missing",
         ));
     }
-    values.truncate(values.len() - 6);
+    let n = values.len() - 6;
+    values.truncate(n);
     let data = from_5bit(&values).ok_or_else(|| invalid("not a key string: bad padding"))?;
     let hrp = String::from_utf8_lossy(hrp).to_ascii_lowercase();
     Ok((hrp, data))
@@ -229,7 +232,7 @@ pub fn parse_key(text: &str) -> Result<KeyText> {
     let text = text.trim();
     let (hrp, data) = decode(text).map_err(|e| {
         // Say what it looked like when its start is one BeeZip knows.
-        let lower = text.to_ascii_lowercase();
+        let lower = Zeroizing::new(text.to_ascii_lowercase());
         let what =
             if lower.starts_with(hrp::X25519_SECRET) || lower.starts_with(hrp::SIGNING_SECRET) {
                 "a private key"
@@ -260,6 +263,13 @@ pub fn parse_key(text: &str) -> Result<KeyText> {
         )?)),
         hrp::SIGNING_SECRET => {
             KeyText::SigningSecret(Zeroizing::new(exact("a BZSIG-SECRET-KEY-1 key", &data)?))
+        }
+        // age's tagged recipients, for keys held in hardware (age's C2SP spec).
+        tag @ ("age1tag" | "age1tagpq") => {
+            return Err(invalid(format!(
+                "`{tag}1…` is an age recipient for a key held in hardware, which BeeZip doesn't \
+                 support: encrypt to the person's age1… or age1pq1… key instead"
+            )));
         }
         other if other.starts_with("age1") || other.starts_with("age-plugin-") => {
             return Err(invalid(format!(
@@ -480,6 +490,12 @@ pub(crate) mod tests {
         // An age plugin's recipient.
         let e = parse_key(&encode("age1yubikey", &[0; 33])).unwrap_err();
         assert!(e.message.contains("plugin"), "{}", e.message);
+        // age's tagged recipients aren't plugins'.
+        for tag in ["age1tag", "age1tagpq"] {
+            let e = parse_key(&encode(tag, &[0; 33])).unwrap_err();
+            assert!(e.message.contains("held in hardware"), "{}", e.message);
+            assert!(!e.message.contains("plugin"), "{}", e.message);
+        }
         // The right prefix, the wrong length.
         let e = parse_key(&encode("age", &[0; 31])).unwrap_err();
         assert!(e.message.contains("32 bytes"), "{}", e.message);
