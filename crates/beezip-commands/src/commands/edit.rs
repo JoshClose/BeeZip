@@ -388,14 +388,8 @@ pub fn run_edit(
     })?;
     let _guard = cx.edit_lock(&canonical)?;
     let config = cx.config()?.clone();
-    // An edit changes the contents, which drops their signatures: said first (docs/M14.md §11).
-    if !dry_run && args.signing.is_none() {
-        crate::protect::warn_signatures_dropped(
-            &path,
-            "won't survive this change to its contents: sign it again (`sign`, or `archive.sign`)",
-            cx,
-        );
-    }
+    // An edit changes the contents, which drops a .bhive's signatures: core says so once it has
+    // opened the archive, before the new one is swapped in (docs/M14.md §11).
     cx.set_password(password);
     let opts = EditOptions {
         open: open_options(names, cx),

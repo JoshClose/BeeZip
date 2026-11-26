@@ -854,6 +854,13 @@ pub fn edit(
             if o.protection.is_none() {
                 o.protection = keep_protection(r.as_deref());
             }
+            // An edit changes the contents, so their signatures drop unless it signs again:
+            // said before anything is written (docs/M14.md §11). Read from the archive as it
+            // was just opened, so an encrypted one isn't asked for its key twice.
+            let signed = r.as_ref().map_or(0, |r| r.signatures().signatures.len());
+            if signed > 0 && o.signing.is_none() {
+                warn_signatures_dropped(&name, signed, cx);
+            }
         }
     }
     if unencrypted && encrypted && !matches!(spec, WriteSpec::Bhive(_)) {
@@ -869,6 +876,19 @@ pub fn edit(
     target.swap(partial, cx)?;
     report.bytes_after = fs::metadata(&target.path).map(|m| m.len()).unwrap_or(0);
     Ok(report)
+}
+
+/// Warns that an edit of `name`, a `.bhive` with `signatures`, drops them (docs/M14.md §11).
+fn warn_signatures_dropped(name: &str, signatures: usize, cx: &mut dyn Ctx) {
+    let them = if signatures == 1 {
+        "its signature".to_owned()
+    } else {
+        format!("its {signatures} signatures")
+    };
+    cx.warn(format!(
+        "{name} is signed, and {them} won't survive this change to its contents: sign it again \
+         (`sign`, or `archive.sign`)"
+    ));
 }
 
 /// What an encrypted `.bhive` keeps through an edit or a conversion into a `.bhive`: its file

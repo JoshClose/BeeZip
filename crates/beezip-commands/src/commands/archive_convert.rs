@@ -399,6 +399,9 @@ impl Command for ArchiveConvert {
                 .unwrap_or_default();
             s.push_str(&format!("\n  in {} volumes, from {first}", v.len()));
         }
+        if let Some(key) = &out.recovery_key {
+            s.push_str(&crate::commands::archive_create::recovery_key_text(key));
+        }
         Some(s)
     }
 }

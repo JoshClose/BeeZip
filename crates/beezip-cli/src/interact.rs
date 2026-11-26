@@ -201,10 +201,18 @@ impl Interactor for CliNonInteractive {
                     ),
                 },
             ),
-            Prompt::Unlock { .. } => CmdError::new(
-                ErrorCode::KeyRequired,
+            // A password or recovery key would open it, as with a zip's password (exit 6); only
+            // an archive that nothing typed opens needs a key (exit 15).
+            Prompt::Unlock { ways, .. } if ways.iter().any(UnlockWay::is_typed) => CmdError::new(
+                ErrorCode::PasswordRequired,
                 "the archive is encrypted; pass --password with its password or recovery key, \
                  or --identity with a key file",
+            )
+            .with_details(serde_json::json!({ "param": "password" })),
+            Prompt::Unlock { .. } => CmdError::new(
+                ErrorCode::KeyRequired,
+                "the archive opens only with a key, a certificate or a device, and none here \
+                 fits; pass --identity with its key file",
             ),
         })
     }
@@ -238,17 +246,28 @@ mod tests {
 
     #[test]
     fn nobody_at_the_terminal() {
-        let e = CliNonInteractive
-            .prompt(
-                1,
-                1,
-                &Prompt::Unlock {
-                    ways: vec![way(0, SlotKindName::Password, false)],
-                    attempt: 0,
-                },
-            )
-            .unwrap_err();
+        let unlock = |ways| {
+            CliNonInteractive
+                .prompt(1, 1, &Prompt::Unlock { ways, attempt: 0 })
+                .unwrap_err()
+        };
+        // A password or a recovery key opens it: a password is required, as for a zip.
+        for kind in [SlotKindName::Password, SlotKindName::RecoveryKey] {
+            let e = unlock(vec![
+                way(0, SlotKindName::PostQuantumKey, false),
+                way(1, kind, false),
+            ]);
+            assert_eq!(e.code, ErrorCode::PasswordRequired, "{kind:?}");
+            assert_eq!(e.exit_code(), 6);
+            assert!(e.message.contains("--password"), "{}", e.message);
+        }
+        // Only keys and devices open it: a key is required.
+        let e = unlock(vec![
+            way(0, SlotKindName::PostQuantumKey, false),
+            way(1, SlotKindName::SecurityKey, false),
+        ]);
         assert_eq!(e.code, ErrorCode::KeyRequired);
         assert_eq!(e.exit_code(), 15);
+        assert!(e.message.contains("--identity"), "{}", e.message);
     }
 }

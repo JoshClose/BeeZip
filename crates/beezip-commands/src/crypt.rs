@@ -82,6 +82,17 @@ pub struct UnlockWay {
     pub here: bool,
 }
 
+impl UnlockWay {
+    /// Whether it is a password or a recovery key: something a person types, which a front
+    /// end with nobody to ask fails for as `PasswordRequired` rather than `KeyRequired`.
+    pub fn is_typed(&self) -> bool {
+        matches!(
+            self.kind,
+            SlotKindName::Password | SlotKindName::RecoveryKey
+        )
+    }
+}
+
 /// An answer to the Unlock prompt.
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
 #[serde(tag = "way", rename_all = "kebab-case")]

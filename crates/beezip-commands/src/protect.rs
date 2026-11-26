@@ -301,9 +301,12 @@ pub fn ways(args: &WaysArgs<'_>, cx: &mut JobCtx) -> Result<Ways, CmdError> {
             label: Some("Recovery key".into()),
         });
     }
-    let others = !args.to.is_empty() || !args.to_cert.is_empty();
+    // Someone else's key or certificate: your own stored keys don't count (decision 12).
+    let mut others = !args.to_cert.is_empty();
     for text in args.to {
-        out.recipients.push(public_key(text, cx)?);
+        let key = public_key(text, cx)?;
+        others |= someone_elses(&key.recipient, cx);
+        out.recipients.push(key);
     }
     for text in args.to_cert {
         let c = certificate(text)?;
@@ -340,6 +343,26 @@ pub fn ways(args: &WaysArgs<'_>, cx: &mut JobCtx) -> Result<Ways, CmdError> {
         });
     }
     Ok(out)
+}
+
+/// Whether `r` is someone else's key or certificate, which a password beside it is warned of
+/// (decision 12, docs/M14.md §5): anyone it opens for could make an archive the password
+/// opens. One of your own stored keys isn't: you hold both. Every certificate counts, as do
+/// keys when your keys can't be read.
+pub fn someone_elses(r: &Recipient, cx: &JobCtx) -> bool {
+    let own = |public: &[u8]| {
+        cx.key_store()
+            .ok()
+            .and_then(|store| store.find_public(public).ok().flatten())
+            .is_some_and(|k| k.own)
+    };
+    match r {
+        Recipient::X25519(k) => !own(k),
+        Recipient::XWing(k) => !own(&k[..]),
+        Recipient::Rsa { .. } => true,
+        Recipient::Ec { machine_bound, .. } => !machine_bound,
+        _ => false,
+    }
 }
 
 /// Decision 12: a password beside other people's keys.
