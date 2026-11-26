@@ -302,6 +302,10 @@ impl<A: Authenticator> KeySource for Fido2Source<A> {
         slot.kind == SlotKind::Fido2 && self.support.security_keys && fido2::parse(slot).is_ok()
     }
 
+    /// Asks for the relying party the slot names, which needn't be [`fido2::RP_ID`] (bhive.md
+    /// §12.5): another writer's slots open too. A hostile archive can so make Windows' dialog
+    /// name another site, but nothing leaves BeeZip: the output only meets the slot's
+    /// commitment, and the signature is thrown away.
     fn secret(&mut self, slot: &SlotView<'_>, device: bool) -> Result<Option<SlotSecret>> {
         if slot.kind != SlotKind::Fido2 || !device {
             return Ok(None);
@@ -675,6 +679,29 @@ pub(crate) mod tests {
             ErrorKind::Corrupt
         );
         assert!(source.authenticator().calls.is_empty());
+
+        // Nor is a well-framed one this BeeZip can't use (the key block still reads): a flag
+        // bit it doesn't know, a relying party id that isn't UTF-8.
+        for (flags, rp) in [
+            (fido2::FLAG_UV | 0b100, &b"beezip"[..]),
+            (fido2::FLAG_UV, &[0xc3, 0x28][..]),
+        ] {
+            let mut public = vec![flags, 0, 1, 0, 0x42, rp.len() as u8];
+            public.extend_from_slice(rp);
+            public.extend_from_slice(&[0x5a; fido2::SALT_LEN]);
+            fido2::check(&public).unwrap();
+            let (key_id, framed) = view_of(&public);
+            let view = SlotView {
+                index: 0,
+                kind: SlotKind::Fido2,
+                key_id: &key_id,
+                framed: &framed,
+                public: &framed[4..],
+            };
+            assert!(!source.offers(&view));
+            assert!(source.secret(&view, true).is_err());
+            assert!(source.authenticator().calls.is_empty());
+        }
     }
 
     #[test]

@@ -59,7 +59,9 @@ impl Fido2Slot<'_> {
     }
 }
 
-/// The slot's fields, borrowed from its public part, once its lengths are checked.
+/// The slot's fields, borrowed from its public part. Its lengths are checked as [`check`] checks
+/// them, and then what using it needs: no flag bit this BeeZip doesn't know, and a relying party
+/// id in UTF-8. A slot refused here is only unusable: the archive still opens another way.
 pub fn parse<'a>(slot: &SlotView<'a>) -> Result<Fido2Slot<'a>> {
     if slot.kind != SlotKind::Fido2 {
         return Err(Error::invalid_args(format!(
@@ -108,51 +110,78 @@ pub fn make(
     })
 }
 
-/// Checks a kind-8 public part (bhive.md §12.10): the lengths inside it and its fixed fields
-/// fill it exactly, the lengths are in range, the relying party id is UTF-8, no reserved flag
-/// bit is set.
+/// Checks a kind-8 public part as the key block is read (bhive.md §12.10): its fixed fields and
+/// the lengths inside it fill it exactly, and the lengths are in range. Only these refuse the
+/// whole archive. A reserved flag bit or a relying party id that isn't UTF-8 makes just this
+/// slot unusable, which [`parse`] says, so the archive still opens another way.
 pub fn check(public: &[u8]) -> Result<()> {
-    read(public).map(|_| ())
+    fields(public).map(|_| ())
 }
 
-fn read(public: &[u8]) -> Result<Fido2Slot<'_>> {
-    let bad = |what: &str| Error::corrupt(format!("bhive: a security-key slot's {what}"));
+/// A public part's fields, their lengths checked.
+struct Fields<'a> {
+    flags: u8,
+    credential_id: &'a [u8],
+    rp_id: &'a [u8],
+    salt: &'a [u8; SALT_LEN],
+}
+
+fn corrupt(what: &str) -> Error {
+    Error::corrupt(format!("bhive: a security-key slot's {what}"))
+}
+
+fn fields(public: &[u8]) -> Result<Fields<'_>> {
     if public.len() < FIXED_LEN + 2 {
-        return Err(bad("public part is too short"));
+        return Err(corrupt("public part is too short"));
     }
     if public.len() > MAX_PUBLIC_LEN {
-        return Err(bad("public part is too long"));
-    }
-    let flags = public[0];
-    if flags & !FLAGS_KNOWN != 0 {
-        return Err(bad("flags have a reserved bit set"));
+        return Err(corrupt("public part is too long"));
     }
     let id_len = usize::from(u16::from_le_bytes([public[2], public[3]]));
     if id_len == 0 || id_len > MAX_CREDENTIAL_ID {
-        return Err(bad("credential id length is out of range"));
+        return Err(corrupt("credential id length is out of range"));
     }
     let (credential_id, rest) = public[4..]
         .split_at_checked(id_len)
-        .ok_or_else(|| bad("credential id runs past the slot"))?;
+        .ok_or_else(|| corrupt("credential id runs past the slot"))?;
     let (&rp_len, rest) = rest
         .split_first()
-        .ok_or_else(|| bad("relying party id is missing"))?;
+        .ok_or_else(|| corrupt("relying party id is missing"))?;
     let rp_len = usize::from(rp_len);
     if rp_len == 0 || rp_len > MAX_RP_ID {
-        return Err(bad("relying party id length is out of range"));
+        return Err(corrupt("relying party id length is out of range"));
     }
     if rest.len() != rp_len + SALT_LEN {
-        return Err(bad("fields don't fill its public part exactly"));
+        return Err(corrupt("fields don't fill its public part exactly"));
     }
     let (rp_id, salt) = rest.split_at(rp_len);
-    let rp_id = std::str::from_utf8(rp_id).map_err(|_| bad("relying party id isn't UTF-8"))?;
-    let salt: &[u8; SALT_LEN] = salt.try_into().map_err(|_| bad("salt isn't 32 bytes"))?;
-    Ok(Fido2Slot {
+    let salt = salt
+        .try_into()
+        .map_err(|_| corrupt("salt isn't 32 bytes"))?;
+    Ok(Fields {
+        flags: public[0],
         credential_id,
         rp_id,
         salt,
-        prf: flags & FLAG_PRF != 0,
-        uv: flags & FLAG_UV != 0,
+    })
+}
+
+fn read(public: &[u8]) -> Result<Fido2Slot<'_>> {
+    let f = fields(public)?;
+    if f.flags & !FLAGS_KNOWN != 0 {
+        return Err(Error::unsupported_format(format!(
+            "bhive: a security-key slot sets flag bits this BeeZip doesn't know (0x{:02x})",
+            f.flags & !FLAGS_KNOWN
+        )));
+    }
+    let rp_id =
+        std::str::from_utf8(f.rp_id).map_err(|_| corrupt("relying party id isn't UTF-8"))?;
+    Ok(Fido2Slot {
+        credential_id: f.credential_id,
+        rp_id,
+        salt: f.salt,
+        prf: f.flags & FLAG_PRF != 0,
+        uv: f.flags & FLAG_UV != 0,
     })
 }
 
@@ -387,24 +416,32 @@ mod tests {
                 public(FLAG_UV, 48, &id, 40, b"beezip", SALT_LEN),
             ),
             (
-                "a relying party that isn't UTF-8",
-                public(FLAG_UV, 48, &id, 2, &[0xc3, 0x28], SALT_LEN),
-            ),
-            (
                 "too long",
                 public(FLAG_UV, 1023, &[1; 1023], 253, &[b'r'; 253], SALT_LEN + 1),
             ),
         ];
         for (what, p) in cases {
+            let e = check(&p)
+                .err()
+                .unwrap_or_else(|| panic!("{what} was checked"));
+            assert_eq!(e.kind, crate::ErrorKind::Corrupt, "{what}");
             let e = read(&p).err().unwrap_or_else(|| panic!("{what} was read"));
             assert_eq!(e.kind, crate::ErrorKind::Corrupt, "{what}");
-            assert!(check(&p).is_err(), "{what}");
         }
-        // Flag bits 2 to 7 are reserved: set, the slot is refused.
+        // Well framed but unusable: the key block is read, and only this slot can't be used.
+        // A relying party id that isn't UTF-8:
+        let p = public(FLAG_UV, 48, &id, 2, &[0xc3, 0x28], SALT_LEN);
+        check(&p).unwrap();
+        assert_eq!(read(&p).err().unwrap().kind, crate::ErrorKind::Corrupt);
+        // Flag bits 2 to 7 are reserved: one set, the slot is for a newer reader.
         for bit in 2..8 {
             let mut p = ok.clone();
             p[0] |= 1 << bit;
-            assert!(read(&p).is_err(), "bit {bit}");
+            check(&p).unwrap();
+            let e = read(&p)
+                .err()
+                .unwrap_or_else(|| panic!("bit {bit} was read"));
+            assert_eq!(e.kind, crate::ErrorKind::UnsupportedFormat, "bit {bit}");
         }
         // The reserved byte is a field: it is ignored.
         let mut p = ok.clone();

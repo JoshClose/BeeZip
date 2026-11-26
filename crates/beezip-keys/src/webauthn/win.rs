@@ -18,7 +18,7 @@
 use std::ffi::c_void;
 
 use beezip_core::{Error, ErrorKind, Result, format::bhive::crypt::fido2};
-use zeroize::Zeroizing;
+use zeroize::{Zeroize, Zeroizing};
 
 use super::{
     Attachment, Authenticator, MIN_API, MIN_API_HELLO, NewCredential, SecretRequest, Support,
@@ -150,13 +150,27 @@ impl Drop for AttestationGuard<'_> {
     }
 }
 
-/// An assertion Windows allocated, freed when dropped.
+/// An assertion Windows allocated, freed when dropped. Any hmac-secret output in it is wiped
+/// first, on every path: Windows' copy is heap memory it hands to the caller until it is freed.
 struct AssertionGuard<'a>(&'a Api, *mut ffi::Assertion);
 
 impl Drop for AssertionGuard<'_> {
     fn drop(&mut self) {
-        // SAFETY: Windows allocated it, and it is freed once.
-        unsafe { (self.0.free_assertion)(self.1) };
+        // SAFETY: Windows allocated it, and it is freed once. `pHmacSecret` is read only when
+        // the assertion's version says it is there (3 or later), and its buffers are wiped
+        // within their lengths.
+        unsafe {
+            let a = &*self.1;
+            if a.dw_version >= 3 && !a.p_hmac_secret.is_null() {
+                let h = &*a.p_hmac_secret;
+                for (p, n) in [(h.pb_first, h.cb_first), (h.pb_second, h.cb_second)] {
+                    if !p.is_null() && n > 0 {
+                        std::slice::from_raw_parts_mut(p, n as usize).zeroize();
+                    }
+                }
+            }
+            (self.0.free_assertion)(self.1)
+        }
     }
 }
 
@@ -361,9 +375,9 @@ impl Authenticator for WebAuthn {
             ));
         }
         let guard = AssertionGuard(api, out);
-        // SAFETY: Windows returned a valid assertion, freed only when `guard` drops; fields
-        // are read only when its version says they are there, and the output is wiped in
-        // Windows' copy, which is heap memory it hands to the caller until it is freed.
+        // SAFETY: Windows returned a valid assertion, freed only when `guard` drops (which
+        // wipes the output in Windows' copy, whichever way this returns); fields are read only
+        // when its version says they are there.
         unsafe {
             let a = &*guard.1;
             let used = ffi::bytes(a.credential.pb_id, a.credential.cb_id);
@@ -386,10 +400,6 @@ impl Authenticator for WebAuthn {
             }
             let mut secret = Zeroizing::new([0; 32]);
             secret.copy_from_slice(ffi::bytes(h.pb_first, h.cb_first));
-            std::ptr::write_bytes(h.pb_first, 0, h.cb_first as usize);
-            if !h.pb_second.is_null() {
-                std::ptr::write_bytes(h.pb_second, 0, h.cb_second as usize);
-            }
             Ok(secret)
         }
     }
