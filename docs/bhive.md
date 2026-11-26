@@ -616,7 +616,11 @@ them, those lengths and the fixed fields add up to p.
   goes to the authenticator as it is. Bit 0 set: the salt is a WebAuthn PRF input, and the
   authenticator gets `SHA-256("WebAuthn PRF" ‖ 00 ‖ salt)`, as WebAuthn's `prf` extension
   does. Bit 1: user verification is required (BeeZip always sets it). The other bits are
-  reserved. A credential id is 1 to 1,023 bytes, a relying party id 1 to 253.
+  reserved. A credential id is 1 to 1,023 bytes, a relying party id 1 to 253. A slot with a
+  reserved bit set, or whose relying party id isn't UTF-8, can't be used, but the file is still
+  read and opens another way. BeeZip's slots name the relying party `beezip`; a reader asks for
+  whichever one the slot names, so an archive can make the authenticator's dialog name another
+  site, though the output only opens the slot.
 
 ### 12.6 Cell blocks
 
