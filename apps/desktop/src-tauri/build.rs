@@ -11,6 +11,7 @@ fn main() {
                 "cmd_list",
                 "cmd_launched",
                 "cmd_ready",
+                "cmd_save_text",
                 "cmd_drag_out",
                 "cmd_update_check",
                 "cmd_update_install",

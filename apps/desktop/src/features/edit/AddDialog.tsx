@@ -1,7 +1,8 @@
 // The add dialog (docs/M5.md §8.1): files for an open archive, the folder inside it they go
 // into, what happens when an entry is already there, and the new files' method, level and
 // password. Dropped files open it too (§8.2): it is the confirmation, so a stray drop changes
-// nothing.
+// nothing. Adding to a signed .bhive drops its signatures, so it says so and offers to sign
+// again with your own keys that signed it (docs/M14.md §11).
 import { FilePlus2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Button } from "../../components/ui/button";
@@ -22,8 +23,10 @@ import { runEdit } from "../../lib/edit";
 import { normalize } from "../../lib/format";
 import { useFormats } from "../../lib/formats";
 import { loadSettings } from "../../lib/settings";
+import { ownSigners, signaturesOf } from "../../lib/signatures";
 import { toastError } from "../../lib/toasts";
 import { CopyAsCli } from "../cli/CopyAsCli";
+import { SignWithField } from "../protection/ProtectionFields";
 import { applies, defaultLevel, defaultMethod, InputsField, levelArg, levelHint, levelLabel, levelNote, useConfiguredLevels } from "../create/CreateDialog";
 
 export type AddForm = {
@@ -38,6 +41,8 @@ export type AddForm = {
   encrypt: boolean;
   password: string;
   encryption: EncryptionName;
+  /** Sign a .bhive again after adding: what `sign` takes. */
+  sign?: string[];
 };
 
 export const EDIT_OVERWRITE: { id: OverwritePolicy; label: string }[] = [
@@ -87,6 +92,8 @@ export function initialAdd(tab: Tab, inputs: string[], dir: string): AddForm {
     encrypt: encrypted || headers,
     password: encrypted || headers ? (tab.password ?? "") : "",
     encryption: "aes256",
+    // Your own keys that signed it sign again, unless the person takes them off.
+    sign: ownSigners(signaturesOf(tab.info)),
   };
 }
 
@@ -107,6 +114,7 @@ export function addArgs(tab: Tab, f: AddForm, formats?: FormatsListOutput): Arch
     ...(encrypt && a.encryption && f.password && f.encryption !== "aes256" ? { encryption: f.encryption } : {}),
     ...(encrypted && !encrypt ? { unencrypted: true } : {}),
     ...(tab.encoding ? { name_encoding: tab.encoding } : {}),
+    ...(editFormat(tab.info, formats) === "bhive" && f.sign && f.sign.length > 0 ? { sign: f.sign } : {}),
   };
 }
 
@@ -152,6 +160,7 @@ export function AddDialog({ tab, inputs: given, dir, onClose }: { tab: Tab; inpu
   const ready = addReady(tab, form, formats);
   const methodDefault = defaultMethod(format);
   const configuredLabel = EDIT_OVERWRITE.find((o) => o.id === configured)?.label;
+  const signed = signaturesOf(tab.info).length;
 
   const add = () => {
     const title = `Adding to ${tab.name}`;
@@ -280,6 +289,18 @@ export function AddDialog({ tab, inputs: given, dir, onClose }: { tab: Tab; inpu
               </>
             )}
           </Field>
+        )}
+        {format === "bhive" && (
+          <SignWithField
+            id="add-sign"
+            value={form.sign ?? []}
+            onChange={(sign) => set({ sign })}
+            hint={
+              signed > 0
+                ? `Adding changes what's in it, so its ${signed === 1 ? "signature is" : `${signed} signatures are`} dropped. Sign it again here.`
+                : "Sign the archive once the files are in."
+            }
+          />
         )}
       </div>
     </Dialog>

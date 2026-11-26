@@ -165,7 +165,10 @@ export const useJobs = create<JobsState>((set, get) => ({
 
   async answer(job, prompt, reply) {
     const record = get().jobs[job];
-    if (record?.tab && reply.kind === "Password") get().onPassword?.(record.tab, reply.password);
+    if (record?.tab) {
+      const kept = keptSecret(reply);
+      if (kept) get().onPassword?.(record.tab, kept);
+    }
     set((s) => {
       const j = s.jobs[job];
       if (!j) return s;
@@ -194,6 +197,15 @@ export const useJobs = create<JobsState>((set, get) => ({
     });
   },
 }));
+
+/** What a reply typed that later calls on the archive pass as `password`: a password, or an
+ * encrypted .bhive's recovery key (docs/M14.md §8). A key or device chosen isn't kept. */
+export function keptSecret(reply: PromptReply): string | undefined {
+  if (reply.kind === "Password") return reply.password;
+  if (reply.kind === "Unlock" && reply.answer.way === "password") return reply.answer.password;
+  if (reply.kind === "Unlock" && reply.answer.way === "recovery-key") return reply.answer.key;
+  return undefined;
+}
 
 /** Jobs in the order they started. */
 export function orderedJobs(s: Pick<JobsState, "jobs" | "order">): JobRecord[] {

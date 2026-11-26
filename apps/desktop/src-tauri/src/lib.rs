@@ -7,6 +7,7 @@ mod open;
 mod opened;
 mod prompts;
 mod reveal;
+mod save;
 mod update;
 
 use std::{
@@ -114,6 +115,7 @@ pub fn run() {
             ipc::cmd_list,
             ipc::cmd_launched,
             reveal::cmd_ready,
+            save::cmd_save_text,
             drag::cmd_drag_out,
             update::cmd_update_check,
             update::cmd_update_install

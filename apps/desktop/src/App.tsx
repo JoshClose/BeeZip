@@ -20,6 +20,9 @@ import { ReportDialog } from "./features/jobs/ReportDialog";
 import { loadCommands, Palette, type PaletteAction, takesOnlyArchive } from "./features/palette/Palette";
 import { FormDialog } from "./features/palette/SchemaForm";
 import { Prompts } from "./features/prompts/Prompts";
+import { RecoveryKeyDialog } from "./features/protection/RecoveryKey";
+import { SignDialog } from "./features/protection/Signatures";
+import { WhoCanOpenDialog } from "./features/protection/WhoCanOpen";
 import { UpdateBanner } from "./features/update/UpdateBanner";
 import { Welcome } from "./features/welcome/Welcome";
 import { activeTab, archiveArgs, useArchives } from "./lib/archives";
@@ -29,6 +32,7 @@ import type { GuiCommand } from "./lib/engine";
 import { baseName } from "./lib/format";
 import { loadFormats, readableExtensions } from "./lib/formats";
 import { useJobs } from "./lib/jobs";
+import { encryptedBhive } from "./lib/protection";
 import { type EntryChanged, entryChanged } from "./lib/opened";
 import { draggingOut } from "./lib/drag";
 import { type DropZone, dropPaths, dropZone, isArchive } from "./lib/drop";
@@ -213,6 +217,8 @@ export default function App() {
           { id: "convert", label: `Convert ${tab.name}…`, run: () => show({ kind: "convert", tab: tab.id }) },
           { id: "info", label: `Info on ${tab.name}`, run: () => show({ kind: "info", tab: tab.id }) },
           { id: "encoding", label: `Name encoding for ${tab.name}…`, run: () => show({ kind: "encoding", tab: tab.id }) },
+          ...(encryptedBhive(tab.info) ? [{ id: "protection", label: `Who can open ${tab.name}…`, run: () => show({ kind: "protection", tab: tab.id }) }] : []),
+          ...(tab.info?.format === "bhive" ? [{ id: "sign", label: `Sign ${tab.name}…`, disabled: blocked, run: () => show({ kind: "sign", tab: tab.id }) }] : []),
           { id: "close", label: `Close ${tab.name}`, hint: "Ctrl+W", run: () => useArchives.getState().close(tab.id) },
         ]
       : []),
@@ -230,6 +236,9 @@ export default function App() {
     if (c.name === "archive.test" && tab) return testArchive(tab);
     if (c.name === "archive.info" && tab) return show({ kind: "info", tab: tab.id });
     if (c.name === "bench.run") return show({ kind: "bench", file: tab?.path });
+    if ((c.name === "archive.protection" || c.name === "archive.protect") && tab) return show({ kind: "protection", tab: tab.id });
+    if (c.name === "archive.sign" && tab) return show({ kind: "sign", tab: tab.id });
+    if (c.name.startsWith("keys.") || c.name === "certificates.list") return openSettings();
     if (takesOnlyArchive(c) && tab) {
       useJobs
         .getState()
@@ -272,6 +281,8 @@ export default function App() {
       {dialog?.kind === "convert" && dialogTab && <CreateDialog inputs={[]} source={dialogTab} onClose={closeDialog} />}
       {dialog?.kind === "info" && dialogTab && <InfoDialog tab={dialogTab} onClose={closeDialog} />}
       {dialog?.kind === "encoding" && dialogTab && <EncodingDialog tab={dialogTab} onClose={closeDialog} />}
+      {dialog?.kind === "protection" && dialogTab && <WhoCanOpenDialog tab={dialogTab} onClose={closeDialog} />}
+      {dialog?.kind === "sign" && dialogTab && <SignDialog tab={dialogTab} onClose={closeDialog} />}
       {dialog?.kind === "about" && <About onClose={closeDialog} />}
       {dialog?.kind === "report" && <ReportDialog title={dialog.title} error={dialog.error} onClose={closeDialog} />}
       {dialog?.kind === "settings" && (
@@ -294,6 +305,7 @@ export default function App() {
 
       <Palette open={palette} onOpenChange={setPalette} actions={actions} onCommand={onCommand} />
       <Prompts />
+      <RecoveryKeyDialog />
       <ChangedPrompt />
       <RunPrompt />
       <Toasts />

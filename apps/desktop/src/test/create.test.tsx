@@ -96,14 +96,14 @@ describe("the create dialog's arguments", () => {
     expect(createArgs(form({ format: "iso", method: "xz", level: 9, threads: 4, password: "pw" }), formats)).toEqual({ ...base, format: "iso" });
   });
 
-  it("gives a .bhive its level by name, and no method or password (docs/M13.md §4)", () => {
+  it("gives a .bhive its level by name, no method, and its own password (docs/M13.md §4, docs/M14.md §5)", () => {
     const base = { output: String.raw`C:\work\src.zip`, inputs: [String.raw`C:\work\src`], format: "bhive" };
     expect(createArgs(form({ format: "bhive" }), formats)).toEqual(base);
-    expect(createArgs(form({ format: "bhive", level: 3, method: "lzma2", password: "pw", solid: false, threads: 8 }), formats)).toEqual({ ...base, level: "high", threads: 8 });
+    expect(createArgs(form({ format: "bhive", level: 3, method: "lzma2", password: "pw", solid: false, threads: 8 }), formats)).toEqual({ ...base, level: "high", threads: 8, password: "pw" });
     expect(createArgs(form({ format: "bhive", level: 0 }), formats)).toEqual({ ...base, level: "none" });
 
     const a = applies({ format: "bhive", method: undefined }, formats);
-    expect(a).toMatchObject({ level: { min: 0, max: 4, default: 2 }, levelKey: "bhive", methods: [], password: false, solid: false, threads: true });
+    expect(a).toMatchObject({ level: { min: 0, max: 4, default: 2 }, levelKey: "bhive", methods: [], password: false, protection: true, solid: false, threads: true });
     expect(levelLabel(a, 2)).toBe("Balanced");
     expect(levelNote(a, 4)).toBe("LZMA2: the smallest, the slowest");
     expect(levelHint(defaultLevel(a, {})!, levelLabel(a, 2))).toBe("Default Balanced.");
@@ -203,10 +203,12 @@ describe("the create dialog", () => {
     expect(screen.queryByLabelText("Password")).toBeNull();
     expect(screen.getByLabelText("Threads")).toBeInTheDocument();
 
-    // A .bhive: five named levels, no method, no password.
+    // A .bhive: five named levels, no method, its own Protection section.
     await user.selectOptions(screen.getByLabelText("Format"), "bhive");
     expect(screen.getByLabelText("Save as")).toHaveValue(String.raw`C:\work\src.bhive`);
-    expect(screen.queryByLabelText("Password")).toBeNull();
+    expect(screen.getByLabelText("Password")).toBeInTheDocument();
+    expect(screen.getByText(/Make a recovery key/)).toBeInTheDocument();
+    expect(screen.queryByText("Encrypt file names too")).toBeNull();
     expect(screen.queryByLabelText("Method")).toBeNull();
     const level = screen.getByLabelText("Level");
     expect(level).toHaveAttribute("max", "4");

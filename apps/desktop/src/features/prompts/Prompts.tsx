@@ -1,5 +1,5 @@
-// Password and overwrite prompts (docs/M3.md §5.3): modal, one at a time, queued when several
-// jobs ask. Each answer goes back through `cmd_respond`.
+// Password, unlock and overwrite prompts (docs/M3.md §5.3, docs/M14.md §8): modal, one at a
+// time, queued when several jobs ask. Each answer goes back through `cmd_respond`.
 import { Eye, EyeOff, KeyRound } from "lucide-react";
 import { useMemo, useState } from "react";
 import { Button } from "../../components/ui/button";
@@ -8,6 +8,7 @@ import { Input } from "../../components/ui/input";
 import type { OverwriteChoice, PromptReply } from "../../gen/commands";
 import { baseName } from "../../lib/format";
 import { nextPrompt, orderedJobs, useJobs } from "../../lib/jobs";
+import { UnlockPrompt } from "../protection/UnlockPrompt";
 
 export function PasswordPrompt({
   entry,
@@ -130,8 +131,8 @@ export function Prompts() {
   const { job, pending } = next;
   const reply = (r: PromptReply) => void answer(job.id, pending.id, r);
   const key = `${job.id}-${pending.id}`;
-  // The Unlock panel comes with M14's desktop PR (docs/M14.md §10, PR G); no job asks it yet.
-  if (pending.prompt.kind === "Unlock") return null;
+  if (pending.prompt.kind === "Unlock")
+    return <UnlockPrompt key={key} ways={pending.prompt.ways} attempt={pending.prompt.attempt} title={job.title} onReply={reply} kept={job.tab !== undefined} />;
   return pending.prompt.kind === "Password" ? (
     <PasswordPrompt key={key} entry={pending.prompt.entry} title={job.title} onReply={reply} kept={job.tab !== undefined} />
   ) : (

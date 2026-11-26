@@ -180,3 +180,15 @@ html[data-resizing="row"] * {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.35; }
 }
+
+/* A sheet printed alone, such as a recovery key (features/protection/RecoveryKey.tsx): hidden on
+   screen; while it prints, everything else is hidden on paper. */
+.print-sheet { display: none; }
+
+@media print {
+  html.printing body > *:not(.print-sheet) { display: none !important; }
+  html.printing .print-sheet { display: block; color: #000; background: #fff; font-family: ui-sans-serif, system-ui, sans-serif; }
+  html.printing .print-sheet h1 { font-size: 16pt; margin: 0 0 12pt; }
+  html.printing .print-sheet p { font-size: 11pt; margin: 0 0 8pt; }
+  html.printing .print-sheet p:first-of-type { font-family: ui-monospace, monospace; font-size: 15pt; letter-spacing: 0.04em; margin: 12pt 0 16pt; }
+}

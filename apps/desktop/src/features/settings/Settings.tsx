@@ -1,6 +1,7 @@
 // The settings page (docs/M4.md §7.4): config.toml's settings, each saved as it changes,
-// Explorer's menu, and updates (docs/M6.md §8.2). Off Windows it leaves out Explorer's menu and
-// its job windows, and on Linux the downloaded mark, which nothing there sets (§8.3).
+// Explorer's menu, updates (docs/M6.md §8.2), and your keys (docs/M14.md §6). Off Windows it
+// leaves out Explorer's menu and its job windows, and on Linux the downloaded mark, which
+// nothing there sets (§8.3).
 import { openPath, revealItemInDir } from "@tauri-apps/plugin-opener";
 import { FileCog, FolderOpen } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -15,6 +16,7 @@ import { toastError } from "../../lib/toasts";
 import { ExplorerSettings } from "./ExplorerSettings";
 import { EDIT_OVERWRITE } from "../edit/AddDialog";
 import { CheckSetting, ChoiceSetting, LevelSetting, NumberSetting, PathsSetting, Section, Segmented, Setting } from "./fields";
+import { KeysSettings } from "./KeysSettings";
 
 const OVERWRITE: { id: OverwritePolicy; label: string }[] = [
   { id: "ask", label: "Ask" },
@@ -301,6 +303,8 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
               />
             </Setting>
           </Section>
+
+          <KeysSettings />
 
           {platform === "windows" && (
             <Section title="Job windows" description="Explorer's menu opens one for each click: Extract here, Test archive, Add to…">

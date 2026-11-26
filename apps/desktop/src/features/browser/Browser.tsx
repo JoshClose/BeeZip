@@ -1,6 +1,6 @@
 // One archive's view: breadcrumb and actions, folder tree, entry table, preview.
 import { open as pickFiles } from "@tauri-apps/plugin-dialog";
-import { ArrowRightLeft, ArrowUp, ChevronRight, FilePlus2, FolderOutput, FolderPlus, Info, PencilLine, RotateCw, ShieldCheck, Trash2 } from "lucide-react";
+import { ArrowRightLeft, ArrowUp, ChevronRight, FilePlus2, FolderOutput, FolderPlus, Info, LockKeyhole, PencilLine, RotateCw, ShieldCheck, Signature, Trash2 } from "lucide-react";
 import { type KeyboardEvent, type MouseEvent, type ReactNode, useCallback, useEffect, useRef } from "react";
 import { Button } from "../../components/ui/button";
 import { Splitter } from "../../components/ui/splitter";
@@ -12,6 +12,7 @@ import { archiveParent, describeError, formatSize, normalize } from "../../lib/f
 import { useJobs } from "../../lib/jobs";
 import { openEntry } from "../../lib/opened";
 import { fit, MIN_WIDTHS, PREVIEW_FROM, usePanes, widest } from "../../lib/panes";
+import { encryptedBhive } from "../../lib/protection";
 import { useSize } from "../../lib/size";
 import { startup } from "../../lib/startup";
 import { toastError, toastInfo } from "../../lib/toasts";
@@ -19,6 +20,7 @@ import { useUi } from "../../lib/ui";
 import { deleteSelection } from "../edit/confirmDelete";
 import { cancelRename, saveRename, startRename } from "../edit/rename";
 import { Preview } from "../preview/Preview";
+import { SignatureLine } from "../protection/Signatures";
 import { EntryTable } from "./EntryTable";
 import { FolderTree } from "./FolderTree";
 import { click, count, moveTo, NONE, type Selection, selectAll } from "./select";
@@ -332,8 +334,24 @@ export function Browser({ tab }: { tab: Tab }) {
           <Button size="icon" onClick={() => show({ kind: "convert", tab: tab.id })} disabled={!ready} aria-label="Convert…" title="Convert to another format…">
             <ArrowRightLeft />
           </Button>
+          {tab.info?.format === "bhive" && (
+            <>
+              <span className="mx-1 h-5 w-px bg-rule" aria-hidden />
+              {encryptedBhive(tab.info) && (
+                <Button size="icon" onClick={() => show({ kind: "protection", tab: tab.id })} aria-label="Who can open this" title="Who can open this">
+                  <LockKeyhole />
+                </Button>
+              )}
+              <Why reason={blocked}>
+                <Button size="icon" onClick={() => show({ kind: "sign", tab: tab.id })} disabled={!!blocked} aria-label="Sign…" title="Sign, or remove signatures…">
+                  <Signature />
+                </Button>
+              </Why>
+            </>
+          )}
         </div>
       </div>
+      <SignatureLine tab={tab} />
       <div ref={rowRef} className="flex min-h-0 flex-1">
         <aside className="min-w-0 shrink-0" style={{ width: shown.tree }}>
           {ready && <FolderTree tab={tab} ready={ready} />}

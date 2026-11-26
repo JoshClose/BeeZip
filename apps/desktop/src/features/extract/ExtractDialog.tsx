@@ -1,4 +1,5 @@
-// The extract dialog (docs/M3.md §5.3).
+// The extract dialog (docs/M3.md §5.3). A .bhive that changed after it was signed asks before
+// it extracts (docs/M14.md decision 26).
 import { open as pickFolder } from "@tauri-apps/plugin-dialog";
 import { FolderOutput, ListTree } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
@@ -11,6 +12,7 @@ import type { Tab } from "../../lib/archives";
 import { describeError, parentDir } from "../../lib/format";
 import { useJobs } from "../../lib/jobs";
 import { loadSettings } from "../../lib/settings";
+import { changedSinceSigned } from "../../lib/signatures";
 import { toastError } from "../../lib/toasts";
 import { CopyAsCli } from "../cli/CopyAsCli";
 
@@ -72,6 +74,8 @@ export function ExtractDialog({ tab, entries, note, onClose }: { tab: Tab; entri
     };
   }, []);
   const configuredLabel = POLICIES.find((p) => p.value === configured?.overwrite)?.label;
+  const changed = changedSinceSigned(tab.info);
+  const [anyway, setAnyway] = useState(false);
   const [plan, setPlan] = useState<ArchiveExtractOutput["plan"]>();
   const [planError, setPlanError] = useState<unknown>();
   const set = (patch: Partial<ExtractForm>) => {
@@ -121,7 +125,7 @@ export function ExtractDialog({ tab, entries, note, onClose }: { tab: Tab; entri
             <ListTree /> Show plan
           </Button>
           <Button onClick={onClose}>Cancel</Button>
-          <Button variant="primary" onClick={extract} disabled={!form.dest}>
+          <Button variant="primary" onClick={extract} disabled={!form.dest || (changed && !anyway)}>
             <FolderOutput /> Extract
           </Button>
         </>
@@ -132,6 +136,12 @@ export function ExtractDialog({ tab, entries, note, onClose }: { tab: Tab; entri
           <p role="note" className="selectable rounded-[5px] border border-rule bg-paper px-3 py-2 text-[12px] text-muted">
             {note}
           </p>
+        )}
+        {changed && (
+          <div role="alert" className="flex flex-col gap-1.5 rounded-[5px] border border-danger/40 px-3 py-2 text-[12px]">
+            <p className="text-danger">{tab.name} changed after it was signed: what you extract may not be what the signer made.</p>
+            <Checkbox checked={anyway} onChange={setAnyway} label="Extract it anyway" />
+          </div>
         )}
         <Field label="Destination" htmlFor="dest">
           <div className="flex gap-2">
