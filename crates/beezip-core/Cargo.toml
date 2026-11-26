@@ -12,6 +12,9 @@ publish.workspace = true
 # with `BackendUnavailable`.
 default = ["rar"]
 rar = ["dep:beezip-unrar"]
+# Seeded randomness for `cargo xtask gen-fixtures`, so encrypted fixtures come out the same
+# every time. Only xtask turns it on; never in anything shipped.
+fixtures = []
 
 [dependencies]
 beezip-unrar = { workspace = true, optional = true }
