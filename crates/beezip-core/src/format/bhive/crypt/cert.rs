@@ -181,7 +181,8 @@ fn sha1(data: &[u8]) -> [u8; 20] {
     out
 }
 
-fn sha256(data: &[u8]) -> [u8; 32] {
+/// SHA-256.
+pub fn sha256(data: &[u8]) -> [u8; 32] {
     let mut out = [0; 32];
     out.copy_from_slice(ring::digest::digest(&ring::digest::SHA256, data).as_ref());
     out
@@ -436,6 +437,28 @@ pub fn chain(signer: &[u8]) -> Result<Vec<Vec<u8>>> {
         return Err(Error::corrupt("bytes after a signer field's certificates"));
     }
     Ok(out)
+}
+
+/// `der` as PEM under `label`, for a system API that takes PEM.
+pub fn pem(label: &str, der: &[u8]) -> Result<String> {
+    der::pem::encode_string(label, der::pem::LineEnding::LF, der)
+        .map_err(|e| invalid(format!("PEM: {e}")))
+}
+
+/// An ECDSA signature in DER (as Security.framework gives it) as `r ‖ s` (bhive.md §13.4).
+pub fn ecdsa_fixed(algorithm: Algorithm, der_signature: &[u8]) -> Result<Vec<u8>> {
+    let bad = |e: &dyn std::fmt::Display| invalid(format!("an ECDSA signature: {e}"));
+    match algorithm {
+        Algorithm::EcdsaP256 => Ok(p256::ecdsa::Signature::from_der(der_signature)
+            .map_err(|e| bad(&e))?
+            .to_bytes()
+            .to_vec()),
+        Algorithm::EcdsaP384 => Ok(p384::ecdsa::Signature::from_der(der_signature)
+            .map_err(|e| bad(&e))?
+            .to_bytes()
+            .to_vec()),
+        _ => Err(invalid("not an ECDSA algorithm")),
+    }
 }
 
 /// What a certificate algorithm signs: the SHA-256 of the message, or SHA-384 for ECDSA P-384
@@ -770,6 +793,19 @@ pub(crate) mod tests {
         assert!(rsa.sign(Algorithm::MlDsa65Ed25519, &message).is_err());
         assert_eq!(digest(Algorithm::EcdsaP384, b"x").unwrap().len(), 48);
         assert_eq!(digest(Algorithm::RsaPss, b"x").unwrap().len(), 32);
+        let p256 = PrivateKey::from_pkcs8(&hex(&v["slots"]["p256"]["pkcs8"])).unwrap();
+        let fixed = p256.sign(Algorithm::EcdsaP256, &message).unwrap();
+        let der = p256::ecdsa::Signature::from_slice(&fixed).unwrap().to_der();
+        assert_eq!(
+            ecdsa_fixed(Algorithm::EcdsaP256, der.as_bytes()).unwrap(),
+            fixed
+        );
+        assert!(ecdsa_fixed(Algorithm::RsaPss, der.as_bytes()).is_err());
+        assert!(
+            pem("PUBLIC KEY", &[1, 2, 3])
+                .unwrap()
+                .contains("-----BEGIN PUBLIC KEY-----")
+        );
     }
 
     #[test]

@@ -87,8 +87,10 @@ pub fn wz_bytes(s: &str) -> Vec<u8> {
 
 fn utf16_to_string(b: &[u8]) -> String {
     let u: Vec<u16> = b
-        .chunks_exact(2)
-        .map(|c| u16::from_le_bytes([c[0], c[1]]))
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(|c| u16::from_le_bytes(*c))
         .collect();
     String::from_utf16_lossy(&u)
         .trim_end_matches('\0')
@@ -881,7 +883,8 @@ impl Cert {
         })
     }
 
-    /// The certificate's public key as BCrypt has it, to check a signature.
+    /// Checks a signature with the certificate's public key, through BCrypt.
+    #[cfg(test)]
     pub fn verify(&self, algorithm: Algorithm, hash: &[u8], signature: &[u8]) -> WinResult<bool> {
         let mut key = BCRYPT_KEY_HANDLE::default();
         // SAFETY: the context and its public key info are live; the key is destroyed below.
