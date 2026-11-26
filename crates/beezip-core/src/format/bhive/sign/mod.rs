@@ -523,7 +523,10 @@ fn check_record(
                 algorithm: record.first().copied().unwrap_or(0),
                 signer: Vec::new(),
                 time: None,
-                status: Status::NotChecked(format!("the signature doesn't parse: {}", e.message)),
+                status: Status::NotChecked(format!(
+                    "the signature doesn't parse: {}",
+                    e.message.strip_prefix("bhive: ").unwrap_or(&e.message)
+                )),
             };
         }
     };
