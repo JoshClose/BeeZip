@@ -312,21 +312,8 @@ impl Command for ArchiveConvert {
             )?
         };
         // A .bhive's signatures carry over when every entry is copied as it is stored; a
-        // selection, a level or a method changes what they signed.
-        let whole = input.entries.as_ref().is_none_or(Vec::is_empty)
-            && input.glob.as_ref().is_none_or(Vec::is_empty)
-            && input.exclude.as_ref().is_none_or(Vec::is_empty);
-        let carried = kind == ArchiveKind::Bhive && raw && whole;
-        if !opts.dry_run && sign.is_empty() && !carried {
-            let why = if kind == ArchiveKind::Bhive {
-                "won't carry over to the new archive, whose entries change: pass `sign` to sign \
-                 it again"
-                    .to_owned()
-            } else {
-                format!("can't go into a {}", kind.name())
-            };
-            crate::protect::warn_signatures_dropped(&source, &why, cx);
-        }
+        // selection, a level or a method changes what they signed. Core says so once it has
+        // opened the source, encrypted or not (docs/M14.md §11).
         cx.set_password(input.password.as_ref());
         let open_opts = open_options(
             crate::commands::util::Opening::new(input.name_encoding, input.recover),

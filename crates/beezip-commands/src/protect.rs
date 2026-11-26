@@ -938,43 +938,6 @@ pub fn signatures_of(reader: &mut dyn ArchiveReader) -> Option<&sign::Report> {
         .map(|r| r.signatures())
 }
 
-/// How many signatures the `.bhive` file at `path` has, read before a change that drops them
-/// (an edit of its contents, a conversion), so BeeZip can say so first (docs/M14.md §11).
-/// `None` when it isn't a `.bhive`, or is encrypted: its index can't be read without opening
-/// it, which would ask for its key a second time.
-pub fn signatures_before_change(path: &Path, cx: &mut JobCtx) -> Option<usize> {
-    let mut header = [0u8; 16];
-    std::fs::File::open(path)
-        .and_then(|mut f| f.read_exact(&mut header))
-        .ok()?;
-    let features = layout::check_header(&header).ok()?;
-    if features & layout::FEATURE_ENCRYPTED != 0 {
-        return None;
-    }
-    let opts = open_options(None, cx);
-    let mut opened = open(path, &opts, cx).ok()?;
-    signatures_of(&mut *opened.reader).map(|r| r.signatures.len())
-}
-
-/// Warns, before a change, that the archive's signatures won't survive it.
-pub fn warn_signatures_dropped(path: &Path, why: &str, cx: &mut JobCtx) {
-    if let Some(n) = signatures_before_change(path, cx).filter(|&n| n > 0) {
-        let name = path.file_name().map_or_else(
-            || path.display().to_string(),
-            |n| n.to_string_lossy().into_owned(),
-        );
-        let them = if n == 1 {
-            "its signature".to_owned()
-        } else {
-            format!("its {n} signatures")
-        };
-        cx.log(
-            LogLevel::Warn,
-            format!("{name} is signed, and {them} {why}"),
-        );
-    }
-}
-
 /// How BeeZip shows each signature: checked by core, its signer named through your keys,
 /// contacts and the system's trust (`beezip-keys`).
 pub fn reports(report: &sign::Report, cx: &JobCtx) -> Vec<SignatureReport> {

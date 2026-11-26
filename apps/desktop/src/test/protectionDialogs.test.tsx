@@ -1,13 +1,14 @@
 import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { CreateDialog } from "../features/create/CreateDialog";
+import { CreateDialog, type CreateForm, convertArgs, keepLabel } from "../features/create/CreateDialog";
 import { AddDialog, addArgs, initialAdd } from "../features/edit/AddDialog";
 import { ExtractDialog } from "../features/extract/ExtractDialog";
 import { printSheet, RecoveryKeyDialog, recoveryText, useRecoveryKeys } from "../features/protection/RecoveryKey";
-import type { ArchiveInfoOutput, CertificateInfo, FormatsListOutput, KeyInfo } from "../gen/commands";
+import type { ArchiveInfoOutput, CertificateInfo, FormatsListOutput, KeyInfo, WayIn } from "../gen/commands";
 import { type Tab, useArchives } from "../lib/archives";
 import { useKeyring } from "../lib/keyring";
+import { NO_PROTECTION } from "../lib/protection";
 import type { Signature } from "../lib/signatures";
 import { fake } from "./fakeEngine";
 
@@ -319,6 +320,74 @@ describe("converting an encrypted archive into a .bhive (docs/M14.md §8)", () =
     const args = fake.calls.find((c) => c.name === "archive.convert")?.args;
     expect(args).toMatchObject({ archive: source.path, format: "bhive", recovery_key: true });
     expect(args).not.toHaveProperty("decrypt");
+  });
+});
+
+describe("converting an encrypted .bhive into a .bhive (docs/M14.md §3)", () => {
+  const ways: WayIn[] = [
+    { slot: 0, kind: "password", label: "Password", machine_bound: false, post_quantum: true },
+    { slot: 1, kind: "recovery-key", label: "Recovery key", machine_bound: false, post_quantum: true },
+  ];
+  // The tab as the store has it, which is where a convert takes the source's password from.
+  const sealed = () => {
+    const t = tab({ info: info({ encryption: "all", protection: { encrypted: true, ways, post_quantum: true } }), password: "honey" });
+    useArchives.setState({ tabs: [t], active: t.id });
+    return t;
+  };
+  const converted = () => fake.calls.find((c) => c.name === "archive.convert")?.args;
+
+  it("keeps who can open it by default, sending neither new ways in nor `decrypt`", async () => {
+    const user = userEvent.setup();
+    fake.handlers.set("archive.convert", (args) => ({ path: (args as { output: string }).output, format: "bhive" }));
+    const source = sealed();
+    render(<CreateDialog inputs={[]} source={source} onClose={() => {}} />);
+    await waitFor(() => expect(screen.getByRole("option", { name: "bhive" })).toBeInTheDocument());
+    await user.selectOptions(screen.getByLabelText("Format"), "bhive");
+    expect(screen.getByLabelText("Who can open it")).toHaveValue("keep");
+    expect(screen.getByRole("option", { name: "Keep who can open it: its 2 ways in" })).toBeInTheDocument();
+    expect(screen.getByText(/The new archive opens as a.bhive does/)).toBeInTheDocument();
+    // Nothing to choose: no password, no other ways in, no `decrypt`; Sign with stays.
+    expect(screen.queryByLabelText("Password")).toBeNull();
+    expect(screen.queryByText(/Make a recovery key/)).toBeNull();
+    expect(screen.queryByText(/encrypted entries without a password/)).toBeNull();
+    expect(screen.getByLabelText("Sign with")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Convert" }));
+    await waitFor(() => expect(converted()).toBeDefined());
+    // The tab's password opens the source; nothing makes new ways in.
+    expect(converted()).toEqual({ archive: source.path, output: String.raw`C:\work\a.bhive`, format: "bhive", password: "honey" });
+  });
+
+  it("gives it new ways in when asked, or writes it in the clear", async () => {
+    const user = userEvent.setup();
+    fake.handlers.set("archive.convert", (args) => ({ path: (args as { output: string }).output, format: "bhive" }));
+    const source = sealed();
+    render(<CreateDialog inputs={[]} source={source} onClose={() => {}} />);
+    await waitFor(() => expect(screen.getByRole("option", { name: "bhive" })).toBeInTheDocument());
+    await user.selectOptions(screen.getByLabelText("Format"), "bhive");
+    await user.selectOptions(screen.getByLabelText("Who can open it"), "new");
+    // As converting any encrypted archive: a way in, or the person's word.
+    await user.clear(screen.getByLabelText("Password"));
+    expect(screen.getByRole("button", { name: "Convert" })).toBeDisabled();
+    await user.click(screen.getByText(/encrypted entries without a password/));
+    expect(screen.getByRole("button", { name: "Convert" })).toBeEnabled();
+    await user.click(screen.getByRole("button", { name: "Convert" }));
+    await waitFor(() => expect(converted()).toBeDefined());
+    expect(converted()).toMatchObject({ archive: source.path, format: "bhive", decrypt: true, password: "honey" });
+    expect(converted()).not.toHaveProperty("new_password");
+  });
+
+  it("says how many ways in it keeps when the tab knows, and keeps nothing into another format", () => {
+    const form: CreateForm = { inputs: [], output: String.raw`C:\work\a.bhive`, format: "bhive", solid: true, password: "honey", encryption: "aes256", encryptHeaders: true, volumeSize: "", exclude: "", protection: { ...NO_PROTECTION, recoveryKey: true } };
+    expect(keepLabel(tab({ info: info({ encryption: "all" }) }))).toBe("Keep who can open it");
+    expect(keepLabel(tab({ info: info({ encryption: "all", protection: { encrypted: true, ways: ways.slice(0, 1), post_quantum: true } }) }))).toBe("Keep who can open it: its 1 way in");
+    // Kept: the form's password and ways in don't go, nor does `decrypt`.
+    expect(convertArgs(sealed(), form, true, formats)).toEqual({ archive: String.raw`C:\work\a.bhive`, output: form.output, format: "bhive", password: "honey" });
+    // New ways in: they do.
+    expect(convertArgs(sealed(), { ...form, newWays: true }, false, formats)).toMatchObject({ new_password: "honey", recovery_key: true });
+    // A zip has no ways in to keep: its password is the new archive's.
+    expect(convertArgs(sealed(), { ...form, format: "zip", output: String.raw`C:\work\a.zip` }, false, formats)).toMatchObject({ new_password: "honey" });
+    // An unencrypted .bhive keeps nothing: it's the same as any convert.
+    expect(convertArgs(tab(), form, false, formats)).toMatchObject({ new_password: "honey", recovery_key: true });
   });
 });
 

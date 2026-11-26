@@ -23,7 +23,7 @@ import { archiveArgs, type Tab } from "../../lib/archives";
 import { baseName, joinPath, parentDir } from "../../lib/format";
 import { codecOfTar, methodsOf, useFormats } from "../../lib/formats";
 import { useJobs } from "../../lib/jobs";
-import { checkProtection, NO_PROTECTION, protectionArgs, type ProtectionForm } from "../../lib/protection";
+import { checkProtection, encryptedBhive, NO_PROTECTION, protectionArgs, type ProtectionForm } from "../../lib/protection";
 import { loadSettings } from "../../lib/settings";
 import { startup } from "../../lib/startup";
 import { toastError } from "../../lib/toasts";
@@ -48,6 +48,9 @@ export type CreateForm = {
   protection?: ProtectionForm;
   /** A .bhive's signers: what `sign` takes (§11). */
   sign?: string[];
+  /** Converting an encrypted .bhive into a .bhive: give it new ways in instead of keeping its
+   * own (docs/M14.md §3). */
+  newWays?: boolean;
 };
 
 /** What the chosen format and method take. */
@@ -176,19 +179,33 @@ export function convertFormat(source: string): ArchiveFormatName {
   return source.toLowerCase().endsWith(".zip") ? "7z" : "zip";
 }
 
+/** Whether converting `source` keeps who can open it: an encrypted .bhive into a .bhive keeps
+ * its file key and ways in, as core does, unless the person chose new ones (docs/M14.md §3). */
+export function keepsWays(source: Tab, f: Pick<CreateForm, "format" | "newWays">): boolean {
+  return encryptedBhive(source.info) && f.format === "bhive" && !f.newWays;
+}
+
 /** The convert mode's fields as `archive.convert` arguments: the new archive's options, the
  * source's password and name encoding, and `decrypt` when its encrypted entries are to be
- * written without one: only when the new archive gets no way in at all. */
+ * written without one: only when the new archive gets no way in at all. An encrypted .bhive
+ * that keeps its ways in sends neither new ways in nor `decrypt`. */
 export function convertArgs(source: Tab, f: CreateForm, decrypt: boolean, formats?: FormatsListOutput): ArchiveConvertInput {
-  const { inputs: _, password, ...rest } = createArgs(f, formats);
+  const keep = keepsWays(source, f);
+  const { inputs: _, password, ...rest } = createArgs(keep ? { ...f, password: "", protection: NO_PROTECTION } : f, formats);
   const wayIn = !!password || !!rest.recovery_key || (rest.to?.length ?? 0) > 0 || (rest.to_cert?.length ?? 0) > 0 || !!rest.this_pc || !!rest.security_key || !!rest.windows_hello;
   return {
     archive: source.path,
     ...rest,
     ...(password ? { new_password: password } : {}),
-    ...(decrypt && !wayIn ? { decrypt: true } : {}),
+    ...(decrypt && !wayIn && !keep ? { decrypt: true } : {}),
     ...archiveArgs(source),
   };
+}
+
+/** What keeping an encrypted .bhive's ways in says: how many, when the tab's info has them. */
+export function keepLabel(source: Tab): string {
+  const n = source.info?.protection?.ways.length;
+  return n === undefined ? "Keep who can open it" : `Keep who can open it: its ${n} ${n === 1 ? "way" : "ways"} in`;
 }
 
 /** A first guess at the output: next to the first input, named after it or its folder. */
@@ -328,10 +345,15 @@ export function CreateDialog({
     [source, form, decrypt, formats],
   );
   const protection = form.protection ?? NO_PROTECTION;
-  const check = a.protection ? checkProtection(protection, form.password, startup().platform === "windows") : undefined;
-  // Encryption is never dropped silently: an encrypted source needs a new password (or, for a
-  // .bhive, any way in), or the person's word that its entries may go without one.
-  const keepsEncryption = !encryptedSource || (a.password && form.password.length > 0) || (check !== undefined && check.ways > 0) || decrypt;
+  // An encrypted .bhive converted into a .bhive keeps who can open it, unless new ways in are
+  // chosen (docs/M14.md §3).
+  const keepable = convert && encryptedBhive(source.info);
+  const keeping = convert && a.protection && keepsWays(source, form);
+  const check = a.protection && !keeping ? checkProtection(protection, form.password, startup().platform === "windows") : undefined;
+  // Encryption is never dropped silently: an encrypted source keeps its ways in (a .bhive into a
+  // .bhive), or needs a new password (or, for a .bhive, any way in), or the person's word that
+  // its entries may go without one.
+  const keepsEncryption = !encryptedSource || keeping || (a.password && form.password.length > 0) || (check !== undefined && check.ways > 0) || decrypt;
   const ready = (convert || form.inputs.length > 0) && form.output.trim().length > 0 && keepsEncryption && !check?.problem;
 
   const setInputs = (inputs: string[]) => setForm((f) => ({ ...f, inputs, output: f.output || defaultOutput(inputs, f.format) }));
@@ -496,18 +518,30 @@ export function CreateDialog({
         )}
         {a.protection && (
           <>
-            <NewPasswordField
-              id="new-password"
-              value={form.password}
-              onChange={(password) => set({ password })}
-              strength={protection.strength}
-              onStrength={(strength) => set({ protection: { ...protection, strength } })}
-            />
-            <ProtectionFields id="protect" value={protection} onChange={(p) => set({ protection: p })} password={form.password} />
+            {keepable && (
+              <Field label="Who can open it" htmlFor="ways" hint={keeping ? `The new archive opens as ${source.name} does. Who can open this changes that afterwards.` : undefined}>
+                <Select id="ways" className="w-72" value={form.newWays ? "new" : "keep"} onChange={(e) => set({ newWays: e.target.value === "new" })}>
+                  <option value="keep">{keepLabel(source)}</option>
+                  <option value="new">New ways in, chosen below</option>
+                </Select>
+              </Field>
+            )}
+            {!keeping && (
+              <>
+                <NewPasswordField
+                  id="new-password"
+                  value={form.password}
+                  onChange={(password) => set({ password })}
+                  strength={protection.strength}
+                  onStrength={(strength) => set({ protection: { ...protection, strength } })}
+                />
+                <ProtectionFields id="protect" value={protection} onChange={(p) => set({ protection: p })} password={form.password} />
+              </>
+            )}
             <SignWithField id="sign" value={form.sign ?? []} onChange={(sign) => set({ sign })} />
           </>
         )}
-        {encryptedSource && !(a.password && form.password) && !(check && check.ways > 0) && (
+        {encryptedSource && !keeping && !(a.password && form.password) && !(check && check.ways > 0) && (
           <Field label="Encryption">
             <div className="pt-1">
               <Checkbox checked={decrypt} onChange={setDecrypt} label={`Write ${source.name}'s encrypted entries without a password`} />

@@ -1429,3 +1429,82 @@ fn an_edit_of_an_encrypted_signed_bhive_says_its_signatures_drop() {
         assert_eq!(info["signatures"].as_array().unwrap().len(), 1, "{info}");
     }
 }
+
+/// A conversion that drops a signed `.bhive`'s signatures says so first, encrypted or not: one
+/// that chooses entries, a level or another format (docs/M14.md §11). Core says so once it has
+/// opened the source. A `.bhive` copied whole into a `.bhive` keeps them, and says nothing.
+#[test]
+fn a_conversion_that_drops_signatures_says_so_encrypted_or_not() {
+    let settings = tempfile::tempdir().unwrap();
+    let at = At(settings.path());
+    let work = tempfile::tempdir().unwrap();
+    let inputs = [work.path().join("a.txt"), work.path().join("b.txt")];
+    std::fs::write(&inputs[0], "honey").unwrap();
+    std::fs::write(&inputs[1], "comb").unwrap();
+    let signer = testdata("rsa.crt");
+    let with = |mut args: Value, extra: &Value| {
+        for (k, v) in extra.as_object().unwrap() {
+            args[k] = v.clone();
+        }
+        args
+    };
+    // In the clear, encrypted to a password, and to a certificate whose key file opens it.
+    let cases: [(Value, Value, &[&str]); 3] = [
+        (json!({}), json!({}), &[]),
+        (
+            json!({ "password": "pw" }),
+            json!({ "password": "pw" }),
+            &[],
+        ),
+        (json!({ "to_cert": [signer] }), json!({}), &["rsa.key"]),
+    ];
+    for (n, (way, opens, keys)) in cases.into_iter().enumerate() {
+        let source = work.path().join(format!("s{n}.bhive"));
+        at.ok(
+            keys,
+            "archive.create",
+            with(
+                json!({ "output": source, "inputs": inputs, "sign": [signer] }),
+                &way,
+            ),
+        );
+        let said = |name: &str, args: Value| {
+            let (r, logs) = at.run(keys, "archive.convert", with(args, &opens));
+            r.unwrap_or_else(|e| panic!("{name} {way}: {e:?}"));
+            logs.into_iter()
+                .filter(|l| l.contains("is signed"))
+                .collect::<Vec<_>>()
+        };
+        let out = |name: &str| work.path().join(format!("{n}-{name}"));
+        let changes = [
+            (
+                "picked.bhive",
+                json!({ "entries": ["a.txt"] }),
+                "won't carry over",
+            ),
+            ("fast.bhive", json!({ "level": "fast" }), "won't carry over"),
+            (
+                "plain.zip",
+                json!({ "decrypt": n > 0 }),
+                "can't go into a zip",
+            ),
+        ];
+        for (name, extra, why) in changes {
+            let args = with(json!({ "archive": source, "output": out(name) }), &extra);
+            let warned = said(name, args);
+            assert_eq!(warned.len(), 1, "{name} {way}: {warned:?}");
+            assert!(warned[0].contains(why), "{name} {way}: {warned:?}");
+        }
+        // Copied whole, as it is stored: its signature comes with it, and nothing is said.
+        let copy = out("copy.bhive");
+        let warned = said("copy", json!({ "archive": source, "output": copy }));
+        assert!(warned.is_empty(), "{way}: {warned:?}");
+        assert_eq!(encrypted(&copy), n > 0);
+        let info = at.ok(
+            keys,
+            "archive.info",
+            with(json!({ "archive": copy }), &opens),
+        );
+        assert_eq!(info["signatures"][0]["status"], "valid", "{info}");
+    }
+}

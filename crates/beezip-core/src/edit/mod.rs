@@ -891,6 +891,45 @@ fn warn_signatures_dropped(name: &str, signatures: usize, cx: &mut dyn Ctx) {
     ));
 }
 
+/// Warns before a conversion that a signed `.bhive`'s signatures won't come with it (docs/M14.md
+/// §11). They come into a `.bhive` written with every entry and every cell copied as it is
+/// stored (`whole_raw`), which keeps the contents they cover; any other conversion drops them,
+/// unless it signs anew. Read from the source as it was just opened, so an encrypted one isn't
+/// asked for its key twice.
+fn warn_signatures_not_carried(
+    name: &str,
+    opened: &mut Opened,
+    kind: ArchiveKind,
+    spec: &WriteSpec,
+    whole_raw: bool,
+    cx: &mut dyn Ctx,
+) {
+    let signed = opened
+        .reader
+        .as_any_mut()
+        .downcast_mut::<BhiveReader>()
+        .map_or(0, |r| r.signatures().signatures.len());
+    let (into_bhive, signs) = match spec {
+        WriteSpec::Bhive(o) => (true, o.signing.is_some()),
+        _ => (false, false),
+    };
+    if signed == 0 || signs || (into_bhive && whole_raw) {
+        return;
+    }
+    let them = if signed == 1 {
+        "its signature".to_owned()
+    } else {
+        format!("its {signed} signatures")
+    };
+    let why = if into_bhive {
+        "won't carry over to the new archive, whose entries change: pass `sign` to sign it again"
+            .to_owned()
+    } else {
+        format!("can't go into a {}", kind.name())
+    };
+    cx.warn(format!("{name} is signed, and {them} {why}"));
+}
+
 /// What an encrypted `.bhive` keeps through an edit or a conversion into a `.bhive`: its file
 /// key and slots, byte for byte (docs/M14.md decision 7). `None` for any other archive.
 fn keep_protection(r: Option<&BhiveReader>) -> Option<crate::format::bhive::crypt::Protection> {
@@ -1013,6 +1052,10 @@ pub fn convert(
             "{name} is encrypted; pass `new_password` to encrypt the new archive, or `decrypt` to \
              write its entries in the clear"
         )));
+    }
+    if !opts.dry_run {
+        let whole_raw = raw && opts.selection.is_all();
+        warn_signatures_not_carried(&name, &mut opened, kind, spec, whole_raw, cx);
     }
     if opts.dry_run {
         return Ok(ConvertReport {
