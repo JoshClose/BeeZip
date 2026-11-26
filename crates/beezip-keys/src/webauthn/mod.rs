@@ -19,6 +19,9 @@
 
 pub mod mock;
 
+#[cfg(test)]
+mod e2e;
+
 #[cfg(windows)]
 mod ffi;
 #[cfg(windows)]
@@ -423,7 +426,7 @@ pub(crate) mod tests {
         }
     }
 
-    /// Opens `public` through a source over `auth`, as the envelope will: offers, then the
+    /// Opens `public` through a source over `auth`, as the envelope does: offers, then the
     /// secret once the user chose it.
     fn open<A: Authenticator>(auth: A, public: &[u8]) -> (Result<Option<SlotSecret>>, A) {
         let (key_id, framed) = view_of(public);

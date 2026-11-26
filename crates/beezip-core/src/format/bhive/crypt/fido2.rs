@@ -221,7 +221,7 @@ pub fn new_salt() -> Result<[u8; 32]> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::format::bhive::crypt::{KEY_ID_LEN, SLOT_TAIL_LEN, label};
+    use crate::format::bhive::crypt::{KEY_ID_LEN, SLOT_TAIL_LEN, label, prim};
 
     fn hex(s: &str) -> Vec<u8> {
         (0..s.len())
@@ -309,32 +309,18 @@ mod tests {
         // bhive.md §12.4, steps 1 to 4.
         let context = view.context(&made.recipient_key);
         assert_eq!(context.to_vec(), s("context"));
-        let prk = ring::hmac::sign(
-            &ring::hmac::Key::new(ring::hmac::HMAC_SHA256, &context),
-            shared,
-        );
-        assert_eq!(prk.as_ref(), s("prk"));
-        let mut okm = [0; 64];
-        hkdf::Hkdf::<sha2::Sha256>::from_prk(prk.as_ref())
-            .unwrap()
-            .expand(label::SLOT, &mut okm)
-            .unwrap();
+        let prk = prim::hmac(&context, &[shared.as_slice()]);
+        assert_eq!(prk.to_vec(), s("prk"));
+        let okm = prim::expand64(&prk, label::SLOT);
         assert_eq!(okm[..32], s("wrap_key"));
         assert_eq!(okm[32..], s("commitment"));
         let tail = &slot[framed.len()..];
         assert_eq!(tail[..32], okm[32..]);
-        let key = ring::aead::LessSafeKey::new(
-            ring::aead::UnboundKey::new(&ring::aead::AES_256_GCM, &okm[..32]).unwrap(),
-        );
+        let wrap: [u8; 32] = okm[..32].try_into().unwrap();
         let mut wrapped = tail[32..].to_vec();
-        let file_key = key
-            .open_in_place(
-                ring::aead::Nonce::assume_unique_for_key([0; 12]),
-                ring::aead::Aad::from(framed),
-                &mut wrapped,
-            )
-            .unwrap();
-        assert_eq!(file_key, hex(slots["file_key"].as_str().unwrap()));
+        let opened = prim::open(&prim::key(&wrap).unwrap(), [0; 12], framed, &mut wrapped);
+        assert_eq!(opened, Some(32));
+        assert_eq!(wrapped[..32], hex(slots["file_key"].as_str().unwrap()));
     }
 
     #[test]
