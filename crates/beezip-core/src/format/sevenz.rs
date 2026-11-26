@@ -16,7 +16,8 @@
 //! - **`open_entry`:** the block decoder only calls back, so it runs on a helper thread with
 //!   its own input, feeding a bounded pipe.
 //! - **Writing:** `ArchiveWriter` on a file or a volume set. AES-256 goes before the method,
-//!   and encrypts the header too unless told not to. Solid blocks come from `add_solid`.
+//!   and encrypts the header too unless told not to, with 7-Zip's 2^19 rounds of key stretching
+//!   and a fresh IV for each block (`aes_for_block`). Solid blocks come from `add_solid`.
 
 use std::{
     cell::RefCell,
@@ -1089,10 +1090,27 @@ fn decode_one(
 pub struct SevenZWriter {
     w: sevenz_rust2::ArchiveWriter<Box<dyn WriteSeek>>,
     block_limit: Option<u64>,
-    /// The content methods new blocks get: AES first when there is a password.
-    methods: Vec<EncoderConfiguration>,
-    /// The compression method alone, for blocks encoded again with their own password.
+    /// The password new blocks are encrypted with.
+    password: Option<String>,
+    /// The archive's key salt: one for every block, so the key is derived once.
+    salt: [u8; 16],
+    /// The compression method; AES goes before it when a block has a password.
     method: EncoderConfiguration,
+}
+
+/// 7-Zip's key stretching: 2^19 SHA-256 rounds. sevenz-rust2's `AesEncoderOptions::new` gives
+/// 2^8, which makes each password guess 2,048 times cheaper (docs/UPSTREAM.md).
+const AES_CYCLES_POWER: u8 = 19;
+
+/// AES-256 for one block: the archive's salt, 7-Zip's rounds, and a fresh IV. sevenz-rust2
+/// encrypts every block, and the header, with the options it is given, so one set of options
+/// would give them all the same IV (docs/UPSTREAM.md). With the salt shared, sevenz-rust2's
+/// cache of the last key derives it once for the archive.
+fn aes_for_block(password: &str, salt: [u8; 16]) -> EncoderConfiguration {
+    let mut o = AesEncoderOptions::new(Password::new(password));
+    o.num_cycles_power = AES_CYCLES_POWER;
+    o.salt = salt;
+    o.into()
 }
 
 fn sz_write_error(e: sevenz_rust2::Error) -> Error {
@@ -1135,23 +1153,38 @@ impl SevenZWriter {
             SevenZMethod::Deflate => DeflateOptions::from_level(level_u).into(),
             SevenZMethod::Copy => EncoderConfiguration::new(EncoderMethod::COPY),
         };
-        let mut methods = Vec::new();
-        if let Some(pw) = &opts.password {
-            if pw.is_empty() {
-                return Err(Error::invalid_args("the password is empty"));
-            }
-            methods.push(AesEncoderOptions::new(Password::new(pw)).into());
+        if opts.password.as_deref() == Some("") {
+            return Err(Error::invalid_args("the password is empty"));
         }
-        methods.push(method.clone());
         let mut w = sevenz_rust2::ArchiveWriter::new(out).map_err(sz_write_error)?;
-        w.set_content_methods(methods.clone());
         w.set_encrypt_header(opts.encrypt_headers && opts.password.is_some());
-        Ok(Self {
+        let mut writer = Self {
             w,
             block_limit: opts.solid.then(|| opts.block_limit()),
-            methods,
+            password: opts.password.clone(),
+            // `new` draws a random salt (and IV); only the salt is kept.
+            salt: AesEncoderOptions::new(Password::empty()).salt,
             method,
-        })
+        };
+        writer.start_block();
+        Ok(writer)
+    }
+
+    /// Sets the methods for the next block, or for the header at the end: AES with a fresh IV
+    /// when the archive has a password, then the method.
+    fn start_block(&mut self) {
+        let methods = self.methods_with(self.password.as_deref());
+        self.w.set_content_methods(methods);
+    }
+
+    /// AES with a fresh IV when there is a password, then the method.
+    fn methods_with(&self, password: Option<&str>) -> Vec<EncoderConfiguration> {
+        let mut methods = Vec::with_capacity(2);
+        if let Some(pw) = password {
+            methods.push(aes_for_block(pw, self.salt));
+        }
+        methods.push(self.method.clone());
+        methods
     }
 
     /// Encodes `entries` (a block's kept entries, renamed, with their metadata) as one block,
@@ -1164,11 +1197,7 @@ impl SevenZWriter {
         password: Option<&str>,
         cx: &mut dyn Ctx,
     ) -> Result<()> {
-        let mut methods = Vec::new();
-        if let Some(pw) = password {
-            methods.push(AesEncoderOptions::new(Password::new(pw)).into());
-        }
-        methods.push(self.method.clone());
+        let methods = self.methods_with(password);
         self.w.set_content_methods(methods);
         let shared = RefCell::new(FeedShared {
             first: Some(feed.first),
@@ -1184,7 +1213,7 @@ impl SevenZWriter {
             .push_archive_entries(entries, readers)
             .map(|_| ())
             .map_err(sz_write_error);
-        self.w.set_content_methods(self.methods.clone());
+        self.start_block();
         pushed
     }
 }
@@ -1571,7 +1600,9 @@ impl ArchiveWriter for SevenZWriter {
                 .w
                 .push_archive_entry(e, Some(crate::io::Checked::new(data, cx))),
         };
-        pushed.map(|_| ()).map_err(sz_write_error)
+        let pushed = pushed.map(|_| ()).map_err(sz_write_error);
+        self.start_block();
+        pushed
     }
 
     fn solid_block_limit(&self) -> Option<u64> {
@@ -1608,10 +1639,13 @@ impl ArchiveWriter for SevenZWriter {
                 })
             })
             .collect();
-        self.w
+        let pushed = self
+            .w
             .push_archive_entries(items, readers)
             .map(|_| ())
-            .map_err(sz_write_error)
+            .map_err(sz_write_error);
+        self.start_block();
+        pushed
     }
 
     fn finish(self: Box<Self>, _: &mut dyn Ctx) -> Result<()> {

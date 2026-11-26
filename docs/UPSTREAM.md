@@ -64,6 +64,21 @@ files under `target/` exist only on the machine that found the bug. The mileston
     and run `roundtrip::sevenz_crc_mismatch_fails_only_its_entry`.
   - *Workaround:* `SevenZReader::open` keeps each file's CRC and clears `has_crc`, and `DecodeTag`
     checks the CRCs (`format/sevenz.rs`, test `decode_tag_checks_the_crc`). (M6 §16, PR 1.)
+- **AES keys are stretched 2^8 times, not 7-Zip's 2^19.** `AesEncoderOptions::new` sets
+  `num_cycles_power: 8`: 256 SHA-256 rounds per password guess where 7-Zip writes 524,288, so a
+  password on a 7z made with the crate's defaults is 2,048 times cheaper to guess. Seen in 0.25.0.
+  - *Check:* `AesEncoderOptions::new(Password::new("x")).num_cycles_power` is still 8.
+  - *Workaround (keep):* `aes_for_block` in `format/sevenz.rs` sets 19 (test
+    `roundtrip::sevenz_keys_are_stretched_and_each_block_has_its_own_iv`). Found 2026-11-25,
+    fixed in BeeZip 0.8.4; 7z archives that BeeZip 0.8.3 and earlier made keep the weak setting.
+- **Every block, and the header, are encrypted with the same IV.** The writer builds each block's
+  AES coder from the one `AesEncoderOptions` it was given, so all of an archive's blocks and its
+  encrypted header share the key and the IV, and blocks that start with the same bytes start
+  with the same ciphertext (AES-CBC). 7-Zip draws a new IV for each block. Seen in 0.25.0.
+  - *Check:* write two non-solid entries with the same contents and a password; their blocks'
+    AES properties (last 16 bytes are the IV) are equal.
+  - *Workaround (keep):* `SevenZWriter::start_block` sets the methods again, with a fresh IV,
+    before every block and before the header (same test).
 
 ### lzma-rust2 0.25.0 (hasenbanck/lzma-rust2)
 

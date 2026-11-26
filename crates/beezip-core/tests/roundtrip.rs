@@ -765,6 +765,76 @@ fn sevenz_passwords() {
     }
 }
 
+/// A 7z's key takes 7-Zip's 2^19 SHA-256 rounds, not sevenz-rust2's 2^8, and every block and
+/// the header get their own IV, under one salt (docs/UPSTREAM.md).
+#[test]
+fn sevenz_keys_are_stretched_and_each_block_has_its_own_iv() {
+    const AES: [u8; 4] = [0x06, 0xF1, 0x07, 0x01];
+    let root = tempfile::tempdir().unwrap();
+    let inputs: Vec<PathBuf> = (0..3)
+        .map(|i| {
+            let p = root.path().join(format!("f{i}.txt"));
+            // The same bytes in each, which CBC with one IV would show as the same blocks.
+            fs::write(&p, b"same ".repeat(500)).unwrap();
+            p
+        })
+        .collect();
+    let archive = root.path().join("a.7z");
+    ops::create(
+        &archive,
+        &inputs,
+        &sevenz(SevenZMethod::Lzma2, false, Some("pw"), true),
+        &CreateOptions::default(),
+        &mut SimpleCtx::new(),
+    )
+    .unwrap();
+
+    let mut file = fs::File::open(&archive).unwrap();
+    let read = sevenz_rust2::Archive::read(&mut file, &sevenz_rust2::Password::new("pw")).unwrap();
+    let mut props: Vec<Vec<u8>> = read
+        .blocks
+        .iter()
+        .flat_map(|b| &b.coders)
+        .filter(|c| c.encoder_method_id() == AES)
+        .map(|c| c.properties().to_vec())
+        .collect();
+    assert_eq!(props.len(), 3, "one encrypted block per file");
+    // The header's coder is in the plain encoded header at the end: flags, id, size 34, props.
+    let bytes = fs::read(&archive).unwrap();
+    let at = bytes
+        .windows(5)
+        .rposition(|w| w[..4] == AES && w[4] == 34)
+        .expect("the encoded header's AES coder");
+    props.push(bytes[at + 5..at + 5 + 34].to_vec());
+
+    for p in &props {
+        assert_eq!(p[0] & 0x3F, 19, "2^19 rounds");
+        assert_eq!(p[0] & 0xC0, 0xC0, "a salt and an IV");
+        assert_eq!(p[1], 0xFF, "16 bytes of each");
+        assert_eq!(p[2..18], props[0][2..18], "one salt for the archive");
+    }
+    let ivs: HashSet<&[u8]> = props.iter().map(|p| &p[18..34]).collect();
+    assert_eq!(
+        ivs.len(),
+        props.len(),
+        "a fresh IV for each block and the header"
+    );
+
+    ops::extract(
+        &archive,
+        &root.path().join("x"),
+        &Selection::all(),
+        &OpenOptions::default(),
+        FsOptions::default(),
+        &mut SimpleCtx::new().with_password("pw"),
+    )
+    .unwrap();
+    assert_eq!(
+        fs::read(root.path().join("x/f2.txt")).unwrap(),
+        b"same ".repeat(500)
+    );
+}
+
 #[test]
 fn a_wrong_password_is_wrong_password() {
     let root = tempfile::tempdir().unwrap();
