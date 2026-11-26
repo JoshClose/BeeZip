@@ -336,6 +336,22 @@ pub fn spki_algorithm(spki: &[u8]) -> Result<KeyAlgorithm> {
     Ok(KeyAlgorithm::Other)
 }
 
+/// The SubjectPublicKeyInfo of an RSA key from its modulus and exponent, big-endian: for a key
+/// that comes without one, as CNG exports it.
+pub fn rsa_spki(modulus: &[u8], exponent: &[u8]) -> Result<Vec<u8>> {
+    use rsa::pkcs1::DecodeRsaPublicKey;
+    let bad = |e: &dyn std::fmt::Display| invalid(format!("an RSA public key: {e}"));
+    let key = rsa::pkcs1::RsaPublicKey {
+        modulus: der::asn1::UintRef::new(modulus).map_err(|e| bad(&e))?,
+        public_exponent: der::asn1::UintRef::new(exponent).map_err(|e| bad(&e))?,
+    };
+    let key =
+        rsa::PublicKey::from_pkcs1_der(&key.to_der().map_err(|e| bad(&e))?).map_err(|e| bad(&e))?;
+    Ok(spki::EncodePublicKey::to_public_key_der(&key)
+        .map_err(|e| bad(&e))?
+        .into_vec())
+}
+
 /// RSA's limits (bhive.md §12.5 and §13.4): 2,048 to 8,192 bits, an odd exponent from 3 to
 /// 2^32 − 1.
 pub fn check_rsa(spki: &[u8]) -> std::result::Result<(), String> {
@@ -682,6 +698,9 @@ pub(crate) mod tests {
             assert!(bare.der.is_empty());
         }
         assert_eq!(KeyAlgorithm::Rsa { bits: 2048 }.name(), "rsa-2048");
+        let rsa = rsa::PublicKey::from_public_key_der(&hex(&v["slots"]["rsa"]["spki"])).unwrap();
+        let again = rsa_spki(&rsa.n_bytes(), &rsa.e_bytes()).unwrap();
+        assert_eq!(again, hex(&v["slots"]["rsa"]["spki"]));
         assert!(spki_algorithm(b"not a key").is_err());
     }
 

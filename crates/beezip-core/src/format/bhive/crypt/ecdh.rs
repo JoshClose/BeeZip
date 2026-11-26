@@ -78,6 +78,22 @@ macro_rules! curve {
                 Ok((own, Zeroizing::new(z.raw_secret_bytes().to_vec())))
             }
 
+            /// The SubjectPublicKeyInfo of an uncompressed point.
+            pub fn spki_of_point(point: &[u8]) -> Result<Vec<u8>> {
+                let key = ::$c::PublicKey::from_sec1_bytes(point)
+                    .map_err(|_| invalid("an EC public key that isn't on its curve"))?;
+                spki::EncodePublicKey::to_public_key_der(&key)
+                    .map(|d| d.into_vec())
+                    .map_err(|e| invalid(e.to_string()))
+            }
+
+            /// A private key's scalar, big-endian.
+            pub fn scalar(pkcs8: &[u8]) -> Result<Zeroizing<Vec<u8>>> {
+                let key = ::$c::SecretKey::from_pkcs8_der(pkcs8)
+                    .map_err(|e| invalid(format!("an EC private key: {e}")))?;
+                Ok(Zeroizing::new(key.to_bytes().to_vec()))
+            }
+
             pub fn on_curve(point: &[u8]) -> bool {
                 ::$c::PublicKey::from_sec1_bytes(point).is_ok()
             }
@@ -94,6 +110,24 @@ pub fn point_of_spki(curve: Curve, spki: &[u8]) -> Result<Vec<u8>> {
     match curve {
         Curve::P256 => ops256::point_of_spki(spki),
         Curve::P384 => ops384::point_of_spki(spki),
+    }
+}
+
+/// The SubjectPublicKeyInfo of an uncompressed point on `curve`: for a key that comes without
+/// one, as CNG exports it.
+pub fn spki_of_point(curve: Curve, point: &[u8]) -> Result<Vec<u8>> {
+    match curve {
+        Curve::P256 => ops256::spki_of_point(point),
+        Curve::P384 => ops384::spki_of_point(point),
+    }
+}
+
+/// An EC private key's scalar, big-endian, from PKCS #8: for handing a key file's key to a
+/// system store (CNG's `BCRYPT_ECCPRIVATE_BLOB`).
+pub fn scalar(curve: Curve, pkcs8: &[u8]) -> Result<Zeroizing<Vec<u8>>> {
+    match curve {
+        Curve::P256 => ops256::scalar(pkcs8),
+        Curve::P384 => ops384::scalar(pkcs8),
     }
 }
 
