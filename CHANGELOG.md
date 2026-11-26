@@ -19,7 +19,8 @@ using BeeZip will notice. Leave the date out: the Releases page dates each versi
   certificate, This PC, a security key or Windows Hello.
 - **Passwords are slow to guess:** each guess takes a gigabyte of memory, and opening takes about
   0.3 s on a fast desktop; Strong takes 2 GiB. BeeZip warns about a weak password, though it
-  lets you keep it, and **Suggest one** gives six random words.
+  lets you keep it, and **Suggest one** gives six random words. A password beside someone
+  else's key gets a warning too: they could make an archive your password opens.
 - **A recovery key,** 48 digits as BitLocker's, opens the archive when every other way in is
   lost. BeeZip shows it once and never keeps it: copy it, save it or print it.
 - **Public keys in age's format:** post-quantum `age1pq1…` keys by default, and classic `age1…`
@@ -47,8 +48,9 @@ using BeeZip will notice. Leave the date out: the Releases page dates each versi
 - **Sign a `.bhive`,** encrypted or not, with your own signing key or a certificate, to show who
   made what's in it and that nothing has changed since. Several people can sign one archive.
 - **What's signed is the contents:** changing who can open it, a new key, or encrypting it keeps
-  the signatures. Adding, removing or renaming files drops them; the app says so first and
-  offers to sign again with your keys that signed it, and `--sign` does it on the command line.
+  the signatures. Adding, removing or renaming files drops them, and BeeZip says so first. The
+  app offers to sign again with your keys that signed it; on the command line, `add --sign`
+  does, or `beezip sign` afterwards.
 - **Checked as it opens:** "Signed by" you, a contact or a certificate the system trusts; "an
   unknown signer", with a fingerprint to compare by phone; or, in red, "Changed after it was
   signed", and BeeZip asks before extracting. The time a signature gives is the signer's claim.
@@ -89,8 +91,9 @@ using BeeZip will notice. Leave the date out: the Releases page dates each versi
   and test.
 - **New commands:** `beezip protection`, `protect`, `sign`, `verify`, `keys` and
   `certificates list`.
-- **New exit codes:** 15 when nothing given opens an encrypted `.bhive`, and 16 when it isn't
-  signed as `verify` or `--require-signer` asks.
+- **Exit codes:** an encrypted `.bhive` with a password or recovery key, and none given, is 6,
+  as a zip is. New: 15 when only keys, certificates or devices open it and none given does, and
+  16 when it isn't signed as `verify` or `--require-signer` asks.
 
 ### AI assistants (MCP)
 

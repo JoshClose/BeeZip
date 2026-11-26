@@ -98,7 +98,7 @@ beezip rename backup.zip a.txt notes/a.txt   # renaming can move, too</code></pr
   <li><strong>Which archives:</strong> zip, .bhive, 7z, tar, cpio and ar, and tar and cpio under any compressor. Others (RAR, CAB, the disk images, packages, split and self-extracting archives) can't be changed; <code>convert</code> makes one that can.</li>
   <li><strong>Entries already there:</strong> <code>add</code> asks, or follows <code>--overwrite</code>.</li>
   <li><strong>Encrypted archives:</strong> adding to one needs <code>-p</code> for the new files, or <code>--unencrypted</code> to add them in the clear. An encrypted .bhive keeps its key and its ways in: <code>-p</code>, or one of your keys, is the way in, and the new files are sealed with the rest.</li>
-  <li><strong>Signed .bhive archives</strong> lose their signatures when their files change; <code>--sign</code> signs again after the change.</li>
+  <li><strong>Signed .bhive archives</strong> lose their signatures when their files change, and BeeZip says so first. <code>add --sign</code> signs again as it adds; after a removal or a rename, <code>beezip sign</code> does.</li>
   <li><strong>Nothing is changed in place:</strong> a new archive is written beside the old one and swapped in, so a failed or cancelled change leaves it as it was. What stays is copied without being compressed again.</li>
   <li><strong><code>--dry-run</code></strong> shows each change without making it.</li>
 </ul>
@@ -123,11 +123,11 @@ beezip c here.bhive src --this-pc --recovery-key    # This PC needs another way 
 beezip c key.bhive src --security-key -p "pass phrase"</code></pre>
 <ul>
   <li><strong>A password</strong> (<code>-p</code>, or <code>--password-stdin</code> to read it from the first line of stdin, where other programs can't see it) goes through Argon2id: <code>--strength standard</code>, the default, takes 1 GiB of memory and 2 passes, about 0.3 s on a fast desktop and 0.6 s on a laptop; <code>strong</code> takes 2 GiB and 3 passes. Opening one that needs more than half the machine's memory asks first.</li>
-  <li><strong><code>--recovery-key</code></strong> makes 48 digits that open the archive when every other way in is lost. <code>create</code> and <code>protect</code> print it once, and BeeZip never keeps it.</li>
+  <li><strong><code>--recovery-key</code></strong> makes 48 digits that open the archive when every other way in is lost. <code>create</code>, <code>convert</code> and <code>protect</code> print it once, and BeeZip never keeps it.</li>
   <li><strong><code>--to</code></strong> takes public keys in age's format, <code>age1pq1…</code> (post-quantum) or <code>age1…</code> (classic), or the name of one of your keys or contacts. A key from <code>age-keygen</code> works.</li>
   <li><strong><code>--to-cert</code></strong> takes an RSA (2,048 bits or more) or EC (P-256, P-384) certificate: a thumbprint in your stores (<code>beezip certificates list</code> shows them), or a <code>.cer</code>, <code>.crt</code>, <code>.der</code> or <code>.pem</code> file. One that can't be used is refused, saying why; an expired one gets a warning.</li>
   <li><strong>On Windows,</strong> <code>--this-pc</code> puts a key in the PC's TPM (<code>--this-pc-pin</code> guards it with a PIN), <code>--security-key</code> lets a FIDO2 security key open it, and <code>--windows-hello</code> Windows Hello. This PC and Windows Hello work only on that PC, so BeeZip won't make an archive they alone open. Security keys and smart cards haven't been tried on a physical device yet.</li>
-  <li><strong>A password beside a public key or certificate</strong> gets a warning: anyone who can open the archive could make one your password opens. <code>--sign</code> shows which one you made.</li>
+  <li><strong>A password beside someone else's key or certificate</strong> gets a warning: anyone who can open the archive could make one your password opens. <code>--sign</code> shows which one you made. One of your own keys beside it doesn't count: you hold both.</li>
 </ul>
 
 <h3 id="opening-encrypted">Opening one</h3>
@@ -138,7 +138,7 @@ beezip protection secret.bhive                      # its ways in, and whether i
 <ul>
   <li><strong>Your own keys</strong> (<a href="#keys">below</a>) open an archive without asking. So do the key files <code>-i</code> names (age identities, PEM and PKCS #8 keys, and <code>.pfx</code> and <code>.p12</code> files on Windows and macOS; on Linux, a <code>.pfx</code> is refused, with the <code>openssl pkcs12</code> command that turns it into a PEM file), and on Windows the certificates in your stores and This PC, as long as they don't need a PIN.</li>
   <li><strong>In a terminal,</strong> BeeZip otherwise asks: the password, the recovery key, or a key or device it has that fits, which Windows then asks a PIN or a touch for. A device is used only when you choose it.</li>
-  <li><strong>Without a terminal,</strong> it fails with exit code 15, saying to pass <code>-p</code> or <code>-i</code>; a wrong password is exit code 7.</li>
+  <li><strong>Without a terminal,</strong> an archive a password or recovery key opens fails with exit code 6, as a zip does, saying to pass <code>-p</code>; one that only keys or devices open fails with exit code 15, saying to pass <code>-i</code>. A wrong password is exit code 7.</li>
 </ul>
 
 <h3 id="protect">Changing who can open it</h3>
@@ -173,7 +173,7 @@ beezip sign old.bhive --remove 1                    # by its number in beezip in
 beezip verify release.bhive                         # signed by you, a contact or a trusted certificate?
 beezip x release.bhive -o out --require-signer alice</code></pre>
 <ul>
-  <li><strong>A signature covers the contents:</strong> changing who can open the archive, a new key, or encrypting it keeps it. <code>add</code>, <code>remove</code> and <code>rename</code> drop it, unless they <code>--sign</code> again.</li>
+  <li><strong>A signature covers the contents:</strong> changing who can open the archive, a new key, or encrypting it keeps it. <code>add</code>, <code>remove</code> and <code>rename</code> drop it, and say so first; <code>add --sign</code> signs again, and so does <code>beezip sign</code> afterwards.</li>
   <li><strong><code>info</code> and <code>test</code></strong> show each signature, numbered from 1, with its signer (you, a contact, a certificate the system trusts, or unknown) and its 16-character fingerprint. The time it gives is the signer's claim.</li>
   <li><strong>A signature that fails</strong> (the archive changed after it was signed) is a warning: the archive still opens. <code>verify</code> fails, with exit code 16, unless no signature failed and one is valid from someone you trust, or from each <code>--require-signer</code>.</li>
   <li><strong><code>--require-signer</code></strong>, on <code>extract</code>, <code>test</code> and <code>verify</code>, takes a <code>bzsig1…</code> key, a certificate file, or a signing key's or contact's name, and matches its whole SHA-256, never the fingerprint. <code>extract</code> checks before it writes anything.</li>
@@ -223,14 +223,14 @@ beezip x backup.zip -o out -q</code></pre>
     <tr><td>2</td><td>An argument wasn't valid</td></tr>
     <tr><td>3</td><td>Something wasn't found: the archive, or an entry</td></tr>
     <tr><td>4</td><td>The format isn't supported</td></tr>
-    <tr><td>6</td><td>A password is needed</td></tr>
+    <tr><td>6</td><td>A password is needed, or an encrypted .bhive's recovery key</td></tr>
     <tr><td>7</td><td>The password is wrong</td></tr>
     <tr><td>8</td><td>The archive is damaged</td></tr>
     <tr><td>10</td><td>A file is already there, and nobody could be asked</td></tr>
     <tr><td>11</td><td>A limit was reached, such as the zip-bomb ratio</td></tr>
     <tr><td>13</td><td>Reading or writing a file failed</td></tr>
     <tr><td>14</td><td>Unsafe entries were skipped; the rest was extracted</td></tr>
-    <tr><td>15</td><td>An encrypted .bhive that nothing given opens: pass its password, its recovery key or a key file</td></tr>
+    <tr><td>15</td><td>An encrypted .bhive that only keys, certificates or devices open, and none given does: pass its key file</td></tr>
     <tr><td>16</td><td>The .bhive isn't signed as <code>verify</code> or <code>--require-signer</code> asks</td></tr>
     <tr><td>130</td><td>Cancelled</td></tr>
   </tbody>
