@@ -7,7 +7,7 @@
 
 use der::{
     Decode, Encode,
-    asn1::{AnyRef, ObjectIdentifier, UintRef},
+    asn1::{AnyRef, ObjectIdentifier},
 };
 use ring::signature::{
     ECDSA_P256_SHA256_FIXED, ECDSA_P384_SHA384_FIXED, RSA_PKCS1_2048_8192_SHA256,
@@ -18,8 +18,9 @@ use spki::SubjectPublicKeyInfoRef;
 use crate::{
     Error, ErrorKind, Result,
     format::bhive::{
+        crypt::cert,
         layout::{Bytes, put_uvarint},
-        sign::{Algorithm, MAX_CERTIFICATES, RSA_BITS, RSA_EXPONENT},
+        sign::{Algorithm, MAX_CERTIFICATES},
     },
 };
 
@@ -80,15 +81,6 @@ pub fn spki_of(certificate: &[u8]) -> Result<Vec<u8>> {
         .map_err(|e| refused(format!("a signer's public key ({e})")))
 }
 
-/// The number of bits of a big-endian unsigned integer.
-fn bits(n: &[u8]) -> u64 {
-    let n = match n.iter().position(|&b| b != 0) {
-        Some(at) => &n[at..],
-        None => return 0,
-    };
-    8 * n.len() as u64 - u64::from(n[0].leading_zeros())
-}
-
 /// What `ring` checks `algorithm`'s signatures with, and the key it takes, from `spki`; or why
 /// the key can't be the algorithm's (bhive.md §13.4).
 fn key_for(algorithm: u8, spki: &[u8]) -> Result<(&'static dyn VerificationAlgorithm, Vec<u8>)> {
@@ -117,29 +109,9 @@ fn key_for(algorithm: u8, spki: &[u8]) -> Result<(&'static dyn VerificationAlgor
                     algorithm.id()
                 )));
             }
-            let rsa = rsa::pkcs1::RsaPublicKey::<UintRef<'_>>::from_der(key)
-                .map_err(|e| refused(format!("a signer's RSA key doesn't parse ({e})")))?;
-            let n = bits(rsa.modulus.as_bytes());
-            if !(u64::from(*RSA_BITS.start())..=u64::from(*RSA_BITS.end())).contains(&n) {
-                return Err(refused(format!(
-                    "the signer's RSA key is {n} bits, outside {} to {}",
-                    RSA_BITS.start(),
-                    RSA_BITS.end()
-                )));
-            }
-            let e = rsa.public_exponent.as_bytes();
-            let exponent = match e.iter().position(|&b| b != 0) {
-                Some(at) if e.len() - at <= 8 => {
-                    e[at..].iter().fold(0u64, |v, &b| (v << 8) | u64::from(b))
-                }
-                Some(_) => u64::MAX,
-                None => 0,
-            };
-            if exponent % 2 == 0 || !RSA_EXPONENT.contains(&exponent) {
-                return Err(refused(
-                    "the signer's RSA exponent isn't odd and from 3 to 2^32 − 1",
-                ));
-            }
+            // §13.4's limits, as a writer's certificate is held to them.
+            cert::check_rsa(spki)
+                .map_err(|why| refused(format!("the signer's certificate: {why}")))?;
             let ring: &'static dyn VerificationAlgorithm = match algorithm {
                 Algorithm::RsaPss => &RSA_PSS_2048_8192_SHA256,
                 _ => &RSA_PKCS1_2048_8192_SHA256,
