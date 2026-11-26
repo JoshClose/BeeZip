@@ -7,10 +7,12 @@ a few published ones; every .bhive under tests/fixtures (the M13 fixtures as the
 BeeZip's encrypted fixtures as sealed.json says, cut and changed as BeeZip's tests change them,
 the M14 examples, the malicious files); encrypted archives with every kind of slot, written with
 make-vectors.py's writer and opened with every key file a slot can be opened with; signatures
-that OpenSSL made with certificates (openssl.json, from make-openssl.py); and malformed archives,
+that OpenSSL made with certificates (openssl.json, from make-openssl.py, and the ones BeeZip's
+signing tests check, in crates/beezip-core/src/format/bhive/sign/testdata); and malformed archives,
 refused or reported as docs/bhive.md §9, §12.10 and §13 say.
 """
 
+import base64
 import functools
 import hashlib
 import importlib.util
@@ -867,6 +869,30 @@ class Signatures(unittest.TestCase):
         a.unchanged(sigs)
         a.f.close()
         self.assertEqual([(s.status, s.why) for s in sigs], [("checked", "")])
+
+    def test_the_signatures_beezip_checks(self):
+        # The signatures BeeZip's own tests check (crates/beezip-core/src/format/bhive/sign/testdata,
+        # made by OpenSSL), RSA with e = 3 among them, check here too, and fail changed.
+        where = os.path.join(ROOT, "crates", "beezip-core", "src", "format", "bhive", "sign", "testdata")
+        vectors = load(os.path.join(where, "openssl-signatures.json"))
+        message = h(vectors["message"])
+        self.assertEqual(len(vectors["signatures"]), 6)
+        for s in vectors["signatures"]:
+            with open(os.path.join(where, s["certificate"]), encoding="ascii") as f:
+                pem = "".join(line for line in f.read().splitlines() if not line.startswith("-----"))
+            key = r.certificate(base64.b64decode(pem))["key"]
+            sig = h(s["signature"])
+            if key[0] == "rsa":
+                verify = r.rsa_pss_verify if s["algorithm"] == 2 else r.rsa_pkcs1_verify
+                check = functools.partial(verify, key[1], key[2])
+            else:
+                curve = r.P256 if s["algorithm"] == 4 else r.P384
+                self.assertIs(key[1], curve)
+                check = functools.partial(r.ecdsa_verify, curve, r.ec_point(curve, key[2]))
+            with self.subTest(f"{s['algorithm']} {s['certificate']}"):
+                self.assertTrue(check(message, sig))
+                self.assertFalse(check(message, sig[:10] + bytes([sig[10] ^ 1]) + sig[11:]))
+                self.assertFalse(check(b"another message", sig))
 
     def test_what_isnt_printable_is_escaped(self):
         self.assertEqual(r.shown("a\nb\tc\x1b[0m‮\x85 é"), "a\\nb\\tc\\x1b[0m\\u202e\\x85 é")
