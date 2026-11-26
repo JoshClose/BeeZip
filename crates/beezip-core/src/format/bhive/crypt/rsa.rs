@@ -93,6 +93,7 @@ mod tests {
             key_id,
             framed,
             public: &framed[4..],
+            commitment: slot[framed.len()..framed.len() + 32].try_into().unwrap(),
         }
     }
 
