@@ -1,13 +1,15 @@
 // Deleting from an archive (docs/M5.md §8.1): it can't be undone, so it asks first, in Windows'
-// own dialog.
+// own dialog, and says when a .bhive's signatures go with it (docs/M14.md §11).
 import { ask } from "@tauri-apps/plugin-dialog";
 import type { Tab } from "../../lib/archives";
 import { deleteQuestion, removeArgs, runEdit, type SelectionByPath, selectionOf } from "../../lib/edit";
+import { signaturesOf } from "../../lib/signatures";
 import { toastError } from "../../lib/toasts";
 
-/** Asks "Delete 3 items from a.zip?"; true to go ahead. */
-export function confirmDelete(count: number, archive: string, one?: string): Promise<boolean> {
-  return ask(`${deleteQuestion(count, archive, one)}\n\nThis can't be undone.`, {
+/** Asks "Delete 3 items from a.zip?"; true to go ahead. `signed` says how many signatures drop. */
+export function confirmDelete(count: number, archive: string, one?: string, signed = 0): Promise<boolean> {
+  const drops = signed === 0 ? "" : `\n\nIts ${signed === 1 ? "signature is" : `${signed} signatures are`} dropped too: sign it again afterwards.`;
+  return ask(`${deleteQuestion(count, archive, one)}\n\nThis can't be undone.${drops}`, {
     title: "BeeZip",
     kind: "warning",
     okLabel: "Delete",
@@ -19,7 +21,7 @@ export function confirmDelete(count: number, archive: string, one?: string): Pro
 export async function deleteSelection(tab: Tab, count: number, sel: SelectionByPath = selectionOf(tab.id)): Promise<void> {
   if (count === 0 || (!sel.all && sel.paths.length === 0)) return;
   const one = !sel.all && sel.paths.length === 1 ? sel.paths[0] : undefined;
-  if (!(await confirmDelete(count, tab.name, one))) return;
+  if (!(await confirmDelete(count, tab.name, one, signaturesOf(tab.info).length))) return;
   try {
     await runEdit(tab, "archive.remove", removeArgs(tab, sel), `Deleting from ${tab.name}`, { all: false, paths: [] });
   } catch (e) {

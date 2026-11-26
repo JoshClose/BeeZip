@@ -172,3 +172,14 @@ describe("the archive window", () => {
     expect(screen.queryByRole("button", { name: "Who can open this" })).toBeNull();
   });
 });
+
+describe("deleting from a signed .bhive", () => {
+  it("says its signatures drop", async () => {
+    const { ask } = await import("@tauri-apps/plugin-dialog");
+    const { confirmDelete } = await import("../features/edit/confirmDelete");
+    await confirmDelete(1, "a.bhive", "x.txt", 2);
+    expect(vi.mocked(ask).mock.lastCall?.[0]).toBe("Delete x.txt from a.bhive?\n\nThis can't be undone.\n\nIts 2 signatures are dropped too: sign it again afterwards.");
+    await confirmDelete(1, "a.zip", "x.txt");
+    expect(vi.mocked(ask).mock.lastCall?.[0]).toBe("Delete x.txt from a.zip?\n\nThis can't be undone.");
+  });
+});
