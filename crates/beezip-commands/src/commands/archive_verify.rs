@@ -10,10 +10,12 @@ use crate::{
     wire::Secret,
 };
 
-/// Check a `.bhive`'s signatures: that one is valid (from each signer `require_signer` names,
-/// when given), and that every cell is what was signed, read to the end as `archive.test` reads
-/// it. Fails with `SignatureRequired` when the archive isn't signed that way, and `Corrupt`
-/// when it changed after it was signed.
+/// Check a `.bhive`'s signatures, and that every cell is what was signed, read to the end as
+/// `archive.test` reads it. It passes when no signature failed and one is valid: from each
+/// signer `require_signer` names, or without it from someone you trust (yourself, a contact,
+/// or a certificate the system trusts). Fails with `SignatureRequired` when the archive isn't
+/// signed that way or changed after it was signed, and `Corrupt` when a cell doesn't match
+/// the digest that was signed.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, clap::Args, TS)]
 #[serde(deny_unknown_fields)]
 #[ts(optional_fields)]

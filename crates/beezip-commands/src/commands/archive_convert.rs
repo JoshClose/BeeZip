@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use beezip_core::{ConvertOptions, Selection, ops::ArchiveKind};
+use beezip_core::{ConvertOptions, Selection, WriteSpec, ops::ArchiveKind};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
@@ -126,11 +126,15 @@ pub struct ArchiveConvertInput {
     #[arg(long, value_name = "PIN")]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub this_pc_pin: Option<Secret>,
-    /// Let a security key or Windows Hello open it: Windows asks for a touch. `.bhive` on
-    /// Windows.
+    /// Let a security key open it: Windows asks for a touch. `.bhive` on Windows.
     #[arg(long, num_args = 0..=1, require_equals = true, default_missing_value = "true")]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub security_key: Option<bool>,
+    /// Let Windows Hello open it (a face, a fingerprint or its PIN). It works only on this PC,
+    /// so it needs another way in that works elsewhere. `.bhive` on Windows.
+    #[arg(long, num_args = 0..=1, require_equals = true, default_missing_value = "true")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub windows_hello: Option<bool>,
     /// How hard a `.bhive`'s password makes guessing [default: standard].
     #[arg(long, value_enum)]
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -157,6 +161,7 @@ impl ArchiveConvertInput {
             this_pc: self.this_pc.unwrap_or(false),
             this_pc_pin: self.this_pc_pin.as_ref(),
             security_key: self.security_key.unwrap_or(false),
+            windows_hello: self.windows_hello.unwrap_or(false),
             strength: self.strength,
             kept: false,
         }
@@ -237,9 +242,9 @@ impl Command for ArchiveConvert {
             }
         };
         let decrypt = input.decrypt.unwrap_or(false);
-        if decrypt && input.new_password.is_some() {
+        if decrypt && !input.ways().is_empty() {
             return Err(CmdError::invalid_args(
-                "`decrypt` writes the entries in the clear; leave out `new_password`",
+                "`decrypt` writes the entries in the clear; leave out `new_password` and the \n                 other ways in",
             ));
         }
         let args = SpecArgs {
@@ -260,8 +265,10 @@ impl Command for ArchiveConvert {
         let mut spec = spec_for(kind, &args, &config)?;
         let sign = input.sign.as_deref().unwrap_or_default();
         crate::commands::archive_create::bhive_only(kind, &input.ways(), sign)?;
-        // Raw copies only when nothing asks the entries to change. A .bhive's cells are copied
-        // as they are stored into an encrypted one, so its signatures stay (docs/M14.md §11).
+        // Raw copies only when nothing asks the entries to change: a .bhive's cells are then
+        // copied as they are stored, sealed again under its new ways in. Its signatures don't
+        // carry over yet (`sign` signs the new archive); a source's slots are kept by core when
+        // no new ways in are given (docs/M14.md §3).
         let raw = input.method.is_none()
             && input.level.is_none()
             && (input.new_password.is_none() || kind == ArchiveKind::Bhive)
@@ -269,7 +276,7 @@ impl Command for ArchiveConvert {
             && input.encrypt_headers.is_none()
             && input.solid.is_none()
             && !decrypt;
-        let opts = ConvertOptions {
+        let mut opts = ConvertOptions {
             selection: Selection::new(
                 input.entries.as_deref().unwrap_or_default(),
                 input.glob.as_deref().unwrap_or_default(),
@@ -281,25 +288,48 @@ impl Command for ArchiveConvert {
             decrypt,
             dry_run: input.dry_run.unwrap_or(false),
         };
-        let recovery_key = if input.dry_run.unwrap_or(false) {
+        let source = absolute(&input.archive);
+        let recovery_key = if opts.dry_run {
             None
         } else {
-            crate::commands::archive_create::protect_spec(&mut spec, &input.ways(), sign, cx)?
+            crate::commands::archive_create::protect_spec(
+                &mut spec,
+                &input.ways(),
+                sign,
+                || {
+                    crate::commands::archive_create::output_free(
+                        &output,
+                        opts.overwrite,
+                        opts.volume_size.is_some(),
+                    )?;
+                    std::fs::metadata(&source).map(|_| ()).map_err(|e| {
+                        beezip_core::Error::io(format!("opening {}", input.archive.display()), &e)
+                            .into()
+                    })
+                },
+                cx,
+            )?
         };
+        // An encrypted source into a .bhive with new ways in: its entries are opened and sealed
+        // again, so core's "encrypted source" rule is met (core sees only a zip's or a 7z's
+        // password as encrypting).
+        if matches!(&spec, WriteSpec::Bhive(o) if o.protection.is_some()) {
+            opts.decrypt = true;
+        }
+        if !opts.dry_run && sign.is_empty() {
+            let why = if kind == ArchiveKind::Bhive {
+                "won't carry over to the new archive: pass `sign` to sign it again".to_owned()
+            } else {
+                format!("can't go into a {}", kind.name())
+            };
+            crate::protect::warn_signatures_dropped(&source, &why, cx);
+        }
         cx.set_password(input.password.as_ref());
         let open_opts = open_options(
             crate::commands::util::Opening::new(input.name_encoding, input.recover),
             cx,
         );
-        let r = beezip_core::ops::convert(
-            &absolute(&input.archive),
-            &output,
-            kind,
-            &spec,
-            &opts,
-            &open_opts,
-            cx,
-        )?;
+        let r = beezip_core::ops::convert(&source, &output, kind, &spec, &opts, &open_opts, cx)?;
         Ok(ArchiveConvertOutput {
             recovery_key,
             path: input.output,

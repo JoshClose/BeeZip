@@ -12,11 +12,14 @@ use std::{
 
 use beezip_commands::{
     CmdError, Command, Effect, Engine, EngineOptions, ErrorCode, EventSink, Interactor, JobCtx,
-    JobId, NonInteractive, Policy, Prompt, PromptReply, Registry,
+    JobEvent, JobId, KeyStub, LogLevel, NonInteractive, Policy, Prompt, PromptReply, Registry,
+    SystemKeys,
     crypt::{SlotKindName, UnlockReply},
     registry,
 };
-use beezip_core::format::bhive::crypt::{SlotKind, UnlockAnswer, UnlockRequest, WayInfo};
+use beezip_core::format::bhive::crypt::{
+    KEY_ID_LEN, KeySource, SlotKind, SlotSecret, SlotView, UnlockAnswer, UnlockRequest, WayInfo,
+};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -111,7 +114,11 @@ impl Command for TestUnlock {
 fn unlock(args: Value, interactor: Arc<dyn Interactor>) -> Result<Value, CmdError> {
     let mut r = Registry::new();
     r.register::<TestUnlock>();
-    let engine = Engine::new(Box::leak(Box::new(r)));
+    let (engine, _dir) = engine_in(
+        Box::leak(Box::new(r)),
+        Policy::unrestricted(),
+        SystemKeys::Off,
+    );
     let sink: EventSink = Arc::new(|_| {});
     engine
         .invoke("test.unlock", args, interactor, sink)
@@ -145,6 +152,14 @@ fn the_inputs_password_is_tried_first() {
             format!("password {RECOVERY}")
         ])
     );
+    // Any separators: dots, tabs.
+    let dotted = RECOVERY.replace('-', ".\t");
+    let r = unlock(
+        json!({ "password": dotted, "kinds": [2], "here": [], "asks": 1 }),
+        none.clone(),
+    )
+    .unwrap();
+    assert_eq!(r, json!([format!("recovery {dotted}")]));
     // Without a password slot it is only tried as a recovery key.
     let e = unlock(
         json!({ "password": RECOVERY, "kinds": [2], "here": [], "asks": 2 }),
@@ -241,18 +256,29 @@ fn prompts_stop_after_three() {
 }
 
 fn run_as(policy: Policy, name: &str, args: Value) -> Result<Value, CmdError> {
-    let engine = Engine::with_options(
-        registry(),
-        EngineOptions {
-            policy,
-            ..EngineOptions::default()
-        },
-    );
-    let sink: EventSink = Arc::new(|_| {});
-    engine
+    run_logged(policy, name, args).0
+}
+
+/// Runs a command, with what it logged.
+fn run_logged(policy: Policy, name: &str, args: Value) -> (Result<Value, CmdError>, Vec<String>) {
+    let (engine, _dir) = engine_in(registry(), policy, SystemKeys::Off);
+    let logs = Arc::new(Mutex::new(Vec::new()));
+    let seen = Arc::clone(&logs);
+    let sink: EventSink = Arc::new(move |e| {
+        if let JobEvent::Log {
+            level: LogLevel::Warn,
+            message,
+        } = e
+        {
+            seen.lock().unwrap().push(message);
+        }
+    });
+    let r = engine
         .invoke(name, args, Arc::new(NonInteractive), sink)
         .unwrap()
-        .join()
+        .join();
+    let logs = logs.lock().unwrap().clone();
+    (r, logs)
 }
 
 fn run(name: &str, args: Value) -> Result<Value, CmdError> {
@@ -437,4 +463,329 @@ fn the_surfaces_m14_turns_on() {
     for name in ["archive.sign", "archive.protect"] {
         assert!(on(name).cli && on(name).gui && !on(name).mcp, "{name}");
     }
+}
+
+/// An engine whose settings folder is a fresh temporary one, so no test reads or writes the
+/// user's keys, contacts or certificates; `keys` stands in for the system's.
+fn engine_in(
+    registry: &'static Registry,
+    policy: Policy,
+    keys: SystemKeys,
+) -> (Engine, tempfile::TempDir) {
+    let dir = tempfile::tempdir().unwrap();
+    let engine = Engine::with_options(
+        registry,
+        EngineOptions {
+            policy,
+            config_path: Some(dir.path().join("config.toml")),
+            system_keys: keys,
+            ..EngineOptions::default()
+        },
+    );
+    (engine, dir)
+}
+
+/// A key source standing in for the system's: it has the key of every X25519 slot, and keeps
+/// whether each secret asked for needed a device.
+struct Offers(Arc<Mutex<Vec<bool>>>);
+
+impl KeySource for Offers {
+    fn offers(&mut self, slot: &SlotView<'_>) -> bool {
+        slot.kind == SlotKind::X25519
+    }
+
+    fn secret(
+        &mut self,
+        slot: &SlotView<'_>,
+        device: bool,
+    ) -> beezip_core::Result<Option<SlotSecret>> {
+        self.0.lock().unwrap().push(device);
+        Ok((slot.kind == SlotKind::X25519)
+            .then(|| SlotSecret::Shared(zeroize::Zeroizing::new(vec![1; 32]))))
+    }
+}
+
+#[derive(Default)]
+struct Stub(Arc<Mutex<Vec<bool>>>);
+
+impl KeyStub for Stub {
+    fn sources(&self) -> Vec<Box<dyn KeySource + Send>> {
+        vec![Box::new(Offers(Arc::clone(&self.0)))]
+    }
+}
+
+/// Asks the job's key source about one slot of `kind`, as core's reader does, then, with
+/// `unlock`, for an answer to a password slot: what came back.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, clap::Args, TS)]
+struct KeysInput {
+    #[arg(long)]
+    kind: u8,
+    #[arg(long)]
+    unlock: bool,
+}
+
+struct TestKeys;
+
+impl Command for TestKeys {
+    const NAME: &'static str = "test.keys";
+    const EFFECT: Effect = Effect::ReadOnly;
+    type Input = KeysInput;
+    type Output = Value;
+
+    fn run(input: KeysInput, cx: &mut JobCtx) -> Result<Value, CmdError> {
+        let key_id = [0u8; KEY_ID_LEN];
+        let view = SlotView {
+            index: 0,
+            kind: SlotKind::from_id(input.kind).unwrap(),
+            key_id: &key_id,
+            framed: &[],
+            public: &[],
+        };
+        let source = beezip_core::Ctx::key_source(cx).unwrap();
+        let offered = source.offers(&view);
+        let secret = source.secret(&view, false)?.is_some();
+        let answer = if input.unlock {
+            let request = UnlockRequest {
+                ways: vec![WayInfo {
+                    slot: 0,
+                    kind: SlotKind::Password,
+                    here: false,
+                }],
+                attempt: 0,
+            };
+            Some(format!("{:?}", beezip_core::Ctx::unlock(cx, &request)?))
+        } else {
+            None
+        };
+        Ok(json!({
+            "offered": offered,
+            "secret": secret,
+            "cached": !cx.password_used(),
+            "answer": answer,
+        }))
+    }
+}
+
+fn keys(
+    policy: Policy,
+    keys: SystemKeys,
+    args: Value,
+    interactor: Arc<dyn Interactor>,
+) -> Result<Value, CmdError> {
+    let mut r = Registry::new();
+    r.register::<TestKeys>();
+    let (engine, _dir) = engine_in(Box::leak(Box::new(r)), policy, keys);
+    engine
+        .invoke("test.keys", args, interactor, Arc::new(|_| {}))
+        .unwrap()
+        .join()
+}
+
+#[test]
+fn keys_come_from_your_store_key_files_then_the_system() {
+    let stub = Stub::default();
+    let asked = Arc::clone(&stub.0);
+    let system = SystemKeys::Stub(Arc::new(stub));
+    let r = keys(
+        Policy::unrestricted(),
+        system.clone(),
+        json!({ "kind": 3, "unlock": false }),
+        Arc::new(NonInteractive),
+    )
+    .unwrap();
+    // The system's source has the key; silently, without a device. An archive a key was
+    // looked for never goes back to the archive cache.
+    assert_eq!(r["offered"], json!(true), "{r}");
+    assert_eq!(r["secret"], json!(true), "{r}");
+    assert_eq!(r["cached"], json!(false), "{r}");
+    assert_eq!(*asked.lock().unwrap(), [false]);
+
+    // Nobody there (MCP): no system source is tried at all (decision 15).
+    asked.lock().unwrap().clear();
+    let r = keys(
+        unattended(),
+        system,
+        json!({ "kind": 3, "unlock": false }),
+        Arc::new(NonInteractive),
+    )
+    .unwrap();
+    assert_eq!(r["offered"], json!(false), "{r}");
+    assert_eq!(r["secret"], json!(false), "{r}");
+    assert!(asked.lock().unwrap().is_empty());
+
+    // An engine made without a front end reaches no system source either.
+    let r = keys(
+        Policy::unrestricted(),
+        SystemKeys::Off,
+        json!({ "kind": 3, "unlock": false }),
+        Arc::new(NonInteractive),
+    )
+    .unwrap();
+    assert_eq!(r["offered"], json!(false), "{r}");
+}
+
+#[test]
+fn a_key_file_that_cant_be_read_is_the_error() {
+    let dir = tempfile::tempdir().unwrap();
+    let policy = Policy {
+        identities: vec![dir.path().join("missing.pem")],
+        ..Policy::unrestricted()
+    };
+    let asked = Scripted::new(vec![]);
+    let e = keys(
+        policy,
+        SystemKeys::Off,
+        json!({ "kind": 1, "unlock": true }),
+        asked.clone(),
+    )
+    .unwrap_err();
+    // Not "a password is needed": the file given is what failed, and nobody was asked.
+    assert!(
+        !matches!(
+            e.code,
+            ErrorCode::KeyRequired | ErrorCode::PasswordRequired | ErrorCode::WrongPassword
+        ),
+        "{e:?}"
+    );
+    assert!(asked.asked.lock().unwrap().is_empty());
+}
+
+#[test]
+fn an_encrypted_zip_converts_into_an_encrypted_bhive() {
+    // Core's rule for an encrypted source sees the .bhive's ways in. Until PR A writes
+    // encrypted archives this reaches its writer and stops there; never "pass new_password".
+    let dir = tempfile::tempdir().unwrap();
+    let out = dir.path().join("out.bhive");
+    let r = run(
+        "archive.convert",
+        json!({
+            "archive": fx("thirdparty/7z-aes256.zip"), "output": out, "password": "beezip",
+            "new_password": "pw2",
+        }),
+    );
+    match r {
+        Ok(_) => assert!(encrypted(&out)),
+        Err(e) => {
+            assert_eq!(e.code, ErrorCode::UnsupportedOperation, "{e:?}");
+            assert!(e.message.contains("not built yet"), "{}", e.message);
+            assert!(!out.exists());
+        }
+    }
+}
+
+#[test]
+fn an_encrypted_bhive_is_never_written_in_the_clear() {
+    // Converted without new ways in, or edited, an encrypted .bhive keeps its slots (PR A's
+    // core); until it can be read, the change fails and nothing is written.
+    let sealed = fixtures().join("bhive-m14/spec-sealed.bhive");
+    let dir = tempfile::tempdir().unwrap();
+    let out = dir.path().join("out.bhive");
+    let r = run(
+        "archive.convert",
+        json!({ "archive": sealed, "output": out, "password": "honey" }),
+    );
+    if r.is_ok() {
+        assert!(encrypted(&out));
+    } else {
+        assert!(!out.exists());
+    }
+    let copy = dir.path().join("copy.bhive");
+    std::fs::copy(&sealed, &copy).unwrap();
+    let new = dir.path().join("new.txt");
+    std::fs::write(&new, "new").unwrap();
+    let r = run(
+        "archive.add",
+        json!({ "archive": copy, "inputs": [new], "password": "honey" }),
+    );
+    assert!(encrypted(&copy), "{r:?}");
+}
+
+#[test]
+fn a_change_that_drops_signatures_says_so_first() {
+    let dir = tempfile::tempdir().unwrap();
+    let copy = dir.path().join("signed.bhive");
+    std::fs::copy(fixtures().join("bhive-m14/spec-signed.bhive"), &copy).unwrap();
+    let entries = run("archive.list", json!({ "archive": copy })).unwrap();
+    let first = entries["entries"][0]["path"].as_str().unwrap().to_owned();
+    let (r, logs) = run_logged(
+        Policy::unrestricted(),
+        "archive.remove",
+        json!({ "archive": copy, "entries": [first] }),
+    );
+    assert!(
+        logs.iter()
+            .any(|l| l.contains("is signed") && l.contains("sign it again")),
+        "{r:?} {logs:?}"
+    );
+    // Converting it says so too; an unsigned archive says nothing.
+    let out = dir.path().join("out.zip");
+    let (_, logs) = run_logged(
+        Policy::unrestricted(),
+        "archive.convert",
+        json!({ "archive": fx("bhive-m14/spec-signed.bhive"), "output": out }),
+    );
+    assert!(
+        logs.iter().any(|l| l.contains("can't go into a zip")),
+        "{logs:?}"
+    );
+    let out = dir.path().join("small.zip");
+    let (_, logs) = run_logged(
+        Policy::unrestricted(),
+        "archive.convert",
+        json!({ "archive": fx("bhive/spec-small.bhive"), "output": out }),
+    );
+    assert!(!logs.iter().any(|l| l.contains("is signed")), "{logs:?}");
+}
+
+#[test]
+fn verify_needs_a_signer_you_know() {
+    // Valid or not (PR H checks it), nobody here knows the signer, and no `require_signer`
+    // names them: not verified.
+    let e = run(
+        "archive.verify",
+        json!({ "archive": fx("bhive-m14/spec-signed.bhive") }),
+    )
+    .unwrap_err();
+    assert_eq!(e.code, ErrorCode::SignatureRequired, "{e:?}");
+    assert_eq!(e.exit_code(), 16);
+}
+
+#[test]
+fn windows_hello_alone_is_refused_before_anything_is_asked() {
+    let dir = tempfile::tempdir().unwrap();
+    let out = dir.path().join("a.bhive").display().to_string();
+    let src = fx("bhive/README.md");
+    let e = run(
+        "archive.create",
+        json!({ "output": out, "inputs": [src], "windows_hello": true }),
+    )
+    .unwrap_err();
+    assert_eq!(e.code, ErrorCode::InvalidArgs);
+    assert!(
+        e.message.contains("Windows Hello can't be the only way in"),
+        "{}",
+        e.message
+    );
+    let e = run(
+        "archive.create",
+        json!({ "output": out, "inputs": [src], "this_pc": true, "windows_hello": true }),
+    )
+    .unwrap_err();
+    assert!(e.message.contains("only way in"), "{}", e.message);
+    // A device's way into an archive whose output is in the way: the conflict first, and no
+    // device is asked.
+    std::fs::write(&out, "in the way").unwrap();
+    let e = run(
+        "archive.create",
+        json!({ "output": out, "inputs": [src], "password": "pw", "security_key": true }),
+    )
+    .unwrap_err();
+    assert_eq!(e.code, ErrorCode::Conflict, "{e:?}");
+}
+
+/// Whether the `.bhive` at `path` says in its header that it is encrypted.
+fn encrypted(path: &Path) -> bool {
+    use beezip_core::format::bhive::layout;
+    let bytes = std::fs::read(path).unwrap();
+    layout::check_header(&bytes[..16]).unwrap() & layout::FEATURE_ENCRYPTED != 0
 }

@@ -29,5 +29,9 @@ Global options:
           A key file that opens encrypted .bhive archives (age identities, PEM and PKCS #8 keys);
           repeatable
 
+      --password-stdin
+          Read the password or recovery key from the first line of stdin, where other programs can't
+          see it as they can the command line
+
   -q, --quiet
           No progress bars or info messages; warnings still print

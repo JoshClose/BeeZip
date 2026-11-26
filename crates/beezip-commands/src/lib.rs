@@ -29,8 +29,8 @@ pub use config::{Config, LoadedConfig, McpConfig, Theme};
 pub use engine::{Engine, EngineOptions, JobHandle, JobInfo};
 pub use error::{CmdError, ErrorCode};
 pub use job::{
-    CancelToken, EventSink, Interactor, JobCtx, JobEvent, JobId, LogLevel, NonInteractive,
-    OverwriteChoice, PASSWORD_PROMPTS, Progress, Prompt, PromptReply, discard_events,
+    CancelToken, EventSink, Interactor, JobCtx, JobEvent, JobId, KeyStub, LogLevel, NonInteractive,
+    OverwriteChoice, PASSWORD_PROMPTS, Progress, Prompt, PromptReply, SystemKeys, discard_events,
 };
 pub use policy::{Access, Policy};
 pub use registry::{CommandInfo, Entry, JsonObject, Registry, TsDecls, collect_ts};

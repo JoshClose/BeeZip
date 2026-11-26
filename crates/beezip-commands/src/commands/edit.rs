@@ -45,7 +45,8 @@ pub struct SpecArgs {
     pub protection: Option<Protection>,
     /// A `.bhive`'s signers (docs/M14.md §11).
     pub signing: Option<Signing>,
-    /// An edit: `password` opens the archive, and a `.bhive` keeps its own ways in.
+    /// An edit: `password` opens the archive. Core keeps an encrypted `.bhive`'s file key and
+    /// slots through it (`Protection::Keep`, PR A); `protection` stays `None`.
     pub edit: bool,
 }
 
@@ -387,6 +388,14 @@ pub fn run_edit(
     })?;
     let _guard = cx.edit_lock(&canonical)?;
     let config = cx.config()?.clone();
+    // An edit changes the contents, which drops their signatures: said first (docs/M14.md §11).
+    if !dry_run && args.signing.is_none() {
+        crate::protect::warn_signatures_dropped(
+            &path,
+            "won't survive this change to its contents: sign it again (`sign`, or `archive.sign`)",
+            cx,
+        );
+    }
     cx.set_password(password);
     let opts = EditOptions {
         open: open_options(names, cx),

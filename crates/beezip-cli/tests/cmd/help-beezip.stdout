@@ -70,10 +70,12 @@ Commands:
   test          Test an archive's integrity: read every entry to the end, checking CRCs and codec
                 checksums. Fails with `Corrupt`, listing the damaged entries in `details`. [alias:
                 t]
-  verify        Check a `.bhive`'s signatures: that one is valid (from each signer `require_signer`
-                names, when given), and that every cell is what was signed, read to the end as
-                `archive.test` reads it. Fails with `SignatureRequired` when the archive isn't
-                signed that way, and `Corrupt` when it changed after it was signed.
+  verify        Check a `.bhive`'s signatures, and that every cell is what was signed, read to the
+                end as `archive.test` reads it. It passes when no signature failed and one is valid:
+                from each signer `require_signer` names, or without it from someone you trust
+                (yourself, a contact, or a certificate the system trusts). Fails with
+                `SignatureRequired` when the archive isn't signed that way or changed after it was
+                signed, and `Corrupt` when a cell doesn't match the digest that was signed.
   bench         Benchmark the codecs: compress and decompress a sample in memory with each codec at
                 the levels and thread counts of a grid, and report the size, the speed and the
                 memory each way. Every round trip is checked against the sample; one that doesn't
@@ -124,6 +126,10 @@ Global options:
   -i, --identity <FILE>
           A key file that opens encrypted .bhive archives (age identities, PEM and PKCS #8 keys);
           repeatable
+
+      --password-stdin
+          Read the password or recovery key from the first line of stdin, where other programs can't
+          see it as they can the command line
 
   -q, --quiet
           No progress bars or info messages; warnings still print

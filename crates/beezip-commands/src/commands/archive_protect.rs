@@ -6,11 +6,11 @@ use ts_rs::TS;
 
 use beezip_core::format::bhive::{
     BhiveWriteOptions,
-    crypt::{Labelled, Protection, SlotKind},
+    crypt::{Labelled, Protection, Recipient, SlotKind},
 };
 
 use crate::{
-    Access, CliSpec, CmdError, Command, Effect, ErrorCode, JobCtx, Surfaces,
+    Access, CliSpec, CmdError, Command, Effect, ErrorCode, JobCtx, LogLevel, Surfaces,
     commands::util::not_built,
     crypt::{StrengthName, WayIn},
     protect::{self, WaysArgs},
@@ -56,10 +56,15 @@ pub struct ArchiveProtectInput {
     #[arg(long, value_name = "PIN")]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub this_pc_pin: Option<Secret>,
-    /// Add a security key or Windows Hello: Windows asks for a touch. Windows only.
+    /// Add a security key: Windows asks for a touch. Windows only.
     #[arg(long, num_args = 0..=1, require_equals = true, default_missing_value = "true")]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub security_key: Option<bool>,
+    /// Add Windows Hello (a face, a fingerprint or its PIN). It works only on this PC, so it
+    /// needs another way in that works elsewhere. Windows only.
+    #[arg(long, num_args = 0..=1, require_equals = true, default_missing_value = "true")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub windows_hello: Option<bool>,
     /// How hard an added password makes guessing [default: standard].
     #[arg(long, value_enum)]
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -69,7 +74,8 @@ pub struct ArchiveProtectInput {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub remove: Option<Vec<u32>>,
     /// Make a new file key: every cell sealed again, every slot rebuilt. A password slot is
-    /// rebuilt with `add_password`, a recovery key is new, a security key needs a touch.
+    /// rebuilt with `add_password` (one password slot), a recovery key is new, a security key or
+    /// Windows Hello needs a touch.
     #[arg(long, num_args = 0..=1, require_equals = true, default_missing_value = "true")]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub new_key: Option<bool>,
@@ -91,6 +97,7 @@ impl ArchiveProtectInput {
             this_pc: self.this_pc.unwrap_or(false),
             this_pc_pin: self.this_pc_pin.as_ref(),
             security_key: self.security_key.unwrap_or(false),
+            windows_hello: self.windows_hello.unwrap_or(false),
             strength: self.strength,
             kept: false,
         }
@@ -174,10 +181,20 @@ impl Command for ArchiveProtect {
                          `new_key` to rebuild them all)",
                     ));
                 }
-                let (recipients, key) = rebuilt(&input, &slots, &remove, &confirm, cx)?;
-                protect::leaves_the_machine(&recipients)?;
+                // A new key keeps the contents, so their signatures should stay (docs/M14.md
+                // §11); until the writer can carry them over, a signed archive isn't changed.
+                if !reader.signatures().signatures.is_empty() {
+                    return Err(not_built(
+                        "keeping an archive's signatures through a new key (remove them first \
+                         with `archive.sign` and `remove_all`, then sign it again)",
+                    ));
+                }
+                let mut ways = rebuilt(&input, &slots, &remove, &confirm, cx)?;
+                // Last, once everything else has been checked.
+                ways.make_devices(cx)?;
+                let recipients = ways.recipients;
                 made = recipients.clone();
-                recovery_key = key;
+                recovery_key = ways.recovery_key;
                 Ok(BhiveWriteOptions {
                     threads,
                     protection: Some(Protection::New(recipients)),
@@ -208,54 +225,39 @@ impl Command for ArchiveProtect {
     }
 }
 
-/// Every way in "New key" writes (docs/M14.md §3): each slot kept is rebuilt with fresh
-/// randomness, its recipient taken from the archive's description of it only when it is one
-/// of your keys or contacts, or `confirm` names it; then the ways in the input adds.
+/// Every way in "New key" writes (docs/M14.md §3), devices still to ask: each slot kept is
+/// rebuilt with fresh randomness, its recipient taken from the archive's description of it
+/// only when it names one of your keys or contacts or a This PC key this PC has, or `confirm`
+/// names it; then the ways in the input adds. Nothing is asked of a device here, and a
+/// recovery key is made only once every recipient has been accepted.
 fn rebuilt(
     input: &ArchiveProtectInput,
     slots: &[protect::Slot],
     remove: &[u32],
     confirm: &[u32],
     cx: &mut JobCtx,
-) -> Result<(Vec<Labelled>, Option<Secret>), CmdError> {
-    let store = cx.key_store();
+) -> Result<protect::Ways, CmdError> {
+    let store = cx.key_store().ok();
+    let this_pc = cx.this_pc_keys();
     let strength = input.strength.unwrap_or_default().into();
-    let mut out = Vec::new();
-    let mut recovery_key = None;
-    let mut password_used = false;
+    let mut ways = protect::Ways::default();
+    let mut passwords: Vec<&protect::Slot> = Vec::new();
+    let mut recovery = false;
     let mut unconfirmed: Vec<WayIn> = Vec::new();
     for slot in slots.iter().filter(|s| !remove.contains(&s.index)) {
         let label = slot.description.label.clone();
         match slot.kind {
-            SlotKind::Password => {
-                let password = input.add_password.as_ref().ok_or_else(|| {
-                    CmdError::invalid_args(format!(
-                        "slot {} is a password: pass it (or a new one) as `add_password` to \
-                         keep it with the new key, or `remove` it",
-                        slot.index
-                    ))
-                })?;
-                password_used = true;
-                out.push(protect::password_recipient(
-                    password.expose(),
-                    strength,
-                    label,
-                ));
-            }
-            SlotKind::RecoveryKey => {
-                if recovery_key.is_none() {
-                    let (made, shown) = protect::new_recovery_key(cx)?;
-                    recovery_key = Some(shown);
-                    out.push(made);
-                }
-            }
-            SlotKind::Fido2 => out.push(protect::rebuild_security_key(slot, cx)?),
+            SlotKind::Password => passwords.push(slot),
+            SlotKind::RecoveryKey => recovery = true,
+            SlotKind::Fido2 => ways.devices.push(protect::security_key_device(slot)?),
             _ => {
                 let Some(recipient) = protect::described_recipient(slot)? else {
                     continue;
                 };
-                if protect::known_recipient(slot, &store) || confirm.contains(&slot.index) {
-                    out.push(Labelled { recipient, label });
+                if protect::known_recipient(slot, store.as_ref(), &this_pc)
+                    || confirm.contains(&slot.index)
+                {
+                    ways.recipients.push(Labelled { recipient, label });
                 } else {
                     unconfirmed.push(protect::way_in(slot));
                 }
@@ -286,26 +288,90 @@ fn rebuilt(
         )
         .with_details(serde_json::json!({ "unconfirmed": unconfirmed })));
     }
-    // The ways the input adds; a password given already rebuilt the password slots.
+    // One password slot, from `add_password`: its old password can't be read back.
+    if let Some(first) = passwords.first() {
+        let password = input.add_password.as_ref().ok_or_else(|| {
+            CmdError::invalid_args(format!(
+                "slot {} is a password: pass it (or a new one) as `add_password` to keep it with \
+                 the new key, or `remove` it",
+                first.index
+            ))
+        })?;
+        ways.recipients.push(protect::password_recipient(
+            password.expose(),
+            strength,
+            first.description.label.clone(),
+        ));
+        if passwords.len() > 1 {
+            let others: Vec<String> = passwords[1..].iter().map(|s| s.index.to_string()).collect();
+            cx.log(
+                LogLevel::Warn,
+                format!(
+                    "slots {} were passwords too: the new key has one password slot, with the \
+                     password given",
+                    others.join(", ")
+                ),
+            );
+        }
+    }
+    // The ways the input adds; a password given already rebuilt the password slot.
     let added = WaysArgs {
-        password: if password_used {
-            None
-        } else {
+        password: if passwords.is_empty() {
             input.add_password.as_ref()
+        } else {
+            None
         },
-        recovery_key: input.recovery_key.unwrap_or(false) && recovery_key.is_none(),
-        strength: if password_used { None } else { input.strength },
-        kept: !out.is_empty(),
+        recovery_key: input.recovery_key.unwrap_or(false) && !recovery,
+        strength: if passwords.is_empty() {
+            input.strength
+        } else {
+            None
+        },
+        kept: !ways.recipients.is_empty() || !ways.devices.is_empty(),
         ..input.ways()
     };
     let added = protect::ways(&added, cx)?;
-    out.extend(added.recipients);
-    Ok((out, recovery_key.or(added.recovery_key)))
+    ways.recipients.extend(added.recipients);
+    ways.devices.extend(added.devices);
+    ways.recovery_key = added.recovery_key;
+    if recovery {
+        let (made, shown) = protect::new_recovery_key(cx)?;
+        ways.recipients.push(made);
+        ways.recovery_key = Some(shown);
+    }
+    // Decision 12, on every way in the new key has.
+    let password = ways
+        .recipients
+        .iter()
+        .any(|l| l.recipient.kind() == SlotKind::Password);
+    let others = ways.recipients.iter().any(|l| {
+        matches!(
+            l.recipient,
+            Recipient::X25519(_)
+                | Recipient::XWing(_)
+                | Recipient::Rsa { .. }
+                | Recipient::Ec {
+                    machine_bound: false,
+                    ..
+                }
+        )
+    });
+    if password && others {
+        protect::warn_password_beside_keys(cx);
+    }
+    ways.check()?;
+    Ok(ways)
 }
 
 #[cfg(test)]
 mod tests {
+    use std::sync::{Arc, Mutex};
+
     use super::*;
+    use crate::{
+        Engine, EngineOptions, EventSink, JobEvent, NonInteractive, Registry,
+        protect::{Description, Device, Slot},
+    };
 
     #[test]
     fn cli_matches_json() {
@@ -313,5 +379,231 @@ mod tests {
             &["a.bhive", "--new-key", "--confirm", "2", "--remove", "1"],
             serde_json::json!({ "archive": "a.bhive", "new_key": true, "confirm": [2], "remove": [1] }),
         );
+    }
+
+    fn slot(index: u32, kind: SlotKind, public: Vec<u8>, description: Description) -> Slot {
+        Slot {
+            index,
+            kind,
+            public,
+            description,
+        }
+    }
+
+    fn x25519(index: u32, key: u8) -> Slot {
+        slot(
+            index,
+            SlotKind::X25519,
+            Vec::new(),
+            Description {
+                label: Some(format!("key {key}")),
+                public_key: Some(vec![key; 32]),
+                ..Description::default()
+            },
+        )
+    }
+
+    fn password(index: u32) -> Slot {
+        slot(
+            index,
+            SlotKind::Password,
+            Vec::new(),
+            Description::default(),
+        )
+    }
+
+    /// A security key's slot (flags 2) or Windows Hello's (flags 3), with credential `aa bb`.
+    fn fido2(index: u32, flags: u8) -> Slot {
+        slot(
+            index,
+            SlotKind::Fido2,
+            vec![flags, 0, 2, 0, 0xAA, 0xBB],
+            Description::default(),
+        )
+    }
+
+    /// The slots of one case, and the input that rebuilds them.
+    fn case(name: &str) -> (Vec<Slot>, ArchiveProtectInput) {
+        let mut input = ArchiveProtectInput {
+            archive: "a.bhive".into(),
+            password: None,
+            add_password: Some(Secret::new("new")),
+            recovery_key: None,
+            to: None,
+            to_cert: None,
+            this_pc: None,
+            this_pc_pin: None,
+            security_key: None,
+            windows_hello: None,
+            strength: None,
+            remove: None,
+            new_key: Some(true),
+            confirm: None,
+        };
+        let slots = match name {
+            "two passwords and a key" => vec![password(0), password(1), x25519(2, 9)],
+            "unconfirmed first" => vec![
+                slot(0, SlotKind::RecoveryKey, Vec::new(), Description::default()),
+                fido2(1, 3),
+                x25519(2, 9),
+            ],
+            "devices" => vec![fido2(0, 3), fido2(1, 2), password(2)],
+            "hello alone" => {
+                input.add_password = None;
+                vec![fido2(0, 3), password(1)]
+            }
+            "no password given" => {
+                input.add_password = None;
+                vec![password(0), x25519(1, 9)]
+            }
+            other => panic!("no case {other}"),
+        };
+        (slots, input)
+    }
+
+    #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, clap::Args, TS)]
+    struct RebuildInput {
+        #[arg(long)]
+        case: String,
+        #[arg(long)]
+        confirm: Vec<u32>,
+        #[arg(long)]
+        remove: Vec<u32>,
+    }
+
+    struct TestRebuild;
+
+    impl Command for TestRebuild {
+        const NAME: &'static str = "test.rebuild";
+        const EFFECT: Effect = Effect::ReadOnly;
+        type Input = RebuildInput;
+        type Output = Vec<String>;
+
+        /// What "New key" would write for the case: each way in, then each device to ask.
+        fn run(input: RebuildInput, cx: &mut JobCtx) -> Result<Vec<String>, CmdError> {
+            let (slots, protect) = case(&input.case);
+            let ways = rebuilt(&protect, &slots, &input.remove, &input.confirm, cx)?;
+            let mut out: Vec<String> = ways
+                .recipients
+                .iter()
+                .map(|l| {
+                    format!(
+                        "{:?} {}",
+                        l.recipient.kind(),
+                        l.label.clone().unwrap_or_default()
+                    )
+                })
+                .collect();
+            out.extend(ways.devices.iter().map(|d| match d {
+                Device::ThisPc(_) => "this pc".to_owned(),
+                Device::Fido2 {
+                    hello, credential, ..
+                } => format!("fido2 hello={hello} credential={credential:02x?}"),
+            }));
+            Ok(out)
+        }
+    }
+
+    fn rebuild(args: serde_json::Value) -> (Result<serde_json::Value, CmdError>, Vec<String>) {
+        let mut r = Registry::new();
+        r.register::<TestRebuild>();
+        let dir = tempfile::tempdir().unwrap();
+        let engine = Engine::with_options(
+            Box::leak(Box::new(r)),
+            EngineOptions {
+                config_path: Some(dir.path().join("config.toml")),
+                ..EngineOptions::default()
+            },
+        );
+        let logs = Arc::new(Mutex::new(Vec::new()));
+        let seen = Arc::clone(&logs);
+        let sink: EventSink = Arc::new(move |e| {
+            if let JobEvent::Log { message, .. } = e {
+                seen.lock().unwrap().push(message);
+            }
+        });
+        let r = engine
+            .invoke("test.rebuild", args, Arc::new(NonInteractive), sink)
+            .unwrap()
+            .join();
+        let logs = logs.lock().unwrap().clone();
+        (r, logs)
+    }
+
+    #[test]
+    fn new_key_rebuilds_one_password_and_only_confirmed_keys() {
+        // A key nobody confirmed: refused, and listed.
+        let (r, _) = rebuild(serde_json::json!({
+            "case": "two passwords and a key", "confirm": [], "remove": []
+        }));
+        let e = r.unwrap_err();
+        assert_eq!(e.code, ErrorCode::InvalidArgs);
+        assert!(e.message.contains("slot 2"), "{}", e.message);
+        assert_eq!(e.details.unwrap()["unconfirmed"][0]["slot"], 2);
+
+        // Confirmed: the key, then one password slot from `add_password`, with a warning for
+        // the second password and for a password beside someone's key (decision 12).
+        let (r, logs) = rebuild(serde_json::json!({
+            "case": "two passwords and a key", "confirm": [2], "remove": []
+        }));
+        assert_eq!(
+            r.unwrap(),
+            serde_json::json!(["X25519 key 9", "Password Password"])
+        );
+        assert!(
+            logs.iter()
+                .any(|l| l.contains("slots 1 were passwords too")),
+            "{logs:?}"
+        );
+        assert!(
+            logs.iter().any(|l| l.contains("your password opens")),
+            "{logs:?}"
+        );
+
+        // Removed instead: no key, no warning about one.
+        let (r, logs) = rebuild(serde_json::json!({
+            "case": "two passwords and a key", "confirm": [], "remove": [1, 2]
+        }));
+        assert_eq!(r.unwrap(), serde_json::json!(["Password Password"]));
+        assert!(
+            !logs.iter().any(|l| l.contains("your password opens")),
+            "{logs:?}"
+        );
+
+        // A password slot needs `add_password`.
+        let (r, _) = rebuild(serde_json::json!({
+            "case": "no password given", "confirm": [1], "remove": []
+        }));
+        let e = r.unwrap_err();
+        assert!(e.message.contains("slot 0 is a password"), "{}", e.message);
+    }
+
+    #[test]
+    fn new_key_asks_nothing_before_every_key_is_accepted() {
+        // The recovery key isn't made and no device is listed before the unconfirmed key is
+        // refused.
+        let (r, _) = rebuild(serde_json::json!({
+            "case": "unconfirmed first", "confirm": [], "remove": []
+        }));
+        let e = r.unwrap_err();
+        assert_eq!(e.code, ErrorCode::InvalidArgs, "{e:?}");
+        assert!(e.details.is_some());
+
+        // Devices are listed to ask last, each with its own credential; Windows Hello's by its
+        // PRF flag.
+        let (r, _) = rebuild(serde_json::json!({ "case": "devices", "confirm": [], "remove": [] }));
+        assert_eq!(
+            r.unwrap(),
+            serde_json::json!([
+                "Password Password",
+                "fido2 hello=true credential=Some([aa, bb])",
+                "fido2 hello=false credential=Some([aa, bb])",
+            ])
+        );
+        // Windows Hello alone would work only here (decision 11).
+        let (r, _) =
+            rebuild(serde_json::json!({ "case": "hello alone", "confirm": [], "remove": [1] }));
+        let e = r.unwrap_err();
+        assert!(e.message.contains("only on this PC"), "{}", e.message);
     }
 }

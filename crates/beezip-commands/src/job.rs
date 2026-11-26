@@ -152,6 +152,40 @@ impl Interactor for NonInteractive {
     }
 }
 
+/// Where a job looks for keys besides your own and the key files given (docs/M14.md §6, §8).
+#[derive(Clone, Default)]
+pub enum SystemKeys {
+    /// None: an engine made without a front end, such as a test's, reaches no system store.
+    #[default]
+    Off,
+    /// This machine's: Windows' certificate stores, smart cards, TPM and This PC keys, security
+    /// keys and Windows Hello; the macOS Keychain. An unattended job (MCP) uses none of them.
+    Real,
+    /// A test's own, in their place.
+    Stub(Arc<dyn KeyStub>),
+}
+
+impl std::fmt::Debug for SystemKeys {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::Off => "SystemKeys::Off",
+            Self::Real => "SystemKeys::Real",
+            Self::Stub(_) => "SystemKeys::Stub",
+        })
+    }
+}
+
+/// A test's stand-in for this machine's keys.
+pub trait KeyStub: Send + Sync {
+    /// The key sources a job tries after your keys and the key files given, made for each job.
+    fn sources(&self) -> Vec<Box<dyn KeySource + Send>>;
+
+    /// The SubjectPublicKeyInfos of this machine's This PC keys.
+    fn this_pc(&self) -> Vec<Vec<u8>> {
+        Vec::new()
+    }
+}
+
 /// A cancellation flag shared by a job and whoever started it. Jobs check it between buffers.
 #[derive(Debug, Clone, Default)]
 pub struct CancelToken(Arc<AtomicBool>);
@@ -262,36 +296,158 @@ impl JobCtx {
         }
     }
 
-    /// Your keys and contacts, kept beside the config (docs/M14.md §6).
-    pub fn key_store(&self) -> beezip_keys::identity::Store {
-        let dir = self
-            .config_path()
-            .and_then(|p| p.parent().map(Path::to_path_buf))
-            .unwrap_or_else(|| std::env::temp_dir().join("BeeZip"));
-        beezip_keys::identity::Store::new(dir)
+    /// Your keys and contacts, in the settings folder beside the engine's `config.toml`
+    /// (docs/M14.md §6). Only a front end's engine has one ([`crate::EngineOptions::from_loaded`],
+    /// or a test's own `config_path`): an engine without, such as a test's, reaches nobody's
+    /// keys, and no folder others can write to stands in for it.
+    pub fn key_store(&self) -> Result<beezip_keys::identity::Store, CmdError> {
+        let config = self.live.path().ok_or_else(|| {
+            CmdError::new(
+                ErrorCode::UnsupportedOperation,
+                "there is no settings folder for your keys here; set BEEZIP_CONFIG to a file in \
+                 the folder to use",
+            )
+        })?;
+        let dir = match config.parent() {
+            Some(dir) if !dir.as_os_str().is_empty() => dir.to_path_buf(),
+            _ => PathBuf::from("."),
+        };
+        Ok(beezip_keys::identity::Store::new(dir))
+    }
+
+    /// The SubjectPublicKeyInfos of this machine's This PC keys, which "New key" may rebuild a
+    /// slot for without asking (docs/M14.md §3).
+    pub fn this_pc_keys(&self) -> Vec<Vec<u8>> {
+        match self.live.system_keys() {
+            SystemKeys::Off => Vec::new(),
+            SystemKeys::Stub(stub) => stub.this_pc(),
+            // PR D's `cng::this_pc()` lists them; until it is in, none is known here, and each
+            // machine-bound slot is confirmed as other people's are.
+            SystemKeys::Real => Vec::new(),
+        }
     }
 
     /// The key sources an encrypted `.bhive` is opened with: your keys first, then the key
-    /// files given (`--identity`), then the system's certificates and devices.
+    /// files given (`--identity`), then the system's certificate stores and devices. An
+    /// unattended job (MCP) gets no system source: nobody is there to type a PIN or touch a
+    /// device (decision 15).
     fn sources(&mut self) -> beezip_keys::Sources {
-        let mut sources = beezip_keys::Sources::system();
-        match self.key_store().source() {
+        let mut sources = beezip_keys::Sources::default();
+        match self
+            .key_store()
+            .and_then(|store| store.source().map_err(CmdError::from))
+        {
             Ok(own) => sources.push(own),
-            Err(e) => self.log(LogLevel::Warn, format!("your keys aren't available: {e}")),
+            Err(e) => self.log(
+                LogLevel::Warn,
+                format!("your keys aren't available: {}", e.message),
+            ),
         }
-        let identities = self.policy.identities.clone();
-        if !identities.is_empty() {
-            let paths: Vec<&Path> = identities.iter().map(PathBuf::as_path).collect();
-            match beezip_keys::files::source(&paths, None) {
+        for path in self.policy.identities.clone() {
+            match self.key_file(&path) {
                 Ok(files) => sources.push(files),
-                Err(e) => self.key_error = Some(e.into()),
+                Err(e) => {
+                    self.key_error = Some(e);
+                    break;
+                }
+            }
+        }
+        match self.live.system_keys().clone() {
+            SystemKeys::Off => {}
+            _ if self.policy.unattended => {}
+            SystemKeys::Stub(stub) => {
+                for s in stub.sources() {
+                    sources.push(s);
+                }
+            }
+            SystemKeys::Real => {
+                for s in self.system_sources() {
+                    sources.push(s);
+                }
             }
         }
         sources
     }
 
+    /// This machine's certificate stores and devices. One that this system lacks, or that isn't
+    /// built yet, is left out.
+    fn system_sources(&self) -> Vec<Box<dyn KeySource + Send>> {
+        let found: Vec<(&str, beezip_core::Result<Box<dyn KeySource + Send>>)> = vec![
+            #[cfg(windows)]
+            ("Windows' certificate keys", beezip_keys::cng::source()),
+            #[cfg(windows)]
+            ("security keys", beezip_keys::webauthn::source(None)),
+            #[cfg(target_os = "macos")]
+            ("the Keychain", beezip_keys::mac::source()),
+        ];
+        let mut out = Vec::new();
+        for (what, source) in found {
+            match source {
+                Ok(s) => out.push(s),
+                Err(e) if e.kind == beezip_core::ErrorKind::UnsupportedOperation => {}
+                Err(e) => self.log(
+                    LogLevel::Warn,
+                    format!("{what} aren't available: {}", e.message),
+                ),
+            }
+        }
+        out
+    }
+
+    /// The key file at `path` (`--identity`): a file under a password asks for it, without
+    /// echo, up to [`PASSWORD_PROMPTS`] times.
+    fn key_file(&mut self, path: &Path) -> Result<Box<dyn KeySource + Send>, CmdError> {
+        use beezip_core::ErrorKind;
+        let mut passphrase: Option<String> = None;
+        let mut asked = 0;
+        loop {
+            match beezip_keys::files::source(&[path], passphrase.as_deref()) {
+                Ok(source) => return Ok(source),
+                Err(e)
+                    if matches!(
+                        e.kind,
+                        ErrorKind::PasswordRequired | ErrorKind::WrongPassword
+                    ) && asked < PASSWORD_PROMPTS =>
+                {
+                    asked += 1;
+                    let reply = self.prompt(Prompt::Password {
+                        entry: Some(format!("the key file {}", path.display())),
+                    });
+                    match reply {
+                        Ok(PromptReply::Password { password }) => passphrase = Some(password),
+                        Ok(PromptReply::Cancel) => return Err(CmdError::cancelled()),
+                        Ok(other) => {
+                            return Err(CmdError::invalid_args(format!(
+                                "expected a password, got {other:?}"
+                            )));
+                        }
+                        Err(asking) if asking.code != ErrorCode::PasswordRequired => {
+                            return Err(asking);
+                        }
+                        Err(_) => {
+                            return Err(CmdError::new(
+                                if e.kind == ErrorKind::WrongPassword {
+                                    ErrorCode::WrongPassword
+                                } else {
+                                    ErrorCode::PasswordRequired
+                                },
+                                format!(
+                                    "the key file {} is under a password; run the command in a \
+                                     terminal to type it",
+                                    path.display()
+                                ),
+                            ));
+                        }
+                    }
+                }
+                Err(e) => return Err(e.into()),
+            }
+        }
+    }
+
     /// What the input's password may be, for the ways in an archive has: a recovery key when
-    /// it reads as one, a password, or both in turn. Last first.
+    /// it reads as one (48 digits, with any separators, docs/bhive.md §12.5), a password, or
+    /// both in turn. Last first.
     fn typed_answers(&self, request: &UnlockRequest) -> Vec<UnlockAnswer> {
         let Some(given) = &self.password else {
             return Vec::new();
@@ -302,7 +458,7 @@ impl JobCtx {
         let recovery = digits == 48
             && given
                 .chars()
-                .all(|c| c.is_ascii_digit() || matches!(c, '-' | ' '));
+                .all(|c| c.is_ascii_digit() || c.is_ascii_punctuation() || c.is_ascii_whitespace());
         if recovery && has(SlotKind::RecoveryKey) {
             answers.push(UnlockAnswer::RecoveryKey(given.clone()));
         }
@@ -600,7 +756,10 @@ impl beezip_core::Ctx for JobCtx {
         }
     }
 
+    /// Your keys, the key files given and the system's; asked for only by an encrypted
+    /// archive, which then never goes back to the archive cache, opened by a key or not.
     fn key_source(&mut self) -> Option<&mut dyn KeySource> {
+        self.password_used = true;
         if self.keys.is_none() {
             let sources = self.sources();
             self.keys = Some(sources);

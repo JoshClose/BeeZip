@@ -128,10 +128,14 @@ pub fn info(
     let refused = c.slot_kind().err();
     let can_sign = key.is_some()
         && c.digital_signature != Some(false)
-        && matches!(
-            c.algorithm,
-            KeyAlgorithm::Rsa { bits: 2048.. } | KeyAlgorithm::Ec(_)
-        );
+        && match c.algorithm {
+            // What a reader checks (docs/bhive.md §13.4): a bigger key's signatures never verify.
+            KeyAlgorithm::Rsa { bits } => {
+                beezip_core::format::bhive::sign::RSA_BITS.contains(&bits)
+            }
+            KeyAlgorithm::Ec(_) => true,
+            KeyAlgorithm::Other => false,
+        };
     CertificateInfo {
         thumbprint: c.thumbprint.iter().map(|b| format!("{b:02X}")).collect(),
         subject: c.subject.clone(),

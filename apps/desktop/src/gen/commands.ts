@@ -224,10 +224,14 @@ this_pc?: boolean,
  */
 this_pc_pin?: Secret,
 /**
- * Let a security key or Windows Hello open it: Windows asks for a touch. `.bhive` on
- * Windows.
+ * Let a security key open it: Windows asks for a touch. `.bhive` on Windows.
  */
 security_key?: boolean,
+/**
+ * Let Windows Hello open it (a face, a fingerprint or its PIN). It works only on this PC,
+ * so it needs another way in that works elsewhere. `.bhive` on Windows.
+ */
+windows_hello?: boolean,
 /**
  * How hard a `.bhive`'s password makes guessing [default: standard].
  */
@@ -376,10 +380,14 @@ this_pc?: boolean,
  */
 this_pc_pin?: Secret,
 /**
- * Let a security key or Windows Hello open it: Windows asks for a touch. `.bhive` on
- * Windows.
+ * Let a security key open it: Windows asks for a touch. `.bhive` on Windows.
  */
 security_key?: boolean,
+/**
+ * Let Windows Hello open it (a face, a fingerprint or its PIN). It works only on this PC,
+ * so it needs another way in that works elsewhere. `.bhive` on Windows.
+ */
+windows_hello?: boolean,
 /**
  * How hard a `.bhive`'s password makes guessing [default: standard].
  */
@@ -714,9 +722,14 @@ this_pc?: boolean,
  */
 this_pc_pin?: Secret,
 /**
- * Add a security key or Windows Hello: Windows asks for a touch. Windows only.
+ * Add a security key: Windows asks for a touch. Windows only.
  */
 security_key?: boolean,
+/**
+ * Add Windows Hello (a face, a fingerprint or its PIN). It works only on this PC, so it
+ * needs another way in that works elsewhere. Windows only.
+ */
+windows_hello?: boolean,
 /**
  * How hard an added password makes guessing [default: standard].
  */
@@ -727,7 +740,8 @@ strength?: StrengthName,
 remove?: Array<number>,
 /**
  * Make a new file key: every cell sealed again, every slot rebuilt. A password slot is
- * rebuilt with `add_password`, a recovery key is new, a security key needs a touch.
+ * rebuilt with `add_password` (one password slot), a recovery key is new, a security key or
+ * Windows Hello needs a touch.
  */
 new_key?: boolean,
 /**
@@ -928,10 +942,12 @@ protection?: ArchiveProtectionOutput,
 signatures?: Array<SignatureReport>, };
 
 /**
- * Check a `.bhive`'s signatures: that one is valid (from each signer `require_signer` names,
- * when given), and that every cell is what was signed, read to the end as `archive.test` reads
- * it. Fails with `SignatureRequired` when the archive isn't signed that way, and `Corrupt`
- * when it changed after it was signed.
+ * Check a `.bhive`'s signatures, and that every cell is what was signed, read to the end as
+ * `archive.test` reads it. It passes when no signature failed and one is valid: from each
+ * signer `require_signer` names, or without it from someone you trust (yourself, a contact,
+ * or a certificate the system trusts). Fails with `SignatureRequired` when the archive isn't
+ * signed that way or changed after it was signed, and `Corrupt` when a cell doesn't match
+ * the digest that was signed.
  */
 export type ArchiveVerifyInput = {
 /**
@@ -2490,10 +2506,12 @@ export type CommandMap = {
    */
   "archive.test": { input: ArchiveTestInput; output: ArchiveTestOutput };
   /**
-   * Check a `.bhive`'s signatures: that one is valid (from each signer `require_signer` names,
-   * when given), and that every cell is what was signed, read to the end as `archive.test` reads
-   * it. Fails with `SignatureRequired` when the archive isn't signed that way, and `Corrupt`
-   * when it changed after it was signed.
+   * Check a `.bhive`'s signatures, and that every cell is what was signed, read to the end as
+   * `archive.test` reads it. It passes when no signature failed and one is valid: from each
+   * signer `require_signer` names, or without it from someone you trust (yourself, a contact,
+   * or a certificate the system trusts). Fails with `SignatureRequired` when the archive isn't
+   * signed that way or changed after it was signed, and `Corrupt` when a cell doesn't match
+   * the digest that was signed.
    */
   "archive.verify": { input: ArchiveVerifyInput; output: ArchiveTestOutput };
   /**

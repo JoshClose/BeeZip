@@ -85,6 +85,7 @@ pub struct WaysArgs<'a> {
     pub this_pc: bool,
     pub this_pc_pin: Option<&'a Secret>,
     pub security_key: bool,
+    pub windows_hello: bool,
     pub strength: Option<StrengthName>,
     /// The archive keeps other ways in (`archive.protect`), which may leave this PC.
     pub kept: bool,
@@ -104,6 +105,7 @@ impl WaysArgs<'_> {
             (self.this_pc, "this_pc"),
             (self.this_pc_pin.is_some(), "this_pc_pin"),
             (self.security_key, "security_key"),
+            (self.windows_hello, "windows_hello"),
             (self.strength.is_some(), "strength"),
         ]
         .into_iter()
@@ -111,11 +113,72 @@ impl WaysArgs<'_> {
     }
 }
 
-/// The slots to make, and the recovery key that was made for one of them, to show once.
+/// A way in that needs a device: made last, once everything else has been checked.
+#[derive(Debug, Clone)]
+pub enum Device {
+    /// A new This PC key in the TPM, with its PIN.
+    ThisPc(Option<Secret>),
+    /// A security key, or with `hello` Windows Hello: a new credential, or the one a slot
+    /// already has ("New key").
+    Fido2 {
+        hello: bool,
+        credential: Option<Vec<u8>>,
+        label: Option<String>,
+    },
+}
+
+impl Device {
+    /// Whether its way in works only on this PC (decision 11).
+    pub fn machine_bound(&self) -> bool {
+        matches!(self, Self::ThisPc(_) | Self::Fido2 { hello: true, .. })
+    }
+}
+
+/// The slots to make, the devices still to ask, and the recovery key that was made for one of
+/// them, to show once.
 #[derive(Debug, Default)]
 pub struct Ways {
     pub recipients: Vec<Labelled>,
     pub recovery_key: Option<Secret>,
+    pub devices: Vec<Device>,
+}
+
+impl Ways {
+    /// Refuses ways in that would all be bound to this PC, before any device is asked.
+    pub fn check(&self) -> Result<(), CmdError> {
+        leaves_the_machine(&self.recipients, &self.devices)
+    }
+
+    /// Asks the devices, last: the security keys and Windows Hello first, since a person may
+    /// cancel them, then the TPM. Their ways in join the others; the rule of decision 11 is
+    /// checked again on what the devices made.
+    pub fn make_devices(&mut self, cx: &JobCtx) -> Result<(), CmdError> {
+        let mut devices = std::mem::take(&mut self.devices);
+        devices.sort_by_key(|d| matches!(d, Device::ThisPc(_)));
+        for device in devices {
+            let option = match &device {
+                Device::ThisPc(_) => "this_pc",
+                Device::Fido2 { hello: true, .. } => "windows_hello",
+                Device::Fido2 { .. } => "security_key",
+            };
+            attended(cx, option, NO_DEVICES)?;
+            self.recipients.push(match device {
+                Device::ThisPc(pin) => this_pc(pin.as_ref())?,
+                Device::Fido2 {
+                    hello,
+                    credential,
+                    label,
+                } => {
+                    let mut l = security_key(hello, credential.as_deref())?;
+                    if label.is_some() {
+                        l.label = label;
+                    }
+                    l
+                }
+            });
+        }
+        leaves_the_machine(&self.recipients, &[])
+    }
 }
 
 /// Refuses `option` when nobody is there to see what it does (MCP).
@@ -131,8 +194,9 @@ fn attended(cx: &JobCtx, option: &str, why: &str) -> Result<(), CmdError> {
 
 const NO_DEVICES: &str = "nobody is there to touch a device or type its PIN";
 
-/// Makes the recipients `args` asks for: the cheap ones first, the devices last, so a key
-/// string that doesn't parse leaves no TPM key behind and asks for no touch.
+/// Makes the recipients `args` asks for, and lists the devices it needs without asking them:
+/// the caller checks everything else first, then calls [`Ways::make_devices`], so a key string
+/// that doesn't parse or an output in the way leaves no TPM key behind and asks for no touch.
 pub fn ways(args: &WaysArgs<'_>, cx: &mut JobCtx) -> Result<Ways, CmdError> {
     if args.strength.is_some() && args.password.is_none() {
         return Err(CmdError::invalid_args(
@@ -158,6 +222,9 @@ pub fn ways(args: &WaysArgs<'_>, cx: &mut JobCtx) -> Result<Ways, CmdError> {
     if args.security_key {
         attended(cx, "security_key", NO_DEVICES)?;
     }
+    if args.windows_hello {
+        attended(cx, "windows_hello", NO_DEVICES)?;
+    }
     // Decision 11: a way in that never leaves this PC needs one that does.
     let leaves = args.kept
         || args.password.is_some()
@@ -165,11 +232,16 @@ pub fn ways(args: &WaysArgs<'_>, cx: &mut JobCtx) -> Result<Ways, CmdError> {
         || !args.to.is_empty()
         || !args.to_cert.is_empty()
         || args.security_key;
-    if args.this_pc && !leaves {
-        return Err(CmdError::invalid_args(
-            "This PC can't be the only way in: its key never leaves this PC, so the archive \
-             would be lost with it. Add a password, a recovery key or someone's key too.",
-        ));
+    if (args.this_pc || args.windows_hello) && !leaves {
+        let what = if args.this_pc {
+            "This PC can't be the only way in: its key never leaves this PC"
+        } else {
+            "Windows Hello can't be the only way in: it works only on this PC"
+        };
+        return Err(CmdError::invalid_args(format!(
+            "{what}, so the archive would be lost with it. Add a password, a recovery key or \
+             someone's key too."
+        )));
     }
 
     let mut out = Ways::default();
@@ -193,10 +265,9 @@ pub fn ways(args: &WaysArgs<'_>, cx: &mut JobCtx) -> Result<Ways, CmdError> {
             label: Some("Recovery key".into()),
         });
     }
-    let store = cx.key_store();
     let others = !args.to.is_empty() || !args.to_cert.is_empty();
     for text in args.to {
-        out.recipients.push(public_key(text, &store)?);
+        out.recipients.push(public_key(text, cx)?);
     }
     for text in args.to_cert {
         let c = certificate(text)?;
@@ -211,20 +282,37 @@ pub fn ways(args: &WaysArgs<'_>, cx: &mut JobCtx) -> Result<Ways, CmdError> {
         }
         out.recipients.push(certificate_recipient(c)?);
     }
-    if args.password.is_some() && others {
-        cx.log(
-            LogLevel::Warn,
-            "anyone who can open this archive with their key could also make an archive that \
-             your password opens; sign it to show that it's yours",
-        );
+    // "New key" checks this on every way in it keeps (`kept`).
+    if args.password.is_some() && others && !args.kept {
+        warn_password_beside_keys(cx);
     }
     if args.this_pc {
-        out.recipients.push(this_pc(args.this_pc_pin)?);
+        out.devices.push(Device::ThisPc(args.this_pc_pin.cloned()));
     }
     if args.security_key {
-        out.recipients.push(security_key(None)?);
+        out.devices.push(Device::Fido2 {
+            hello: false,
+            credential: None,
+            label: None,
+        });
+    }
+    if args.windows_hello {
+        out.devices.push(Device::Fido2 {
+            hello: true,
+            credential: None,
+            label: None,
+        });
     }
     Ok(out)
+}
+
+/// Decision 12: a password beside other people's keys.
+pub fn warn_password_beside_keys(cx: &JobCtx) {
+    cx.log(
+        LogLevel::Warn,
+        "anyone who can open this archive with their key could also make an archive that your \
+         password opens; sign it to show that it's yours",
+    );
 }
 
 /// Seconds since 1970, now.
@@ -233,7 +321,7 @@ pub fn now() -> i64 {
 }
 
 /// An `age1…` or `age1pq1…` key, or a contact's (or your own key's) name.
-pub fn public_key(text: &str, store: &Store) -> Result<Labelled, CmdError> {
+pub fn public_key(text: &str, cx: &JobCtx) -> Result<Labelled, CmdError> {
     let text = text.trim();
     if text.to_ascii_lowercase().starts_with("age1") {
         return Ok(Labelled {
@@ -241,7 +329,8 @@ pub fn public_key(text: &str, store: &Store) -> Result<Labelled, CmdError> {
             label: None,
         });
     }
-    let entry = store
+    let entry = cx
+        .key_store()?
         .list()?
         .into_iter()
         .find(|k| k.name == text && matches!(k.kind, KeyKind::X25519 | KeyKind::XWing))
@@ -378,19 +467,26 @@ fn this_pc(_: Option<&Secret>) -> Result<Labelled, CmdError> {
     ))
 }
 
-/// A security key or Windows Hello: Windows asks for a touch. `credential` rebuilds the slot of
-/// one already registered ("New key").
+/// A security key, or with `hello` Windows Hello: Windows asks for a touch, a PIN or a face.
+/// `credential` rebuilds the slot of one already registered ("New key").
 #[cfg(windows)]
-fn security_key(credential: Option<&[u8]>) -> Result<Labelled, CmdError> {
-    let recipient = beezip_keys::webauthn::recipient(false, credential, None)?;
+fn security_key(hello: bool, credential: Option<&[u8]>) -> Result<Labelled, CmdError> {
+    let recipient = beezip_keys::webauthn::recipient(hello, credential, None)?;
     Ok(Labelled {
         recipient,
-        label: Some("Security key".into()),
+        label: Some(
+            if hello {
+                "Windows Hello"
+            } else {
+                "Security key"
+            }
+            .into(),
+        ),
     })
 }
 
 #[cfg(not(windows))]
-fn security_key(_: Option<&[u8]>) -> Result<Labelled, CmdError> {
+fn security_key(_: bool, _: Option<&[u8]>) -> Result<Labelled, CmdError> {
     Err(CmdError::new(
         ErrorCode::UnsupportedOperation,
         "security keys work through Windows' webauthn.dll; on this system use a password, a \
@@ -410,10 +506,9 @@ pub fn signing(names: &[String], cx: &mut JobCtx) -> Result<Option<Signing>, Cmd
         "a signature says that you made the archive, so BeeZip signs only when you ask it to \
          yourself",
     )?;
-    let store = cx.key_store();
     let mut signers = Vec::with_capacity(names.len());
     for name in names {
-        signers.push(signer(name.trim(), &store)?);
+        signers.push(signer(name.trim(), cx)?);
     }
     let signing = Signing {
         signers,
@@ -423,7 +518,7 @@ pub fn signing(names: &[String], cx: &mut JobCtx) -> Result<Option<Signing>, Cmd
     Ok(Some(signing))
 }
 
-fn signer(text: &str, store: &Store) -> Result<Arc<dyn sign::Signer>, CmdError> {
+fn signer(text: &str, cx: &JobCtx) -> Result<Arc<dyn sign::Signer>, CmdError> {
     if let Some(t) = thumbprint(text) {
         return store_signer(&t);
     }
@@ -432,7 +527,10 @@ fn signer(text: &str, store: &Store) -> Result<Arc<dyn sign::Signer>, CmdError> 
         let key = key_beside(path);
         return Ok(beezip_keys::files::signer(path, &key, None)?);
     }
-    Ok(beezip_keys::identity::signing::signer(store, text)?)
+    Ok(beezip_keys::identity::signing::signer(
+        &cx.key_store()?,
+        text,
+    )?)
 }
 
 /// The private key of a certificate file: `name.key` beside it, else the file itself (a PEM
@@ -517,7 +615,9 @@ pub fn signer_certificates(signer: &[u8]) -> Option<Vec<&[u8]>> {
 }
 
 /// A signer `require_signer` asks for: the SHA-256 of a signing key's bytes, or of the
-/// signer's own certificate. Whole hashes, never fingerprints (docs/M14.md §11).
+/// signer's own certificate, the first in its signer bytes, whatever chain follows it (the
+/// chain a signer includes may change; docs/bhive.md §13.5). Whole hashes, never fingerprints
+/// (docs/M14.md §11).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Wanted {
     Key([u8; 32]),
@@ -546,16 +646,15 @@ impl Wanted {
 /// What each `require_signer` value names: a `bzsig1…` key, a certificate file, or a contact's
 /// (or your own) signing key by name.
 pub fn wanted(list: &[String], cx: &JobCtx) -> Result<Vec<(String, Wanted)>, CmdError> {
-    let store = cx.key_store();
     list.iter()
         .map(|text| {
             let text = text.trim();
-            Ok((text.to_owned(), wanted_one(text, &store)?))
+            Ok((text.to_owned(), wanted_one(text, cx)?))
         })
         .collect()
 }
 
-fn wanted_one(text: &str, store: &Store) -> Result<Wanted, CmdError> {
+fn wanted_one(text: &str, cx: &JobCtx) -> Result<Wanted, CmdError> {
     let signing_key = |key: KeyText| match key {
         KeyText::SigningPublic(k) => Ok(Wanted::Key(sha256(&k[..]))),
         _ => Err(CmdError::invalid_args(format!(
@@ -569,7 +668,8 @@ fn wanted_one(text: &str, store: &Store) -> Result<Wanted, CmdError> {
         let c = beezip_keys::files::certificate(Path::new(text))?;
         return Ok(Wanted::Certificate(sha256(&c.der)));
     }
-    let entry = store
+    let entry = cx
+        .key_store()?
         .list()?
         .into_iter()
         .find(|k| k.name == text && k.kind == KeyKind::Signing)
@@ -609,20 +709,69 @@ pub fn require(report: Option<&sign::Report>, wanted: &[(String, Wanted)]) -> Re
     Ok(())
 }
 
-/// `Ok` when a signature is valid, whoever made it (`archive.verify`).
-pub fn verified(report: Option<&sign::Report>) -> Result<(), CmdError> {
-    let signatures = report.map(|r| r.signatures.as_slice()).unwrap_or_default();
-    if signatures.iter().any(|s| s.status == Status::Valid) {
-        return Ok(());
+/// `archive.verify`'s rule, on the signatures as [`reports`] shows them: none may have failed,
+/// and one must be valid. With `require_signer` given ([`require`] checked who), any valid one
+/// does; without, one must be from someone you trust: yourself, a contact, or a certificate
+/// the system trusts. `SignatureRequired` otherwise.
+pub fn verified(signatures: &[SignatureReport], signers_given: bool) -> Result<(), CmdError> {
+    let fail = |why: String| Err(CmdError::new(ErrorCode::SignatureRequired, why));
+    if signatures.is_empty() {
+        return fail("the archive isn't signed".into());
     }
-    let why = if signatures.is_empty() {
-        "the archive isn't signed"
-    } else if signatures.iter().any(|s| s.status == Status::Invalid) {
-        "it changed after it was signed"
-    } else {
-        "none of its signatures could be checked"
+    if let Some(changed) = signatures
+        .iter()
+        .find(|s| s.status == SignatureStatusName::Changed)
+    {
+        return fail(format!(
+            "it changed after it was signed by {} [{}]",
+            changed.signer, changed.fingerprint
+        ));
+    }
+    let valid: Vec<&SignatureReport> = signatures
+        .iter()
+        .filter(|s| s.status == SignatureStatusName::Valid)
+        .collect();
+    let trusted = |s: &&SignatureReport| {
+        matches!(
+            s.trust,
+            Some(TrustName::Yours | TrustName::Contact | TrustName::Trusted)
+        )
     };
-    Err(CmdError::new(ErrorCode::SignatureRequired, why))
+    match valid.first() {
+        None => fail("none of its signatures could be checked".into()),
+        Some(_) if signers_given || valid.iter().any(trusted) => Ok(()),
+        Some(s) => fail(format!(
+            "it is signed by {} [{}], whom BeeZip doesn't know: add them as a contact, or pass \
+             `require_signer` with their key or certificate",
+            s.signer, s.fingerprint
+        )),
+    }
+}
+
+/// Warns of each signature that failed: the archive changed after it was signed (decision 26).
+/// It still opens; `require_signer` is what refuses it.
+pub fn warn_changed(reader: &mut dyn ArchiveReader, cx: &JobCtx) {
+    let Some(report) = signatures_of(reader) else {
+        return;
+    };
+    if !report
+        .signatures
+        .iter()
+        .any(|s| s.status == Status::Invalid)
+    {
+        return;
+    }
+    for s in reports(report, cx) {
+        if s.status == SignatureStatusName::Changed {
+            cx.log(
+                LogLevel::Warn,
+                format!(
+                    "this archive CHANGED after it was signed by {} [{}]",
+                    s.signer, s.fingerprint
+                ),
+            );
+        }
+    }
 }
 
 /// The signatures of an open archive, when it is a `.bhive`.
@@ -633,6 +782,43 @@ pub fn signatures_of(reader: &mut dyn ArchiveReader) -> Option<&sign::Report> {
         .map(|r| r.signatures())
 }
 
+/// How many signatures the `.bhive` file at `path` has, read before a change that drops them
+/// (an edit of its contents, a conversion), so BeeZip can say so first (docs/M14.md §11).
+/// `None` when it isn't a `.bhive`, or is encrypted: its index can't be read without opening
+/// it, which would ask for its key a second time.
+pub fn signatures_before_change(path: &Path, cx: &mut JobCtx) -> Option<usize> {
+    let mut header = [0u8; 16];
+    std::fs::File::open(path)
+        .and_then(|mut f| f.read_exact(&mut header))
+        .ok()?;
+    let features = layout::check_header(&header).ok()?;
+    if features & layout::FEATURE_ENCRYPTED != 0 {
+        return None;
+    }
+    let opts = open_options(None, cx);
+    let mut opened = open(path, &opts, cx).ok()?;
+    signatures_of(&mut *opened.reader).map(|r| r.signatures.len())
+}
+
+/// Warns, before a change, that the archive's signatures won't survive it.
+pub fn warn_signatures_dropped(path: &Path, why: &str, cx: &mut JobCtx) {
+    if let Some(n) = signatures_before_change(path, cx).filter(|&n| n > 0) {
+        let name = path.file_name().map_or_else(
+            || path.display().to_string(),
+            |n| n.to_string_lossy().into_owned(),
+        );
+        let them = if n == 1 {
+            "its signature".to_owned()
+        } else {
+            format!("its {n} signatures")
+        };
+        cx.log(
+            LogLevel::Warn,
+            format!("{name} is signed, and {them} {why}"),
+        );
+    }
+}
+
 /// How BeeZip shows each signature: checked by core, its signer named through your keys,
 /// contacts and the system's trust (`beezip-keys`).
 pub fn reports(report: &sign::Report, cx: &JobCtx) -> Vec<SignatureReport> {
@@ -640,11 +826,12 @@ pub fn reports(report: &sign::Report, cx: &JobCtx) -> Vec<SignatureReport> {
     report
         .signatures
         .iter()
-        .map(|s| signature_report(s, &store))
+        .map(|s| signature_report(s, store.as_ref()))
         .collect()
 }
 
-fn signature_report(s: &SignatureInfo, store: &Store) -> SignatureReport {
+/// How BeeZip shows a signature. Without your keys' store (`Err`), nobody is trusted.
+fn signature_report(s: &SignatureInfo, store: Result<&Store, &CmdError>) -> SignatureReport {
     let algorithm = Algorithm::from_id(s.algorithm);
     let fingerprint = fingerprint(&s.signer);
     let leaf = signer_certificates(&s.signer)
@@ -664,8 +851,11 @@ fn signature_report(s: &SignatureInfo, store: &Store) -> SignatureReport {
     let mut signer = leaf
         .as_ref()
         .map_or_else(|| fingerprint.clone(), |c| c.subject.clone());
-    let trust =
-        (status == SignatureStatusName::Valid).then(|| match beezip_keys::trust::trust(store, s) {
+    let trust = (status == SignatureStatusName::Valid).then(|| {
+        match store
+            .map_err(Clone::clone)
+            .and_then(|store| Ok(beezip_keys::trust::trust(store, s)?))
+        {
             Ok(t) => {
                 use beezip_keys::trust::Trust as T;
                 let (name, trust) = match t {
@@ -683,7 +873,8 @@ fn signature_report(s: &SignatureInfo, store: &Store) -> SignatureReport {
                 note = Some(format!("couldn't tell who signed it: {}", e.message));
                 TrustName::Unknown
             }
-        });
+        }
+    });
     SignatureReport {
         algorithm: match algorithm {
             Some(Algorithm::MlDsa65Ed25519) => SignatureAlgorithmName::MlDsa65Ed25519,
@@ -719,7 +910,7 @@ pub fn signed_reports(signing: &Signing, cx: &JobCtx) -> Vec<SignatureReport> {
                     time: Some(time),
                     status: Status::Valid,
                 },
-                &store,
+                store.as_ref(),
             )
         })
         .collect()
@@ -899,15 +1090,25 @@ pub fn described_recipient(slot: &Slot) -> Result<Option<Recipient>, CmdError> {
     }))
 }
 
-/// Whether "New key" may rebuild `slot` without asking: its recipient is one of your keys or
-/// contacts (docs/bhive.md §12.9). Machine-bound slots are your own PC's.
-pub fn known_recipient(slot: &Slot, store: &Store) -> bool {
+/// Whether "New key" may rebuild `slot` without asking (docs/bhive.md §12.9): the key its
+/// description names is one of your keys or contacts, or, for a slot bound to one machine, a
+/// This PC key this PC has (`this_pc`, their SubjectPublicKeyInfos). A description is a claim
+/// anyone who held the file key could have written, so it counts only where it names a key
+/// you have; any other is confirmed by the user.
+pub fn known_recipient(slot: &Slot, store: Option<&Store>, this_pc: &[Vec<u8>]) -> bool {
     let d = &slot.description;
     if d.machine_bound {
-        return true;
+        let Some(bytes) = d.certificate.as_deref() else {
+            return false;
+        };
+        let spki = cert::parse(bytes).map_or_else(|_| bytes.to_vec(), |c| c.spki);
+        return slot.kind == SlotKind::EcP256 && this_pc.contains(&spki);
     }
     let Some(key) = d.public_key.as_deref() else {
         // Certificates aren't among the contacts yet: each is confirmed.
+        return false;
+    };
+    let Some(store) = store else {
         return false;
     };
     store.list().unwrap_or_default().iter().any(|k| {
@@ -921,20 +1122,21 @@ pub fn known_recipient(slot: &Slot, store: &Store) -> bool {
     })
 }
 
-/// A security key slot rebuilt for a new file key: one touch.
-pub fn rebuild_security_key(slot: &Slot, cx: &JobCtx) -> Result<Labelled, CmdError> {
-    attended(cx, "new_key", NO_DEVICES)?;
+/// The device a security key or Windows Hello slot is rebuilt with for a new file key: its own
+/// credential, one touch, asked last. A slot whose salt is a PRF input (flag bit 0, bhive.md
+/// §12.5) is Windows Hello's, as `beezip-keys` makes them.
+pub fn security_key_device(slot: &Slot) -> Result<Device, CmdError> {
     let id = credential_id(&slot.public).ok_or_else(|| {
         CmdError::new(
             ErrorCode::Corrupt,
             format!("slot {} has no credential id", slot.index),
         )
     })?;
-    let mut l = security_key(Some(id))?;
-    if slot.description.label.is_some() {
-        l.label = slot.description.label.clone();
-    }
-    Ok(l)
+    Ok(Device::Fido2 {
+        hello: slot.public.first().is_some_and(|flags| flags & 1 != 0),
+        credential: Some(id.to_vec()),
+        label: slot.description.label.clone(),
+    })
 }
 
 /// A recovery key for a slot rebuilt for a new file key.
@@ -1077,8 +1279,9 @@ pub fn ways_of(recipients: &[Labelled]) -> Vec<WayIn> {
         .collect()
 }
 
-/// Refuses ways in that are all bound to this PC (docs/M14.md decision 11).
-pub fn leaves_the_machine(recipients: &[Labelled]) -> Result<(), CmdError> {
+/// Refuses ways in, made and still to make on `devices`, that are all bound to this PC
+/// (docs/M14.md decision 11).
+pub fn leaves_the_machine(recipients: &[Labelled], devices: &[Device]) -> Result<(), CmdError> {
     let bound = |l: &Labelled| {
         matches!(
             l.recipient,
@@ -1091,12 +1294,12 @@ pub fn leaves_the_machine(recipients: &[Labelled]) -> Result<(), CmdError> {
             }
         )
     };
-    if recipients.is_empty() {
+    if recipients.is_empty() && devices.is_empty() {
         return Err(CmdError::invalid_args(
             "that would leave the archive with no way in",
         ));
     }
-    if recipients.iter().all(bound) {
+    if recipients.iter().all(bound) && devices.iter().all(Device::machine_bound) {
         return Err(CmdError::invalid_args(
             "every way in left would work only on this PC, so the archive would be lost with \
              it. Keep or add a password, a recovery key or someone's key.",
@@ -1328,24 +1531,27 @@ mod tests {
     #[test]
     fn signature_reports() {
         let store = Store::new(std::env::temp_dir().join("beezip-no-such-store"));
-        let r = signature_report(&signature(1, vec![3; 1984], Status::Valid), &store);
+        let r = signature_report(&signature(1, vec![3; 1984], Status::Valid), Ok(&store));
         assert_eq!(r.algorithm, SignatureAlgorithmName::MlDsa65Ed25519);
         assert_eq!(r.status, SignatureStatusName::Valid);
         assert!(r.post_quantum);
         assert!(r.trust.is_some());
         assert_eq!(r.fingerprint, fingerprint(&[3; 1984]));
         assert_eq!(r.claimed_time, Some(1_767_225_600));
-        let r = signature_report(&signature(9, vec![], Status::UnknownAlgorithm(9)), &store);
+        let r = signature_report(
+            &signature(9, vec![], Status::UnknownAlgorithm(9)),
+            Ok(&store),
+        );
         assert_eq!(r.algorithm, SignatureAlgorithmName::Unknown);
         assert_eq!(r.status, SignatureStatusName::UnknownAlgorithm);
         assert_eq!(r.trust, None);
         assert!(!r.post_quantum);
-        let r = signature_report(&signature(4, vec![], Status::Invalid), &store);
+        let r = signature_report(&signature(4, vec![], Status::Invalid), Ok(&store));
         assert_eq!(r.status, SignatureStatusName::Changed);
         assert_eq!(r.trust, None);
         let r = signature_report(
             &signature(1, vec![], Status::NotChecked("section 2 is short".into())),
-            &store,
+            Ok(&store),
         );
         assert_eq!(r.status, SignatureStatusName::NotChecked);
         assert_eq!(r.note.as_deref(), Some("section 2 is short"));
@@ -1444,18 +1650,43 @@ mod tests {
             );
         }
 
-        // Only your own PC's key, your keys and contacts are rebuilt without asking.
+        // Only keys you have are rebuilt without asking: a This PC key this PC has, your keys
+        // and contacts. A slot that only says it is bound to this machine is confirmed: anyone
+        // who held the file key could have put their own key there and said so.
         let store = Store::new(std::env::temp_dir().join("beezip-no-such-store"));
+        let spki = vec![0x30, 0x59, 7];
         let bound = slot(
             SlotKind::EcP256,
             Description {
-                certificate: Some(vec![0x30]),
+                certificate: Some(spki.clone()),
                 machine_bound: true,
                 ..Description::default()
             },
         );
-        assert!(known_recipient(&bound, &store));
-        assert!(!known_recipient(&x, &store));
+        assert!(known_recipient(
+            &bound,
+            Some(&store),
+            std::slice::from_ref(&spki)
+        ));
+        assert!(known_recipient(&bound, None, std::slice::from_ref(&spki)));
+        assert!(!known_recipient(&bound, Some(&store), &[]));
+        assert!(!known_recipient(
+            &bound,
+            Some(&store),
+            &[vec![0x30, 0x59, 8]]
+        ));
+        let p384 = slot(SlotKind::EcP384, bound.description.clone());
+        assert!(!known_recipient(
+            &p384,
+            Some(&store),
+            std::slice::from_ref(&spki)
+        ));
+        assert!(!known_recipient(
+            &x,
+            Some(&store),
+            std::slice::from_ref(&spki)
+        ));
+        assert!(!known_recipient(&x, None, &[]));
         let cert = slot(
             SlotKind::Rsa,
             Description {
@@ -1463,7 +1694,7 @@ mod tests {
                 ..Description::default()
             },
         );
-        assert!(!known_recipient(&cert, &store));
+        assert!(!known_recipient(&cert, Some(&store), &[]));
     }
 
     #[test]
@@ -1478,10 +1709,30 @@ mod tests {
             label: Some("This PC".into()),
         };
         let pw = password_recipient("pw", Strength::Standard, None);
-        assert!(leaves_the_machine(&[]).is_err());
-        let e = leaves_the_machine(std::slice::from_ref(&pc)).unwrap_err();
+        assert!(leaves_the_machine(&[], &[]).is_err());
+        let e = leaves_the_machine(std::slice::from_ref(&pc), &[]).unwrap_err();
         assert!(e.message.contains("only on this PC"), "{}", e.message);
-        leaves_the_machine(&[pc.clone(), pw.clone()]).unwrap();
+        leaves_the_machine(&[pc.clone(), pw.clone()], &[]).unwrap();
+        // Devices still to ask count as what they will make: Windows Hello and This PC stay
+        // here, a security key travels.
+        let hello = Device::Fido2 {
+            hello: true,
+            credential: None,
+            label: None,
+        };
+        let key = Device::Fido2 {
+            hello: false,
+            credential: None,
+            label: None,
+        };
+        let tpm = Device::ThisPc(None);
+        assert!(leaves_the_machine(&[], &[hello.clone(), tpm.clone()]).is_err());
+        assert!(
+            leaves_the_machine(std::slice::from_ref(&pc), std::slice::from_ref(&hello)).is_err()
+        );
+        leaves_the_machine(std::slice::from_ref(&pc), std::slice::from_ref(&key)).unwrap();
+        leaves_the_machine(&[], &[tpm, key]).unwrap();
+        leaves_the_machine(std::slice::from_ref(&pw), &[hello]).unwrap();
 
         let ways = ways_of(&[pw, pc]);
         assert_eq!(ways.len(), 2);
@@ -1528,7 +1779,7 @@ mod tests {
         );
         assert!(text.contains("could have changed them"), "{text}");
         let store = Store::new(std::env::temp_dir().join("beezip-no-such-store"));
-        let changed = signature_report(&signature(1, vec![5; 1984], Status::Invalid), &store);
+        let changed = signature_report(&signature(1, vec![5; 1984], Status::Invalid), Ok(&store));
         let text = signatures_text(&[changed]);
         assert!(text.contains("CHANGED after it was signed"), "{text}");
         assert!(text.contains(&fingerprint(&[5; 1984])), "{text}");
@@ -1551,5 +1802,43 @@ mod tests {
         assert_eq!(signer_certificates(&t), None);
         let many: Vec<&[u8]> = vec![b"a"; 9];
         assert_eq!(signer_certificates(&certificates(&many)), None);
+    }
+
+    #[test]
+    fn verify_wants_nothing_changed_and_someone_you_trust() {
+        let store = Store::new(std::env::temp_dir().join("beezip-no-such-store"));
+        let report = |status, trust| SignatureReport {
+            trust,
+            ..signature_report(&signature(1, vec![4; 1984], status), Ok(&store))
+        };
+        let valid = |trust| report(Status::Valid, Some(trust));
+        let changed = report(Status::Invalid, None);
+
+        let e = verified(&[], false).unwrap_err();
+        assert!(e.message.contains("isn't signed"), "{}", e.message);
+        // A valid signature from someone you trust passes; beside one that failed, nothing does.
+        verified(&[valid(TrustName::Contact)], false).unwrap();
+        verified(&[valid(TrustName::Yours)], false).unwrap();
+        verified(&[valid(TrustName::Trusted)], false).unwrap();
+        let e = verified(&[changed.clone(), valid(TrustName::Yours)], false).unwrap_err();
+        assert_eq!(e.code, ErrorCode::SignatureRequired);
+        assert!(
+            e.message.contains("changed after it was signed"),
+            "{}",
+            e.message
+        );
+        let e = verified(&[valid(TrustName::Yours), changed], true).unwrap_err();
+        assert!(e.message.contains("changed after"), "{}", e.message);
+        // A stranger's valid signature passes only when `require_signer` named them.
+        let e = verified(&[valid(TrustName::Unknown)], false).unwrap_err();
+        assert!(e.message.contains("doesn't know"), "{}", e.message);
+        assert!(verified(&[valid(TrustName::Expired)], false).is_err());
+        verified(&[valid(TrustName::Unknown)], true).unwrap();
+        let e = verified(
+            &[report(Status::NotChecked("no digests".into()), None)],
+            true,
+        )
+        .unwrap_err();
+        assert!(e.message.contains("could be checked"), "{}", e.message);
     }
 }

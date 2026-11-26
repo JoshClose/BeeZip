@@ -128,7 +128,10 @@ pub(crate) fn test(
     let (protection, signatures) = protect::security(&path, &mut *opened.reader, cx)?;
     protect::require(protect::signatures_of(&mut *opened.reader), &wanted)?;
     if verify {
-        protect::verified(protect::signatures_of(&mut *opened.reader))?;
+        protect::verified(
+            signatures.as_deref().unwrap_or_default(),
+            !wanted.is_empty(),
+        )?;
     }
     // A reader with a test of its own (CHM, CramFS, NSIS, MSI) runs it; the rest read every
     // entry.

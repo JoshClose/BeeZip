@@ -117,10 +117,19 @@ struct Lent {
 }
 
 impl Lent {
-    /// Back to the cache, unless a password reached the reader or the job was cancelled.
+    /// Back to the cache, unless a password reached the reader, the job was cancelled, or it is
+    /// an encrypted `.bhive`, which holds its file key (docs/M14.md §13).
     fn give_back(mut self, cx: &JobCtx) {
+        let unlocked = self.archive.as_mut().is_some_and(|a| {
+            a.opened
+                .reader
+                .as_any_mut()
+                .downcast_mut::<beezip_core::format::bhive::BhiveReader>()
+                .is_some_and(|r| r.unlocked().is_some())
+        });
         if !cx.password_used()
             && !cx.is_cancelled()
+            && !unlocked
             && let (Some((cache, key)), Some(archive)) = (self.home.take(), self.archive.take())
         {
             cache.give_back(key, archive);

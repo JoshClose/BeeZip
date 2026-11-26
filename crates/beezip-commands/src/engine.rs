@@ -113,6 +113,8 @@ pub(crate) struct Live {
     /// Where Explorer's menu is registered.
     shell: crate::shell::Hive,
     shell_app: Option<PathBuf>,
+    /// Where jobs find keys besides your own and the key files given.
+    system_keys: crate::job::SystemKeys,
 }
 
 impl Live {
@@ -134,6 +136,10 @@ impl Live {
 
     pub(crate) fn shell_app(&self) -> Option<&std::path::Path> {
         self.shell_app.as_deref()
+    }
+
+    pub(crate) fn system_keys(&self) -> &crate::job::SystemKeys {
+        &self.system_keys
     }
 
     /// The new config, and the policy's limits from its `[limits]`.
@@ -160,6 +166,10 @@ pub struct EngineOptions {
     /// The desktop app's own exe, which `shell.install` registers for clicks unless told
     /// otherwise. The CLI leaves it unset and looks in the install folder.
     pub shell_app: Option<PathBuf>,
+    /// Where jobs find keys besides your own and the key files given (docs/M14.md §6): this
+    /// machine's certificate stores and devices for a front end ([`Self::from_loaded`]), none
+    /// otherwise, or a test's own.
+    pub system_keys: crate::job::SystemKeys,
 }
 
 impl Default for EngineOptions {
@@ -170,6 +180,7 @@ impl Default for EngineOptions {
             config_path: None,
             shell: crate::shell::Hive::real(),
             shell_app: None,
+            system_keys: crate::job::SystemKeys::Off,
         }
     }
 }
@@ -186,13 +197,16 @@ impl EngineOptions {
             config_path: None,
             shell: crate::shell::Hive::real(),
             shell_app: None,
+            system_keys: crate::job::SystemKeys::Off,
         }
     }
 
-    /// [`EngineOptions::from_config`] with the file it came from.
+    /// [`EngineOptions::from_config`] with the file it came from, and this machine's keys: what
+    /// a front end runs with.
     pub fn from_loaded(loaded: LoadedConfig, policy: Policy) -> Self {
         Self {
             config_path: loaded.path,
+            system_keys: crate::job::SystemKeys::Real,
             ..Self::from_config(loaded.config, policy)
         }
     }
@@ -234,6 +248,7 @@ impl Engine {
                     path: options.config_path,
                     shell: options.shell,
                     shell_app: options.shell_app,
+                    system_keys: options.system_keys,
                 }),
                 cache: Arc::new(ArchiveCache::new()),
                 locks: Arc::new(EditLocks::default()),

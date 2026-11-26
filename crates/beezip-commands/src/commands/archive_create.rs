@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use beezip_core::{
     CreateOptions, WriteSpec,
@@ -119,11 +119,15 @@ pub struct ArchiveCreateInput {
     #[arg(long, value_name = "PIN")]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub this_pc_pin: Option<Secret>,
-    /// Let a security key or Windows Hello open it: Windows asks for a touch. `.bhive` on
-    /// Windows.
+    /// Let a security key open it: Windows asks for a touch. `.bhive` on Windows.
     #[arg(long, num_args = 0..=1, require_equals = true, default_missing_value = "true")]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub security_key: Option<bool>,
+    /// Let Windows Hello open it (a face, a fingerprint or its PIN). It works only on this PC,
+    /// so it needs another way in that works elsewhere. `.bhive` on Windows.
+    #[arg(long, num_args = 0..=1, require_equals = true, default_missing_value = "true")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub windows_hello: Option<bool>,
     /// How hard a `.bhive`'s password makes guessing [default: standard].
     #[arg(long, value_enum)]
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -150,6 +154,7 @@ impl ArchiveCreateInput {
             this_pc: self.this_pc.unwrap_or(false),
             this_pc_pin: self.this_pc_pin.as_ref(),
             security_key: self.security_key.unwrap_or(false),
+            windows_hello: self.windows_hello.unwrap_or(false),
             strength: self.strength,
             kept: false,
         }
@@ -202,11 +207,13 @@ pub(crate) fn bhive_only(
 }
 
 /// Puts the ways in and the signers into a `.bhive`'s write options, making what they need
-/// (a recovery key, a This PC key, a security key's touch); the recovery key, to show once.
+/// (a recovery key, then a security key's touch or Windows Hello, then a This PC key), once
+/// `ready` has checked what can be checked before; the recovery key, to show once.
 pub(crate) fn protect_spec(
     spec: &mut WriteSpec,
     ways: &WaysArgs<'_>,
     sign: &[String],
+    ready: impl FnOnce() -> Result<(), CmdError>,
     cx: &mut JobCtx,
 ) -> Result<Option<Secret>, CmdError> {
     let WriteSpec::Bhive(o) = spec else {
@@ -214,11 +221,30 @@ pub(crate) fn protect_spec(
     };
     // Signers first: nothing is made for an archive that can't be signed.
     o.signing = protect::signing(sign, cx)?;
-    let made = protect::ways(ways, cx)?;
-    if !made.recipients.is_empty() {
-        o.protection = Some(Protection::New(made.recipients));
+    let mut made = protect::ways(ways, cx)?;
+    if made.recipients.is_empty() && made.devices.is_empty() {
+        return Ok(None);
     }
+    // Decision 11 on every way in, devices included, before any is asked.
+    made.check()?;
+    if !made.devices.is_empty() {
+        ready()?;
+        made.make_devices(cx)?;
+    }
+    o.protection = Some(Protection::New(made.recipients));
     Ok(made.recovery_key)
+}
+
+/// `Conflict` when `output` is in the way of a new archive, as core says it, before a device
+/// is asked for a way into an archive that couldn't be written.
+pub(crate) fn output_free(output: &Path, overwrite: bool, split: bool) -> Result<(), CmdError> {
+    if !split && !overwrite && std::fs::symlink_metadata(output).is_ok() {
+        return Err(CmdError::new(
+            crate::ErrorCode::Conflict,
+            format!("`{}` already exists", output.display()),
+        ));
+    }
+    Ok(())
 }
 
 /// How the CLI shows a recovery key that was made.
@@ -322,7 +348,13 @@ impl Command for ArchiveCreate {
             });
         }
 
-        let recovery_key = protect_spec(&mut spec, &input.ways(), sign, cx)?;
+        let recovery_key = protect_spec(
+            &mut spec,
+            &input.ways(),
+            sign,
+            || output_free(&output, opts.overwrite, opts.volume_size.is_some()),
+            cx,
+        )?;
         let report = ops::create(&output, &inputs, &spec, &opts, cx)?;
         Ok(ArchiveCreateOutput {
             recovery_key,

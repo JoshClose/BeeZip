@@ -36,7 +36,13 @@ Options:
           A PIN for the This PC key, which the TPM protects against guessing
 
       --security-key[=<SECURITY_KEY>]
-          Add a security key or Windows Hello: Windows asks for a touch. Windows only
+          Add a security key: Windows asks for a touch. Windows only
+          
+          [possible values: true, false]
+
+      --windows-hello[=<WINDOWS_HELLO>]
+          Add Windows Hello (a face, a fingerprint or its PIN). It works only on this PC, so it
+          needs another way in that works elsewhere. Windows only
           
           [possible values: true, false]
 
@@ -53,7 +59,8 @@ Options:
 
       --new-key[=<NEW_KEY>]
           Make a new file key: every cell sealed again, every slot rebuilt. A password slot is
-          rebuilt with `add_password`, a recovery key is new, a security key needs a touch
+          rebuilt with `add_password` (one password slot), a recovery key is new, a security key or
+          Windows Hello needs a touch
           
           [possible values: true, false]
 
@@ -80,6 +87,10 @@ Global options:
   -i, --identity <FILE>
           A key file that opens encrypted .bhive archives (age identities, PEM and PKCS #8 keys);
           repeatable
+
+      --password-stdin
+          Read the password or recovery key from the first line of stdin, where other programs can't
+          see it as they can the command line
 
   -q, --quiet
           No progress bars or info messages; warnings still print
