@@ -61,6 +61,7 @@ fn spec(level: Level, threads: u32, cell_size: Option<u32>) -> WriteSpec {
         memory: None,
         cell_size,
         inherit: false,
+        ..BhiveWriteOptions::default()
     })
 }
 
@@ -1054,11 +1055,17 @@ fn parse(raw: &[u8], index_offset: u64) {
         );
     }
     let count = index.items.items.len();
-    let again = layout::encode_index(&index.cells, count as u64, &items, index.level);
-    assert_eq!(
-        layout::parse_index(&again, index_offset, None).unwrap(),
-        index
-    );
+    // Every section as it was, the level's included, in the order it was in.
+    let sections: Vec<(u64, &[u8])> = index
+        .sections
+        .iter()
+        .map(|s| (s.id, s.body.as_slice()))
+        .collect();
+    let again = layout::encode_index_with(&index.cells, None, count as u64, &items, &sections);
+    // Where the entries lie may move: a reader takes longer varints than a writer makes.
+    let mut parsed = layout::parse_index(&again, index_offset, None).unwrap();
+    parsed.entry_bytes = index.entry_bytes.clone();
+    assert_eq!(parsed, index);
     let _ = layout::parse_journal(&items, count as u32, &index.cells, &mut Items::default());
     let _ = layout::parse_journal(raw, 3, &index.cells, &mut Items::default());
 }
@@ -1256,6 +1263,7 @@ fn an_edit_keeps_the_archives_level() {
                 memory: None,
                 cell_size: Some(8 << 10),
                 inherit,
+                ..BhiveWriteOptions::default()
             }))
         }
     };

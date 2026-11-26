@@ -102,6 +102,11 @@ follow_links?: boolean,
  */
 name_encoding?: NameEncoding,
 /**
+ * Sign the archive again after adding: an edit drops its signatures otherwise. Your
+ * signing key by name, a certificate's thumbprint, or a certificate file. `.bhive` only.
+ */
+sign?: Array<string>,
+/**
  * Show what would change without writing anything.
  */
 dry_run?: boolean, };
@@ -195,11 +200,53 @@ name_encoding?: NameEncoding,
  */
 recover?: boolean,
 /**
+ * Make a recovery key that opens the archive, shown once in the output: 48 digits to keep
+ * somewhere safe. `.bhive` only.
+ */
+recovery_key?: boolean,
+/**
+ * Encrypt to these public keys, so their owners open it with their private keys:
+ * `age1…`, `age1pq1…`, or a contact's name. `.bhive` only.
+ */
+to?: Array<string>,
+/**
+ * Encrypt to these certificates: a thumbprint in your stores, or a certificate file.
+ * `.bhive` only.
+ */
+to_cert?: Array<string>,
+/**
+ * Let this PC open it, with a key in its TPM. Needs another way in that works elsewhere.
+ * `.bhive` on Windows.
+ */
+this_pc?: boolean,
+/**
+ * A PIN for the This PC key, which the TPM protects against guessing.
+ */
+this_pc_pin?: Secret,
+/**
+ * Let a security key or Windows Hello open it: Windows asks for a touch. `.bhive` on
+ * Windows.
+ */
+security_key?: boolean,
+/**
+ * How hard a `.bhive`'s password makes guessing [default: standard].
+ */
+strength?: StrengthName,
+/**
+ * Sign it: your signing key by name, a certificate's thumbprint in your stores, or a
+ * certificate file with its key beside it. `.bhive` only.
+ */
+sign?: Array<string>,
+/**
  * Show what would be written without writing anything.
  */
 dry_run?: boolean, };
 
-export type ArchiveConvertOutput = { path: string, format: ArchiveFormatName, files: number, dirs: number, links: number,
+export type ArchiveConvertOutput = {
+/**
+ * The recovery key that was made (`recovery_key`): shown this once, never stored.
+ */
+recovery_key?: Secret, path: string, format: ArchiveFormatName, files: number, dirs: number, links: number,
 /**
  * The source's size.
  */
@@ -305,11 +352,53 @@ volume_size?: ByteSize,
  */
 overwrite?: boolean,
 /**
+ * Make a recovery key that opens the archive, shown once in the output: 48 digits to keep
+ * somewhere safe. `.bhive` only.
+ */
+recovery_key?: boolean,
+/**
+ * Encrypt to these public keys, so their owners open it with their private keys:
+ * `age1…`, `age1pq1…`, or a contact's name. `.bhive` only.
+ */
+to?: Array<string>,
+/**
+ * Encrypt to these certificates: a thumbprint in your stores, or a certificate file.
+ * `.bhive` only.
+ */
+to_cert?: Array<string>,
+/**
+ * Let this PC open it, with a key in its TPM. Needs another way in that works elsewhere.
+ * `.bhive` on Windows.
+ */
+this_pc?: boolean,
+/**
+ * A PIN for the This PC key, which the TPM protects against guessing.
+ */
+this_pc_pin?: Secret,
+/**
+ * Let a security key or Windows Hello open it: Windows asks for a touch. `.bhive` on
+ * Windows.
+ */
+security_key?: boolean,
+/**
+ * How hard a `.bhive`'s password makes guessing [default: standard].
+ */
+strength?: StrengthName,
+/**
+ * Sign it: your signing key by name, a certificate's thumbprint in your stores, or a
+ * certificate file with its key beside it. `.bhive` only.
+ */
+sign?: Array<string>,
+/**
  * Show what would be added without writing anything.
  */
 dry_run?: boolean, };
 
-export type ArchiveCreateOutput = { path: string, format: ArchiveFormatName, files: number, dirs: number, links: number, bytes_in: number, bytes_out: number,
+export type ArchiveCreateOutput = {
+/**
+ * The recovery key that was made (`recovery_key`): shown this once, never stored.
+ */
+recovery_key?: Secret, path: string, format: ArchiveFormatName, files: number, dirs: number, links: number, bytes_in: number, bytes_out: number,
 /**
  * `bytes_out / bytes_in`.
  */
@@ -570,6 +659,90 @@ total: number,
 size: number, offset: number, has_more: boolean, };
 
 /**
+ * Change who can open an encrypted `.bhive`, without recompressing it: add ways in, remove
+ * them, or make a new file key, which seals every cell again and rebuilds every slot.
+ * Removing a way in isn't revoking it: someone who opened the archive before could have kept
+ * its key; a new key is what shuts them out of later versions.
+ */
+export type ArchiveProtectInput = {
+/**
+ * The archive.
+ */
+archive: string,
+/**
+ * The password or recovery key that opens it, if none of your keys does.
+ */
+password?: Secret,
+/**
+ * Add a password.
+ */
+add_password?: Secret,
+/**
+ * Add a recovery key, shown once in the output.
+ */
+recovery_key?: boolean,
+/**
+ * Add public keys: `age1…`, `age1pq1…`, or a contact's name.
+ */
+to?: Array<string>,
+/**
+ * Add certificates: a thumbprint in your stores, or a certificate file.
+ */
+to_cert?: Array<string>,
+/**
+ * Add this PC (a key in its TPM). Windows only; needs another way in that works
+ * elsewhere.
+ */
+this_pc?: boolean,
+/**
+ * A PIN for the This PC key, which the TPM protects against guessing.
+ */
+this_pc_pin?: Secret,
+/**
+ * Add a security key or Windows Hello: Windows asks for a touch. Windows only.
+ */
+security_key?: boolean,
+/**
+ * How hard an added password makes guessing [default: standard].
+ */
+strength?: StrengthName,
+/**
+ * Remove these ways in, by slot, as `archive.protection` lists them.
+ */
+remove?: Array<number>,
+/**
+ * Make a new file key: every cell sealed again, every slot rebuilt.
+ */
+new_key?: boolean, };
+
+export type ArchiveProtectOutput = { ways: Array<WayIn>, post_quantum: boolean,
+/**
+ * A recovery key that was added: shown this once, never stored.
+ */
+recovery_key?: Secret, };
+
+/**
+ * List the ways into an encrypted `.bhive` (passwords, recovery keys, keys, certificates,
+ * This PC, security keys), with their labels, and say whether it resists quantum computers.
+ * Needs a way in: the archive's descriptions of its ways in are encrypted too.
+ */
+export type ArchiveProtectionInput = {
+/**
+ * The archive.
+ */
+archive: string,
+/**
+ * The password or recovery key that opens it, if none of your keys does.
+ */
+password?: Secret, };
+
+export type ArchiveProtectionOutput = { encrypted: boolean, ways: Array<WayIn>,
+/**
+ * Every way in is post-quantum: a quantum computer couldn't open the archive.
+ */
+post_quantum: boolean, };
+
+/**
  * Remove entries from an archive (zip, bhive, 7z, tar, cpio and ar, and tar and cpio under
  * any codec). A folder takes
  * everything under it. A new archive is written beside the old one and swapped in, so a failed
@@ -645,6 +818,41 @@ name_encoding?: NameEncoding,
  * Show what would be renamed without writing anything.
  */
 dry_run?: boolean, };
+
+/**
+ * Sign a `.bhive`, or remove its signatures (docs/bhive.md §13). A signature says who made the
+ * archive's contents and that they haven't changed since; changing who can open it keeps it,
+ * changing the contents drops it. Signing an archive that has no cell digests yet reads every
+ * cell once.
+ */
+export type ArchiveSignInput = {
+/**
+ * The archive.
+ */
+archive: string,
+/**
+ * Sign with these: your signing key by name, a certificate's thumbprint in your stores,
+ * or a certificate file with its key beside it.
+ */
+sign?: Array<string>,
+/**
+ * Remove these signatures, by their place in the list.
+ */
+remove?: Array<number>,
+/**
+ * Remove every signature.
+ */
+remove_all?: boolean,
+/**
+ * The password or recovery key, for an encrypted archive none of your keys opens.
+ */
+password?: Secret, };
+
+export type ArchiveSignOutput = {
+/**
+ * The archive's signatures afterwards.
+ */
+signatures: Array<SignatureReport>, };
 
 /**
  * Test an archive's integrity: read every entry to the end, checking CRCs and codec checksums.
@@ -809,6 +1017,56 @@ volumes: boolean,
  * An entry can be read without decoding the ones before it.
  */
 random_access: boolean, };
+
+/**
+ * What a listed certificate is wanted for.
+ */
+export type CertPurposeName = "all" | "encrypt" | "sign";
+
+/**
+ * A certificate, as `certificates.list` shows it.
+ */
+export type CertificateInfo = {
+/**
+ * SHA-1, hex, as Windows shows it: what `--to-cert` and `--sign` take.
+ */
+thumbprint: string, subject: string, issuer: string,
+/**
+ * Seconds since 1970.
+ */
+not_after: number,
+/**
+ * `rsa-2048`, `ec-p256`…
+ */
+algorithm: string,
+/**
+ * The store it is in (`personal`, `other-people`), on Windows.
+ */
+store?: string,
+/**
+ * Where its private key is, when this machine has it.
+ */
+key?: KeyHomeName, can_encrypt: boolean, can_sign: boolean,
+/**
+ * Why it can't encrypt, when it can't (an ECDSA-only key, RSA under 2,048 bits…).
+ */
+refused?: string,
+/**
+ * The system trusts its chain.
+ */
+trusted: boolean, };
+
+/**
+ * List the certificates in your stores (Personal and Other People on Windows, the Keychain on
+ * macOS) that can encrypt archives or sign them, with why the others can't.
+ */
+export type CertificatesListInput = {
+/**
+ * Which to list [default: all].
+ */
+purpose?: CertPurposeName, };
+
+export type CertificatesListOutput = { certificates: Array<CertificateInfo>, };
 
 /**
  * One change of a dry run: `path` is the entry's path afterwards (or the one removed); `from`
@@ -1119,7 +1377,7 @@ lossy: boolean, };
  * Stable error codes. Every front end maps them the same way: a CLI exit code, an MCP
  * `isError` result with structured content, and a UI toast.
  */
-export type ErrorCode = "NotFound" | "UnsupportedFormat" | "UnsupportedOperation" | "PasswordRequired" | "WrongPassword" | "Corrupt" | "OutsideSandbox" | "Conflict" | "LimitExceeded" | "Cancelled" | "BackendUnavailable" | "Io" | "Unsafe" | "InvalidArgs" | "Internal";
+export type ErrorCode = "NotFound" | "UnsupportedFormat" | "UnsupportedOperation" | "PasswordRequired" | "WrongPassword" | "Corrupt" | "OutsideSandbox" | "KeyRequired" | "SignatureRequired" | "Conflict" | "LimitExceeded" | "Cancelled" | "BackendUnavailable" | "Io" | "Unsafe" | "InvalidArgs" | "Internal";
 
 /**
  * An output that exists.
@@ -1289,6 +1547,92 @@ export type JobsConfig = {
 close_when_done: boolean, };
 
 export type JsonValue = number | string | boolean | Array<JsonValue> | { [key in string]: JsonValue } | null;
+
+/**
+ * Where a certificate's private key is.
+ */
+export type KeyHomeName = "software" | "smart-card" | "tpm" | "file";
+
+/**
+ * A key or contact, as `keys.list` shows it.
+ */
+export type KeyInfo = { name: string, kind: KeyKindName,
+/**
+ * The public key as text, to share.
+ */
+public: string, fingerprint: string,
+/**
+ * Yours, with its private key here; or a contact's.
+ */
+own: boolean,
+/**
+ * Seconds since 1970.
+ */
+created: number, };
+
+/**
+ * What a key of yours is for.
+ */
+export type KeyKindName = "post-quantum" | "classic" | "signing";
+
+/**
+ * Make a key of your own: one that archives can be encrypted to (post-quantum by default), or
+ * one that signs them. Its private key stays on this machine, sealed by the system.
+ */
+export type KeysCreateInput = {
+/**
+ * What to call it.
+ */
+name: string,
+/**
+ * What it is for [default: post-quantum].
+ */
+kind?: KeyKindName, };
+
+/**
+ * Delete a key or contact. Archives only it opens can't be opened any more.
+ */
+export type KeysDeleteInput = { name: string, };
+
+export type KeysDeleteOutput = { deleted: string, };
+
+/**
+ * Show a key as text: its public key, to share, or with `secret` its private key, for a
+ * backup. Anyone who has a private key can open what it opens, or sign as you.
+ */
+export type KeysExportInput = { name: string,
+/**
+ * The private key instead of the public one.
+ */
+secret?: boolean, };
+
+export type KeysExportOutput = { text: Secret, };
+
+/**
+ * Add a key: a private key (`AGE-SECRET-KEY-…`, `BZSIG-SECRET-KEY-1…`, or an age identity
+ * file) becomes yours; a public key (`age1…`, `age1pq1…`, `bzsig1…`) or a certificate file
+ * becomes a contact's.
+ */
+export type KeysImportInput = {
+/**
+ * What to call it.
+ */
+name: string,
+/**
+ * The key as text.
+ */
+text?: Secret,
+/**
+ * Or a file that holds it.
+ */
+file?: string, };
+
+/**
+ * List your keys (for opening archives and for signing them) and your contacts' public keys.
+ */
+export type KeysListInput = Record<symbol, never>;
+
+export type KeysListOutput = { keys: Array<KeyInfo>, };
 
 /**
  * Which entries `archive.list` keeps.
@@ -1478,12 +1822,12 @@ current: string | null, };
 /**
  * A question a job needs answered before it can continue.
  */
-export type Prompt = { "kind": "Password", entry: string | null, } | { "kind": "Overwrite", path: string, archive?: string, };
+export type Prompt = { "kind": "Password", entry: string | null, } | { "kind": "Overwrite", path: string, archive?: string, } | { "kind": "Unlock", ways: Array<UnlockWay>, attempt: number, };
 
 /**
  * A front end's answer to a `Prompt`.
  */
-export type PromptReply = { "kind": "Password", password: string, } | { "kind": "Overwrite", choice: OverwriteChoice, } | { "kind": "Cancel" };
+export type PromptReply = { "kind": "Password", password: string, } | { "kind": "Overwrite", choice: OverwriteChoice, } | { "kind": "Unlock", answer: UnlockReply, } | { "kind": "Cancel" };
 
 export type RenamedInfo = {
 /**
@@ -1768,6 +2112,42 @@ export type ShellUninstallOutput = {
 actions: Array<string>, };
 
 /**
+ * A signature's algorithm (docs/bhive.md §13.4).
+ */
+export type SignatureAlgorithmName = "ml-dsa65-ed25519" | "rsa-pss" | "rsa-pkcs1" | "ecdsa-p256" | "ecdsa-p384" | "unknown";
+
+/**
+ * A signature, as `archive.info`, `archive.test` and `archive.sign` report it.
+ */
+export type SignatureReport = { algorithm: SignatureAlgorithmName, status: SignatureStatusName,
+/**
+ * Set when the signature is valid.
+ */
+trust?: TrustName,
+/**
+ * Who signed, as BeeZip shows it: your key's or a contact's name, a certificate's subject,
+ * or the fingerprint.
+ */
+signer: string,
+/**
+ * 16 characters in groups of four (docs/bhive.md §13.5).
+ */
+fingerprint: string, issuer?: string,
+/**
+ * The time the signer claims, in seconds since 1970.
+ */
+claimed_time?: number, post_quantum: boolean,
+/**
+ * Why it couldn't be checked, or what is wrong.
+ */
+note?: string, };
+
+/**
+ * Whether a signature checks.
+ */
+export type SignatureStatusName = "valid" | "changed" | "unknown-algorithm" | "not-checked";
+
+/**
  * An entry that wasn't extracted.
  */
 export type SkippedInfo = { path: string,
@@ -1781,6 +2161,11 @@ reason: string,
  * Refused for safety; these make the command fail with `Unsafe`.
  */
 refused: boolean, };
+
+/**
+ * A way into an encrypted `.bhive` (docs/bhive.md §12.5).
+ */
+export type SlotKindName = "password" | "recovery-key" | "public-key" | "post-quantum-key" | "rsa-certificate" | "ec-p256" | "ec-p384" | "security-key";
 
 /**
  * What `archive.list` sorts by.
@@ -1883,6 +2268,11 @@ export type StreamDecompressOutput = { input: string, output: string,
 codec: CodecName, bytes_in: number, bytes_out: number, };
 
 /**
+ * How hard a password makes guessing (docs/M14.md decision 5).
+ */
+export type StrengthName = "standard" | "strong";
+
+/**
  * The front ends that expose a command.
  */
 export type Surfaces = { cli: boolean, gui: boolean, mcp: boolean, };
@@ -1895,6 +2285,25 @@ export type TextEncoding = "text" | "hex" | "base64";
 export type Theme = "system" | "light" | "dark";
 
 /**
+ * Whom a valid signature is from (docs/M14.md §11).
+ */
+export type TrustName = "yours" | "contact" | "trusted" | "expired" | "revoked" | "unknown";
+
+/**
+ * An answer to the Unlock prompt.
+ */
+export type UnlockReply = { "way": "password", password: string, } | { "way": "recovery-key", key: string, } | { "way": "slot", slot: number, };
+
+/**
+ * A way in, as the Unlock prompt lists it, before the archive is open.
+ */
+export type UnlockWay = { slot: number, kind: SlotKindName,
+/**
+ * A key or device on this machine fits it.
+ */
+here: boolean, };
+
+/**
  * The desktop app's updates (docs/M6.md §8.2). The CLI and MCP never check.
  */
 export type UpdatesConfig = {
@@ -1903,6 +2312,31 @@ export type UpdatesConfig = {
  * only downloaded and installed when you click it.
  */
 check: boolean, };
+
+/**
+ * A way in, as `archive.protection` lists it once the archive is open.
+ */
+export type WayIn = {
+/**
+ * Its slot, from 0: what `archive.protect` removes.
+ */
+slot: number, kind: SlotKindName,
+/**
+ * What the writer called it, from the archive's slot descriptions.
+ */
+label?: string,
+/**
+ * The public key as text, or the certificate's subject.
+ */
+recipient?: string,
+/**
+ * It works only on one machine: a TPM key, Windows Hello.
+ */
+machine_bound: boolean,
+/**
+ * A quantum computer couldn't open it.
+ */
+post_quantum: boolean, };
 
 /** Every command's input and output types, by command name. */
 export type CommandMap = {
@@ -1955,6 +2389,19 @@ export type CommandMap = {
    */
   "archive.list": { input: ArchiveListInput; output: ArchiveListOutput };
   /**
+   * Change who can open an encrypted `.bhive`, without recompressing it: add ways in, remove
+   * them, or make a new file key, which seals every cell again and rebuilds every slot.
+   * Removing a way in isn't revoking it: someone who opened the archive before could have kept
+   * its key; a new key is what shuts them out of later versions.
+   */
+  "archive.protect": { input: ArchiveProtectInput; output: ArchiveProtectOutput };
+  /**
+   * List the ways into an encrypted `.bhive` (passwords, recovery keys, keys, certificates,
+   * This PC, security keys), with their labels, and say whether it resists quantum computers.
+   * Needs a way in: the archive's descriptions of its ways in are encrypted too.
+   */
+  "archive.protection": { input: ArchiveProtectionInput; output: ArchiveProtectionOutput };
+  /**
    * Remove entries from an archive (zip, bhive, 7z, tar, cpio and ar, and tar and cpio under
    * any codec). A folder takes
    * everything under it. A new archive is written beside the old one and swapped in, so a failed
@@ -1973,6 +2420,13 @@ export type CommandMap = {
    */
   "archive.rename": { input: ArchiveRenameInput; output: EditOutput };
   /**
+   * Sign a `.bhive`, or remove its signatures (docs/bhive.md §13). A signature says who made the
+   * archive's contents and that they haven't changed since; changing who can open it keeps it,
+   * changing the contents drops it. Signing an archive that has no cell digests yet reads every
+   * cell once.
+   */
+  "archive.sign": { input: ArchiveSignInput; output: ArchiveSignOutput };
+  /**
    * Test an archive's integrity: read every entry to the end, checking CRCs and codec checksums.
    * Fails with `Corrupt`, listing the damaged entries in `details`.
    */
@@ -1985,6 +2439,11 @@ export type CommandMap = {
    * run returns the cells it finished. Nothing is written.
    */
   "bench.run": { input: BenchRunInput; output: BenchRunOutput };
+  /**
+   * List the certificates in your stores (Personal and Other People on Windows, the Keychain on
+   * macOS) that can encrypt archives or sign them, with why the others can't.
+   */
+  "certificates.list": { input: CertificatesListInput; output: CertificatesListOutput };
   /**
    * The `beezip` command line that runs a command with these arguments. Passwords are left
    * out (`omitted` names them): the copied command asks for them in the terminal.
@@ -2013,6 +2472,26 @@ export type CommandMap = {
    * methods, levels and threading.
    */
   "formats.list": { input: FormatsListInput; output: FormatsListOutput };
+  /**
+   * Make a key of your own: one that archives can be encrypted to (post-quantum by default), or
+   * one that signs them. Its private key stays on this machine, sealed by the system.
+   */
+  "keys.create": { input: KeysCreateInput; output: KeyInfo };
+  /** Delete a key or contact. Archives only it opens can't be opened any more. */
+  "keys.delete": { input: KeysDeleteInput; output: KeysDeleteOutput };
+  /**
+   * Show a key as text: its public key, to share, or with `secret` its private key, for a
+   * backup. Anyone who has a private key can open what it opens, or sign as you.
+   */
+  "keys.export": { input: KeysExportInput; output: KeysExportOutput };
+  /**
+   * Add a key: a private key (`AGE-SECRET-KEY-…`, `BZSIG-SECRET-KEY-1…`, or an age identity
+   * file) becomes yours; a public key (`age1…`, `age1pq1…`, `bzsig1…`) or a certificate file
+   * becomes a contact's.
+   */
+  "keys.import": { input: KeysImportInput; output: KeyInfo };
+  /** List your keys (for opening archives and for signing them) and your contacts' public keys. */
+  "keys.list": { input: KeysListInput; output: KeysListOutput };
   /**
    * Show every setting with its effective value: what config.toml sets, or the default.
    *

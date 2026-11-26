@@ -1158,6 +1158,17 @@ impl Ctx for PassCtx<'_> {
         self.inner.password(entry, attempt)
     }
 
+    fn unlock(
+        &mut self,
+        request: &crate::format::bhive::crypt::UnlockRequest,
+    ) -> Result<crate::format::bhive::crypt::UnlockAnswer> {
+        self.inner.unlock(request)
+    }
+
+    fn key_source(&mut self) -> Option<&mut dyn crate::format::bhive::crypt::KeySource> {
+        self.inner.key_source()
+    }
+
     fn overwrite(&mut self, existing: &Path) -> Result<OverwriteChoice> {
         self.inner.overwrite(existing)
     }

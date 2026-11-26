@@ -1,0 +1,511 @@
+//! Encrypted `.bhive` (docs/bhive.md §12, docs/M14.md §3–§8).
+//!
+//! The pieces, and who builds them in M14's wave 1 (docs/M14.md §10):
+//! - [`envelope`]: the key block, the slots' wrapping, the header MAC, sealed records, cells and
+//!   index (PR A).
+//! - one module per slot kind's pure-Rust half: [`password`] and [`recovery`] (PR A),
+//!   [`x25519`], [`xwing`] and [`bech32`] (PR C), [`rsa`], [`ecdh`] and [`cert`] (PR D),
+//!   [`fido2`] (PR E);
+//! - the signature algorithms' halves, [`mldsa`] and [`sig`] (PR H), used by `super::sign`.
+//!
+//! Keys and devices that live in the system (certificate stores, smart cards, the TPM,
+//! security keys, your stored keys) are reached through [`KeySource`], which `beezip-keys`
+//! implements and the commands layer hands to core through [`crate::Ctx::key_source`].
+//! Everything here returns [`not_built`] until its PR fills it.
+
+pub mod bech32;
+pub mod cert;
+pub mod ecdh;
+pub mod envelope;
+pub mod fido2;
+pub mod mldsa;
+pub mod password;
+pub mod recovery;
+pub mod rsa;
+pub mod sig;
+pub mod x25519;
+pub mod xwing;
+
+use std::fmt;
+
+use zeroize::Zeroizing;
+
+use crate::{Error, ErrorKind, Result};
+
+/// The suite the key block names: AES-256-GCM, HKDF-SHA256, HMAC-SHA256 (bhive.md §12.1).
+pub const SUITE_1: u8 = 1;
+/// At most this many slots, and this many bytes of them (bhive.md §12.3).
+pub const MAX_SLOTS: usize = 64;
+pub const MAX_SLOTS_LEN: usize = 65_536;
+/// A slot's commitment and wrapped file key, after its public part (bhive.md §12.4).
+pub const SLOT_TAIL_LEN: usize = 32 + 48;
+/// The key id's length (bhive.md §12.2).
+pub const KEY_ID_LEN: usize = 16;
+/// At most this many password slots in a key block: a reader may run Argon2 for each
+/// (bhive.md §12.5).
+pub const MAX_PASSWORD_SLOTS: usize = 4;
+/// Cells and the index are sealed in segments of this much plaintext (bhive.md §12.8).
+pub const SEGMENT: usize = 1 << 20;
+/// An AES-256-GCM tag.
+pub const TAG_LEN: usize = 16;
+
+/// The labels of bhive.md §12 and §13, byte for byte.
+pub mod label {
+    pub const MAC: &[u8] = b"bhive1 mac";
+    pub const RECORD: &[u8] = b"bhive1 record";
+    pub const CELL: &[u8] = b"bhive1 cell";
+    pub const INDEX: &[u8] = b"bhive1 index";
+    pub const SLOT: &[u8] = b"bhive1 slot";
+    pub const TAG: &[u8] = b"bhive1 tag";
+    pub const MANIFEST: &[u8] = b"bhive1 manifest";
+    pub const SIGNATURE: &[u8] = b"bhive1 signature";
+    /// ML-DSA-65's context string for signatures (bhive.md §13.4).
+    pub const MLDSA_CONTEXT: &[u8] = b"bhive1";
+}
+
+/// What M14's parts return until their PR builds them.
+pub fn not_built(what: &str) -> Error {
+    Error::new(
+        ErrorKind::UnsupportedOperation,
+        format!("bhive: {what} is not built yet (docs/M14.md)"),
+    )
+}
+
+/// The file key, `K` in bhive.md §12.2. Wiped when dropped; never printed.
+#[derive(Clone)]
+pub struct FileKey(pub Zeroizing<[u8; 32]>);
+
+impl fmt::Debug for FileKey {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("FileKey(***)")
+    }
+}
+
+/// A slot's kind (bhive.md §12.5).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum SlotKind {
+    Password = 1,
+    RecoveryKey = 2,
+    X25519 = 3,
+    XWing = 4,
+    Rsa = 5,
+    EcP256 = 6,
+    EcP384 = 7,
+    Fido2 = 8,
+}
+
+impl SlotKind {
+    pub const ALL: [Self; 8] = [
+        Self::Password,
+        Self::RecoveryKey,
+        Self::X25519,
+        Self::XWing,
+        Self::Rsa,
+        Self::EcP256,
+        Self::EcP384,
+        Self::Fido2,
+    ];
+
+    pub const fn id(self) -> u8 {
+        self as u8
+    }
+
+    /// `None` for a kind this BeeZip doesn't know: a reader skips such slots.
+    pub fn from_id(id: u8) -> Option<Self> {
+        Self::ALL.into_iter().find(|k| k.id() == id)
+    }
+
+    /// Whether a quantum computer can't open this kind (docs/M14.md §1, decision 9).
+    pub const fn post_quantum(self) -> bool {
+        matches!(
+            self,
+            Self::Password | Self::RecoveryKey | Self::XWing | Self::Fido2
+        )
+    }
+
+    /// Whether opening it may need a person: a PIN, a touch, Windows Hello. BeeZip never
+    /// touches such a way in unless the user chose it (docs/M14.md §8).
+    pub const fn needs_device(self) -> bool {
+        matches!(self, Self::Fido2)
+    }
+}
+
+/// A slot as the key block holds it (bhive.md §12.4).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SlotView<'a> {
+    /// Its place in the key block, from 0.
+    pub index: usize,
+    pub kind: SlotKind,
+    /// The key block's key id, which every slot's context includes.
+    pub key_id: &'a [u8; KEY_ID_LEN],
+    /// The slot's first 4 + p bytes: its head and public part. The context, the wrap key's
+    /// associated data and the tags are computed over these.
+    pub framed: &'a [u8],
+    /// The public part alone.
+    pub public: &'a [u8],
+}
+
+impl SlotView<'_> {
+    /// `SHA-256("bhive1 slot" ‖ key id ‖ framed ‖ recipient key)` (bhive.md §12.4 step 1). A
+    /// key source whose secret never leaves its device (CNG's `BCRYPT_KDF_HMAC`) keys its HMAC
+    /// with this.
+    pub fn context(&self, recipient_key: &[u8]) -> [u8; 32] {
+        let mut h = ring::digest::Context::new(&ring::digest::SHA256);
+        h.update(label::SLOT);
+        h.update(self.key_id);
+        h.update(self.framed);
+        h.update(recipient_key);
+        let mut out = [0; 32];
+        out.copy_from_slice(h.finish().as_ref());
+        out
+    }
+
+    /// The tag of a slot of kind 5 to 7, for the certificate or key whose SubjectPublicKeyInfo
+    /// is `spki` (bhive.md §12.5, "Tags"). `None` for other kinds.
+    pub fn tag_for(&self, spki: &[u8]) -> Option<[u8; 4]> {
+        let rest = match self.kind {
+            // A tag, the ciphertext's length, the ciphertext.
+            SlotKind::Rsa => self.public.get(6..)?,
+            // A tag, the ephemeral public key.
+            SlotKind::EcP256 | SlotKind::EcP384 => self.public.get(4..)?,
+            _ => return None,
+        };
+        let key = ring::digest::digest(&ring::digest::SHA256, spki);
+        let key = ring::hmac::Key::new(ring::hmac::HMAC_SHA256, key.as_ref());
+        let mut m = ring::hmac::Context::with_key(&key);
+        m.update(label::TAG);
+        m.update(&[self.kind.id()]);
+        m.update(rest);
+        let mut tag = [0; 4];
+        tag.copy_from_slice(&m.sign().as_ref()[..4]);
+        Some(tag)
+    }
+
+    /// The tag the slot carries (kinds 5 to 7).
+    pub fn tag(&self) -> Option<[u8; 4]> {
+        match self.kind {
+            SlotKind::Rsa | SlotKind::EcP256 | SlotKind::EcP384 => {
+                self.public.get(..4).and_then(|t| t.try_into().ok())
+            }
+            _ => None,
+        }
+    }
+}
+
+/// What opens a slot: its secret `S`, or, where `S` never leaves a device, the HMAC already
+/// computed from it (`PRK`, bhive.md §12.4 step 2).
+pub enum SlotSecret {
+    Shared(Zeroizing<Vec<u8>>),
+    Extracted(Zeroizing<[u8; 32]>),
+}
+
+impl fmt::Debug for SlotSecret {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::Shared(_) => "SlotSecret::Shared(***)",
+            Self::Extracted(_) => "SlotSecret::Extracted(***)",
+        })
+    }
+}
+
+/// Where a reader gets the secrets of slots that need a key or a device: your stored keys,
+/// key files given with `--identity`, certificates, the TPM, security keys. `beezip-keys`
+/// implements it (PRs C, D, E); the commands layer passes one through [`crate::Ctx`] (PR F).
+pub trait KeySource {
+    /// Whether this source has a key or device for `slot`: for anonymous public-key slots it
+    /// tries its keys, for tagged ones it compares tags. Never prompts, never touches a device.
+    fn offers(&mut self, slot: &SlotView<'_>) -> bool;
+
+    /// The secret for `slot`, or `None` when this source has nothing for it. `device` says the
+    /// user chose this way in, so the source may show a PIN dialog or ask for a touch.
+    fn secret(&mut self, slot: &SlotView<'_>, device: bool) -> Result<Option<SlotSecret>>;
+}
+
+/// A way in, as the Unlock prompt lists it (docs/M14.md §8).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WayInfo {
+    pub slot: u32,
+    pub kind: SlotKind,
+    /// A key or device on this machine fits it ([`KeySource::offers`]).
+    pub here: bool,
+}
+
+/// What an encrypted archive asks [`crate::Ctx::unlock`] for.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UnlockRequest {
+    pub ways: Vec<WayInfo>,
+    /// The answers that already failed: `0` is the first ask.
+    pub attempt: u32,
+}
+
+/// An answer to an [`UnlockRequest`].
+#[derive(Clone, PartialEq, Eq)]
+pub enum UnlockAnswer {
+    Password(String),
+    /// The 48 digits, with any separators (bhive.md §12.5, kind 2).
+    RecoveryKey(String),
+    /// Use this slot's key or device, through the [`KeySource`].
+    Way(u32),
+}
+
+impl fmt::Debug for UnlockAnswer {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Password(_) => f.write_str("Password(***)"),
+            Self::RecoveryKey(_) => f.write_str("RecoveryKey(***)"),
+            Self::Way(slot) => write!(f, "Way({slot})"),
+        }
+    }
+}
+
+/// How hard a password slot makes guessing (bhive.md §12.5, docs/M14.md decision 5).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum Strength {
+    /// 1 GiB, 2 passes, 4 lanes.
+    #[default]
+    Standard,
+    /// 2 GiB, 3 passes, 4 lanes.
+    Strong,
+}
+
+impl Strength {
+    /// Argon2id's memory in KiB, passes and lanes.
+    pub const fn cost(self) -> (u32, u32, u32) {
+        match self {
+            Self::Standard => (1 << 20, 2, 4),
+            Self::Strong => (2 << 20, 3, 4),
+        }
+    }
+}
+
+/// An EC curve of slots 6 and 7, and of ECDSA signatures.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Curve {
+    P256,
+    P384,
+}
+
+/// A slot to make when writing: who will be able to open the archive.
+#[derive(Clone)]
+pub enum Recipient {
+    Password {
+        password: Zeroizing<String>,
+        strength: Strength,
+    },
+    /// The key's 16 bytes; the commands layer makes it and shows it once.
+    RecoveryKey(Zeroizing<[u8; 16]>),
+    /// An `age1…` key's 32 bytes.
+    X25519([u8; 32]),
+    /// An `age1pq1…` key's 1,216 bytes.
+    XWing(Box<[u8; 1216]>),
+    /// A certificate's or key's SubjectPublicKeyInfo, DER, with the certificate if there is
+    /// one (for the slot description).
+    Rsa {
+        spki: Vec<u8>,
+        certificate: Option<Vec<u8>>,
+    },
+    Ec {
+        curve: Curve,
+        spki: Vec<u8>,
+        certificate: Option<Vec<u8>>,
+        /// A TPM key: bound to this machine (docs/M14.md decision 11).
+        machine_bound: bool,
+    },
+    /// A security key or Windows Hello, already asked for the hmac-secret of `salt` by the
+    /// commands layer (PR E), since making the slot needs `S`.
+    Fido2 {
+        credential_id: Vec<u8>,
+        rp_id: String,
+        salt: [u8; 32],
+        prf: bool,
+        secret: Zeroizing<[u8; 32]>,
+        machine_bound: bool,
+    },
+}
+
+impl Recipient {
+    pub const fn kind(&self) -> SlotKind {
+        match self {
+            Self::Password { .. } => SlotKind::Password,
+            Self::RecoveryKey(_) => SlotKind::RecoveryKey,
+            Self::X25519(_) => SlotKind::X25519,
+            Self::XWing(_) => SlotKind::XWing,
+            Self::Rsa { .. } => SlotKind::Rsa,
+            Self::Ec {
+                curve: Curve::P256, ..
+            } => SlotKind::EcP256,
+            Self::Ec {
+                curve: Curve::P384, ..
+            } => SlotKind::EcP384,
+            Self::Fido2 { .. } => SlotKind::Fido2,
+        }
+    }
+}
+
+impl fmt::Debug for Recipient {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Recipient::{:?}", self.kind())
+    }
+}
+
+/// A recipient with the label its slot description gets (bhive.md §12.9).
+#[derive(Debug, Clone)]
+pub struct Labelled {
+    pub recipient: Recipient,
+    pub label: Option<String>,
+}
+
+/// Who can open an archive a writer makes.
+#[derive(Debug, Clone)]
+pub enum Protection {
+    /// A new file key, with a slot for each.
+    New(Vec<Labelled>),
+    /// An edit: the archive it reads keeps its file key and slots (docs/M14.md decision 7).
+    Keep(std::sync::Arc<envelope::Unlocked>),
+}
+
+/// A slot's public part and secret, made for a [`Recipient`] by its kind's module.
+pub struct MadeSlot {
+    pub public: Vec<u8>,
+    pub secret: SlotSecret,
+    /// What the context adds for kinds 3, 6 and 7 (bhive.md §12.4).
+    pub recipient_key: Vec<u8>,
+}
+
+/// Makes the public part and secret of a slot for `recipient`: each kind in its own module.
+pub fn make_slot(recipient: &Recipient) -> Result<MadeSlot> {
+    match recipient {
+        Recipient::Password { password, strength } => password::make(password, *strength),
+        Recipient::RecoveryKey(key) => recovery::make(key),
+        Recipient::X25519(public) => x25519::make(public),
+        Recipient::XWing(public) => xwing::make(public),
+        Recipient::Rsa { spki, .. } => rsa::make(spki),
+        Recipient::Ec { curve, spki, .. } => ecdh::make(*curve, spki),
+        Recipient::Fido2 {
+            credential_id,
+            rp_id,
+            salt,
+            prf,
+            secret,
+            ..
+        } => fido2::make(credential_id, rp_id, salt, *prf, secret),
+    }
+}
+
+/// The secret of `slot` from an answer the user typed: a password, or a recovery key. Other
+/// kinds come from a [`KeySource`].
+pub fn typed_secret(slot: &SlotView<'_>, answer: &UnlockAnswer) -> Result<Option<SlotSecret>> {
+    match (slot.kind, answer) {
+        (SlotKind::Password, UnlockAnswer::Password(p)) => password::secret(slot, p).map(Some),
+        (SlotKind::RecoveryKey, UnlockAnswer::RecoveryKey(k)) => {
+            recovery::secret(slot, k).map(Some)
+        }
+        _ => Ok(None),
+    }
+}
+
+/// Checks a slot's public part against its kind's rules before anything is tried with it
+/// (bhive.md §12.10): lengths, Argon2's limits, a credential id's size.
+pub fn check_public(kind: SlotKind, public: &[u8]) -> Result<()> {
+    match kind {
+        SlotKind::Password => password::check(public),
+        SlotKind::RecoveryKey => recovery::check(public),
+        SlotKind::X25519 => x25519::check(public),
+        SlotKind::XWing => xwing::check(public),
+        SlotKind::Rsa => rsa::check(public),
+        SlotKind::EcP256 => ecdh::check(Curve::P256, public),
+        SlotKind::EcP384 => ecdh::check(Curve::P384, public),
+        SlotKind::Fido2 => fido2::check(public),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn kinds_round_trip_and_unknown_ones_are_skipped() {
+        for k in SlotKind::ALL {
+            assert_eq!(SlotKind::from_id(k.id()), Some(k));
+        }
+        assert_eq!(SlotKind::from_id(0), None);
+        assert_eq!(SlotKind::from_id(9), None);
+    }
+
+    #[test]
+    fn levels_cost_what_the_plan_says() {
+        assert_eq!(Strength::Standard.cost(), (1_048_576, 2, 4));
+        assert_eq!(Strength::Strong.cost(), (2_097_152, 3, 4));
+    }
+
+    /// tests/fixtures/bhive-m14/vectors.json, `slots`: every kind's context, and the tags.
+    #[test]
+    fn contexts_and_tags_are_the_specifications() {
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../tests/fixtures/bhive-m14/vectors.json"
+        );
+        let v: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+        let hex = |s: &serde_json::Value| -> Vec<u8> {
+            let s = s.as_str().unwrap();
+            (0..s.len())
+                .step_by(2)
+                .map(|i| u8::from_str_radix(&s[i..i + 2], 16).unwrap())
+                .collect()
+        };
+        let slots = &v["slots"];
+        let key_id: [u8; KEY_ID_LEN] = hex(&slots["key_id"]).try_into().unwrap();
+        for name in [
+            "password",
+            "recovery_key",
+            "x25519",
+            "xwing",
+            "rsa",
+            "p256",
+            "p384",
+            "fido2",
+        ] {
+            let vec = &slots[name];
+            let slot = hex(&vec["slot"]);
+            let kind = SlotKind::from_id(slot[0]).unwrap();
+            let body = usize::from(u16::from_le_bytes([slot[2], slot[3]]));
+            assert_eq!(slot.len(), 4 + body, "{name}");
+            let framed = &slot[..4 + body - SLOT_TAIL_LEN];
+            let view = SlotView {
+                index: 0,
+                kind,
+                key_id: &key_id,
+                framed,
+                public: &framed[4..],
+            };
+            let recipient = match name {
+                "x25519" | "p256" | "p384" => hex(&vec["recipient_public"]),
+                _ => Vec::new(),
+            };
+            assert_eq!(
+                view.context(&recipient).to_vec(),
+                hex(&vec["context"]),
+                "{name}"
+            );
+            if let Some(spki) = vec.get("spki") {
+                let tag = view.tag_for(&hex(spki)).unwrap();
+                assert_eq!(tag.to_vec(), hex(&vec["tag"]), "{name}");
+                assert_eq!(view.tag(), Some(tag), "{name}");
+            } else {
+                assert_eq!(view.tag_for(b"spki"), None, "{name}");
+            }
+        }
+    }
+
+    #[test]
+    fn secrets_are_never_printed() {
+        let a = UnlockAnswer::Password("hunter2".into());
+        assert!(!format!("{a:?}").contains("hunter2"));
+        let r = Recipient::Password {
+            password: Zeroizing::new("hunter2".into()),
+            strength: Strength::Standard,
+        };
+        assert!(!format!("{r:?}").contains("hunter2"));
+    }
+}

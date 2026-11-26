@@ -567,8 +567,13 @@ fn headers_and_heads_round_trip() {
     newer[8] = 2;
     let e = layout::check_header(&newer).unwrap_err();
     assert_eq!(e.kind, ErrorKind::UnsupportedFormat);
+    // Bit 0 is encryption (docs/bhive.md §12); any other is a newer program's.
+    assert_eq!(
+        layout::check_header(&layout::header_encrypted()).unwrap(),
+        1
+    );
     let mut feature = h;
-    feature[12] = 1;
+    feature[12] = 2;
     assert_eq!(
         layout::check_header(&feature).unwrap_err().kind,
         ErrorKind::UnsupportedFormat

@@ -2,12 +2,13 @@
 resolver = "3"
 members = [
     "crates/beezip-core", "crates/beezip-unrar", "crates/beezip-menu", "crates/beezip-commands",
-    "crates/beezip-mcp", "crates/beezip-cli", "crates/beezip-shell", "apps/desktop/src-tauri", "xtask",
+    "crates/beezip-mcp", "crates/beezip-cli", "crates/beezip-shell", "crates/beezip-keys",
+    "apps/desktop/src-tauri", "xtask",
 ]
 # A plain `cargo build`/`cargo test` skips the Tauri app (~450 extra crates). CI and the checklist pass --workspace.
 default-members = [
     "crates/beezip-core", "crates/beezip-unrar", "crates/beezip-menu", "crates/beezip-commands",
-    "crates/beezip-mcp", "crates/beezip-cli", "crates/beezip-shell", "xtask",
+    "crates/beezip-mcp", "crates/beezip-cli", "crates/beezip-shell", "crates/beezip-keys", "xtask",
 ]
 # cargo-fuzz needs nightly, so fuzz/ is its own workspace (docs/M1.md §7). The vendored
 # hadris-iso and fstool are patched copies of published crates, not members.
@@ -23,6 +24,7 @@ publish = false
 [workspace.dependencies]
 beezip-core     = { path = "crates/beezip-core" }
 beezip-commands = { path = "crates/beezip-commands" }
+beezip-keys     = { path = "crates/beezip-keys" }
 beezip-mcp      = { path = "crates/beezip-mcp" }
 beezip-menu     = { path = "crates/beezip-menu" }
 beezip-unrar    = { path = "crates/beezip-unrar" }
@@ -115,6 +117,31 @@ sha1      = "0.11.0"    # XAR's SHA-1 checksums, the default; already in the loc
 # one nobody can make collide. Only beezip-core uses these.
 xxhash-rust = { version = "0.8.19", features = ["xxh3"] }
 blake3      = "1.8.7"
+# M14, encrypted and signed .bhive (docs/M14.md §2). One generation of RustCrypto (digest 0.11,
+# rand_core 0.10), so no crate is built twice. ring is already in the lock through the
+# desktop's updater; core uses it for AES-256-GCM, SHA-256, HMAC, Ed25519 and checking RSA and
+# ECDSA signatures. Only beezip-core and beezip-keys use these.
+ring        = "0.17.14"
+hkdf        = "0.13.0"
+# Lanes on threads (rayon, already in the lock); no password-hash strings.
+argon2      = { version = "0.6.0", default-features = false, features = ["alloc", "zeroize", "parallel"] }
+unicode-normalization = "0.1.25"
+x25519-dalek = { version = "3.0.0", default-features = false, features = ["static_secrets", "zeroize", "precomputed-tables"] }
+ml-kem      = { version = "0.3.4", default-features = false, features = ["alloc", "zeroize"] }
+# FIPS 204; RUSTSEC-2025-0144 (a timing leak) was fixed in 0.1.0-rc.3.
+ml-dsa      = { version = "0.1.2", default-features = false, features = ["alloc", "zeroize"] }
+p256        = { version = "0.14.0", default-features = false, features = ["ecdh", "ecdsa", "pkcs8", "std"] }
+p384        = { version = "0.14.0", default-features = false, features = ["ecdh", "ecdsa", "pkcs8", "std"] }
+rsa         = { version = "0.10.0", default-features = false, features = ["std", "encoding", "getrandom"] }
+x509-cert   = { version = "0.3.1", default-features = false, features = ["std", "pem"] }
+der         = { version = "0.8.0", features = ["std", "pem"] }
+spki        = { version = "0.8.0", features = ["std"] }
+pkcs8       = { version = "0.11.0", features = ["std", "pem", "encryption"] }
+zeroize     = { version = "1.9.1", features = ["derive"] }
+getrandom   = "0.4.3"
+# macOS Keychain identities and generic passwords (beezip-keys); already in the lock.
+security-framework = "3.7.0"
+
 # M4 Explorer integration (docs/M4.md §1): the same windows 0.62.2 that Tauri already builds, so
 # one copy serves the shell DLL, the commands and the app. Features are chosen per crate.
 windows          = "=0.62.2"

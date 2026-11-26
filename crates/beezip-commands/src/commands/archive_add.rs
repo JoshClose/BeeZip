@@ -84,10 +84,22 @@ pub struct ArchiveAddInput {
     #[arg(long, value_enum, value_name = "ENCODING")]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name_encoding: Option<NameEncoding>,
+    /// Sign the archive again after adding: an edit drops its signatures otherwise. Your
+    /// signing key by name, a certificate's thumbprint, or a certificate file. `.bhive` only.
+    #[arg(long, value_name = "SIGNER")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sign: Option<Vec<String>>,
     /// Show what would change without writing anything.
     #[arg(long, num_args = 0..=1, require_equals = true, default_missing_value = "true")]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub dry_run: Option<bool>,
+}
+
+impl ArchiveAddInput {
+    /// Whether this asks for what M14 builds (docs/M14.md §8, §11).
+    fn m14_asked(&self) -> bool {
+        self.sign.is_some()
+    }
 }
 
 pub struct ArchiveAdd;
@@ -111,6 +123,11 @@ impl Command for ArchiveAdd {
     }
 
     fn run(input: ArchiveAddInput, cx: &mut JobCtx) -> Result<EditOutput, CmdError> {
+        if input.m14_asked() {
+            return Err(crate::commands::util::not_built(
+                "encrypting and signing a .bhive",
+            ));
+        }
         let config = cx.config()?.clone();
         let op = EditOp::Add(AddOptions {
             inputs: input.inputs.iter().map(|p| absolute(p)).collect(),

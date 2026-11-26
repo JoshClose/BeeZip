@@ -73,7 +73,7 @@ tests/fixtures/               # reference archives + manifest.json (entries + ha
 ### Core abstractions (`beezip-core`)
 - **`Codec`** (single-stream formats: gzip, bz2, xz, zstd and so on): `sniff(head)`, `caps()`, `decoder(Box<dyn Read>)`, `encoder(Box<dyn Write>, EncodeOpts)`.
 - **`ArchiveFormat`**: `sniff(&Probe) -> Confidence`, `caps() -> FormatCaps`, `open(Source) -> Box<dyn ArchiveReader>`, `create(Sink) -> Box<dyn ArchiveWriter>`.
-  - `FormatCaps` flags: list, extract, create, append, delete, rename, encrypt, encrypt_headers, solid, volumes, random_access. Append, delete and rename are on for zip, 7z, tar, cpio and ar from M5 (docs/M5.md §3.9).
+  - `FormatCaps` flags: list, extract, create, append, delete, rename, encrypt, encrypt_headers, solid, volumes, random_access. Append, delete and rename are on for zip, 7z, tar, cpio and ar from M5 (docs/M5.md §3.9). `.bhive` has encrypt and encrypt_headers from M14 (docs/M14.md).
 - **`ArchiveReader`**:
   - `entries()` returns the cached index.
   - `extract(&Selection, &mut dyn EntrySink, &Ctx)` streams entries in archive order, which keeps solid archives fast.
@@ -135,7 +135,7 @@ pub trait Command: Send + Sync + 'static {
 - **`Interactor`:** each front end answers prompts its own way:
   - **CLI:** TTY prompt, or fail with a flag hint when not interactive.
   - **GUI:** event out, then a `cmd_respond` call back in.
-  - **MCP:** overwrite questions use elicitation when the client supports it. Spec 2026-07-28 sends it inside an `InputRequiredResult`, and the job waits, parked, for the retry; older sessions get a plain `elicitation/create`. Passwords are never elicited, since form mode must not carry secrets. A structured `PasswordRequired` error tells the model which parameter to pass ([`docs/M2.md`](M2.md) §3.3).
+  - **MCP:** overwrite questions use elicitation when the client supports it. Spec 2026-07-28 sends it inside an `InputRequiredResult`, and the job waits, parked, for the retry; older sessions get a plain `elicitation/create`. Passwords are never elicited, since form mode must not carry secrets. Security keys, Windows Hello and PIN-protected keys are never used from MCP, and MCP never signs (docs/M14.md decisions 15 and 27). A structured `PasswordRequired` error tells the model which parameter to pass ([`docs/M2.md`](M2.md) §3.3).
 - **`Policy`:** sandbox roots, read_only, limits, default overwrite policy. The engine enforces it before any command runs, using the paths the command's `access()` declares (path resolution checks the canonicalised parent, so junction and symlink escapes are caught).
 - **`CmdError`:** stable codes, plus an optional `details` value for structured extras (the extract report, per-entry test errors, which limit was hit). The codes are:
   - `NotFound`, `UnsupportedFormat`, `UnsupportedOperation`, `PasswordRequired`, `WrongPassword`, `Corrupt`, `OutsideSandbox`, `Conflict`, `LimitExceeded`, `Cancelled`, `BackendUnavailable`, `Io`;
@@ -145,7 +145,7 @@ pub trait Command: Send + Sync + 'static {
 
   Each code maps to a CLI exit code, to MCP `isError` + structuredContent, and to a UI toast.
 - **Config:** `%APPDATA%\BeeZip\config.toml`, shared by the GUI, the CLI and MCP. It holds default levels, the overwrite policy, MCP roots, limits, the Explorer menu's items and the desktop's theme. The settings commands read and write it, keeping its comments (`toml_edit`).
-- **Index cache (M3):** it caches open readers along with their indexes, keyed by the canonical path and each volume's size and mtime: up to four archives and 4 million entries. A job borrows its archive and puts it back, so a reader is never shared. Encrypted archives aren't cached, so no cached reader carries a password between jobs. Commands stay stateless, which suits MCP and the CLI, and the GUI can still page through a 1M-entry archive quickly ([`docs/M3.md`](M3.md) §4.2).
+- **Index cache (M3):** it caches open readers along with their indexes, keyed by the canonical path and each volume's size and mtime: up to four archives and 4 million entries. A job borrows its archive and puts it back, so a reader is never shared. Encrypted archives aren't cached (encrypted `.bhive` included), so no cached reader carries a password or a file key between jobs. Commands stay stateless, which suits MCP and the CLI, and the GUI can still page through a 1M-entry archive quickly ([`docs/M3.md`](M3.md) §4.2).
 
 ### Command catalog (v1)
 | Command | Effect | Notes |
@@ -157,9 +157,13 @@ pub trait Command: Send + Sync + 'static {
 | `archive.test` | RO | CRC/integrity check |
 | `entry.read` | RO | `offset/max_bytes`; text, hex or base64 (for preview and MCP) |
 | `archive.extract` | W | all or selected, `dest`, overwrite policy, password, `strip_components`, `--dry-run` |
-| `archive.create` | W | inputs, format chain, level/method/threads, solid, password, encrypt headers, volume size, excludes, `--dry-run` |
+| `archive.create` | W | inputs, format chain, level/method/threads, solid, password, encrypt headers, protection and signing (`.bhive`, M14), volume size, excludes, `--dry-run` |
 | `archive.add` / `archive.remove` / `archive.rename` | Destructive | rewrite to temp + atomic replace; raw copy for unchanged entries. Volume sets and SFX archives are refused (docs/M5.md §3.7). CLI aliases `a`, `d`, `rn` |
 | `archive.convert` | W | streams reader to writer, no temp extraction where possible. Never drops encryption silently: an encrypted source needs `new_password` or `decrypt` |
+| `archive.protection` / `archive.protect` | RO / Destructive | an encrypted `.bhive`'s ways in and whether it resists quantum computers; add and remove ways, or a new file key, without recompressing (M14, docs/M14.md §8) |
+| `archive.sign` | Destructive | add or remove signatures on a `.bhive` (M14, docs/M14.md §11) |
+| `keys.list` / `keys.create` / `keys.import` / `keys.export` / `keys.delete` | RO / W | your own keys, for opening, and for signing; contacts' public keys (M14) |
+| `certificates.list` | RO | the certificates that can encrypt or sign, from the system's stores (M14) |
 | `stream.compress` / `stream.decompress` | W | single-file codecs (`a.txt → a.txt.zst`) |
 | `entry.open` | W | extract to temp cache + open with the default app (GUI/CLI only, hidden from MCP). CLI: `beezip open` |
 | `bench.run` | RO | codecs × levels × threads on a file or the built-in sample, in memory: ratio, MB/s each way, peak memory, each round trip checked; cells arrive as job events, and a cancelled run returns those it finished (M6, docs/M6.md §7). CLI: `beezip bench` |
@@ -414,6 +418,7 @@ After approval I implement **M0 + M1** and then stop for your review before goin
 
 ## 6. The `.bhive` archive format
 - **The format:** BeeZip's own, built in M13 (docs/M13.md) and specified in [`bhive.md`](bhive.md): independent cells, chunk dedup, zstd and LZMA2, a trailing index, recovery records. It is a format of its own, not a 7z or tar.zst with a manifest inside as this section first suggested. It stays open through the specification, standard coders and a second reader in Python that CI runs (`docs/bhive_reader.py`).
+- **Encryption and signatures (M14):** [`bhive.md`](bhive.md) §12 and §13; the design and its decisions are [`M14.md`](M14.md).
 - **Extension check:** `.bhive` was checked on 2026-11-01. It has no entries in any file-extension database and no `.bhive` files on GitHub.
 - **Nearby names that don't clash:** the BHive x86 benchmark, the `bhived` MCP server, and the `.bh` BlakHole archive format.
 - **Rejected alternatives:**

@@ -13,6 +13,12 @@ pub enum ErrorCode {
     WrongPassword,
     Corrupt,
     OutsideSandbox,
+    /// An encrypted `.bhive` that nothing given here opens: no password, no recovery key, none
+    /// of your keys, no key file (docs/M14.md §8). `details.ways` lists its ways in.
+    KeyRequired,
+    /// The archive isn't signed, validly, by the signer `--require-signer` names
+    /// (docs/M14.md §11).
+    SignatureRequired,
     Conflict,
     LimitExceeded,
     Cancelled,
@@ -45,6 +51,8 @@ impl ErrorCode {
             Self::BackendUnavailable => 12,
             Self::Io => 13,
             Self::Unsafe => 14,
+            Self::KeyRequired => 15,
+            Self::SignatureRequired => 16,
             Self::Internal => 70,
             Self::Cancelled => 130,
         }
@@ -111,6 +119,7 @@ impl From<beezip_core::ErrorKind> for ErrorCode {
             K::UnsupportedOperation => Self::UnsupportedOperation,
             K::PasswordRequired => Self::PasswordRequired,
             K::WrongPassword => Self::WrongPassword,
+            K::KeyRequired => Self::KeyRequired,
             K::Corrupt => Self::Corrupt,
             K::Unsafe => Self::Unsafe,
             K::Conflict => Self::Conflict,
@@ -149,8 +158,11 @@ impl From<CmdError> for beezip_core::Error {
             ErrorCode::BackendUnavailable => K::BackendUnavailable,
             ErrorCode::PasswordRequired => K::PasswordRequired,
             ErrorCode::WrongPassword => K::WrongPassword,
+            ErrorCode::KeyRequired => K::KeyRequired,
             ErrorCode::Corrupt => K::Corrupt,
-            ErrorCode::Unsafe | ErrorCode::OutsideSandbox => K::Unsafe,
+            ErrorCode::Unsafe | ErrorCode::OutsideSandbox | ErrorCode::SignatureRequired => {
+                K::Unsafe
+            }
             ErrorCode::Conflict => K::Conflict,
             ErrorCode::LimitExceeded => K::LimitExceeded,
             ErrorCode::Cancelled => K::Cancelled,

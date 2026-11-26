@@ -98,6 +98,46 @@ Options:
           
           [possible values: true, false]
 
+      --recovery-key[=<RECOVERY_KEY>]
+          Make a recovery key that opens the archive, shown once in the output: 48 digits to keep
+          somewhere safe. `.bhive` only
+          
+          [possible values: true, false]
+
+      --to <KEY>
+          Encrypt to these public keys, so their owners open it with their private keys: `age1…`,
+          `age1pq1…`, or a contact's name. `.bhive` only
+
+      --to-cert <CERT>
+          Encrypt to these certificates: a thumbprint in your stores, or a certificate file.
+          `.bhive` only
+
+      --this-pc[=<THIS_PC>]
+          Let this PC open it, with a key in its TPM. Needs another way in that works elsewhere.
+          `.bhive` on Windows
+          
+          [possible values: true, false]
+
+      --this-pc-pin <PIN>
+          A PIN for the This PC key, which the TPM protects against guessing
+
+      --security-key[=<SECURITY_KEY>]
+          Let a security key or Windows Hello open it: Windows asks for a touch. `.bhive` on Windows
+          
+          [possible values: true, false]
+
+      --strength <STRENGTH>
+          How hard a `.bhive`'s password makes guessing [default: standard]
+
+          Possible values:
+          - standard: Argon2id with 1 GiB and 2 passes: about 0.3 s on a fast desktop, 0.6 s on a
+            laptop
+          - strong:   2 GiB and 3 passes: about 0.8 s and 1.7 s. Needs 2 GiB free to open
+
+      --sign <SIGNER>
+          Sign it: your signing key by name, a certificate's thumbprint in your stores, or a
+          certificate file with its key beside it. `.bhive` only
+
       --dry-run[=<DRY_RUN>]
           Show what would be written without writing anything
           

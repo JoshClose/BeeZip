@@ -84,6 +84,10 @@ Options:
           cp950, cp1250, cp1251, cp1252, cp1253, cp1254, cp1255, cp1256, cp1257, cp1258, koi8-r,
           koi8-u, iso-8859-1, iso-8859-2, iso-8859-5, iso-8859-7, euc-jp, gb18030]
 
+      --sign <SIGNER>
+          Sign the archive again after adding: an edit drops its signatures otherwise. Your signing
+          key by name, a certificate's thumbprint, or a certificate file. `.bhive` only
+
       --dry-run[=<DRY_RUN>]
           Show what would change without writing anything
           

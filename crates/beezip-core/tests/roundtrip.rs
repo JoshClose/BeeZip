@@ -608,6 +608,7 @@ fn bhive(level: Level) -> WriteSpec {
         memory: None,
         cell_size: Some(16 << 10),
         inherit: false,
+        ..BhiveWriteOptions::default()
     })
 }
 

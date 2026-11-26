@@ -44,7 +44,7 @@ pub fn password_required() -> CmdError {
 /// The answer to a question nobody can be asked: the client has no form elicitation.
 pub fn unanswerable(prompt: &Prompt) -> CmdError {
     match prompt {
-        Prompt::Password { .. } => password_required(),
+        Prompt::Password { .. } | Prompt::Unlock { .. } => password_required(),
         Prompt::Overwrite {
             path,
             archive: None,

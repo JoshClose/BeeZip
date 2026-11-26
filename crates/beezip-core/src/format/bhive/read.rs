@@ -25,11 +25,12 @@ use std::{
 
 use super::{
     coder,
+    crypt::envelope::{KeyBlock, Unlocked},
     layout::{
         self, CELL_TAG, Cell, Coder, Extent, FOOTER_LEN, HEADER_LEN, INDEX_HEAD_LEN, INDEX_TAG,
         Index, IndexHead, Items, Kind, RECORD_LEN, Record, Stamp, bad, checksum, sums,
     },
-    mem, par,
+    mem, par, sign,
 };
 use crate::{
     Ctx, Error, ErrorKind, Limits, Meter, MeteredCtx, Result, TestReport,
@@ -74,8 +75,17 @@ fn memory_limit(what: &str, need: u64, limits: &Limits) -> Result<()> {
     Ok(())
 }
 
-/// The index, found from the footer and checked.
-fn read_index(input: &mut Input, limits: &Limits) -> Result<Index> {
+/// The index, found from the footer and checked, and its signatures checked against it.
+fn read_index(
+    input: &mut Input,
+    header: &[u8; HEADER_LEN],
+    limits: &Limits,
+    unlocked: Option<&Unlocked>,
+    key_block_len: u64,
+) -> Result<(Index, sign::Report)> {
+    if let Some(unlocked) = unlocked {
+        return read_sealed_index(input, header, limits, unlocked, key_block_len);
+    }
     let len = input.len();
     let least = (HEADER_LEN + INDEX_HEAD_LEN + FOOTER_LEN) as u64;
     if len < least {
@@ -107,7 +117,22 @@ fn read_index(input: &mut Input, limits: &Limits) -> Result<Index> {
     if !sums(checksum(&raw), head.checksum) {
         return Err(bad("the index fails its checksum"));
     }
-    layout::parse_index(&raw, offset, limits.max_entries)
+    let index = layout::parse_index(&raw, offset, limits.max_entries)?;
+    let report = sign::check(header, &raw, &index);
+    Ok((index, report))
+}
+
+/// An encrypted archive's index (docs/bhive.md §12.7): the `BHIE` block the footer points to,
+/// opened, then read as §5's index block with a sealed table. PR A builds it.
+fn read_sealed_index(
+    input: &mut Input,
+    header: &[u8; HEADER_LEN],
+    limits: &Limits,
+    unlocked: &Unlocked,
+    key_block_len: u64,
+) -> Result<(Index, sign::Report)> {
+    let _ = (input, header, limits, unlocked, key_block_len);
+    Err(super::crypt::not_built("reading a sealed index"))
 }
 
 /// What the records before the cells still list (docs/bhive.md §8): the cells that are whole,
@@ -224,6 +249,57 @@ pub(super) struct CellIo<'a> {
     pub limits: &'a Limits,
     /// Counts the stored bytes read, for progress.
     pub progress: &'a Counter,
+    /// How a cell's bytes in the file become its stored bytes.
+    pub crypt: &'a CellCrypt,
+}
+
+/// What lies between a cell's bytes in the file and its stored bytes (docs/bhive.md §12.8,
+/// §13.2): the segments of an encrypted archive, and the digests of a signed one. Nothing for
+/// an archive that has neither.
+#[derive(Debug, Default)]
+pub(super) struct CellCrypt {
+    pub unlocked: Option<Arc<Unlocked>>,
+    /// An encrypted archive's cell ids, by number.
+    pub ids: Vec<[u8; 32]>,
+    /// Section 2, by number, when the archive has it.
+    pub digests: Option<Vec<[u8; 32]>>,
+}
+
+impl CellCrypt {
+    /// The bytes cell `cell` takes in the file.
+    pub fn len_in_file(&self, cell: &Cell) -> u64 {
+        if self.unlocked.is_some() {
+            layout::sealed_len(u64::from(cell.stored))
+        } else {
+            u64::from(cell.stored)
+        }
+    }
+
+    /// Cell `n`'s stored bytes from its bytes in the file: each segment opened, then checked
+    /// against its digest. The bytes as they are when there is nothing to do.
+    pub fn open(&self, n: u32, in_file: Vec<u8>) -> Result<Vec<u8>> {
+        let stored = match &self.unlocked {
+            Some(u) => {
+                let id = self
+                    .ids
+                    .get(n as usize)
+                    .ok_or_else(|| bad(format!("cell {n} has no id")))?;
+                u.open_cell(id, &in_file)?
+            }
+            None => in_file,
+        };
+        if let Some(digests) = &self.digests {
+            let want = digests
+                .get(n as usize)
+                .ok_or_else(|| bad(format!("cell {n} has no digest")))?;
+            if sign::cell_digest(&stored)? != *want {
+                return Err(bad(format!(
+                    "cell {n} isn't what was signed: it changed after the archive was signed"
+                )));
+            }
+        }
+        Ok(stored)
+    }
 }
 
 impl Cache {
@@ -239,8 +315,10 @@ impl Cache {
     fn decode(cells: &[Cell], n: u32, io: &mut CellIo<'_>) -> Result<Vec<u8>> {
         let cell = &cells[n as usize];
         memory_limit(&format!("cell {n}"), cell.memory(), io.limits)?;
-        let stored = read_at(io.input, cell.offset, cell.stored as usize)?;
-        io.progress.add(u64::from(cell.stored));
+        let len = io.crypt.len_in_file(cell);
+        let in_file = read_at(io.input, cell.offset, len as usize)?;
+        io.progress.add(len);
+        let stored = io.crypt.open(n, in_file)?;
         coder::decode(cell, n, stored, io.limits)
     }
 
@@ -509,6 +587,10 @@ pub struct BhiveReader {
     level: Option<u8>,
     /// Why the entries come from the records, when they do.
     recovered: Option<String>,
+    /// An encrypted archive's keys and cell ids, and a signed one's digests.
+    pub(super) crypt: CellCrypt,
+    /// The signatures, as the index has them, checked (docs/bhive.md §13).
+    signatures: sign::Report,
     pub(super) cache: Cache,
     input: Option<Input>,
     /// For the reads of [`ArchiveReader::open_entry`].
@@ -524,9 +606,28 @@ impl BhiveReader {
         if input.len() < HEADER_LEN as u64 {
             return Err(bad("the file is too short to be a .bhive"));
         }
-        layout::check_header(&read_at(&mut input, 0, HEADER_LEN)?)?;
-        let (index, recovered) = match read_index(&mut input, &source.limits) {
-            Ok(index) => (index, None),
+        let mut head = [0u8; HEADER_LEN];
+        head.copy_from_slice(&read_at(&mut input, 0, HEADER_LEN)?);
+        let features = layout::check_header(&head)?;
+        // An encrypted archive: its key block, and a way in before anything else is read.
+        let (unlocked, key_block_len) = if features & layout::FEATURE_ENCRYPTED != 0 {
+            input
+                .seek(SeekFrom::Start(HEADER_LEN as u64))
+                .map_err(|e| read_error(&e))?;
+            let block = KeyBlock::read(&head, &mut input)?;
+            let unlocked = Unlocked::open(&block, cx)?;
+            (Some(Arc::new(unlocked)), block.len() as u64)
+        } else {
+            (None, 0)
+        };
+        let (index, recovered, signatures) = match read_index(
+            &mut input,
+            &head,
+            &source.limits,
+            unlocked.as_deref(),
+            key_block_len,
+        ) {
+            Ok((index, signatures)) => (index, None, signatures),
             Err(e) if e.kind == ErrorKind::Corrupt && source.recover => {
                 let (cells, items) = recover(&mut input, &source.limits, cx)?;
                 cx.warn(format!(
@@ -538,9 +639,9 @@ impl BhiveReader {
                 let index = Index {
                     cells,
                     items,
-                    level: None,
+                    ..Index::default()
                 };
-                (index, Some(e.message))
+                (index, Some(e.message), sign::Report::default())
             }
             Err(e) if e.kind == ErrorKind::Corrupt => {
                 return Err(Error::corrupt(format!(
@@ -561,6 +662,11 @@ impl BhiveReader {
         // Half the memory a job's cells may take, within reason: the rest is for the cells
         // being decoded.
         let budget = (mem::budget() / 2).clamp(128 << 20, 2 << 30);
+        let crypt = CellCrypt {
+            unlocked,
+            ids: index.ids,
+            digests: signatures.digests.clone(),
+        };
         Ok(Self {
             source,
             cells: index.cells,
@@ -569,11 +675,24 @@ impl BhiveReader {
             extents: index.items.extents,
             level: index.level,
             recovered,
+            crypt,
+            signatures,
             cache: Cache::new(budget),
             input: Some(input),
             touched: Counter::new(),
             stamps,
         })
+    }
+
+    /// The archive's signatures, checked when it was opened (docs/bhive.md §13). Whether to
+    /// trust a signer is the caller's question.
+    pub fn signatures(&self) -> &sign::Report {
+        &self.signatures
+    }
+
+    /// Whether the archive is encrypted, and so how it was opened.
+    pub fn unlocked(&self) -> Option<&Arc<Unlocked>> {
+        self.crypt.unlocked.as_ref()
     }
 
     /// Why the entries were recovered from the records: the index is missing or damaged.
@@ -663,6 +782,7 @@ impl BhiveReader {
             input,
             limits: &self.source.limits,
             progress: &self.source.counter,
+            crypt: &self.crypt,
         };
         self.cache.get(&self.cells, n, &mut io)
     }
@@ -724,7 +844,7 @@ impl BhiveReader {
         let results: Mutex<Vec<Option<Error>>> = Mutex::new(vec![None; self.cells.len()]);
         // The job's thread waits here between looks; a worker that finishes a cell wakes it.
         let tick = (Mutex::new(()), Condvar::new());
-        let (source, cells) = (&self.source, &self.cells[..]);
+        let (source, cells, crypt) = (&self.source, &self.cells[..], &self.crypt);
         let work = || -> Result<()> {
             let mut input = source.input()?;
             loop {
@@ -736,6 +856,7 @@ impl BhiveReader {
                     input: &mut input,
                     limits: &source.limits,
                     progress: &progress,
+                    crypt,
                 };
                 match Cache::decode(cells, n as u32, &mut io) {
                     Ok(raw) => source.budget.add(raw.len() as u64)?,
@@ -900,6 +1021,7 @@ impl ArchiveReader for BhiveReader {
                     input,
                     limits: &self.source.limits,
                     progress: &progress,
+                    crypt: &self.crypt,
                 },
                 &touched,
                 0,
@@ -948,6 +1070,7 @@ impl ArchiveReader for BhiveReader {
                 input,
                 limits: &self.source.limits,
                 progress: &self.source.counter,
+                crypt: &self.crypt,
             },
             &self.touched,
             0,

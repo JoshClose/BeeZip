@@ -8,16 +8,25 @@ mod archive_create;
 mod archive_extract;
 mod archive_info;
 mod archive_list;
+mod archive_protect;
+mod archive_protection;
 mod archive_remove;
 mod archive_rename;
+mod archive_sign;
 mod archive_test;
 mod bench_run;
+mod certificates_list;
 mod cli_line;
 pub(crate) mod edit;
 mod entry_open;
 mod entry_read;
 mod file_detect;
 mod formats_list;
+mod keys_create;
+mod keys_delete;
+mod keys_export;
+mod keys_import;
+mod keys_list;
 pub(crate) mod listing;
 mod settings_get;
 mod settings_set;
@@ -40,12 +49,18 @@ pub use archive_extract::{
 };
 pub use archive_info::{ArchiveInfo, ArchiveInfoInput, ArchiveInfoOutput, EncryptionState};
 pub use archive_list::{ArchiveList, ArchiveListInput, ArchiveListOutput};
+pub use archive_protect::{ArchiveProtect, ArchiveProtectInput, ArchiveProtectOutput};
+pub use archive_protection::{ArchiveProtection, ArchiveProtectionInput, ArchiveProtectionOutput};
 pub use archive_remove::{ArchiveRemove, ArchiveRemoveInput};
 pub use archive_rename::{ArchiveRename, ArchiveRenameInput};
+pub use archive_sign::{ArchiveSign, ArchiveSignInput, ArchiveSignOutput};
 pub use archive_test::{ArchiveTest, ArchiveTestInput, ArchiveTestOutput};
 pub use bench_run::{
     BenchCell, BenchCellSpec, BenchGrid, BenchGridName, BenchRun, BenchRunInput, BenchRunOutput,
     BenchSample,
+};
+pub use certificates_list::{
+    CertPurposeName, CertificatesList, CertificatesListInput, CertificatesListOutput,
 };
 pub use cli_line::{CliLine, CliLineInput, CliLineOutput, ShellName};
 pub use edit::{Change, ChangeAction, EditOutput};
@@ -56,6 +71,11 @@ pub use formats_list::{
     Caps, CodecInfo, FormatInfo, FormatsList, FormatsListInput, FormatsListOutput, LevelRange,
     MethodInfo,
 };
+pub use keys_create::{KeysCreate, KeysCreateInput};
+pub use keys_delete::{KeysDelete, KeysDeleteInput, KeysDeleteOutput};
+pub use keys_export::{KeysExport, KeysExportInput, KeysExportOutput};
+pub use keys_import::{KeysImport, KeysImportInput};
+pub use keys_list::{KeysList, KeysListInput, KeysListOutput};
 pub use settings_get::{SettingsGet, SettingsGetInput, SettingsGetOutput};
 pub use settings_set::{SettingsSet, SettingsSetInput, SettingsSetOutput};
 pub use shell_install::{
@@ -99,5 +119,15 @@ pub fn register_all(registry: &mut Registry) {
         .register::<ShellPlan>()
         .register::<ShellStatus>()
         .register::<ShellInstall>()
-        .register::<ShellUninstall>();
+        .register::<ShellUninstall>()
+        // M14 (docs/M14.md §10): hidden on every surface until wave 1 builds them.
+        .register::<ArchiveProtection>()
+        .register::<ArchiveProtect>()
+        .register::<ArchiveSign>()
+        .register::<KeysList>()
+        .register::<KeysCreate>()
+        .register::<KeysImport>()
+        .register::<KeysExport>()
+        .register::<KeysDelete>()
+        .register::<CertificatesList>();
 }

@@ -64,6 +64,11 @@ impl Interactor for TtyInteractor {
                     Ok(None) | Err(_) => Ok(PromptReply::Cancel),
                 }
             }
+            // PR F asks for a password, a recovery key or a way in (docs/M14.md §8).
+            Prompt::Unlock { .. } => Err(CmdError::new(
+                ErrorCode::UnsupportedOperation,
+                "opening an encrypted .bhive is not built yet (docs/M14.md)",
+            )),
         })
     }
 }
@@ -94,6 +99,10 @@ impl Interactor for CliNonInteractive {
                         "`{path}` already exists; pass --overwrite always|never|rename|newer"
                     ),
                 },
+            ),
+            Prompt::Unlock { .. } => CmdError::new(
+                ErrorCode::KeyRequired,
+                "the archive is encrypted; pass --password, a recovery key, or --identity",
             ),
         })
     }

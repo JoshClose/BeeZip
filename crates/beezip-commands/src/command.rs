@@ -35,6 +35,13 @@ impl Surfaces {
         gui: true,
         mcp: false,
     };
+    /// On no surface: a command whose types are settled and whose work isn't built yet
+    /// (docs/M14.md §10). Its types still reach `commands.ts`.
+    pub const NONE: Self = Self {
+        cli: false,
+        gui: false,
+        mcp: false,
+    };
 }
 
 /// The generated `beezip` subcommand for a command, e.g. `extract` with alias `x`, or `get`

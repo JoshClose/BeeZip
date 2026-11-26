@@ -1,0 +1,36 @@
+[package]
+name = "beezip-keys"
+description = "BeeZip's system key stores: certificates, smart cards, TPM keys, security keys and your own keys (docs/M14.md §8)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+beezip-core.workspace = true
+dirs.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+zeroize.workspace = true
+
+# CNG (certificate stores, smart cards, TPM keys), DPAPI-NG and webauthn.dll: the windows 0.62.2
+# the rest of the workspace builds, with these features (docs/M14.md §14, the Windows spike).
+[target.'cfg(windows)'.dependencies]
+windows = { workspace = true, features = [
+    "Win32_Foundation", "Win32_Security", "Win32_Security_Cryptography",
+    "Win32_Security_Credentials", "Win32_Networking_WindowsWebServices",
+    "Win32_System_LibraryLoader",
+] }
+windows-core.workspace = true
+
+# Keychain identities and generic passwords.
+[target.'cfg(target_os = "macos")'.dependencies]
+security-framework.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true

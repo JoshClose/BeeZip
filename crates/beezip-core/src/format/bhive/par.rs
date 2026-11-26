@@ -271,6 +271,7 @@ impl Shared<'_> {
                     input: &mut input,
                     limits: &source.limits,
                     progress: self.progress,
+                    crypt: &self.r.crypt,
                 },
                 &touched,
                 self.ahead,
@@ -326,6 +327,7 @@ impl Shared<'_> {
                 input: &mut input,
                 limits: &source.limits,
                 progress: self.progress,
+                crypt: &self.r.crypt,
             };
             self.r.cache.help(&self.r.cells, &mut io);
         }

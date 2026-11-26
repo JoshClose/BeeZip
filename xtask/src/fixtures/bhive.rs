@@ -221,6 +221,7 @@ fn written(entries: &[Planted], level: Level, cell_size: Option<u32>) -> anyhow:
         memory: None,
         cell_size,
         inherit: false,
+        ..BhiveWriteOptions::default()
     };
     let mut cx = SimpleCtx::new();
     let mut w: Box<dyn ArchiveWriter> = Box::new(BhiveWriter::new(Box::new(out.clone()), &opts)?);
@@ -756,12 +757,13 @@ pub fn corpus() -> anyhow::Result<Vec<(&'static str, Vec<u8>)>> {
         files.push((name, bytes));
     }
 
-    // A version and a feature this BeeZip doesn't have.
+    // A version and a feature this BeeZip doesn't have. Bit 0 is encryption (docs/bhive.md
+    // §12), so the unknown feature is bit 1.
     let mut newer = whole.clone();
     newer[8] = 2;
     files.push(("bhive-version-2.bhive", newer));
     let mut feature = whole.clone();
-    feature[12] = 0x01;
+    feature[12] = 0x02;
     files.push(("bhive-feature.bhive", feature));
 
     // Cut short at each part: in the header, a record, a journal, a cell, the index, the footer.

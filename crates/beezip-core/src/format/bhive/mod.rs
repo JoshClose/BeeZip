@@ -13,10 +13,12 @@
 pub mod build;
 mod chunk;
 mod coder;
+pub mod crypt;
 pub mod layout;
 mod mem;
 mod par;
 mod read;
+pub mod sign;
 #[cfg(test)]
 mod tests;
 mod write;
