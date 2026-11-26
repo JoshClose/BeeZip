@@ -1,0 +1,96 @@
+Change who can open an encrypted `.bhive`, without recompressing it: add ways in, remove
+them, or make a new file key, which seals every cell again and rebuilds every slot.
+Removing a way in isn't revoking it: someone who opened the archive before could have kept
+its key; a new key is what shuts them out of later versions.
+
+Usage: beezip protect [OPTIONS] <ARCHIVE>
+
+Arguments:
+  <ARCHIVE>
+          The archive
+
+Options:
+  -p, --password <PASSWORD>
+          The password or recovery key that opens it, if none of your keys does
+
+      --add-password <PASSWORD>
+          Add a password
+
+      --recovery-key[=<RECOVERY_KEY>]
+          Add a recovery key, shown once in the output
+          
+          [possible values: true, false]
+
+      --to <KEY>
+          Add public keys: `age1…`, `age1pq1…`, or a contact's name
+
+      --to-cert <CERT>
+          Add certificates: a thumbprint in your stores, or a certificate file
+
+      --this-pc[=<THIS_PC>]
+          Add this PC (a key in its TPM). Windows only; needs another way in that works elsewhere
+          
+          [possible values: true, false]
+
+      --this-pc-pin <PIN>
+          A PIN for the This PC key, which the TPM protects against guessing
+
+      --security-key[=<SECURITY_KEY>]
+          Add a security key: Windows asks for a touch. Windows only
+          
+          [possible values: true, false]
+
+      --windows-hello[=<WINDOWS_HELLO>]
+          Add Windows Hello (a face, a fingerprint or its PIN). It works only on this PC, so it
+          needs another way in that works elsewhere. Windows only
+          
+          [possible values: true, false]
+
+      --strength <STRENGTH>
+          How hard an added password makes guessing [default: standard]
+
+          Possible values:
+          - standard: Argon2id with 1 GiB and 2 passes: about 0.3 s on a fast desktop, 0.6 s on a
+            laptop
+          - strong:   2 GiB and 3 passes: about 0.8 s and 1.7 s. Needs 2 GiB free to open
+
+      --remove <SLOT>
+          Remove these ways in, by slot, as `archive.protection` lists them
+
+      --new-key[=<NEW_KEY>]
+          Make a new file key: every cell sealed again, every slot rebuilt. A password slot is
+          rebuilt with `add_password` (one password slot), a recovery key is new, a security key or
+          Windows Hello needs a touch
+          
+          [possible values: true, false]
+
+      --confirm <SLOT>
+          With `new_key`, rebuild these ways in, by slot, although their keys or certificates aren't
+          among your keys and contacts. What the archive says of whose they are is a claim anyone
+          who could open it could have changed: check each in `archive.protection` first
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+Global options:
+      --output <FORMAT>
+          How to print results; ndjson streams every job event
+
+          Possible values:
+          - human:  Text for people
+          - json:   One JSON document on stdout: the output, or `{"error": {...}}`
+          - ndjson: Every job event as a JSON line on stdout, ending with `Finished`, `Failed` or
+            `Cancelled`
+          
+          [default: human]
+
+  -i, --identity <FILE>
+          A key file that opens encrypted .bhive archives (age identities, PEM and PKCS #8 keys);
+          repeatable
+
+      --password-stdin
+          Read the password or recovery key from the first line of stdin, where other programs can't
+          see it as they can the command line
+
+  -q, --quiet
+          No progress bars or info messages; warnings still print

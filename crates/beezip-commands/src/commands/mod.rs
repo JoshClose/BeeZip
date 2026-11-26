@@ -4,7 +4,7 @@
 mod app_version;
 mod archive_add;
 mod archive_convert;
-mod archive_create;
+pub(crate) mod archive_create;
 mod archive_extract;
 mod archive_info;
 mod archive_list;
@@ -13,7 +13,8 @@ mod archive_protection;
 mod archive_remove;
 mod archive_rename;
 mod archive_sign;
-mod archive_test;
+pub(crate) mod archive_test;
+mod archive_verify;
 mod bench_run;
 mod certificates_list;
 mod cli_line;
@@ -55,6 +56,7 @@ pub use archive_remove::{ArchiveRemove, ArchiveRemoveInput};
 pub use archive_rename::{ArchiveRename, ArchiveRenameInput};
 pub use archive_sign::{ArchiveSign, ArchiveSignInput, ArchiveSignOutput};
 pub use archive_test::{ArchiveTest, ArchiveTestInput, ArchiveTestOutput};
+pub use archive_verify::{ArchiveVerify, ArchiveVerifyInput};
 pub use bench_run::{
     BenchCell, BenchCellSpec, BenchGrid, BenchGridName, BenchRun, BenchRunInput, BenchRunOutput,
     BenchSample,
@@ -124,6 +126,7 @@ pub fn register_all(registry: &mut Registry) {
         .register::<ArchiveProtection>()
         .register::<ArchiveProtect>()
         .register::<ArchiveSign>()
+        .register::<ArchiveVerify>()
         .register::<KeysList>()
         .register::<KeysCreate>()
         .register::<KeysImport>()

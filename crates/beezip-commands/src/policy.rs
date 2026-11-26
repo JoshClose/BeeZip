@@ -27,6 +27,11 @@ pub struct Policy {
     pub max_list_entries: Option<u64>,
     /// The most bytes one `entry.read` returns, whatever `max_bytes` asks for.
     pub max_read_bytes: Option<u64>,
+    /// Nobody is there to see what a job does (MCP): it touches no device, makes no recovery
+    /// key and signs nothing (docs/M14.md decisions 15 and 27).
+    pub unattended: bool,
+    /// Key files that open encrypted `.bhive` archives (the CLI's `--identity`).
+    pub identities: Vec<PathBuf>,
 }
 
 impl Policy {
@@ -38,6 +43,8 @@ impl Policy {
             limits: Limits::default(),
             max_list_entries: None,
             max_read_bytes: None,
+            unattended: false,
+            identities: Vec::new(),
         }
     }
 

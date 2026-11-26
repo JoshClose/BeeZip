@@ -145,6 +145,10 @@ impl BeeZipServer {
         let mut base = (*engine.policy()).clone();
         base.max_list_entries = Some(MAX_LIST_ENTRIES);
         base.max_read_bytes = Some(MAX_READ_BYTES);
+        // Nobody is there to touch a device, keep a recovery key or mean a signature
+        // (docs/M14.md decisions 15 and 27).
+        base.unattended = true;
+        base.identities.clear();
         Ok(Self {
             engine,
             base,
@@ -184,7 +188,11 @@ impl BeeZipServer {
              most {read_kib} KiB per call: continue from `offset + bytes_read` until `eof` is \
              true.\n\
              - BeeZip never asks for passwords. After a PasswordRequired error, ask the user \
-             for the password and call again with `password`.\n\
+             for the password and call again with `password` (for an encrypted .bhive it also \
+             takes the 48-digit recovery key). KeyRequired means only a key or device the user \
+             has outside this server opens it.\n\
+             - BeeZip never signs, uses no security key, TPM or Windows Hello, and makes no \
+             recovery key here.\n\
              - A file already in the way is a Conflict error unless `overwrite` is given \
              (always, never, rename or newer). Clients that support elicitation ask the user \
              instead.\n\

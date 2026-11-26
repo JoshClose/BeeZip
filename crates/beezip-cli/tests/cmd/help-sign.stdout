@@ -1,0 +1,52 @@
+Sign a `.bhive`, or remove its signatures (docs/bhive.md §13). A signature says who made the
+archive's contents and that they haven't changed since; changing who can open it keeps it,
+changing the contents drops it. Signing reads every cell once, to make its digests or to
+check the cells against them.
+
+Usage: beezip sign [OPTIONS] <ARCHIVE>
+
+Arguments:
+  <ARCHIVE>
+          The archive
+
+Options:
+      --sign <SIGNER>
+          Sign with these: your signing key by name, a certificate's thumbprint in your stores, or a
+          certificate file with its key beside it
+
+      --remove <N>
+          Remove these signatures, by their place in the list `archive.info` shows, from 1
+
+      --remove-all[=<REMOVE_ALL>]
+          Remove every signature
+          
+          [possible values: true, false]
+
+  -p, --password <PASSWORD>
+          The password or recovery key, for an encrypted archive none of your keys opens
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+Global options:
+      --output <FORMAT>
+          How to print results; ndjson streams every job event
+
+          Possible values:
+          - human:  Text for people
+          - json:   One JSON document on stdout: the output, or `{"error": {...}}`
+          - ndjson: Every job event as a JSON line on stdout, ending with `Finished`, `Failed` or
+            `Cancelled`
+          
+          [default: human]
+
+  -i, --identity <FILE>
+          A key file that opens encrypted .bhive archives (age identities, PEM and PKCS #8 keys);
+          repeatable
+
+      --password-stdin
+          Read the password or recovery key from the first line of stdin, where other programs can't
+          see it as they can the command line
+
+  -q, --quiet
+          No progress bars or info messages; warnings still print

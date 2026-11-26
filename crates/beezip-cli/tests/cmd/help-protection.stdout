@@ -1,0 +1,39 @@
+List the ways into an encrypted `.bhive` (passwords, recovery keys, keys, certificates,
+This PC, security keys), with their labels, and say whether it resists quantum computers.
+Needs a way in: the archive's descriptions of its ways in are encrypted too.
+
+Usage: beezip protection [OPTIONS] <ARCHIVE>
+
+Arguments:
+  <ARCHIVE>
+          The archive
+
+Options:
+  -p, --password <PASSWORD>
+          The password or recovery key that opens it, if none of your keys does
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+Global options:
+      --output <FORMAT>
+          How to print results; ndjson streams every job event
+
+          Possible values:
+          - human:  Text for people
+          - json:   One JSON document on stdout: the output, or `{"error": {...}}`
+          - ndjson: Every job event as a JSON line on stdout, ending with `Finished`, `Failed` or
+            `Cancelled`
+          
+          [default: human]
+
+  -i, --identity <FILE>
+          A key file that opens encrypted .bhive archives (age identities, PEM and PKCS #8 keys);
+          repeatable
+
+      --password-stdin
+          Read the password or recovery key from the first line of stdin, where other programs can't
+          see it as they can the command line
+
+  -q, --quiet
+          No progress bars or info messages; warnings still print

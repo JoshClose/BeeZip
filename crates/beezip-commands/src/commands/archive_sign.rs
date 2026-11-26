@@ -1,18 +1,22 @@
 use std::path::PathBuf;
 
+use beezip_core::edit::sign::{SignOptions, sign};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 use crate::{
-    Access, CmdError, Command, Effect, JobCtx, Surfaces, commands::util::not_built,
-    crypt::SignatureReport, wire::Secret,
+    Access, CliSpec, CmdError, Command, Effect, JobCtx, Surfaces,
+    commands::util::{absolute, open_options},
+    crypt::SignatureReport,
+    protect,
+    wire::Secret,
 };
 
 /// Sign a `.bhive`, or remove its signatures (docs/bhive.md §13). A signature says who made the
 /// archive's contents and that they haven't changed since; changing who can open it keeps it,
-/// changing the contents drops it. Signing an archive that has no cell digests yet reads every
-/// cell once.
+/// changing the contents drops it. Signing reads every cell once, to make its digests or to
+/// check the cells against them.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, clap::Args, TS)]
 #[serde(deny_unknown_fields)]
 #[ts(optional_fields)]
@@ -24,7 +28,7 @@ pub struct ArchiveSignInput {
     #[arg(long, value_name = "SIGNER")]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sign: Option<Vec<String>>,
-    /// Remove these signatures, by their place in the list.
+    /// Remove these signatures, by their place in the list `archive.info` shows, from 1.
     #[arg(long, value_name = "N")]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub remove: Option<Vec<u32>>,
@@ -49,7 +53,13 @@ pub struct ArchiveSign;
 impl Command for ArchiveSign {
     const NAME: &'static str = "archive.sign";
     const EFFECT: Effect = Effect::Destructive;
-    const SURFACES: Surfaces = Surfaces::NONE;
+    // Never over MCP: a signature says that you made the archive (docs/M14.md decision 27).
+    const SURFACES: Surfaces = Surfaces::NO_MCP;
+    const CLI: Option<CliSpec> = Some(CliSpec {
+        name: "sign",
+        aliases: &[],
+        group: None,
+    });
 
     type Input = ArchiveSignInput;
     type Output = ArchiveSignOutput;
@@ -58,7 +68,57 @@ impl Command for ArchiveSign {
         vec![Access::Write(input.archive.clone())]
     }
 
-    fn run(_: ArchiveSignInput, _: &mut JobCtx) -> Result<ArchiveSignOutput, CmdError> {
-        Err(not_built("archive.sign"))
+    fn run(input: ArchiveSignInput, cx: &mut JobCtx) -> Result<ArchiveSignOutput, CmdError> {
+        let names = input.sign.clone().unwrap_or_default();
+        let remove_all = input.remove_all.unwrap_or(false);
+        let places = input.remove.clone().unwrap_or_default();
+        if names.is_empty() && !remove_all && places.is_empty() {
+            return Err(CmdError::invalid_args(
+                "nothing to do: pass `sign` to sign it, `remove` to remove some of its \
+                 signatures, or `remove_all` to remove them all",
+            ));
+        }
+        if places.contains(&0) {
+            return Err(CmdError::invalid_args(
+                "signatures are numbered from 1, as `archive.info` lists them",
+            ));
+        }
+        let remove = places.iter().map(|&n| n as usize - 1).collect();
+        let signing = protect::signing(&names, cx)?.unwrap_or_default();
+        let path = absolute(&input.archive);
+        let canonical = std::fs::canonicalize(&path).map_err(|e| {
+            CmdError::from(beezip_core::Error::io(
+                format!("opening {}", input.archive.display()),
+                &e,
+            ))
+        })?;
+        let _guard = cx.edit_lock(&canonical)?;
+        cx.set_password(input.password.as_ref());
+        let opts = SignOptions {
+            open: open_options(None, cx),
+            signing,
+            remove,
+            remove_all,
+        };
+        let report = sign(&path, &opts, cx);
+        // The cache forgets the archive once it has changed, or once a change of it failed.
+        if let Some(cache) = cx.cache() {
+            cache.evict(&canonical);
+        }
+        let report = report?;
+        Ok(ArchiveSignOutput {
+            signatures: protect::reports(&report.signatures, cx),
+        })
+    }
+
+    fn human(out: &ArchiveSignOutput) -> Option<String> {
+        if out.signatures.is_empty() {
+            return Some("not signed".into());
+        }
+        Some(
+            protect::signatures_text(&out.signatures)
+                .trim_start()
+                .to_owned(),
+        )
     }
 }

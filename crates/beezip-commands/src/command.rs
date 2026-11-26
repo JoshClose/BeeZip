@@ -72,6 +72,10 @@ pub const CLI_GROUPS: &[(&str, &str)] = &[
         "keys",
         "Your keys for opening and signing .bhive archives, and your contacts' public keys",
     ),
+    (
+        "certificates",
+        "The certificates archives can be encrypted to and signed with",
+    ),
 ];
 
 /// A command: one input type and one output type, shared by every front end.

@@ -924,8 +924,10 @@ Not needed to read a file; how BeeZip shows and writes signing keys.
 - **A fingerprint** is the first 10 bytes of the SHA-256 of the signer bytes, in base32
   ([RFC 4648](https://www.rfc-editor.org/rfc/rfc4648)) as 16 characters in groups of four:
   `VCPC-QSVP-2XKC-VCIZ`. It is for reading aloud and comparing by eye. A program that requires
-  a signer (`--require-signer`) matches the whole SHA-256 of the signer bytes: from a contact,
-  a key string, or a certificate file, never from a fingerprint alone.
+  a signer (`--require-signer`) matches a whole SHA-256: of the signer bytes for algorithm 1,
+  and of the signer's own certificate (the first) for algorithms 2 to 5, since the chain a
+  signer includes may change. It takes it from a contact, a key string, or a certificate file,
+  never from a fingerprint alone.
 - **A BeeZip signing key** (algorithm 1) is written as Bech32 with no length limit (BIP 173's
   checksum): the public key as `bzsig1…` of its 1,984 signer bytes, the private key as
   `BZSIG-SECRET-KEY-1…` of its Ed25519 seed and ML-DSA-65 seed, 32 bytes each.
