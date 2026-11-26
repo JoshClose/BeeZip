@@ -7,7 +7,10 @@ use ts_rs::TS;
 
 use crate::{
     Access, CliSpec, CmdError, Command, Effect, JobCtx,
+    commands::ArchiveProtectionOutput,
     commands::util::{absolute, as_given, with_archive},
+    crypt::SignatureReport,
+    protect,
     wire::{NameEncoding, Secret, human_size, ratio},
 };
 
@@ -92,6 +95,15 @@ pub struct ArchiveInfoOutput {
     pub properties: Vec<InfoProperty>,
     /// Things to know about the archive: where an MSI's files are listed.
     pub notes: Vec<String>,
+    /// A `.bhive`'s ways in, when it is encrypted. Their names and keys are what the archive
+    /// says of itself, which anyone who could open it could have changed (docs/bhive.md §12.9).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub protection: Option<ArchiveProtectionOutput>,
+    /// A `.bhive`'s signatures, checked (docs/bhive.md §13).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub signatures: Option<Vec<SignatureReport>>,
 }
 
 /// One fact a level of an archive records (docs/M6.md §3.5).
@@ -148,7 +160,11 @@ impl Command for ArchiveInfo {
                 let entries_total = entries.len() as u64;
                 let not_editable = beezip_core::edit::refusal(&absolute(&given), opened, cx)
                     .unwrap_or_else(|e| Some(e.message));
+                let (protection, signatures) =
+                    protect::security(&absolute(&given), &mut *opened.reader, cx)?;
                 let out = ArchiveInfoOutput {
+                    protection,
+                    signatures,
                     format: info.format.name().into(),
                     chain: opened.detection.chain(),
                     codecs: info.codecs.iter().map(|c| c.name().to_owned()).collect(),
@@ -215,6 +231,12 @@ impl Command for ArchiveInfo {
             human_size(out.packed_size),
             out.ratio * 100.0,
         );
+        if let Some(p) = &out.protection {
+            s.push_str(&protect::protection_text(p));
+        }
+        if let Some(sigs) = &out.signatures {
+            s.push_str(&protect::signatures_text(sigs));
+        }
         if !out.methods.is_empty() {
             s.push_str(&format!("\n  methods: {}", out.methods.join(", ")));
         }

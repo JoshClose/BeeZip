@@ -4,8 +4,13 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
+use beezip_core::format::bhive::BhiveReader;
+
 use crate::{
-    Access, CmdError, Command, Effect, JobCtx, Surfaces, commands::util::not_built, crypt::WayIn,
+    Access, CliSpec, CmdError, Command, Effect, JobCtx, Surfaces,
+    commands::util::{Opening, absolute, with_archive},
+    crypt::WayIn,
+    protect,
     wire::Secret,
 };
 
@@ -37,8 +42,12 @@ pub struct ArchiveProtection;
 impl Command for ArchiveProtection {
     const NAME: &'static str = "archive.protection";
     const EFFECT: Effect = Effect::ReadOnly;
-    // Hidden until PR F builds it (docs/M14.md §10).
-    const SURFACES: Surfaces = Surfaces::NONE;
+    const SURFACES: Surfaces = Surfaces::ALL;
+    const CLI: Option<CliSpec> = Some(CliSpec {
+        name: "protection",
+        aliases: &[],
+        group: None,
+    });
 
     type Input = ArchiveProtectionInput;
     type Output = ArchiveProtectionOutput;
@@ -47,7 +56,39 @@ impl Command for ArchiveProtection {
         vec![Access::Read(input.archive.clone())]
     }
 
-    fn run(_: ArchiveProtectionInput, _: &mut JobCtx) -> Result<ArchiveProtectionOutput, CmdError> {
-        Err(not_built("archive.protection"))
+    fn run(
+        input: ArchiveProtectionInput,
+        cx: &mut JobCtx,
+    ) -> Result<ArchiveProtectionOutput, CmdError> {
+        let path = absolute(&input.archive);
+        with_archive(
+            &input.archive,
+            input.password.as_ref(),
+            Opening::default(),
+            cx,
+            |a, cx| {
+                let reader = &mut *a.opened.reader;
+                if reader.as_any_mut().downcast_mut::<BhiveReader>().is_none() {
+                    return Err(CmdError::invalid_args(format!(
+                        "{} isn't a .bhive: only a .bhive has ways in (a zip's or 7z's password \
+                         is its only one)",
+                        input.archive.display()
+                    )));
+                }
+                let (protection, _) = protect::security(&path, reader, cx)?;
+                Ok(protection.unwrap_or(ArchiveProtectionOutput {
+                    encrypted: false,
+                    ways: Vec::new(),
+                    post_quantum: false,
+                }))
+            },
+        )
+    }
+
+    fn human(out: &ArchiveProtectionOutput) -> Option<String> {
+        if !out.encrypted {
+            return Some("not encrypted: anyone can open it".into());
+        }
+        Some(protect::protection_text(out).trim_start().to_owned())
     }
 }

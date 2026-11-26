@@ -1,0 +1,4 @@
+bin.name = "beezip"
+args = ["verify", "bhive/spec-small.bhive"]
+status.code = 16
+fs.cwd = "../../../../tests/fixtures"

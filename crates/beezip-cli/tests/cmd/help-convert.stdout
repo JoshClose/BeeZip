@@ -122,7 +122,13 @@ Options:
           A PIN for the This PC key, which the TPM protects against guessing
 
       --security-key[=<SECURITY_KEY>]
-          Let a security key or Windows Hello open it: Windows asks for a touch. `.bhive` on Windows
+          Let a security key open it: Windows asks for a touch. `.bhive` on Windows
+          
+          [possible values: true, false]
+
+      --windows-hello[=<WINDOWS_HELLO>]
+          Let Windows Hello open it (a face, a fingerprint or its PIN). It works only on this PC, so
+          it needs another way in that works elsewhere. `.bhive` on Windows
           
           [possible values: true, false]
 
@@ -157,6 +163,14 @@ Global options:
             `Cancelled`
           
           [default: human]
+
+  -i, --identity <FILE>
+          A key file that opens encrypted .bhive archives (age identities, PEM and PKCS #8 keys);
+          repeatable
+
+      --password-stdin
+          Read the password or recovery key from the first line of stdin, where other programs can't
+          see it as they can the command line
 
   -q, --quiet
           No progress bars or info messages; warnings still print

@@ -17,6 +17,9 @@ clap.workspace = true
 dirs.workspace = true
 filetime.workspace = true
 open.workspace = true
+# SHA-256 for signers' fingerprints and `require_signer`, and passwords wiped when dropped
+# (docs/M14.md §11): both already core's.
+ring.workspace = true
 schemars.workspace = true
 serde.workspace = true
 serde_json.workspace = true
@@ -26,6 +29,7 @@ time.workspace = true
 toml.workspace = true
 toml_edit.workspace = true
 ts-rs.workspace = true
+zeroize.workspace = true
 
 # Explorer registration (docs/M4.md §5.5), from safe Rust: the registry, and the Windows 11
 # menu's package through PackageManager.

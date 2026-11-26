@@ -74,7 +74,8 @@ pub struct BhiveWriteOptions {
     pub inherit: bool,
     /// Encrypt the archive for these ways in, or keep an edited archive's (docs/bhive.md §12).
     pub protection: Option<Protection>,
-    /// Sign it (docs/bhive.md §13). An edit that isn't signed again drops the signatures.
+    /// Sign it (docs/bhive.md §13). A rewrite that keeps the contents keeps the signatures
+    /// the archive had, and these join them; an edit that changes the contents drops them.
     pub signing: Option<Signing>,
 }
 
@@ -335,6 +336,8 @@ pub struct BhiveWriter {
     digests: Vec<[u8; 32]>,
     ids: Vec<[u8; 32]>,
     signing: Option<Signing>,
+    /// The signatures of the archive copied from, kept while the contents stay the same.
+    carried: Option<sign::Carried>,
 }
 
 impl BhiveWriter {
@@ -389,6 +392,7 @@ impl BhiveWriter {
             digests: Vec::new(),
             ids: Vec::new(),
             signing,
+            carried: None,
         })
     }
 
@@ -725,10 +729,17 @@ impl BhiveWriter {
     /// The index block and the footer. A signed archive's index gets the cells' digests and
     /// the signatures; an encrypted one's has its cell ids and slot descriptions, and is sealed
     /// (docs/bhive.md §12.7, §13).
-    fn write_index(&mut self) -> Result<()> {
+    fn write_index(&mut self, cx: &mut dyn Ctx) -> Result<()> {
         let level = [self.level.number()];
         let mut sections: Vec<(u64, Vec<u8>)> = vec![(SECTION_LEVEL, level.to_vec())];
-        if let Some(signing) = &self.signing {
+        // The signatures of an archive copied whole are carried over while its manifest stays
+        // the one they were made over: every cell copied as it is stored, in order, and every
+        // entry as it was (docs/M14.md §11). Section 2 then comes from the cells copied.
+        let carried = self
+            .carried
+            .take()
+            .filter(|_| self.digests.len() == self.cells.len());
+        if self.signing.is_some() || carried.is_some() {
             if self.digests.len() != self.cells.len() {
                 return Err(Error::new(ErrorKind::Io, "bhive: a cell has no digest"));
             }
@@ -751,7 +762,13 @@ impl BhiveWriter {
                 &self.items,
                 &covered,
             )?;
-            sections.push((SECTION_SIGNATURES, sign::section(signing, &manifest)?));
+            match sign::section_with(self.signing.as_ref(), carried.as_ref(), &manifest, cx)? {
+                Some(section) => sections.push((SECTION_SIGNATURES, section)),
+                // Nothing to carry and nothing new: no signatures, and no digests for them.
+                None => {
+                    sections.pop();
+                }
+            }
         }
         let envelope = self.finish.envelope.clone();
         if let Some(descriptions) = envelope.as_ref().and_then(|e| e.descriptions.clone()) {
@@ -1104,7 +1121,8 @@ impl ArchiveWriter for BhiveWriter {
     /// they have bytes in are copied as they are stored, under new numbers, each behind a new
     /// record; a cell that has lost more than half its bytes is decoded, and what is left of
     /// it stored again. Only into an archive that holds nothing yet, and from an archive that
-    /// has its index.
+    /// has its index. A signed copy gets each copied cell's digest, and the source's
+    /// signatures stay while the contents do (docs/M14.md §11).
     fn copy_from(
         &mut self,
         source: &mut dyn ArchiveReader,
@@ -1115,14 +1133,40 @@ impl ArchiveWriter for BhiveWriter {
         let Some(r) = source.as_any_mut().downcast_mut::<BhiveReader>() else {
             return Ok(Copied::nothing(keep));
         };
-        // Sealed cells, and cells that need a digest, are copied by PRs A and H (docs/M14.md
-        // §10); until then their entries are decoded and stored again.
-        if r.unlocked().is_some() || self.finish.envelope.is_some() || self.finish.digests {
-            return Ok(Copied::nothing(keep));
-        }
         if !empty || r.recovered().is_some() || keep.iter().any(|k| k.id >= r.entries.len()) {
             return Ok(Copied::nothing(keep));
         }
+        // How a copied cell is sealed (docs/bhive.md §12.2): under the same file key it goes as
+        // it is, id and all; otherwise its stored bytes are opened from the old key, if any,
+        // and sealed under a new id with the new one. Protect and New key keep every cell that
+        // is still used, never storing one again, so its stored bytes and their signatures
+        // stand (docs/M14.md §3).
+        let as_is = match (r.unlocked(), &self.finish.envelope) {
+            (None, None) => true,
+            (Some(u), Some(env)) => env.same_key(u),
+            _ => false,
+        };
+        // A signed copy needs each cell's digest (docs/bhive.md §13.2). Signing anew, each
+        // cell copied is hashed, and must match the digest the archive has for it: a new
+        // signature vouches for the bytes in the file, not for what section 2 says of them.
+        // Only carrying the archive's own signatures over, its own digests serve.
+        let hash = self.finish.digests;
+        let own = r.crypt.digests.clone().unwrap_or_default();
+        self.carried = r.carried().cloned();
+        let digest_of = |n: usize, stored: &[u8], checked: bool| -> Result<Option<[u8; 32]>> {
+            let had = own.get(n).copied();
+            if !hash || (checked && had.is_some()) {
+                return Ok(had);
+            }
+            let digest = sign::cell_digest(stored)?;
+            if had.is_some_and(|d| d != digest) {
+                return Err(Error::corrupt(format!(
+                    "bhive: cell {n} isn't what was signed: it changed after the archive was \
+                     signed, so the copy isn't signed; test the archive to see what changed"
+                )));
+            }
+            Ok(Some(digest))
+        };
 
         // What is left of each cell: the bytes the kept entries have, as runs in order.
         let mut live: Vec<Vec<(u32, u32)>> = vec![Vec::new(); r.cells.len()];
@@ -1143,13 +1187,22 @@ impl ArchiveWriter for BhiveWriter {
             *runs = joined;
         }
         // A cell goes as it is, under a new number, while at least half of it is still used.
+        // Sealed under a new key (Protect, New key), every cell still used goes as it is. Taken
+        // out into the clear, only a cell that is all still used does: the rest of a cell may
+        // be files left out or removed before, which were sealed and mustn't come out readable.
+        let sealing = self.finish.envelope.is_some();
+        let whole = |left: u64, raw: u64| match (as_is, sealing) {
+            (true, _) => left * 2 >= raw,
+            (false, true) => true,
+            (false, false) => left >= raw,
+        };
         let mut fates = Vec::with_capacity(r.cells.len());
         let mut copies = 0u32;
         for (cell, runs) in r.cells.iter().zip(&live) {
             let left: u64 = runs.iter().map(|(a, b)| u64::from(b - a)).sum();
             fates.push(if left == 0 {
                 Fate::Gone
-            } else if left * 2 >= u64::from(cell.raw) {
+            } else if whole(left, u64::from(cell.raw)) {
                 copies += 1;
                 Fate::Copy(copies - 1)
             } else {
@@ -1191,7 +1244,33 @@ impl ArchiveWriter for BhiveWriter {
             };
             cx.check()?;
             let cell = r.cells[n];
-            let data = r.stored(n)?;
+            // `stored` opens the cell and checks it against the archive's digest, if it has one.
+            let (data, id, digest) = match &self.finish.envelope {
+                Some(_) if as_is => {
+                    let data = r.in_file(n)?;
+                    let digest = match hash {
+                        true => digest_of(n, &r.crypt.open(n as u32, data.clone())?, true)?,
+                        false => digest_of(n, &[], true)?,
+                    };
+                    (data, r.cell_ids().get(n).copied(), digest)
+                }
+                Some(env) => {
+                    let stored = r.stored(n)?;
+                    let digest = digest_of(n, &stored, true)?;
+                    let id = env.new_cell_id()?;
+                    (env.seal_cell(&id, &stored)?, Some(id), digest)
+                }
+                None if as_is => {
+                    let data = r.in_file(n)?;
+                    let digest = digest_of(n, &data, false)?;
+                    (data, None, digest)
+                }
+                None => {
+                    let stored = r.stored(n)?;
+                    let digest = digest_of(n, &stored, true)?;
+                    (stored, None, digest)
+                }
+            };
             let (journal, journal_items) = std::mem::take(&mut journals[number as usize]);
             let journal_raw = journal.len();
             let (journal, journal_zstd) = pack_small(journal, self.level)?;
@@ -1213,8 +1292,8 @@ impl ArchiveWriter for BhiveWriter {
                 journal,
                 data,
                 cost: 0,
-                digest: None,
-                id: None,
+                digest,
+                id,
             })?;
         }
         self.sealed = copies;
@@ -1265,7 +1344,7 @@ impl ArchiveWriter for BhiveWriter {
             self.wait_packed();
         }
         self.pool = None;
-        self.write_index()?;
+        self.write_index(cx)?;
         self.out.flush().map_err(|e| write_error(&e))
     }
 }

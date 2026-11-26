@@ -1,0 +1,35 @@
+The certificates archives can be encrypted to and signed with
+
+Usage: beezip certificates [OPTIONS] <COMMAND>
+
+Commands:
+  list  List the certificates in your stores (Personal and Other People on Windows, the Keychain on
+        macOS) that can encrypt archives or sign them, with why the others can't. [alias: ls]
+  help  Print this message or the help of the given subcommand(s)
+
+Options:
+  -h, --help
+          Print help (see a summary with '-h')
+
+Global options:
+      --output <FORMAT>
+          How to print results; ndjson streams every job event
+
+          Possible values:
+          - human:  Text for people
+          - json:   One JSON document on stdout: the output, or `{"error": {...}}`
+          - ndjson: Every job event as a JSON line on stdout, ending with `Finished`, `Failed` or
+            `Cancelled`
+          
+          [default: human]
+
+  -i, --identity <FILE>
+          A key file that opens encrypted .bhive archives (age identities, PEM and PKCS #8 keys);
+          repeatable
+
+      --password-stdin
+          Read the password or recovery key from the first line of stdin, where other programs can't
+          see it as they can the command line
+
+  -q, --quiet
+          No progress bars or info messages; warnings still print

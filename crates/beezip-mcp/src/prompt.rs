@@ -4,7 +4,10 @@
 //! so a password prompt is always answered with `PasswordRequired`, and the model asks the
 //! user itself.
 
-use beezip_commands::{CmdError, ErrorCode, OverwriteChoice, Prompt, PromptReply};
+use beezip_commands::{
+    CmdError, ErrorCode, OverwriteChoice, Prompt, PromptReply,
+    crypt::{SlotKindName, UnlockWay},
+};
 use rmcp::model::{ElicitRequestParams, ElicitResult, ElicitationAction, ElicitationSchema};
 use serde_json::{Value, json};
 
@@ -41,10 +44,37 @@ pub fn password_required() -> CmdError {
     .with_details(json!({ "param": "password" }))
 }
 
+/// The answer to an encrypted `.bhive`'s Unlock prompt over MCP: never elicited, and no device
+/// is used (docs/M14.md decision 15). A password or recovery key the client asks the user for,
+/// or, for an archive only keys open, `KeyRequired`: your stored keys were tried, and none fits.
+pub fn unlock_required(ways: &[UnlockWay]) -> CmdError {
+    let typed = ways
+        .iter()
+        .any(|w| matches!(w.kind, SlotKindName::Password | SlotKindName::RecoveryKey));
+    let details = json!({ "param": "password", "ways": ways });
+    if typed {
+        CmdError::new(
+            ErrorCode::PasswordRequired,
+            "the archive is encrypted; ask the user for its password or recovery key and pass it \
+             as the `password` argument (BeeZip doesn't ask for them over MCP)",
+        )
+        .with_details(details)
+    } else {
+        CmdError::new(
+            ErrorCode::KeyRequired,
+            "the archive opens only with a key, a certificate or a device, and none of the \
+             user's stored keys fits; BeeZip uses no devices over MCP, so the user must open it \
+             in the app or the CLI",
+        )
+        .with_details(json!({ "ways": ways }))
+    }
+}
+
 /// The answer to a question nobody can be asked: the client has no form elicitation.
 pub fn unanswerable(prompt: &Prompt) -> CmdError {
     match prompt {
-        Prompt::Password { .. } | Prompt::Unlock { .. } => password_required(),
+        Prompt::Password { .. } => password_required(),
+        Prompt::Unlock { ways, .. } => unlock_required(ways),
         Prompt::Overwrite {
             path,
             archive: None,
@@ -224,5 +254,38 @@ mod tests {
         let err = unanswerable(&overwrite());
         assert_eq!(err.code, ErrorCode::Conflict);
         assert!(err.message.contains("`overwrite`"), "{}", err.message);
+    }
+}
+
+#[cfg(test)]
+mod unlock_tests {
+    use super::*;
+
+    fn way(slot: u32, kind: SlotKindName) -> UnlockWay {
+        UnlockWay {
+            slot,
+            kind,
+            here: false,
+        }
+    }
+
+    #[test]
+    fn a_password_or_recovery_key_the_client_asks_for_or_none() {
+        let e = unlock_required(&[
+            way(0, SlotKindName::PublicKey),
+            way(1, SlotKindName::RecoveryKey),
+        ]);
+        assert_eq!(e.code, ErrorCode::PasswordRequired);
+        assert_eq!(e.details.as_ref().unwrap()["param"], "password");
+        assert_eq!(e.details.unwrap()["ways"][1]["kind"], "recovery-key");
+        let e = unlock_required(&[way(0, SlotKindName::SecurityKey)]);
+        assert_eq!(e.code, ErrorCode::KeyRequired);
+        assert!(e.message.contains("no devices"), "{}", e.message);
+        let unlock = Prompt::Unlock {
+            ways: vec![way(0, SlotKindName::Password)],
+            attempt: 0,
+        };
+        assert_eq!(unanswerable(&unlock).code, ErrorCode::PasswordRequired);
+        assert!(form(&unlock).is_none());
     }
 }

@@ -62,6 +62,11 @@ pub struct WayIn {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub recipient: Option<String>,
+    /// The fingerprint of its public key or certificate, 16 characters in groups of four, for
+    /// people to compare with the key's owner before trusting it (New key's confirmation).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub fingerprint: Option<String>,
     /// It works only on one machine: a TPM key, Windows Hello.
     pub machine_bound: bool,
     /// A quantum computer couldn't open it.
@@ -157,6 +162,10 @@ pub struct SignatureReport {
     pub signer: String,
     /// 16 characters in groups of four (docs/bhive.md §13.5).
     pub fingerprint: String,
+    /// The signer's public key (`bzsig1…`) or certificate (PEM), for "Add to contacts".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub public: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub issuer: Option<String>,

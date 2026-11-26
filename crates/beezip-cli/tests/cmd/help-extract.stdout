@@ -70,6 +70,11 @@ Options:
           
           [possible values: true, false]
 
+      --require-signer <SIGNER>
+          Refuse the archive unless it is signed, validly, by each of these: a `bzsig1…` key, a
+          certificate file, or the name of a signing key or contact. Matched by their whole SHA-256,
+          never a fingerprint (docs/M14.md §11)
+
   -h, --help
           Print help (see a summary with '-h')
 
@@ -84,6 +89,14 @@ Global options:
             `Cancelled`
           
           [default: human]
+
+  -i, --identity <FILE>
+          A key file that opens encrypted .bhive archives (age identities, PEM and PKCS #8 keys);
+          repeatable
+
+      --password-stdin
+          Read the password or recovery key from the first line of stdin, where other programs can't
+          see it as they can the command line
 
   -q, --quiet
           No progress bars or info messages; warnings still print

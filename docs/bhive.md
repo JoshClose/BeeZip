@@ -616,7 +616,11 @@ them, those lengths and the fixed fields add up to p.
   goes to the authenticator as it is. Bit 0 set: the salt is a WebAuthn PRF input, and the
   authenticator gets `SHA-256("WebAuthn PRF" ‖ 00 ‖ salt)`, as WebAuthn's `prf` extension
   does. Bit 1: user verification is required (BeeZip always sets it). The other bits are
-  reserved. A credential id is 1 to 1,023 bytes, a relying party id 1 to 253.
+  reserved. A credential id is 1 to 1,023 bytes, a relying party id 1 to 253. A slot with a
+  reserved bit set, or whose relying party id isn't UTF-8, can't be used, but the file is still
+  read and opens another way. BeeZip's slots name the relying party `beezip`; a reader asks for
+  whichever one the slot names, so an archive can make the authenticator's dialog name another
+  site, though the output only opens the slot.
 
 ### 12.6 Cell blocks
 
@@ -902,7 +906,8 @@ the file: those signatures are reported as not checked.
   `uvarint` length and its DER, the signer's first and the ones that issued it after. The
   signature is checked with the first one's public key, which must be the algorithm's: RSA for
   2 and 3, with a modulus of 2,048 to 8,192 bits and an odd exponent from 3 to 2^32 − 1; a
-  P-256 key for 4, P-384 for 5. Any other key fails the signature.
+  P-256 key for 4, P-384 for 5 (as an uncompressed point). With any other key, the signature
+  is reported as one that couldn't be checked.
 - **Ed25519** is checked as `ring` 0.17 checks it: without the cofactor, `S` below the group
   order, and the encodings canonical as `ring` requires. A reader built on another library
   must accept and refuse the same signatures; the test vectors include the edge cases.
@@ -919,8 +924,10 @@ Not needed to read a file; how BeeZip shows and writes signing keys.
 - **A fingerprint** is the first 10 bytes of the SHA-256 of the signer bytes, in base32
   ([RFC 4648](https://www.rfc-editor.org/rfc/rfc4648)) as 16 characters in groups of four:
   `VCPC-QSVP-2XKC-VCIZ`. It is for reading aloud and comparing by eye. A program that requires
-  a signer (`--require-signer`) matches the whole SHA-256 of the signer bytes: from a contact,
-  a key string, or a certificate file, never from a fingerprint alone.
+  a signer (`--require-signer`) matches a whole SHA-256: of the signer bytes for algorithm 1,
+  and of the signer's own certificate (the first) for algorithms 2 to 5, since the chain a
+  signer includes may change. It takes it from a contact, a key string, or a certificate file,
+  never from a fingerprint alone.
 - **A BeeZip signing key** (algorithm 1) is written as Bech32 with no length limit (BIP 173's
   checksum): the public key as `bzsig1…` of its 1,984 signer bytes, the private key as
   `BZSIG-SECRET-KEY-1…` of its Ed25519 seed and ML-DSA-65 seed, 32 bytes each.

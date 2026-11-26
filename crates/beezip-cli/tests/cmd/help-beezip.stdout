@@ -3,82 +3,107 @@ BeeZip: archives from the command line
 Usage: beezip [OPTIONS] <COMMAND>
 
 Commands:
-  run         Run any command by name, with JSON arguments
-  commands    List every command
-  schema      Print a command's input and output JSON schemas
-  mcp         Serve BeeZip's tools over MCP on stdin/stdout
-  version     Show the BeeZip version and build information.
-  add         Add files and folders to an archive (zip, bhive, 7z, tar, cpio and ar, and tar and
-              cpio under any codec). Each input is stored under its own name, as `archive.create`
-              stores them, in `dir` if given; an ar holds files only. The archive isn't written in
-              place: a new one is written beside it and swapped in, so a failed or cancelled add
-              leaves it as it was. Entries that stay are copied without decoding. An archive whose
-              entries are encrypted needs a password for the new files, unless `unencrypted`.
-              [alias: a]
-  convert     Write an archive's entries to a new archive in another format, or with other options:
-              zip, bhive, 7z, tar, cpio, ar, cab, ISO, squashfs or DMG, tar and cpio under a codec
-              too, from any archive BeeZip reads (RAR, packages, disk images and split archives
-              included). The source isn't changed. Entries are copied without decoding when the
-              formats match and no option asks for something else (`a.tar.gz` → `a.tar.zst` keeps
-              every tar entry, encoding the stream again). An encrypted source needs `new_password`
-              or `decrypt`: encryption is never dropped silently. What the new format can't hold is
-              left out and reported in `skipped`; hard links become files where the format has none.
-  create      Create an archive from files and folders. Each input is stored under its own name
-              (`src/` becomes `src/…`). The format comes from `format` or the output's extension
-              (`.zip`, `.bhive`, `.7z`, `.tar`, `.tar.zst`, `.tgz`, `.cpio.gz`, `.ar`, `.cab`,
-              `.iso`, `.squashfs`, `.dmg`…); ar and cab hold files only. A `.bhive` is BeeZip's own
-              format: it stores repeated content once, reads any file without decoding the rest, and
-              uses every core. An ISO has Joliet and Rock Ridge, a DMG is an HFS+ volume in a
-              zlib-compressed image. The archive is written to a temporary file and renamed into
-              place, so a failed or cancelled create leaves nothing behind. [alias: c]
-  extract     Extract an archive, or the selected entries. Unsafe entries (paths climbing out with
-              `..`, links leading out) are skipped and the rest extracted; the command then fails
-              with `Unsafe` and the report in `details`. Without `dest`, files go into the current
-              directory. [alias: x]
-  info        Summarise an archive: its format chain, entry counts, sizes and compression ratio,
-              methods, encryption, whether it is solid or self-extracting, and its comment.
-  list        List an archive's entries. Without `flat`, one folder level at a time (the root, or
-              `dir`), with folders that only exist as parts of paths shown too; with `flat` or a
-              `glob`, every entry under `dir`. Results come in pages with `offset` and `limit`.
-              [alias: l]
-  remove      Remove entries from an archive (zip, bhive, 7z, tar, cpio and ar, and tar and cpio
-              under any codec). A folder takes everything under it. A new archive is written beside
-              the old one and swapped in, so a failed or cancelled removal leaves it as it was; the
-              entries that stay are copied without decoding, except the rest of a 7z solid block
-              that loses one, and what is left of a .bhive cell that lost more than half its bytes,
-              which are encoded again. Fails with `NotFound` when nothing matches. [alias: d]
-  rename      Rename an entry of an archive, or a folder and everything under it (zip, bhive, 7z,
-              tar, cpio and ar, and tar and cpio under any codec). `to` is the new full path, so a
-              rename can also move an entry. The new name mustn't be taken, unless only its case
-              differs. Entries are copied without decoding, encrypted ones included; renamed names
-              are stored in UTF-8. A new archive is written beside the old one and swapped in.
-              [alias: rn]
-  test        Test an archive's integrity: read every entry to the end, checking CRCs and codec
-              checksums. Fails with `Corrupt`, listing the damaged entries in `details`. [alias: t]
-  bench       Benchmark the codecs: compress and decompress a sample in memory with each codec at
-              the levels and thread counts of a grid, and report the size, the speed and the memory
-              each way. Every round trip is checked against the sample; one that doesn't match fails
-              its cell, not the run. Each cell is also sent as a `Partial` job event as it finishes,
-              and a cancelled run returns the cells it finished. Nothing is written.
-  open        Open an archive's file with its default app (Windows' "Open with" dialog when there is
-              none). The entry is extracted, with the archive's Mark of the Web, into a folder of
-              its own under `%TEMP%/BeeZip/open`, so two entries of one name don't collide; folders
-              there older than a day are deleted as it goes. Programs run as they would from
-              Explorer: SmartScreen sees the mark.
-  read        Read part of one entry without extracting it, as text, hex or base64. An offset is
-              reached by decoding up to it, since a compressed entry can't seek.
-  detect      Detect what a file is: its chain of codecs and archive format (`zstd → tar`), whether
-              it is a self-extracting archive, and what it is when it isn't an archive at all.
-  formats     List the archive formats and codecs BeeZip reads and writes, with their capabilities,
-              methods, levels and threading.
-  compress    Compress one file with a single-stream codec (`a.txt` → `a.txt.zst`). The output keeps
-              the input's modification time; the input is left in place.
-  decompress  Decompress a compressed file, one codec layer per call: `a.tar.zst` → `a.tar`, `a.tgz`
-              → `a.tar`, `notes.txt.gz` → `notes.txt`. The output keeps the input's modification
-              time; the input is left in place.
-  settings    Show and change BeeZip's settings (config.toml)
-  shell       BeeZip's Explorer menu: what a click on it does
-  help        Print this message or the help of the given subcommand(s)
+  run           Run any command by name, with JSON arguments
+  commands      List every command
+  schema        Print a command's input and output JSON schemas
+  mcp           Serve BeeZip's tools over MCP on stdin/stdout
+  version       Show the BeeZip version and build information.
+  add           Add files and folders to an archive (zip, bhive, 7z, tar, cpio and ar, and tar and
+                cpio under any codec). Each input is stored under its own name, as `archive.create`
+                stores them, in `dir` if given; an ar holds files only. The archive isn't written in
+                place: a new one is written beside it and swapped in, so a failed or cancelled add
+                leaves it as it was. Entries that stay are copied without decoding. An archive whose
+                entries are encrypted needs a password for the new files, unless `unencrypted`.
+                [alias: a]
+  convert       Write an archive's entries to a new archive in another format, or with other
+                options: zip, bhive, 7z, tar, cpio, ar, cab, ISO, squashfs or DMG, tar and cpio
+                under a codec too, from any archive BeeZip reads (RAR, packages, disk images and
+                split archives included). The source isn't changed. Entries are copied without
+                decoding when the formats match and no option asks for something else (`a.tar.gz` →
+                `a.tar.zst` keeps every tar entry, encoding the stream again). An encrypted source
+                needs `new_password` or `decrypt`: encryption is never dropped silently. What the
+                new format can't hold is left out and reported in `skipped`; hard links become files
+                where the format has none.
+  create        Create an archive from files and folders. Each input is stored under its own name
+                (`src/` becomes `src/…`). The format comes from `format` or the output's extension
+                (`.zip`, `.bhive`, `.7z`, `.tar`, `.tar.zst`, `.tgz`, `.cpio.gz`, `.ar`, `.cab`,
+                `.iso`, `.squashfs`, `.dmg`…); ar and cab hold files only. A `.bhive` is BeeZip's
+                own format: it stores repeated content once, reads any file without decoding the
+                rest, and uses every core. An ISO has Joliet and Rock Ridge, a DMG is an HFS+ volume
+                in a zlib-compressed image. The archive is written to a temporary file and renamed
+                into place, so a failed or cancelled create leaves nothing behind. [alias: c]
+  extract       Extract an archive, or the selected entries. Unsafe entries (paths climbing out with
+                `..`, links leading out) are skipped and the rest extracted; the command then fails
+                with `Unsafe` and the report in `details`. Without `dest`, files go into the current
+                directory. [alias: x]
+  info          Summarise an archive: its format chain, entry counts, sizes and compression ratio,
+                methods, encryption, whether it is solid or self-extracting, and its comment.
+  list          List an archive's entries. Without `flat`, one folder level at a time (the root, or
+                `dir`), with folders that only exist as parts of paths shown too; with `flat` or a
+                `glob`, every entry under `dir`. Results come in pages with `offset` and `limit`.
+                [alias: l]
+  protect       Change who can open an encrypted `.bhive`, without recompressing it: add ways in,
+                remove them, or make a new file key, which seals every cell again and rebuilds every
+                slot. Removing a way in isn't revoking it: someone who opened the archive before
+                could have kept its key; a new key is what shuts them out of later versions.
+  protection    List the ways into an encrypted `.bhive` (passwords, recovery keys, keys,
+                certificates, This PC, security keys), with their labels, and say whether it resists
+                quantum computers. Needs a way in: the archive's descriptions of its ways in are
+                encrypted too.
+  remove        Remove entries from an archive (zip, bhive, 7z, tar, cpio and ar, and tar and cpio
+                under any codec). A folder takes everything under it. A new archive is written
+                beside the old one and swapped in, so a failed or cancelled removal leaves it as it
+                was; the entries that stay are copied without decoding, except the rest of a 7z
+                solid block that loses one, and what is left of a .bhive cell that lost more than
+                half its bytes, which are encoded again. Fails with `NotFound` when nothing matches.
+                [alias: d]
+  rename        Rename an entry of an archive, or a folder and everything under it (zip, bhive, 7z,
+                tar, cpio and ar, and tar and cpio under any codec). `to` is the new full path, so a
+                rename can also move an entry. The new name mustn't be taken, unless only its case
+                differs. Entries are copied without decoding, encrypted ones included; renamed names
+                are stored in UTF-8. A new archive is written beside the old one and swapped in.
+                [alias: rn]
+  sign          Sign a `.bhive`, or remove its signatures (docs/bhive.md §13). A signature says who
+                made the archive's contents and that they haven't changed since; changing who can
+                open it keeps it, changing the contents drops it. Signing reads every cell once, to
+                make its digests or to check the cells against them.
+  test          Test an archive's integrity: read every entry to the end, checking CRCs and codec
+                checksums. Fails with `Corrupt`, listing the damaged entries in `details`. [alias:
+                t]
+  verify        Check a `.bhive`'s signatures, and that every cell is what was signed, read to the
+                end as `archive.test` reads it. It passes when no signature failed and one is valid:
+                from each signer `require_signer` names, or without it from someone you trust
+                (yourself, a contact, or a certificate the system trusts). Fails with
+                `SignatureRequired` when the archive isn't signed that way or changed after it was
+                signed, and `Corrupt` when a cell doesn't match the digest that was signed.
+  bench         Benchmark the codecs: compress and decompress a sample in memory with each codec at
+                the levels and thread counts of a grid, and report the size, the speed and the
+                memory each way. Every round trip is checked against the sample; one that doesn't
+                match fails its cell, not the run. Each cell is also sent as a `Partial` job event
+                as it finishes, and a cancelled run returns the cells it finished. Nothing is
+                written.
+  open          Open an archive's file with its default app (Windows' "Open with" dialog when there
+                is none). The entry is extracted, with the archive's Mark of the Web, into a folder
+                of its own under `%TEMP%/BeeZip/open`, so two entries of one name don't collide;
+                folders there older than a day are deleted as it goes. Programs run as they would
+                from Explorer: SmartScreen sees the mark.
+  read          Read part of one entry without extracting it, as text, hex or base64. An offset is
+                reached by decoding up to it, since a compressed entry can't seek.
+  detect        Detect what a file is: its chain of codecs and archive format (`zstd → tar`),
+                whether it is a self-extracting archive, and what it is when it isn't an archive at
+                all.
+  formats       List the archive formats and codecs BeeZip reads and writes, with their
+                capabilities, methods, levels and threading.
+  compress      Compress one file with a single-stream codec (`a.txt` → `a.txt.zst`). The output
+                keeps the input's modification time; the input is left in place.
+  decompress    Decompress a compressed file, one codec layer per call: `a.tar.zst` → `a.tar`,
+                `a.tgz` → `a.tar`, `notes.txt.gz` → `notes.txt`. The output keeps the input's
+                modification time; the input is left in place.
+  certificates  The certificates archives can be encrypted to and signed with
+  keys          Your keys for opening and signing .bhive archives, and your contacts' public keys
+  settings      Show and change BeeZip's settings (config.toml)
+  shell         BeeZip's Explorer menu: what a click on it does
+  help          Print this message or the help of the given subcommand(s)
 
 Options:
   -h, --help
@@ -98,6 +123,14 @@ Global options:
             `Cancelled`
           
           [default: human]
+
+  -i, --identity <FILE>
+          A key file that opens encrypted .bhive archives (age identities, PEM and PKCS #8 keys);
+          repeatable
+
+      --password-stdin
+          Read the password or recovery key from the first line of stdin, where other programs can't
+          see it as they can the command line
 
   -q, --quiet
           No progress bars or info messages; warnings still print

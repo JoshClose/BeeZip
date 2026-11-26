@@ -7,6 +7,7 @@ use std::{
     time::{Duration, Instant},
 };
 
+use beezip_core::format::bhive::crypt::{KeySource, SlotKind, UnlockAnswer, UnlockRequest};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
@@ -115,6 +116,13 @@ pub trait Interactor: Send + Sync {
     /// Called just before the `Prompt` event goes out, so a reply can't arrive before the
     /// interactor is ready for it. A GUI makes its reply slot here.
     fn expect(&self, _job: JobId, _id: u64) {}
+
+    /// Whether to let a password slot's Argon2 use `need_mib` of this machine's `total_mib`,
+    /// more than half of it (docs/M14.md §5). With nobody to ask it says no, and the slot is
+    /// left untried.
+    fn spend_memory(&self, _job: JobId, _need_mib: u64, _total_mib: u64) -> bool {
+        false
+    }
 }
 
 /// An [`Interactor`] with nobody to ask: every prompt fails with a hint about which argument to
@@ -148,6 +156,40 @@ impl Interactor for NonInteractive {
                 "the archive is encrypted; pass a password, a recovery key or a key to open it",
             ),
         })
+    }
+}
+
+/// Where a job looks for keys besides your own and the key files given (docs/M14.md §6, §8).
+#[derive(Clone, Default)]
+pub enum SystemKeys {
+    /// None: an engine made without a front end, such as a test's, reaches no system store.
+    #[default]
+    Off,
+    /// This machine's: Windows' certificate stores, smart cards, TPM and This PC keys, security
+    /// keys and Windows Hello; the macOS Keychain. An unattended job (MCP) uses none of them.
+    Real,
+    /// A test's own, in their place.
+    Stub(Arc<dyn KeyStub>),
+}
+
+impl std::fmt::Debug for SystemKeys {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::Off => "SystemKeys::Off",
+            Self::Real => "SystemKeys::Real",
+            Self::Stub(_) => "SystemKeys::Stub",
+        })
+    }
+}
+
+/// A test's stand-in for this machine's keys.
+pub trait KeyStub: Send + Sync {
+    /// The key sources a job tries after your keys and the key files given, made for each job.
+    fn sources(&self) -> Vec<Box<dyn KeySource + Send>>;
+
+    /// The SubjectPublicKeyInfos of this machine's This PC keys.
+    fn this_pc(&self) -> Vec<Vec<u8>> {
+        Vec::new()
     }
 }
 
@@ -195,6 +237,20 @@ pub struct JobCtx {
     password_used: bool,
     cache: Option<Arc<ArchiveCache>>,
     locks: Arc<EditLocks>,
+    /// What the input's password may open an encrypted `.bhive` as, still to try: a recovery
+    /// key, a password (docs/M14.md §8).
+    typed: Vec<UnlockAnswer>,
+    unlock_prompts: u32,
+    /// Your keys, the key files given, the system's certificates and devices; made when an
+    /// encrypted archive first needs them.
+    keys: Option<beezip_keys::Sources>,
+    /// Why a key file given couldn't be read, reported when a key is needed.
+    key_error: Option<CmdError>,
+    /// The ways into the last encrypted archive an Unlock prompt couldn't be answered for, as
+    /// `details.ways`.
+    unlock_ways: Option<serde_json::Value>,
+    /// The This PC keys this job made, deleted again if it fails.
+    made_this_pc: Vec<String>,
 }
 
 impl JobCtx {
@@ -225,7 +281,272 @@ impl JobCtx {
             password_used: false,
             cache,
             locks: locks.unwrap_or_default(),
+            typed: Vec::new(),
+            unlock_prompts: 0,
+            keys: None,
+            key_error: None,
+            unlock_ways: None,
+            made_this_pc: Vec::new(),
         }
+    }
+
+    /// Notes a This PC key made for the archive being written: if the job then fails, the key
+    /// opens nothing and is deleted ([`JobCtx::failed`]).
+    pub fn made_this_pc(&mut self, name: String) {
+        self.made_this_pc.push(name);
+    }
+
+    /// The job failed: the This PC keys it made are deleted, since no archive has them.
+    pub(crate) fn failed(&mut self) {
+        for name in std::mem::take(&mut self.made_this_pc) {
+            #[cfg(windows)]
+            if let Err(e) = beezip_keys::cng::delete_this_pc(&name) {
+                self.log(
+                    LogLevel::Warn,
+                    format!(
+                        "the This PC key {name} made for it couldn't be deleted: {}",
+                        e.message
+                    ),
+                );
+            }
+            #[cfg(not(windows))]
+            let _ = name;
+        }
+    }
+
+    /// `e` with the ways into the archive nothing opened, for an error that says so
+    /// (`KeyRequired`, `PasswordRequired`) and doesn't list them already.
+    pub(crate) fn with_ways(&mut self, e: CmdError) -> CmdError {
+        // No key here opened it, and a key file given couldn't be read: that is why.
+        if e.code == ErrorCode::KeyRequired
+            && let Some(k) = self.key_error.take()
+        {
+            return k;
+        }
+        let wants = matches!(e.code, ErrorCode::KeyRequired | ErrorCode::PasswordRequired);
+        match (self.unlock_ways.take(), wants) {
+            (Some(ways), true) => {
+                let mut details = e.details.clone().unwrap_or_else(|| serde_json::json!({}));
+                if let Some(d) = details.as_object_mut() {
+                    d.entry("ways").or_insert(ways);
+                }
+                e.with_details(details)
+            }
+            _ => e,
+        }
+    }
+
+    /// Your keys and contacts, in the settings folder beside the engine's `config.toml`
+    /// (docs/M14.md §6). Only a front end's engine has one ([`crate::EngineOptions::from_loaded`],
+    /// or a test's own `config_path`): an engine without, such as a test's, reaches nobody's
+    /// keys, and no folder others can write to stands in for it.
+    pub fn key_store(&self) -> Result<beezip_keys::identity::Store, CmdError> {
+        let config = self.live.path().ok_or_else(|| {
+            CmdError::new(
+                ErrorCode::UnsupportedOperation,
+                "there is no settings folder for your keys here; set BEEZIP_CONFIG to a file in \
+                 the folder to use",
+            )
+        })?;
+        let dir = match config.parent() {
+            Some(dir) if !dir.as_os_str().is_empty() => dir.to_path_buf(),
+            _ => PathBuf::from("."),
+        };
+        Ok(beezip_keys::identity::Store::new(dir))
+    }
+
+    /// The SubjectPublicKeyInfos of this machine's This PC keys, which "New key" may rebuild a
+    /// slot for without asking (docs/M14.md §3).
+    pub fn this_pc_keys(&self) -> Vec<Vec<u8>> {
+        match self.live.system_keys() {
+            SystemKeys::Off => Vec::new(),
+            SystemKeys::Stub(stub) => stub.this_pc(),
+            #[cfg(windows)]
+            SystemKeys::Real => beezip_keys::cng::this_pc()
+                .into_iter()
+                .map(|(_, spki)| spki)
+                .collect(),
+            #[cfg(not(windows))]
+            SystemKeys::Real => Vec::new(),
+        }
+    }
+
+    /// The key sources an encrypted `.bhive` is opened with: your keys first, then the key
+    /// files given (`--identity`), then the system's certificate stores and devices. An
+    /// unattended job (MCP) gets no system source: nobody is there to type a PIN or touch a
+    /// device (decision 15).
+    fn sources(&mut self) -> beezip_keys::Sources {
+        let mut sources = beezip_keys::Sources::default();
+        match self
+            .key_store()
+            .and_then(|store| store.source_with_problems().map_err(CmdError::from))
+        {
+            Ok((own, problems)) => {
+                sources.push(own);
+                // So that an archive none of your keys opened says why.
+                for p in problems {
+                    self.log(LogLevel::Warn, p.message);
+                }
+            }
+            Err(e) => self.log(
+                LogLevel::Warn,
+                format!("your keys aren't available: {}", e.message),
+            ),
+        }
+        for path in self.policy.identities.clone() {
+            match self.key_file(&path) {
+                Ok(files) => sources.push(files),
+                Err(e) => {
+                    self.key_error = Some(e);
+                    break;
+                }
+            }
+        }
+        match self.live.system_keys().clone() {
+            SystemKeys::Off => {}
+            _ if self.policy.unattended => {}
+            SystemKeys::Stub(stub) => {
+                for s in stub.sources() {
+                    sources.push(s);
+                }
+            }
+            SystemKeys::Real => {
+                for s in self.system_sources() {
+                    sources.push(s);
+                }
+            }
+        }
+        sources
+    }
+
+    /// This machine's certificate stores and devices. One that this system lacks, or that isn't
+    /// built yet, is left out.
+    fn system_sources(&self) -> Vec<Box<dyn KeySource + Send>> {
+        let found: Vec<(&str, beezip_core::Result<Box<dyn KeySource + Send>>)> = vec![
+            #[cfg(windows)]
+            ("Windows' certificate keys", beezip_keys::cng::source()),
+            #[cfg(windows)]
+            ("security keys", beezip_keys::webauthn::source(None)),
+            #[cfg(target_os = "macos")]
+            ("the Keychain", beezip_keys::mac::source()),
+        ];
+        let mut out = Vec::new();
+        for (what, source) in found {
+            match source {
+                Ok(s) => out.push(s),
+                Err(e) if e.kind == beezip_core::ErrorKind::UnsupportedOperation => {}
+                Err(e) => self.log(
+                    LogLevel::Warn,
+                    format!("{what} aren't available: {}", e.message),
+                ),
+            }
+        }
+        out
+    }
+
+    /// The key file at `path` (`--identity`): an age identity file (`AGE-SECRET-KEY-…`
+    /// lines), or a PEM or DER private key, which under a password asks for it, without echo,
+    /// up to [`PASSWORD_PROMPTS`] times.
+    fn key_file(&mut self, path: &Path) -> Result<Box<dyn KeySource + Send>, CmdError> {
+        use beezip_core::ErrorKind;
+        let in_file = |e: beezip_core::Error| {
+            let e = CmdError::from(e);
+            CmdError::new(e.code, format!("{}: {}", path.display(), e.message))
+        };
+        let bytes = std::fs::read(path)
+            .map_err(|e| in_file(beezip_core::Error::io("reading the key file", &e)))?;
+        if let Ok(text) = std::str::from_utf8(&bytes)
+            && text
+                .lines()
+                .any(|l| l.trim().starts_with("AGE-SECRET-KEY-"))
+        {
+            return beezip_keys::identity::identity_file(text).map_err(in_file);
+        }
+        let mut passphrase: Option<String> = None;
+        let mut asked = 0;
+        loop {
+            match beezip_keys::files::source(&[path], passphrase.as_deref()) {
+                Ok(source) => return Ok(source),
+                Err(e)
+                    if matches!(
+                        e.kind,
+                        ErrorKind::PasswordRequired | ErrorKind::WrongPassword
+                    ) && asked < PASSWORD_PROMPTS =>
+                {
+                    asked += 1;
+                    let reply = self.prompt(Prompt::Password {
+                        entry: Some(format!("the key file {}", path.display())),
+                    });
+                    match reply {
+                        Ok(PromptReply::Password { password }) => passphrase = Some(password),
+                        Ok(PromptReply::Cancel) => return Err(CmdError::cancelled()),
+                        Ok(other) => {
+                            return Err(CmdError::invalid_args(format!(
+                                "expected a password, got {other:?}"
+                            )));
+                        }
+                        Err(asking) if asking.code != ErrorCode::PasswordRequired => {
+                            return Err(asking);
+                        }
+                        Err(_) => {
+                            return Err(CmdError::new(
+                                if e.kind == ErrorKind::WrongPassword {
+                                    ErrorCode::WrongPassword
+                                } else {
+                                    ErrorCode::PasswordRequired
+                                },
+                                format!(
+                                    "the key file {} is under a password; run the command in a \
+                                     terminal to type it",
+                                    path.display()
+                                ),
+                            ));
+                        }
+                    }
+                }
+                Err(e) => return Err(e.into()),
+            }
+        }
+    }
+
+    /// What the input's password may be, for the ways in an archive has: a recovery key when
+    /// it reads as one (48 digits, with any separators, docs/bhive.md §12.5), a password, or
+    /// both in turn. Last first.
+    fn typed_answers(&self, request: &UnlockRequest) -> Vec<UnlockAnswer> {
+        let Some(given) = &self.password else {
+            return Vec::new();
+        };
+        let has = |kind| request.ways.iter().any(|w| w.kind == kind);
+        let mut answers = Vec::new();
+        let digits = given.chars().filter(char::is_ascii_digit).count();
+        let recovery = digits == 48
+            && given
+                .chars()
+                .all(|c| c.is_ascii_digit() || c.is_ascii_punctuation() || c.is_ascii_whitespace());
+        if recovery && has(SlotKind::RecoveryKey) {
+            answers.push(UnlockAnswer::RecoveryKey(given.clone()));
+        }
+        if has(SlotKind::Password) || answers.is_empty() {
+            answers.push(UnlockAnswer::Password(given.clone()));
+        }
+        answers.reverse();
+        answers
+    }
+
+    /// The ways in, as an error's `details.ways` lists them.
+    fn ways_details(request: &UnlockRequest) -> serde_json::Value {
+        let ways: Vec<serde_json::Value> = request
+            .ways
+            .iter()
+            .map(|w| {
+                serde_json::json!({
+                    "slot": w.slot,
+                    "kind": crate::crypt::SlotKindName::from(w.kind),
+                    "here": w.here,
+                })
+            })
+            .collect();
+        serde_json::json!({ "ways": ways })
     }
 
     /// Waits until no other job of this engine is editing the archive at `path` (canonical),
@@ -420,6 +741,107 @@ impl beezip_core::Ctx for JobCtx {
 
     fn overwrite(&mut self, existing: &Path) -> beezip_core::Result<beezip_core::OverwriteChoice> {
         self.ask_overwrite(existing.display().to_string(), None)
+    }
+
+    /// The input's password first, as a recovery key or a password (or both, in turn); then
+    /// up to [`PASSWORD_PROMPTS`] Unlock prompts, which list the ways in. With nobody to ask,
+    /// a first ask fails as the front end says (`KeyRequired`, or `PasswordRequired` over
+    /// MCP) with `details.ways`, and a later one is `WrongPassword`. An encrypted archive never
+    /// goes back to the archive cache.
+    fn unlock(&mut self, request: &UnlockRequest) -> beezip_core::Result<UnlockAnswer> {
+        use beezip_core::{Error, ErrorKind};
+
+        use crate::crypt::{UnlockReply, UnlockWay};
+        self.password_used = true;
+        // Kept for the job's error too: core may go on to say only that no key fit.
+        if let Some(e) = &self.key_error {
+            return Err(e.clone().into());
+        }
+        if request.attempt == 0 {
+            self.typed = self.typed_answers(request);
+        }
+        if let Some(answer) = self.typed.pop() {
+            return Ok(answer);
+        }
+        if self.unlock_prompts >= PASSWORD_PROMPTS {
+            return Err(Error::new(
+                ErrorKind::WrongPassword,
+                "nothing given opens the archive: a wrong password or recovery key",
+            ));
+        }
+        let ways = request
+            .ways
+            .iter()
+            .map(|w| UnlockWay {
+                slot: w.slot,
+                kind: w.kind.into(),
+                here: w.here,
+            })
+            .collect();
+        let reply = self.prompt(Prompt::Unlock {
+            ways,
+            attempt: request.attempt,
+        });
+        match reply {
+            Ok(PromptReply::Unlock { answer }) => {
+                self.unlock_prompts += 1;
+                Ok(match answer {
+                    UnlockReply::Password { password } => {
+                        self.password = Some(password.clone());
+                        UnlockAnswer::Password(password)
+                    }
+                    UnlockReply::RecoveryKey { key } => UnlockAnswer::RecoveryKey(key),
+                    UnlockReply::Slot { slot } => UnlockAnswer::Way(slot),
+                })
+            }
+            // A front end that knows only passwords.
+            Ok(PromptReply::Password { password }) => {
+                self.unlock_prompts += 1;
+                self.password = Some(password.clone());
+                Ok(UnlockAnswer::Password(password))
+            }
+            Ok(PromptReply::Cancel) => Err(Error::cancelled()),
+            Ok(other) => Err(Error::invalid_args(format!(
+                "expected a way into the archive, got {other:?}"
+            ))),
+            Err(e)
+                if request.attempt > 0
+                    && matches!(e.code, ErrorCode::PasswordRequired | ErrorCode::KeyRequired) =>
+            {
+                Err(Error::new(
+                    ErrorKind::WrongPassword,
+                    "nothing given opens the archive: a wrong password or recovery key, and no \
+                     key here fits",
+                ))
+            }
+            Err(e) => {
+                self.unlock_ways = Some(Self::ways_details(request)["ways"].clone());
+                Err(e.into())
+            }
+        }
+    }
+
+    /// Your keys, the key files given and the system's; asked for only by an encrypted
+    /// archive, which then never goes back to the archive cache, opened by a key or not.
+    fn key_source(&mut self) -> Option<&mut dyn KeySource> {
+        self.password_used = true;
+        if self.keys.is_none() {
+            let sources = self.sources();
+            self.keys = Some(sources);
+        }
+        self.keys.as_mut().map(|s| s as &mut dyn KeySource)
+    }
+
+    /// Asks the front end before a password slot's Argon2 takes more than half this machine's
+    /// memory (docs/M14.md §5); an unattended job (MCP) never spends it.
+    fn spend_memory(&mut self, need: u64, total: u64) -> beezip_core::Result<bool> {
+        if self.policy.unattended {
+            return Ok(false);
+        }
+        self.check_cancelled()?;
+        Ok(self
+            .interactor
+            .spend_memory(self.id, need >> 20, total >> 20))
     }
 
     fn overwrite_entry(

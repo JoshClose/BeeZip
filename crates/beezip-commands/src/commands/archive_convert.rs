@@ -11,6 +11,7 @@ use crate::{
         edit::{SpecArgs, spec_for},
         util::{absolute, open_options},
     },
+    protect::WaysArgs,
     wire::{
         ArchiveFormatName, ByteSize, EncryptionName, LevelArg, MethodName, NameEncoding, Secret,
         human_size, ratio,
@@ -125,11 +126,15 @@ pub struct ArchiveConvertInput {
     #[arg(long, value_name = "PIN")]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub this_pc_pin: Option<Secret>,
-    /// Let a security key or Windows Hello open it: Windows asks for a touch. `.bhive` on
-    /// Windows.
+    /// Let a security key open it: Windows asks for a touch. `.bhive` on Windows.
     #[arg(long, num_args = 0..=1, require_equals = true, default_missing_value = "true")]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub security_key: Option<bool>,
+    /// Let Windows Hello open it (a face, a fingerprint or its PIN). It works only on this PC,
+    /// so it needs another way in that works elsewhere. `.bhive` on Windows.
+    #[arg(long, num_args = 0..=1, require_equals = true, default_missing_value = "true")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub windows_hello: Option<bool>,
     /// How hard a `.bhive`'s password makes guessing [default: standard].
     #[arg(long, value_enum)]
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -146,16 +151,20 @@ pub struct ArchiveConvertInput {
 }
 
 impl ArchiveConvertInput {
-    /// Whether this asks for what M14 builds (docs/M14.md §8, §11).
-    fn m14_asked(&self) -> bool {
-        self.recovery_key.is_some()
-            || self.to.is_some()
-            || self.to_cert.is_some()
-            || self.this_pc.is_some()
-            || self.this_pc_pin.is_some()
-            || self.security_key.is_some()
-            || self.strength.is_some()
-            || self.sign.is_some()
+    /// The ways in the new archive gets (docs/M14.md §8).
+    fn ways(&self) -> WaysArgs<'_> {
+        WaysArgs {
+            password: self.new_password.as_ref(),
+            recovery_key: self.recovery_key.unwrap_or(false),
+            to: self.to.as_deref().unwrap_or_default(),
+            to_cert: self.to_cert.as_deref().unwrap_or_default(),
+            this_pc: self.this_pc.unwrap_or(false),
+            this_pc_pin: self.this_pc_pin.as_ref(),
+            security_key: self.security_key.unwrap_or(false),
+            windows_hello: self.windows_hello.unwrap_or(false),
+            strength: self.strength,
+            kept: false,
+        }
     }
 }
 
@@ -217,11 +226,6 @@ impl Command for ArchiveConvert {
     }
 
     fn run(input: ArchiveConvertInput, cx: &mut JobCtx) -> Result<ArchiveConvertOutput, CmdError> {
-        if input.m14_asked() {
-            return Err(crate::commands::util::not_built(
-                "encrypting and signing a .bhive",
-            ));
-        }
         let output = absolute(&input.output);
         let kind = match input.format {
             Some(f) => f.kind(),
@@ -238,9 +242,10 @@ impl Command for ArchiveConvert {
             }
         };
         let decrypt = input.decrypt.unwrap_or(false);
-        if decrypt && input.new_password.is_some() {
+        if decrypt && !input.ways().is_empty() {
             return Err(CmdError::invalid_args(
-                "`decrypt` writes the entries in the clear; leave out `new_password`",
+                "`decrypt` writes the entries in the clear; leave out `new_password` and the \
+                 other ways in",
             ));
         }
         let args = SpecArgs {
@@ -248,17 +253,26 @@ impl Command for ArchiveConvert {
             level: input.level.and_then(LevelArg::number),
             level_name: input.level.and_then(LevelArg::name),
             threads: input.threads,
-            password: input.new_password.as_ref().map(|p| p.expose().to_owned()),
+            // A .bhive's password is one of its ways in (`protection`).
+            password: (kind != ArchiveKind::Bhive)
+                .then(|| input.new_password.as_ref().map(|p| p.expose().to_owned()))
+                .flatten(),
             encryption: input.encryption,
             encrypt_headers: input.encrypt_headers,
             solid: input.solid,
+            ..SpecArgs::default()
         };
         let config = cx.config()?.clone();
-        let spec = spec_for(kind, &args, &config)?;
-        // Raw copies only when nothing asks the entries to change.
+        let mut spec = spec_for(kind, &args, &config)?;
+        let sign = input.sign.as_deref().unwrap_or_default();
+        crate::commands::archive_create::bhive_only(kind, &input.ways(), sign)?;
+        // Raw copies only when nothing asks the entries to change: a .bhive's cells are then
+        // copied as they are stored, sealed again under its new ways in, and its signatures
+        // carried over; a source's slots are kept by core when no new ways in are given
+        // (docs/M14.md §3).
         let raw = input.method.is_none()
             && input.level.is_none()
-            && input.new_password.is_none()
+            && (input.new_password.is_none() || kind == ArchiveKind::Bhive)
             && input.encryption.is_none()
             && input.encrypt_headers.is_none()
             && input.solid.is_none()
@@ -275,22 +289,52 @@ impl Command for ArchiveConvert {
             decrypt,
             dry_run: input.dry_run.unwrap_or(false),
         };
+        let source = absolute(&input.archive);
+        let recovery_key = if opts.dry_run {
+            None
+        } else {
+            crate::commands::archive_create::protect_spec(
+                &mut spec,
+                &input.ways(),
+                sign,
+                || {
+                    crate::commands::archive_create::output_free(
+                        &output,
+                        opts.overwrite,
+                        opts.volume_size.is_some(),
+                    )?;
+                    std::fs::metadata(&source).map(|_| ()).map_err(|e| {
+                        beezip_core::Error::io(format!("opening {}", input.archive.display()), &e)
+                            .into()
+                    })
+                },
+                cx,
+            )?
+        };
+        // A .bhive's signatures carry over when every entry is copied as it is stored; a
+        // selection, a level or a method changes what they signed.
+        let whole = input.entries.as_ref().is_none_or(Vec::is_empty)
+            && input.glob.as_ref().is_none_or(Vec::is_empty)
+            && input.exclude.as_ref().is_none_or(Vec::is_empty);
+        let carried = kind == ArchiveKind::Bhive && raw && whole;
+        if !opts.dry_run && sign.is_empty() && !carried {
+            let why = if kind == ArchiveKind::Bhive {
+                "won't carry over to the new archive, whose entries change: pass `sign` to sign \
+                 it again"
+                    .to_owned()
+            } else {
+                format!("can't go into a {}", kind.name())
+            };
+            crate::protect::warn_signatures_dropped(&source, &why, cx);
+        }
         cx.set_password(input.password.as_ref());
         let open_opts = open_options(
             crate::commands::util::Opening::new(input.name_encoding, input.recover),
             cx,
         );
-        let r = beezip_core::ops::convert(
-            &absolute(&input.archive),
-            &output,
-            kind,
-            &spec,
-            &opts,
-            &open_opts,
-            cx,
-        )?;
+        let r = beezip_core::ops::convert(&source, &output, kind, &spec, &opts, &open_opts, cx)?;
         Ok(ArchiveConvertOutput {
-            recovery_key: None,
+            recovery_key,
             path: input.output,
             format: ArchiveFormatName::from_kind(kind),
             files: r.files,

@@ -1,7 +1,8 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use beezip_core::{
     CreateOptions, WriteSpec,
+    format::bhive::crypt::Protection,
     ops::{self, ArchiveKind},
 };
 use schemars::JsonSchema;
@@ -14,6 +15,7 @@ use crate::{
         edit::{SpecArgs, spec_for},
         util::absolute,
     },
+    protect::{self, WaysArgs},
     wire::{
         ArchiveFormatName, ByteSize, EncryptionName, LevelArg, MethodName, Secret, human_size,
         ratio,
@@ -117,11 +119,15 @@ pub struct ArchiveCreateInput {
     #[arg(long, value_name = "PIN")]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub this_pc_pin: Option<Secret>,
-    /// Let a security key or Windows Hello open it: Windows asks for a touch. `.bhive` on
-    /// Windows.
+    /// Let a security key open it: Windows asks for a touch. `.bhive` on Windows.
     #[arg(long, num_args = 0..=1, require_equals = true, default_missing_value = "true")]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub security_key: Option<bool>,
+    /// Let Windows Hello open it (a face, a fingerprint or its PIN). It works only on this PC,
+    /// so it needs another way in that works elsewhere. `.bhive` on Windows.
+    #[arg(long, num_args = 0..=1, require_equals = true, default_missing_value = "true")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub windows_hello: Option<bool>,
     /// How hard a `.bhive`'s password makes guessing [default: standard].
     #[arg(long, value_enum)]
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -138,16 +144,20 @@ pub struct ArchiveCreateInput {
 }
 
 impl ArchiveCreateInput {
-    /// Whether this asks for what M14 builds (docs/M14.md §8, §11).
-    fn m14_asked(&self) -> bool {
-        self.recovery_key.is_some()
-            || self.to.is_some()
-            || self.to_cert.is_some()
-            || self.this_pc.is_some()
-            || self.this_pc_pin.is_some()
-            || self.security_key.is_some()
-            || self.strength.is_some()
-            || self.sign.is_some()
+    /// The ways in it asks for (docs/M14.md §8).
+    fn ways(&self) -> WaysArgs<'_> {
+        WaysArgs {
+            password: self.password.as_ref(),
+            recovery_key: self.recovery_key.unwrap_or(false),
+            to: self.to.as_deref().unwrap_or_default(),
+            to_cert: self.to_cert.as_deref().unwrap_or_default(),
+            this_pc: self.this_pc.unwrap_or(false),
+            this_pc_pin: self.this_pc_pin.as_ref(),
+            security_key: self.security_key.unwrap_or(false),
+            windows_hello: self.windows_hello.unwrap_or(false),
+            strength: self.strength,
+            kept: false,
+        }
     }
 }
 
@@ -175,6 +185,77 @@ pub struct ArchiveCreateOutput {
 
 pub struct ArchiveCreate;
 
+/// Refuses a `.bhive`'s options for another format, naming the first one given.
+pub(crate) fn bhive_only(
+    kind: ArchiveKind,
+    ways: &WaysArgs<'_>,
+    sign: &[String],
+) -> Result<(), CmdError> {
+    if kind == ArchiveKind::Bhive {
+        return Ok(());
+    }
+    let option = ways
+        .bhive_only()
+        .or_else(|| (!sign.is_empty()).then_some("sign"));
+    match option {
+        Some(option) => Err(CmdError::invalid_args(format!(
+            "`{option}` is for a .bhive; a {} can't hold it",
+            kind.name()
+        ))),
+        None => Ok(()),
+    }
+}
+
+/// Puts the ways in and the signers into a `.bhive`'s write options, making what they need
+/// (a recovery key, then a security key's touch or Windows Hello, then a This PC key), once
+/// `ready` has checked what can be checked before; the recovery key, to show once.
+pub(crate) fn protect_spec(
+    spec: &mut WriteSpec,
+    ways: &WaysArgs<'_>,
+    sign: &[String],
+    ready: impl FnOnce() -> Result<(), CmdError>,
+    cx: &mut JobCtx,
+) -> Result<Option<Secret>, CmdError> {
+    let WriteSpec::Bhive(o) = spec else {
+        return Ok(None);
+    };
+    // Signers first: nothing is made for an archive that can't be signed.
+    o.signing = protect::signing(sign, cx)?;
+    let mut made = protect::ways(ways, cx)?;
+    if made.recipients.is_empty() && made.devices.is_empty() {
+        return Ok(None);
+    }
+    // Decision 11 on every way in, devices included, before any is asked.
+    made.check()?;
+    if !made.devices.is_empty() {
+        ready()?;
+        made.make_devices(cx)?;
+    }
+    o.protection = Some(Protection::New(made.recipients));
+    Ok(made.recovery_key)
+}
+
+/// `Conflict` when `output` is in the way of a new archive, as core says it, before a device
+/// is asked for a way into an archive that couldn't be written.
+pub(crate) fn output_free(output: &Path, overwrite: bool, split: bool) -> Result<(), CmdError> {
+    if !split && !overwrite && std::fs::symlink_metadata(output).is_ok() {
+        return Err(CmdError::new(
+            crate::ErrorCode::Conflict,
+            format!("`{}` already exists", output.display()),
+        ));
+    }
+    Ok(())
+}
+
+/// How the CLI shows a recovery key that was made.
+pub(crate) fn recovery_key_text(key: &Secret) -> String {
+    format!(
+        "\nRecovery key: {}\n  It opens the archive if every other way in is lost. It is shown \
+         only this once: keep it somewhere safe, apart from the archive.",
+        key.expose()
+    )
+}
+
 impl ArchiveCreate {
     fn spec(
         input: &ArchiveCreateInput,
@@ -186,10 +267,14 @@ impl ArchiveCreate {
             level: input.level.and_then(LevelArg::number),
             level_name: input.level.and_then(LevelArg::name),
             threads: input.threads,
-            password: input.password.as_ref().map(|p| p.expose().to_owned()),
+            // A .bhive's password is one of its ways in (`protection`).
+            password: (kind != ArchiveKind::Bhive)
+                .then(|| input.password.as_ref().map(|p| p.expose().to_owned()))
+                .flatten(),
             encryption: input.encryption,
             encrypt_headers: input.encrypt_headers,
             solid: input.solid,
+            ..SpecArgs::default()
         };
         spec_for(kind, &args, cx.config()?)
     }
@@ -214,11 +299,6 @@ impl Command for ArchiveCreate {
     }
 
     fn run(input: ArchiveCreateInput, cx: &mut JobCtx) -> Result<ArchiveCreateOutput, CmdError> {
-        if input.m14_asked() {
-            return Err(crate::commands::util::not_built(
-                "encrypting and signing a .bhive",
-            ));
-        }
         let output = absolute(&input.output);
         let kind = match input.format {
             Some(f) => f.kind(),
@@ -234,7 +314,9 @@ impl Command for ArchiveCreate {
                 })?
             }
         };
-        let spec = Self::spec(&input, kind, cx)?;
+        let mut spec = Self::spec(&input, kind, cx)?;
+        let sign = input.sign.as_deref().unwrap_or_default();
+        bhive_only(kind, &input.ways(), sign)?;
         let inputs: Vec<PathBuf> = input.inputs.iter().map(|p| absolute(p)).collect();
         let opts = CreateOptions {
             follow_links: input.follow_links.unwrap_or(false),
@@ -266,9 +348,16 @@ impl Command for ArchiveCreate {
             });
         }
 
+        let recovery_key = protect_spec(
+            &mut spec,
+            &input.ways(),
+            sign,
+            || output_free(&output, opts.overwrite, opts.volume_size.is_some()),
+            cx,
+        )?;
         let report = ops::create(&output, &inputs, &spec, &opts, cx)?;
         Ok(ArchiveCreateOutput {
-            recovery_key: None,
+            recovery_key,
             path: input.output,
             format,
             files: report.files,
@@ -316,6 +405,9 @@ impl Command for ArchiveCreate {
                 .map(|p| p.display().to_string())
                 .unwrap_or_default();
             s.push_str(&format!("\n  in {} volumes, from {first}", v.len()));
+        }
+        if let Some(key) = &out.recovery_key {
+            s.push_str(&recovery_key_text(key));
         }
         Some(s)
     }

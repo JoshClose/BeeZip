@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use beezip_core::{
     Action, ArchiveKind, EditOp, EditOptions, EditReport, EncodeOpts, WriteSpec,
     format::{
-        bhive::{BhiveWriteOptions, Level as BhiveLevel},
+        bhive::{BhiveWriteOptions, Level as BhiveLevel, crypt::Protection, sign::Signing},
         cab::{CabMethod, CabWriteOptions},
         sevenz::{SevenZMethod, SevenZWriteOptions},
         squashfs::{SquashfsMethod, SquashfsWriteOptions},
@@ -41,6 +41,13 @@ pub struct SpecArgs {
     pub encryption: Option<EncryptionName>,
     pub encrypt_headers: Option<bool>,
     pub solid: Option<bool>,
+    /// A `.bhive`'s ways in, made from the input (docs/M14.md §8). `password` is then left out.
+    pub protection: Option<Protection>,
+    /// A `.bhive`'s signers (docs/M14.md §11).
+    pub signing: Option<Signing>,
+    /// An edit: `password` opens the archive. Core keeps an encrypted `.bhive`'s file key and
+    /// slots through it (`Protection::Keep`, PR A); `protection` stays `None`.
+    pub edit: bool,
 }
 
 /// A level for `name` (a codec or zip method): the input's, else the config's, else none.
@@ -62,6 +69,17 @@ pub fn spec_for(
         }
         Ok(())
     };
+    if kind != ArchiveKind::Bhive && (args.protection.is_some() || args.signing.is_some()) {
+        let what = if args.signing.is_some() {
+            "sign"
+        } else {
+            "protection"
+        };
+        return Err(CmdError::invalid_args(format!(
+            "`{what}` is for a .bhive; a {} can't hold it",
+            kind.name()
+        )));
+    }
     only_7z("solid", args.solid.is_some())?;
     only_7z("encrypt_headers", args.encrypt_headers.is_some())?;
     if let Some(name) = args.level_name
@@ -81,10 +99,15 @@ pub fn spec_for(
                      none, fast, balanced, high and max",
                 ));
             }
-            if args.password.is_some() || args.encryption.is_some() {
+            if args.encryption.is_some() {
                 return Err(CmdError::invalid_args(
-                    "a .bhive isn't encrypted: version 1 of the format has no encryption. Use \
-                     zip or 7z for an archive with a password.",
+                    "`encryption` is for zip: a .bhive with a password, or any other way in, is \
+                     always AES-256-GCM",
+                ));
+            }
+            if args.password.is_some() && !args.edit {
+                return Err(CmdError::internal(
+                    "a .bhive's password reached its write options instead of its ways in",
                 ));
             }
             let level = match (
@@ -107,7 +130,8 @@ pub fn spec_for(
                 cell_size: None,
                 // An edit with no level given keeps the archive's own, whatever the config's.
                 inherit: args.level.is_none() && args.level_name.is_none(),
-                ..BhiveWriteOptions::default()
+                protection: args.protection.clone(),
+                signing: args.signing.clone(),
             }))
         }
         ArchiveKind::SevenZ => {
@@ -364,6 +388,14 @@ pub fn run_edit(
     })?;
     let _guard = cx.edit_lock(&canonical)?;
     let config = cx.config()?.clone();
+    // An edit changes the contents, which drops their signatures: said first (docs/M14.md §11).
+    if !dry_run && args.signing.is_none() {
+        crate::protect::warn_signatures_dropped(
+            &path,
+            "won't survive this change to its contents: sign it again (`sign`, or `archive.sign`)",
+            cx,
+        );
+    }
     cx.set_password(password);
     let opts = EditOptions {
         open: open_options(names, cx),

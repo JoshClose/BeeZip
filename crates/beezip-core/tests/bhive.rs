@@ -118,25 +118,51 @@ fn threads(n: u32) -> OpenOptions {
 }
 
 fn extract(archive: &Path, dest: &Path, opts: &OpenOptions) -> beezip_core::ExtractReport {
+    extract_as(archive, dest, opts, None)
+}
+
+fn extract_as(
+    archive: &Path,
+    dest: &Path,
+    opts: &OpenOptions,
+    answer: Option<&str>,
+) -> beezip_core::ExtractReport {
     ops::extract(
         archive,
         dest,
         &Selection::all(),
         opts,
         FsOptions::default(),
-        &mut SimpleCtx::new(),
+        &mut ctx(answer),
     )
     .unwrap()
 }
 
 fn reader(archive: &Path, opts: &OpenOptions) -> BhiveReader {
+    reader_as(archive, opts, None)
+}
+
+fn reader_as(archive: &Path, opts: &OpenOptions, answer: Option<&str>) -> BhiveReader {
     let source = Source::new(archive, Vec::new(), opts).unwrap();
-    BhiveReader::open(source, &mut SimpleCtx::new()).unwrap()
+    BhiveReader::open(source, &mut ctx(answer)).unwrap()
 }
 
 /// Creates an archive of `files` with `spec`, then checks it every way: detected, listed,
 /// tested, extracted on one thread and on four to the same tree, each file read by itself.
 fn round_trip(files: &[(String, Vec<u8>)], spec: &WriteSpec) -> PathBuf {
+    round_trip_as(files, spec, None)
+}
+
+/// A context that answers with `answer`, the password or recovery key of an encrypted archive.
+fn ctx(answer: Option<&str>) -> SimpleCtx {
+    match answer {
+        Some(a) => SimpleCtx::new().with_password(a),
+        None => SimpleCtx::new(),
+    }
+}
+
+/// [`round_trip`] for an archive that opens with `answer`.
+fn round_trip_as(files: &[(String, Vec<u8>)], spec: &WriteSpec, answer: Option<&str>) -> PathBuf {
     let root = tempfile::tempdir().unwrap().keep();
     let input = root.join("in");
     fs::create_dir(&input).unwrap();
@@ -151,7 +177,7 @@ fn round_trip(files: &[(String, Vec<u8>)], spec: &WriteSpec) -> PathBuf {
     let want = read_tree(&input);
     for (n, opts) in [(1, threads(1)), (4, threads(4))] {
         let dest = root.join(format!("x{n}"));
-        let report = extract(&archive, &dest, &opts);
+        let report = extract_as(&archive, &dest, &opts, answer);
         assert!(report.skipped.is_empty(), "{:?}", report.skipped);
         assert_eq!(report.files, files.len() as u64, "{n} threads");
         let got = read_tree(&dest.join("in"));
@@ -161,7 +187,7 @@ fn round_trip(files: &[(String, Vec<u8>)], spec: &WriteSpec) -> PathBuf {
             assert!(d == data, "{path} differs on {n} threads");
             assert_eq!(m, modified, "{path}'s time on {n} threads");
         }
-        let test = ops::test(&archive, &Selection::all(), &opts, &mut SimpleCtx::new()).unwrap();
+        let test = ops::test(&archive, &Selection::all(), &opts, &mut ctx(answer)).unwrap();
         assert!(test.ok(), "{:?}", test.errors);
         assert_eq!(
             test.bytes,
@@ -170,8 +196,8 @@ fn round_trip(files: &[(String, Vec<u8>)], spec: &WriteSpec) -> PathBuf {
     }
 
     // Each file by itself, through the reader.
-    let mut r = reader(&archive, &OpenOptions::default());
-    let mut cx = SimpleCtx::new();
+    let mut r = reader_as(&archive, &OpenOptions::default(), answer);
+    let mut cx = ctx(answer);
     let entries = r.entries(&mut cx).unwrap().to_vec();
     for e in entries.iter().filter(|e| e.kind == EntryKind::File) {
         let mut data = Vec::new();
@@ -763,7 +789,12 @@ fn the_fixtures_exercise_what_they_are_for() {
 #[test]
 fn the_specifications_examples_are_the_fixtures() {
     let spec = fs::read_to_string(repo().join("docs/bhive.md")).unwrap();
-    for name in ["spec-empty.bhive", "spec-small.bhive"] {
+    let sealed_dir = repo().join("tests/fixtures/bhive-m14");
+    for (name, dir) in [
+        ("spec-empty.bhive", fixture_dir()),
+        ("spec-small.bhive", fixture_dir()),
+        ("spec-sealed.bhive", sealed_dir.clone()),
+    ] {
         let marker = format!("<!-- bytes of {name} -->");
         let at = spec
             .find(&marker)
@@ -783,9 +814,75 @@ fn the_specifications_examples_are_the_fixtures() {
                 bytes.push(u8::from_str_radix(b, 16).unwrap());
             }
         }
-        let file = fs::read(fixture_dir().join(name)).unwrap();
+        let file = fs::read(dir.join(name)).unwrap();
         assert!(bytes == file, "{name}: the listing isn't the file");
     }
+    // The encrypted example is spec-small.bhive's contents behind the password `honey`.
+    let sealed = sealed_dir.join("spec-sealed.bhive");
+    let small = fixture_dir().join("spec-small.bhive");
+    let mut a = reader_as(&sealed, &OpenOptions::default(), Some("honey"));
+    let mut b = reader(&small, &OpenOptions::default());
+    let mut cx = SimpleCtx::new();
+    let names = |r: &mut BhiveReader, cx: &mut SimpleCtx| -> Vec<(String, Option<u64>)> {
+        let e = r.entries(cx).unwrap();
+        e.iter().map(|e| (e.path.clone(), e.size)).collect()
+    };
+    assert_eq!(names(&mut a, &mut cx), names(&mut b, &mut cx));
+    assert_eq!(contents_as(&sealed, Some("honey")), contents(&small));
+    let d = a.unlocked().unwrap().descriptions().unwrap();
+    assert_eq!(d[0].label.as_deref(), Some("Password"));
+    let e = BhiveReader::open(
+        Source::new(&sealed, Vec::new(), &OpenOptions::default()).unwrap(),
+        &mut SimpleCtx::new().with_password("Honey"),
+    )
+    .err()
+    .unwrap();
+    assert_eq!(e.kind, ErrorKind::WrongPassword);
+
+    // vectors.json's `sealed_example`, made by the independent Python: the header MAC, the
+    // record's nonce and what it seals (with the block's head and offset as its associated
+    // data), and the index inside its block.
+    let v: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(sealed_dir.join("vectors.json")).unwrap())
+            .unwrap();
+    let x = &v["sealed_example"];
+    let hex = |k: &str| -> Vec<u8> {
+        let s = x[k].as_str().unwrap();
+        (0..s.len())
+            .step_by(2)
+            .map(|i| u8::from_str_radix(&s[i..i + 2], 16).unwrap())
+            .collect()
+    };
+    let bytes = fs::read(&sealed).unwrap();
+    let block = key_block(&sealed);
+    assert_eq!(block.bytes[block.bytes.len() - 32..], hex("header_mac")[..]);
+    let u = Unlocked::open(&block, &mut ctx(Some("honey"))).unwrap();
+    assert_eq!(u.key_id()[..], hex("key_id")[..]);
+    assert_eq!(u.archive_id()[..], hex("archive_id")[..]);
+    let at = 16 + block.len();
+    assert_eq!(bytes[at..at + 4], *b"BHCE");
+    let r = u32::from_le_bytes(bytes[at + 4..at + 8].try_into().unwrap()) as usize;
+    assert_eq!(bytes[at + 12..at + 24], hex("record_nonce")[..]);
+    let (id, head, journal) = u.open_record(at as u64, &bytes[at..at + 24 + r]).unwrap();
+    assert_eq!(id[..], hex("cell_id")[..]);
+    assert_eq!(
+        [&id[..], &head[..], &journal[..]].concat(),
+        hex("record_plain")
+    );
+    assert!(
+        u.open_record(at as u64 + 1, &bytes[at..at + 24 + r])
+            .is_err()
+    );
+    let footer = bytes.len() - 16;
+    let index_at = u64::from_le_bytes(bytes[footer..footer + 8].try_into().unwrap()) as usize;
+    let inner = u.open_index(&bytes[index_at..footer]).unwrap();
+    assert_eq!(inner[32..], hex("index_raw")[..]);
+    // Cut before its index block, it is recovered from its record with the password.
+    let dir = tempfile::tempdir().unwrap();
+    let cut = dir.path().join("cut.bhive");
+    fs::write(&cut, &bytes[..index_at]).unwrap();
+    assert!(open_err(&cut, Some("honey"), false).is_some());
+    assert_eq!(recovered_as(&cut, "honey"), contents(&small));
 }
 
 /// A Python that has Zstandard in its standard library (3.14), if this machine has one.
@@ -807,8 +904,23 @@ fn python() -> Option<String> {
     None
 }
 
+/// Whether docs/bhive_reader.py's `test` passes an encrypted archive opened with the recovery
+/// key [`DIGITS`], or None without Python 3.14: what BeeZip refuses, it refuses too.
+fn python_tests_clean(archive: &Path) -> Option<bool> {
+    let out = std::process::Command::new(python()?)
+        .arg("-I")
+        .arg(repo().join("docs/bhive_reader.py"))
+        .arg("test")
+        .arg(archive)
+        .args(["--recovery-key", DIGITS])
+        .output()
+        .unwrap();
+    Some(out.status.success())
+}
+
 /// docs/bhive_reader.py, a reader written from the specification alone, lists, tests and
-/// extracts every fixture as its record says (docs/M13.md decision 12).
+/// extracts every fixture as its record says (docs/M13.md decision 12), the encrypted ones
+/// too (docs/M14.md §10).
 #[test]
 fn the_python_reader_agrees() {
     use std::ffi::OsStr;
@@ -828,13 +940,35 @@ fn the_python_reader_agrees() {
         (Some(s), Some(n)) => format!("{}.{:09}", s.as_i64().unwrap(), n.as_u64().unwrap()),
         _ => "-".to_owned(),
     };
-    for fx in &manifest() {
+    // Each encrypted fixture's ways in, as the reader takes them.
+    let ways = |fx: &serde_json::Value| -> Vec<[String; 2]> {
+        let mut ways: Vec<[String; 2]> = fx["passwords"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .map(|p| ["--password".to_owned(), p.as_str().unwrap().to_owned()])
+            .collect();
+        if let Some(k) = fx["recovery_key"].as_str() {
+            ways.push(["--recovery-key".to_owned(), k.to_owned()]);
+        }
+        ways
+    };
+    let sealed = sealed_manifest();
+    for fx in manifest().iter().chain(&sealed) {
         let name = fx["file"].as_str().unwrap();
         let path = fixture_dir().join(name);
         let recover = fx["recover"] == true;
+        // An encrypted fixture is read with the first way in its record lists; the others are
+        // tried below.
+        let way: Vec<String> = ways(fx)
+            .into_iter()
+            .next()
+            .map(Vec::from)
+            .unwrap_or_default();
         let with = |command: &'static str, more: &[&OsStr]| {
             let mut args: Vec<&OsStr> = vec![command.as_ref(), path.as_os_str()];
             args.extend_from_slice(more);
+            args.extend(way.iter().map(OsStr::new));
             if recover {
                 args.push("--recover".as_ref());
             }
@@ -894,6 +1028,28 @@ fn the_python_reader_agrees() {
         let err = String::from_utf8_lossy(&out.stderr).into_owned();
         assert_eq!(out.status.code(), Some(code), "{name}: {err}");
         assert_eq!(hashes(dest.path()), expected_files(fx), "{name}");
+    }
+
+    // Each encrypted fixture opens with every way in its record lists, and with none of them,
+    // or a wrong one, it is said to be locked (exit code 3).
+    for fx in &sealed {
+        let name = fx["file"].as_str().unwrap();
+        let path = fixture_dir().join(name);
+        for [flag, value] in ways(fx) {
+            let out = run(&[
+                "test".as_ref(),
+                path.as_os_str(),
+                flag.as_ref(),
+                value.as_ref(),
+            ]);
+            let err = String::from_utf8_lossy(&out.stderr).into_owned();
+            assert_eq!(out.status.code(), Some(0), "{name} {flag}: {err}");
+        }
+        for wrong in [&["--password", "Honey"][..], &[]] {
+            let mut args: Vec<&OsStr> = vec!["test".as_ref(), path.as_os_str()];
+            args.extend(wrong.iter().map(OsStr::new));
+            assert_eq!(run(&args).status.code(), Some(3), "{name} {wrong:?}");
+        }
     }
 
     // And it refuses what breaks the format's rules, as BeeZip does.
@@ -986,8 +1142,9 @@ fn tight() -> Limits {
     }
 }
 
-/// What the `bhive` fuzz target does with an input.
-fn exercise(path: &Path) {
+/// What the `bhive` fuzz target does with an input, with an answer to an encrypted archive's
+/// unlock.
+fn exercise_as(path: &Path, answer: Option<&str>) {
     for (recover, n) in [(false, 1), (true, 1), (false, 3)] {
         let opts = OpenOptions {
             recover,
@@ -995,7 +1152,7 @@ fn exercise(path: &Path) {
             min_parallel_files: 1,
             ..OpenOptions::new(tight())
         };
-        let mut cx = SimpleCtx::new();
+        let mut cx = ctx(answer);
         let Ok(source) = Source::new(path, Vec::new(), &opts) else {
             return;
         };
@@ -1090,13 +1247,23 @@ fn fixtures_and_their_mutations_never_panic() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("input.bhive");
     let mut next = rng(0x00BE_E21F);
+    // The encrypted fixture that a recovery key alone opens: no mutation of it can make a
+    // reader spend Argon2's memory, and every check behind its MAC and tags is reached.
+    let recovery = sealed_manifest()
+        .iter()
+        .find(|f| f["file"] == "sealed-recovery.bhive")
+        .and_then(|f| f["recovery_key"].as_str().map(str::to_owned))
+        .unwrap();
     for (i, data) in corpus.iter().enumerate() {
         let other = &corpus[(i + 1) % corpus.len()];
+        let answer = files[i]
+            .ends_with("sealed-recovery.bhive")
+            .then_some(recovery.as_str());
         fs::write(&path, data).unwrap();
-        exercise(&path);
+        exercise_as(&path, answer);
         for _ in 0..per {
             fs::write(&path, mutate(data, other, &mut next)).unwrap();
-            exercise(&path);
+            exercise_as(&path, answer);
         }
 
         // Behind its checksum: the archive's own index, mutated.
@@ -1158,8 +1325,12 @@ fn rename(from: &str, to: &str) -> beezip_core::EditOp {
 
 /// Every file of an archive, by path.
 fn contents(archive: &Path) -> BTreeMap<String, Vec<u8>> {
-    let mut r = reader(archive, &OpenOptions::default());
-    let mut cx = SimpleCtx::new();
+    contents_as(archive, None)
+}
+
+fn contents_as(archive: &Path, answer: Option<&str>) -> BTreeMap<String, Vec<u8>> {
+    let mut r = reader_as(archive, &OpenOptions::default(), answer);
+    let mut cx = ctx(answer);
     let entries = r.entries(&mut cx).unwrap().to_vec();
     let mut out = BTreeMap::new();
     for e in entries.iter().filter(|e| e.kind == EntryKind::File) {
@@ -1593,4 +1764,790 @@ fn converting_changes_the_level_and_the_format() {
     let back = root.path().join("back.bhive");
     convert(&zip, &back, ArchiveKind::Bhive, &spec(Level::Fast, 3, None));
     assert_eq!(contents(&back), want);
+}
+
+// Encrypted archives (docs/bhive.md §12, docs/M14.md §9): round trips at every level and with
+// every way in PR A builds, edits that keep the key and the slots, a new key, protecting a plain
+// archive, and files changed in every part, each refused as the specification says.
+
+use beezip_core::format::bhive::crypt::{
+    Labelled, Protection, Recipient, Strength,
+    envelope::{KeyBlock, Unlocked},
+    recovery,
+};
+use zeroize::Zeroizing;
+
+const HONEY: &str = "honey";
+const DIGITS: &str = "000011-000022-000033-000044-000055-000066-000077-000088";
+
+/// A password at a cost a test can afford; BeeZip writes Standard or Strong.
+fn small(password: &str) -> Labelled {
+    Labelled {
+        recipient: Recipient::Password {
+            password: Zeroizing::new(password.to_owned()),
+            strength: Strength::Cost {
+                memory_kib: 256,
+                passes: 1,
+                lanes: 2,
+            },
+        },
+        label: Some("Password".into()),
+    }
+}
+
+fn recovery_key(digits: &str) -> Labelled {
+    Labelled {
+        recipient: Recipient::RecoveryKey(recovery::parse(digits).unwrap()),
+        label: Some("Recovery key".into()),
+    }
+}
+
+fn sealed(level: Level, cell_size: Option<u32>, ways: Vec<Labelled>) -> WriteSpec {
+    WriteSpec::Bhive(BhiveWriteOptions {
+        level,
+        threads: 2,
+        cell_size,
+        protection: Some(Protection::New(ways)),
+        ..BhiveWriteOptions::default()
+    })
+}
+
+/// The key block of an encrypted archive, as it is in the file.
+fn key_block(archive: &Path) -> KeyBlock {
+    let bytes = fs::read(archive).unwrap();
+    let header: [u8; 16] = bytes[..16].try_into().unwrap();
+    KeyBlock::read(&header, &mut &bytes[16..]).unwrap()
+}
+
+/// The slots' bytes, as the key block holds them.
+fn slots(archive: &Path) -> Vec<Vec<u8>> {
+    let k = key_block(archive);
+    k.slots
+        .iter()
+        .map(|(_, r)| k.bytes[r.clone()].to_vec())
+        .collect()
+}
+
+fn unlocked(archive: &Path, answer: &str) -> std::sync::Arc<Unlocked> {
+    reader_as(archive, &OpenOptions::default(), Some(answer))
+        .unlocked()
+        .unwrap()
+        .clone()
+}
+
+/// Each cell's bytes as they are in the file (sealed), and its table row less its offset.
+/// A cell's table row less its offset: stored and raw lengths, coder, checksum.
+type Row = (u32, u32, Coder, u64);
+
+fn sealed_cells(archive: &Path, answer: &str) -> Vec<(Vec<u8>, Row)> {
+    let bytes = fs::read(archive).unwrap();
+    reader_as(archive, &OpenOptions::default(), Some(answer))
+        .cells()
+        .iter()
+        .map(|c| {
+            let at = c.offset as usize;
+            let len = beezip_core::format::bhive::layout::sealed_len(u64::from(c.stored)) as usize;
+            (
+                bytes[at..at + len].to_vec(),
+                (c.stored, c.raw, c.coder, c.checksum),
+            )
+        })
+        .collect()
+}
+
+fn open_err(archive: &Path, answer: Option<&str>, recover: bool) -> Option<beezip_core::Error> {
+    let opts = OpenOptions {
+        recover,
+        ..OpenOptions::default()
+    };
+    let source = Source::new(archive, Vec::new(), &opts).ok()?;
+    BhiveReader::open(source, &mut ctx(answer)).err()
+}
+
+#[test]
+fn every_level_round_trips_encrypted() {
+    for level in Level::ALL {
+        let files = shapes(64 << 10);
+        let spec = sealed(
+            level,
+            Some(64 << 10),
+            vec![small(HONEY), recovery_key(DIGITS)],
+        );
+        let root = round_trip_as(&files, &spec, Some(HONEY));
+        let archive = root.join("out.bhive");
+        // The recovery key opens it as well, and the names are sealed with the rest.
+        assert_eq!(unlocked(&archive, DIGITS).opened_by(), 1);
+        let bytes = fs::read(&archive).unwrap();
+        assert!(
+            !bytes.windows(4).any(|w| w == b"tiny"),
+            "{level:?}: a name in the clear"
+        );
+        let mut r = reader_as(&archive, &OpenOptions::default(), Some(HONEY));
+        let info = r.info(&mut SimpleCtx::new()).unwrap();
+        assert_eq!(info.encryption, beezip_core::Encryption::All);
+        assert!(info.encrypted_headers);
+        assert_eq!(
+            open_err(&archive, None, false).unwrap().kind,
+            ErrorKind::PasswordRequired
+        );
+        assert_eq!(
+            open_err(&archive, Some("bees"), false).unwrap().kind,
+            ErrorKind::WrongPassword
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+}
+
+/// Stored cells of more than 1 MiB are sealed in several segments.
+#[test]
+fn cells_over_several_segments_round_trip() {
+    let files = vec![
+        file("big.bin", noise(2_500_000, 1)),
+        file("exact.bin", noise(2 << 20, 2)),
+        file("small.txt", words(5000, 3)),
+    ];
+    for level in [Level::None, Level::Fast] {
+        let spec = sealed(level, Some(3 << 20), vec![small(HONEY)]);
+        let root = round_trip_as(&files, &spec, Some(HONEY));
+        let r = reader_as(
+            &root.join("out.bhive"),
+            &OpenOptions::default(),
+            Some(HONEY),
+        );
+        assert!(r.cells().iter().any(|c| c.stored > 2 << 20), "{level:?}");
+        fs::remove_dir_all(root).unwrap();
+    }
+}
+
+#[test]
+fn an_empty_encrypted_archive() {
+    let root = tempfile::tempdir().unwrap();
+    let archive = root.path().join("empty.bhive");
+    let opts = match sealed(Level::Fast, None, vec![small(HONEY)]) {
+        WriteSpec::Bhive(o) => o,
+        _ => unreachable!(),
+    };
+    let out = fs::File::create(&archive).unwrap();
+    let w = beezip_core::format::bhive::BhiveWriter::new(Box::new(out), &opts).unwrap();
+    beezip_core::ArchiveWriter::finish(Box::new(w), &mut SimpleCtx::new()).unwrap();
+    let mut r = reader_as(&archive, &OpenOptions::default(), Some(HONEY));
+    assert!(r.entries(&mut SimpleCtx::new()).unwrap().is_empty());
+    assert!(r.cells().is_empty());
+    assert!(r.test(&mut SimpleCtx::new()).unwrap().unwrap().ok());
+}
+
+#[test]
+fn repeated_content_is_stored_once_encrypted() {
+    let data = noise(300_000, 9);
+    let files = vec![file("a.bin", data.clone()), file("b.bin", data)];
+    let root = round_trip_as(
+        &files,
+        &sealed(Level::Fast, None, vec![small(HONEY)]),
+        Some(HONEY),
+    );
+    let size = fs::metadata(root.join("out.bhive")).unwrap().len();
+    assert!(size < 320_000, "{size}");
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn either_of_two_passwords_opens_it() {
+    let files = vec![file("a.txt", words(3000, 1))];
+    let spec = sealed(Level::Balanced, None, vec![small("one"), small("two")]);
+    let root = round_trip_as(&files, &spec, Some("two"));
+    let archive = root.join("out.bhive");
+    assert_eq!(unlocked(&archive, "two").opened_by(), 1);
+    assert_eq!(unlocked(&archive, "one").opened_by(), 0);
+    assert_eq!(
+        open_err(&archive, Some("three"), false).unwrap().kind,
+        ErrorKind::WrongPassword
+    );
+    fs::remove_dir_all(root).unwrap();
+}
+
+/// Ten files of 3,000 bytes, encrypted, in cells of 8 KiB.
+fn ten_sealed(root: &Path) -> (PathBuf, BTreeMap<String, Vec<u8>>) {
+    let input = root.join("in");
+    fs::create_dir(&input).unwrap();
+    let files: Vec<_> = (0..10)
+        .map(|i| file(&format!("f{i}.bin"), noise(3000, 40 + i)))
+        .collect();
+    write_tree(&input, &files);
+    let archive = root.join("ten.bhive");
+    let spec = sealed(
+        Level::Balanced,
+        Some(8 << 10),
+        vec![small(HONEY), recovery_key(DIGITS)],
+    );
+    create(&archive, &input, &spec);
+    let want = files
+        .into_iter()
+        .map(|(path, data)| (format!("in/{path}"), data))
+        .collect();
+    (archive, want)
+}
+
+fn edit_sealed(archive: &Path, op: &beezip_core::EditOp) -> beezip_core::EditReport {
+    ops::edit(
+        archive,
+        op,
+        &mut |_| Ok(edit_spec(8 << 10)),
+        &beezip_core::EditOptions::default(),
+        &mut ctx(Some(HONEY)),
+    )
+    .unwrap()
+}
+
+/// An edit keeps the file key, the key id and every slot byte for byte, with a new archive id,
+/// and copies the cells it keeps sealed as they are (docs/M14.md decision 7).
+#[test]
+fn edits_keep_the_key_and_the_slots() {
+    let root = tempfile::tempdir().unwrap();
+    let (archive, mut want) = ten_sealed(root.path());
+    let before = slots(&archive);
+    let key = key_block(&archive);
+    let cells = sealed_cells(&archive, HONEY);
+
+    edit_sealed(&archive, &rename("in/f3.bin", "in/three.bin"));
+    let moved = want.remove("in/f3.bin").unwrap();
+    want.insert("in/three.bin".into(), moved);
+    assert_eq!(contents_as(&archive, Some(HONEY)), want);
+    assert_eq!(slots(&archive), before);
+    let after = key_block(&archive);
+    assert_eq!(after.key_id, key.key_id);
+    assert_ne!(after.archive_id, key.archive_id);
+    // Every cell, sealed bytes and all.
+    assert_eq!(sealed_cells(&archive, HONEY), cells);
+
+    edit_sealed(&archive, &remove(&["in/f0.bin", "in/f1.bin"]));
+    want.remove("in/f0.bin");
+    want.remove("in/f1.bin");
+    assert_eq!(contents_as(&archive, Some(DIGITS)), want);
+    assert_eq!(slots(&archive), before);
+
+    let extra = root.path().join("more");
+    fs::create_dir(&extra).unwrap();
+    fs::write(extra.join("new.txt"), b"added later").unwrap();
+    let add = beezip_core::EditOp::Add(beezip_core::AddOptions {
+        inputs: vec![extra.join("new.txt")],
+        ..beezip_core::AddOptions::default()
+    });
+    edit_sealed(&archive, &add);
+    want.insert("new.txt".into(), b"added later".to_vec());
+    assert_eq!(contents_as(&archive, Some(HONEY)), want);
+    assert_eq!(slots(&archive), before);
+    assert_eq!(key_block(&archive).key_id, key.key_id);
+    let test = ops::test(
+        &archive,
+        &Selection::all(),
+        &OpenOptions::default(),
+        &mut ctx(Some(HONEY)),
+    )
+    .unwrap();
+    assert!(test.ok(), "{:?}", test.errors);
+}
+
+fn convert_as(
+    source: &Path,
+    output: &Path,
+    spec: &WriteSpec,
+    answer: Option<&str>,
+    decrypt: bool,
+) -> beezip_core::Result<beezip_core::ConvertReport> {
+    ops::convert(
+        source,
+        output,
+        beezip_core::ArchiveKind::Bhive,
+        spec,
+        &beezip_core::ConvertOptions {
+            raw: true,
+            decrypt,
+            ..beezip_core::ConvertOptions::default()
+        },
+        &OpenOptions::default(),
+        &mut ctx(answer),
+    )
+}
+
+fn rows(cells: &[(Vec<u8>, Row)]) -> Vec<Row> {
+    cells.iter().map(|c| c.1).collect()
+}
+
+/// A new key: a new file key and key id, every slot rebuilt with fresh randomness, and every
+/// cell's stored bytes sealed again as they are, never packed again (docs/M14.md §3).
+#[test]
+fn a_new_key_changes_every_slot_and_seals_every_cell_again() {
+    let root = tempfile::tempdir().unwrap();
+    let (archive, want) = ten_sealed(root.path());
+    let fresh = root.path().join("fresh.bhive");
+    let spec = sealed(
+        Level::Balanced,
+        Some(8 << 10),
+        vec![small(HONEY), recovery_key(DIGITS)],
+    );
+    let report = convert_as(&archive, &fresh, &spec, Some(HONEY), false).unwrap();
+    assert_eq!(report.recompressed, 0);
+    assert_eq!(contents_as(&fresh, Some(DIGITS)), want);
+    let (old, new) = (key_block(&archive), key_block(&fresh));
+    assert_ne!(old.key_id, new.key_id);
+    for (a, b) in slots(&archive).iter().zip(slots(&fresh)) {
+        assert_ne!(a[4..], b[4..]);
+    }
+    let (a, b) = (sealed_cells(&archive, HONEY), sealed_cells(&fresh, HONEY));
+    assert_eq!(rows(&a), rows(&b));
+    assert!(a.iter().zip(&b).all(|(x, y)| x.0 != y.0));
+}
+
+/// Protecting a plain archive seals each cell's stored bytes as they are.
+#[test]
+fn protecting_an_archive_seals_its_cells_as_they_are() {
+    let root = tempfile::tempdir().unwrap();
+    let (plain, want) = ten(root.path());
+    let protected = root.path().join("protected.bhive");
+    let spec = sealed(Level::Balanced, Some(8 << 10), vec![small(HONEY)]);
+    let report = convert_as(&plain, &protected, &spec, None, false).unwrap();
+    assert_eq!(report.recompressed, 0);
+    assert_eq!(contents_as(&protected, Some(HONEY)), want);
+    let p = reader(&plain, &OpenOptions::default());
+    let q = reader_as(&protected, &OpenOptions::default(), Some(HONEY));
+    let row = |c: &beezip_core::format::bhive::layout::Cell| (c.stored, c.raw, c.coder, c.checksum);
+    assert_eq!(
+        p.cells().iter().map(row).collect::<Vec<_>>(),
+        q.cells().iter().map(row).collect::<Vec<_>>()
+    );
+
+    // And taken out again, with `decrypt`, into the clear.
+    let clear = root.path().join("clear.bhive");
+    let plain_spec = spec_of(Level::Balanced);
+    convert_as(&protected, &clear, &plain_spec, Some(HONEY), true).unwrap();
+    assert_eq!(contents(&clear), want);
+    assert!(reader(&clear, &OpenOptions::default()).unlocked().is_none());
+    // Without it, a conversion into a .bhive keeps the key; into a zip it is refused.
+    let kept = root.path().join("kept.bhive");
+    convert_as(&protected, &kept, &plain_spec, Some(HONEY), false).unwrap();
+    assert_eq!(key_block(&kept).key_id, key_block(&protected).key_id);
+    let zip = root.path().join("out.zip");
+    let e = ops::convert(
+        &protected,
+        &zip,
+        beezip_core::ArchiveKind::Zip,
+        &WriteSpec::Zip(beezip_core::format::zip::ZipWriteOptions::default()),
+        &beezip_core::ConvertOptions::default(),
+        &OpenOptions::default(),
+        &mut ctx(Some(HONEY)),
+    )
+    .unwrap_err();
+    assert_eq!(e.kind, ErrorKind::InvalidArgs);
+}
+
+fn spec_of(level: Level) -> WriteSpec {
+    spec(level, 2, Some(8 << 10))
+}
+
+/// Ways in added and removed under the same key: the kept slots stay byte for byte, and the
+/// cells are copied sealed as they are.
+#[test]
+fn changing_the_ways_in_keeps_the_key() {
+    let root = tempfile::tempdir().unwrap();
+    let (archive, want) = ten_sealed(root.path());
+    let other = "000110-000220-000330-000440-000550-000660-000770-000880";
+    let from = unlocked(&archive, HONEY);
+    let spec = WriteSpec::Bhive(BhiveWriteOptions {
+        level: Level::Balanced,
+        cell_size: Some(8 << 10),
+        protection: Some(Protection::Change {
+            from,
+            remove: vec![1],
+            add: vec![recovery_key(other)],
+        }),
+        ..BhiveWriteOptions::default()
+    });
+    let changed = root.path().join("changed.bhive");
+    convert_as(&archive, &changed, &spec, Some(HONEY), false).unwrap();
+    assert_eq!(contents_as(&changed, Some(other)), want);
+    assert_eq!(
+        open_err(&changed, Some(DIGITS), false).unwrap().kind,
+        ErrorKind::WrongPassword
+    );
+    assert_eq!(slots(&changed)[0], slots(&archive)[0]);
+    assert_eq!(key_block(&changed).key_id, key_block(&archive).key_id);
+    assert_eq!(sealed_cells(&changed, HONEY), sealed_cells(&archive, HONEY));
+    let d = unlocked(&changed, HONEY).descriptions().unwrap();
+    assert_eq!(d.len(), 2);
+    assert_eq!(d[0].label.as_deref(), Some("Password"));
+}
+
+/// Cut anywhere, an encrypted archive is refused cleanly; opened to recover, what its records
+/// still list comes back, each record opened with its nonce and offset.
+#[test]
+fn a_cut_encrypted_archive_is_refused_or_recovered() {
+    let root = tempfile::tempdir().unwrap();
+    let (archive, want) = ten_sealed(root.path());
+    let bytes = fs::read(&archive).unwrap();
+    let cut = root.path().join("cut.bhive");
+    let r = reader_as(&archive, &OpenOptions::default(), Some(DIGITS));
+    let last = *r.cells().last().unwrap();
+    let mut step = 0;
+    for len in (0..bytes.len()).step_by(97).chain([bytes.len() - 1]) {
+        fs::write(&cut, &bytes[..len]).unwrap();
+        assert!(open_err(&cut, Some(DIGITS), false).is_some(), "{len}");
+        step += 1;
+        // Recovered: the cells wholly before the cut, and what their records list.
+        let opts = OpenOptions {
+            recover: true,
+            ..OpenOptions::default()
+        };
+        let Ok(source) = Source::new(&cut, Vec::new(), &opts) else {
+            continue;
+        };
+        let mut cx = ctx(Some(DIGITS));
+        let Ok(mut r) = BhiveReader::open(source, &mut cx) else {
+            continue;
+        };
+        let entries = r.entries(&mut cx).unwrap().to_vec();
+        let files: Vec<_> = entries
+            .iter()
+            .filter(|e| e.kind == EntryKind::File)
+            .collect();
+        for e in &files {
+            let mut data = Vec::new();
+            r.open_entry(e.id, &mut cx)
+                .unwrap()
+                .read_to_end(&mut data)
+                .unwrap();
+            assert!(data == want[&e.path], "{len}: {}", e.path);
+        }
+        if len as u64
+            >= last.offset + beezip_core::format::bhive::layout::sealed_len(u64::from(last.stored))
+        {
+            assert_eq!(files.len(), want.len(), "{len}");
+        }
+    }
+    assert!(step > 50);
+}
+
+/// Cells swapped, duplicated, moved in from another archive under the same key, and segments
+/// reordered: each fails its check when it is read, and only its files are lost.
+#[test]
+fn sealed_cells_that_moved_are_refused() {
+    let root = tempfile::tempdir().unwrap();
+    let (archive, _) = ten_sealed(root.path());
+    let bytes = fs::read(&archive).unwrap();
+    let r = reader_as(&archive, &OpenOptions::default(), Some(HONEY));
+    let cells = r.cells().to_vec();
+    let len = |c: &beezip_core::format::bhive::layout::Cell| {
+        beezip_core::format::bhive::layout::sealed_len(u64::from(c.stored)) as usize
+    };
+    let (a, b) = (cells[0], cells[1]);
+    assert_eq!(len(&a), len(&b));
+    let at = |c: &beezip_core::format::bhive::layout::Cell| c.offset as usize;
+    let failing = |data: &[u8]| -> usize {
+        let p = root.path().join("bad.bhive");
+        fs::write(&p, data).unwrap();
+        let t = ops::test(
+            &p,
+            &Selection::all(),
+            &OpenOptions::default(),
+            &mut ctx(Some(HONEY)),
+        )
+        .unwrap();
+        if let Some(clean) = python_tests_clean(&p) {
+            assert_eq!(clean, t.errors.is_empty(), "docs/bhive_reader.py");
+        }
+        t.errors.len()
+    };
+    assert_eq!(failing(&bytes), 0);
+    // Swapped.
+    let mut swapped = bytes.clone();
+    swapped[at(&a)..at(&a) + len(&a)].copy_from_slice(&bytes[at(&b)..at(&b) + len(&b)]);
+    swapped[at(&b)..at(&b) + len(&b)].copy_from_slice(&bytes[at(&a)..at(&a) + len(&a)]);
+    assert!(failing(&swapped) >= 2);
+    // Duplicated.
+    let mut twice = bytes.clone();
+    twice[at(&b)..at(&b) + len(&b)].copy_from_slice(&bytes[at(&a)..at(&a) + len(&a)]);
+    assert!(failing(&twice) >= 1);
+    // From an archive under the same file key: an edit's, whose new cell has a new id.
+    let sibling = root.path().join("sibling.bhive");
+    fs::copy(&archive, &sibling).unwrap();
+    let more = root.path().join("more");
+    fs::create_dir(&more).unwrap();
+    write_tree(
+        &more,
+        &[
+            file("m0.bin", noise(3000, 90)),
+            file("m1.bin", noise(3000, 91)),
+        ],
+    );
+    let add = beezip_core::EditOp::Add(beezip_core::AddOptions {
+        inputs: vec![more.clone()],
+        ..beezip_core::AddOptions::default()
+    });
+    edit_sealed(&sibling, &add);
+    let sib = fs::read(&sibling).unwrap();
+    let theirs = *reader_as(&sibling, &OpenOptions::default(), Some(HONEY))
+        .cells()
+        .last()
+        .unwrap();
+    assert_eq!(len(&theirs), len(&a));
+    let mut moved = bytes.clone();
+    moved[at(&a)..at(&a) + len(&a)].copy_from_slice(&sib[at(&theirs)..at(&theirs) + len(&theirs)]);
+    assert!(failing(&moved) >= 1);
+}
+
+/// A cell of two equal segments with the segments swapped, and the sealed index or a record
+/// changed.
+#[test]
+fn reordered_segments_and_changed_frames_are_refused() {
+    let root = tempfile::tempdir().unwrap();
+    let input = root.path().join("in");
+    fs::create_dir(&input).unwrap();
+    write_tree(
+        &input,
+        &[
+            file("two.bin", noise(2 << 20, 5)),
+            file("b.txt", words(100, 6)),
+        ],
+    );
+    let archive = root.path().join("two.bhive");
+    create(
+        &archive,
+        &input,
+        &sealed(Level::None, Some(2 << 20), vec![recovery_key(DIGITS)]),
+    );
+    let bytes = fs::read(&archive).unwrap();
+    let r = reader_as(&archive, &OpenOptions::default(), Some(DIGITS));
+    let c = *r.cells().iter().find(|c| c.stored == 2 << 20).unwrap();
+    let (at, seg) = (c.offset as usize, (1 << 20) + 16);
+    let mut swapped = bytes.clone();
+    swapped[at..at + seg].copy_from_slice(&bytes[at + seg..at + 2 * seg]);
+    swapped[at + seg..at + 2 * seg].copy_from_slice(&bytes[at..at + seg]);
+    let p = root.path().join("bad.bhive");
+    fs::write(&p, &swapped).unwrap();
+    let t = ops::test(
+        &p,
+        &Selection::all(),
+        &OpenOptions::default(),
+        &mut ctx(Some(DIGITS)),
+    )
+    .unwrap();
+    assert!(!t.errors.is_empty());
+    assert_ne!(python_tests_clean(&p), Some(true), "docs/bhive_reader.py");
+    // One segment copied over the other: its nonce is the other's, so it fails.
+    let mut twice = bytes.clone();
+    twice[at + seg..at + 2 * seg].copy_from_slice(&bytes[at..at + seg]);
+    fs::write(&p, &twice).unwrap();
+    let t = ops::test(
+        &p,
+        &Selection::all(),
+        &OpenOptions::default(),
+        &mut ctx(Some(DIGITS)),
+    )
+    .unwrap();
+    assert!(!t.errors.is_empty());
+    assert_ne!(python_tests_clean(&p), Some(true), "docs/bhive_reader.py");
+
+    // The sealed index changed: refused, and recovered from the records.
+    let footer = bytes.len() - 16;
+    let index_at = u64::from_le_bytes(bytes[footer..footer + 8].try_into().unwrap()) as usize;
+    let mut index = bytes.clone();
+    index[index_at + 60] ^= 1;
+    fs::write(&p, &index).unwrap();
+    assert_eq!(
+        open_err(&p, Some(DIGITS), false).unwrap().kind,
+        ErrorKind::Corrupt
+    );
+    assert_ne!(python_tests_clean(&p), Some(true), "docs/bhive_reader.py");
+    assert!(open_err(&p, Some(DIGITS), true).is_none());
+    assert_eq!(
+        contents_as_recovered(&p),
+        contents_as(&archive, Some(DIGITS))
+    );
+
+    // A record changed: the index doesn't need it, and recovery stops before it.
+    let first = r.cells()[0];
+    assert!(first.offset < c.offset);
+    let mut record = bytes.clone();
+    record[c.offset as usize - 40] ^= 1;
+    fs::write(&p, &record).unwrap();
+    assert!(open_err(&p, Some(DIGITS), false).is_none());
+    assert_eq!(python_tests_clean(&p), python().map(|_| true));
+    record[index_at + 60] ^= 1;
+    fs::write(&p, &record).unwrap();
+    assert_eq!(contents_as_recovered(&p).len(), 1);
+}
+
+/// The sealed index's length (bhive.md §12.7): it and the footer must end the file exactly. A
+/// length past the file, up to u64's largest, is refused without overflowing, and recovery
+/// skips the block by it and keeps every cell before it.
+#[test]
+fn the_sealed_index_and_the_footer_end_the_file() {
+    let root = tempfile::tempdir().unwrap();
+    let (archive, _) = ten_sealed(root.path());
+    let bytes = fs::read(&archive).unwrap();
+    let footer = bytes.len() - 16;
+    let index_at = u64::from_le_bytes(bytes[footer..footer + 8].try_into().unwrap()) as usize;
+    assert_eq!(bytes[index_at..index_at + 4], *b"BHIE");
+    let s = u64::from_le_bytes(bytes[index_at + 8..index_at + 16].try_into().unwrap());
+    assert_eq!(index_at as u64 + 48 + s + 16, bytes.len() as u64);
+    let len = bytes.len() as u64;
+    let want = contents_as(&archive, Some(DIGITS));
+    let p = root.path().join("bad.bhive");
+    for wrong in [0, s - 1, s + 1, len, len + 1, u64::MAX] {
+        let mut b = bytes.clone();
+        b[index_at + 8..index_at + 16].copy_from_slice(&wrong.to_le_bytes());
+        fs::write(&p, &b).unwrap();
+        let e = open_err(&p, Some(DIGITS), false).unwrap();
+        assert_eq!(e.kind, ErrorKind::Corrupt, "{wrong}: {}", e.message);
+        assert_ne!(
+            python_tests_clean(&p),
+            Some(true),
+            "docs/bhive_reader.py: {wrong}"
+        );
+        assert_eq!(contents_as_recovered(&p), want, "{wrong}");
+    }
+}
+
+/// Taken out into the clear, raw, a few files leave the rest of their cells behind: what
+/// wasn't asked for, sealed in the same cells, never comes out readable.
+#[test]
+fn decrypting_some_files_leaves_the_others_sealed_away() {
+    let root = tempfile::tempdir().unwrap();
+    let (archive, want) = ten_sealed(root.path());
+    let chosen = ["in/f0.bin", "in/f4.bin", "in/f7.bin"];
+    let paths: Vec<String> = chosen.iter().map(|p| (*p).to_owned()).collect();
+    let clear = root.path().join("clear.bhive");
+    let report = ops::convert(
+        &archive,
+        &clear,
+        beezip_core::ArchiveKind::Bhive,
+        &spec_of(Level::Balanced),
+        &beezip_core::ConvertOptions {
+            selection: Selection::new(&paths, &[], &[]).unwrap(),
+            raw: true,
+            decrypt: true,
+            ..beezip_core::ConvertOptions::default()
+        },
+        &OpenOptions::default(),
+        &mut ctx(Some(HONEY)),
+    )
+    .unwrap();
+    assert!(report.recompressed > 0);
+    assert!(reader(&clear, &OpenOptions::default()).unlocked().is_none());
+    let got = contents(&clear);
+    assert_eq!(got.keys().map(String::as_str).collect::<Vec<_>>(), chosen);
+    let out = fs::read(&clear).unwrap();
+    for (path, data) in &want {
+        if chosen.contains(&path.as_str()) {
+            assert_eq!(&got[path], data);
+            continue;
+        }
+        for piece in data.chunks(64).filter(|c| c.len() == 64) {
+            assert!(!out.windows(64).any(|w| w == piece), "{path} came out");
+        }
+    }
+}
+
+/// An add to an encrypted `.bhive` seals the new files with the rest: `unencrypted` doesn't
+/// apply to an archive sealed whole, and the report doesn't say it did.
+#[test]
+fn files_added_to_an_encrypted_archive_are_sealed() {
+    let root = tempfile::tempdir().unwrap();
+    let (archive, mut want) = ten_sealed(root.path());
+    let more = root.path().join("more");
+    fs::create_dir(&more).unwrap();
+    write_tree(&more, &[file("m0.bin", noise(3000, 70))]);
+    let report = edit_sealed(
+        &archive,
+        &beezip_core::EditOp::Add(beezip_core::AddOptions {
+            inputs: vec![more.clone()],
+            unencrypted: true,
+            ..beezip_core::AddOptions::default()
+        }),
+    );
+    assert_eq!((report.added, report.unencrypted), (2, 0)); // the folder and its file
+    want.insert("more/m0.bin".into(), noise(3000, 70));
+    assert_eq!(contents_as(&archive, Some(HONEY)), want);
+    let out = fs::read(&archive).unwrap();
+    let piece = &noise(3000, 70)[1000..1064];
+    assert!(!out.windows(64).any(|w| w == piece));
+}
+
+fn contents_as_recovered(archive: &Path) -> BTreeMap<String, Vec<u8>> {
+    recovered_as(archive, DIGITS)
+}
+
+/// What recovery finds in an encrypted archive opened with `answer`.
+fn recovered_as(archive: &Path, answer: &str) -> BTreeMap<String, Vec<u8>> {
+    let opts = OpenOptions {
+        recover: true,
+        ..OpenOptions::default()
+    };
+    let mut r = reader_as(archive, &opts, Some(answer));
+    let mut cx = ctx(Some(answer));
+    let entries = r.entries(&mut cx).unwrap().to_vec();
+    let mut out = BTreeMap::new();
+    for e in entries.iter().filter(|e| e.kind == EntryKind::File) {
+        let mut data = Vec::new();
+        r.open_entry(e.id, &mut cx)
+            .unwrap()
+            .read_to_end(&mut data)
+            .unwrap();
+        out.insert(e.path.clone(), data);
+    }
+    out
+}
+
+/// The encrypted fixtures' records, from `sealed.json`.
+fn sealed_manifest() -> Vec<serde_json::Value> {
+    let text = fs::read_to_string(fixture_dir().join("sealed.json")).unwrap();
+    let v: serde_json::Value = serde_json::from_str(&text).unwrap();
+    v["fixtures"].as_array().unwrap().clone()
+}
+
+/// Each encrypted fixture opens with every password and the recovery key its record lists,
+/// holds what it says, tests clean, and opens with nothing else.
+#[test]
+fn every_sealed_fixture_reads_as_its_record_says() {
+    let all = sealed_manifest();
+    assert_eq!(all.len(), 7, "sealed.json lists every encrypted fixture");
+    for fx in &all {
+        let name = fx["file"].as_str().unwrap();
+        let path = fixture_dir().join(name);
+        let mut answers: Vec<String> = fx["passwords"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|p| p.as_str().unwrap().to_owned())
+            .collect();
+        if let Some(k) = fx["recovery_key"].as_str() {
+            answers.push(k.to_owned());
+        }
+        assert!(!answers.is_empty(), "{name}");
+        for (i, answer) in answers.iter().enumerate() {
+            let r = reader_as(&path, &OpenOptions::default(), Some(answer));
+            assert_eq!(r.unlocked().unwrap().opened_by(), i, "{name}");
+            assert_eq!(r.level().map(Level::name), fx["level"].as_str(), "{name}");
+            let dest = tempfile::tempdir().unwrap();
+            extract_as(&path, dest.path(), &threads(4), Some(answer));
+            assert_eq!(hashes(dest.path()), expected_files(fx), "{name}");
+            let test = ops::test(
+                &path,
+                &Selection::all(),
+                &threads(4),
+                &mut ctx(Some(answer)),
+            )
+            .unwrap();
+            assert!(test.ok(), "{name}: {:?}", test.errors);
+        }
+        for wrong in [
+            "Honey",
+            "000000-000000-000000-000000-000000-000000-000000-000000",
+        ] {
+            let source = Source::new(&path, Vec::new(), &OpenOptions::default()).unwrap();
+            let e = BhiveReader::open(source, &mut ctx(Some(wrong)))
+                .err()
+                .unwrap();
+            assert_eq!(e.kind, ErrorKind::WrongPassword, "{name}");
+        }
+    }
 }

@@ -11,7 +11,7 @@
 //! Keys and devices that live in the system (certificate stores, smart cards, the TPM,
 //! security keys, your stored keys) are reached through [`KeySource`], which `beezip-keys`
 //! implements and the commands layer hands to core through [`crate::Ctx::key_source`].
-//! Everything here returns [`not_built`] until its PR fills it.
+//! A slot kind returns [`not_built`] until its PR fills it.
 
 pub mod bech32;
 pub mod cert;
@@ -20,6 +20,7 @@ pub mod envelope;
 pub mod fido2;
 pub mod mldsa;
 pub mod password;
+pub mod prim;
 pub mod recovery;
 pub mod rsa;
 pub mod sig;
@@ -143,6 +144,10 @@ pub struct SlotView<'a> {
     pub framed: &'a [u8],
     /// The public part alone.
     pub public: &'a [u8],
+    /// The slot's commitment, after its public part. A key source with several keys for an
+    /// anonymous slot (kinds 3 and 4) compares it to tell which key is the slot's
+    /// (`x25519::commits`).
+    pub commitment: &'a [u8; 32],
 }
 
 impl SlotView<'_> {
@@ -193,7 +198,9 @@ impl SlotView<'_> {
 }
 
 /// What opens a slot: its secret `S`, or, where `S` never leaves a device, the HMAC already
-/// computed from it (`PRK`, bhive.md §12.4 step 2).
+/// computed from it (`PRK`, bhive.md §12.4 step 2). For kinds 3, 6 and 7 a reader gives the
+/// PRK: their context holds the recipient's public key, which only the key's holder knows
+/// ([`SlotView::context`]). A writer always gives `S` ([`MadeSlot`]).
 pub enum SlotSecret {
     Shared(Zeroizing<Vec<u8>>),
     Extracted(Zeroizing<[u8; 32]>),
@@ -266,6 +273,14 @@ pub enum Strength {
     Standard,
     /// 2 GiB, 3 passes, 4 lanes.
     Strong,
+    /// Any cost within the limits (bhive.md §12.5): for tests and fixtures, which can't spend
+    /// a gigabyte on every archive. BeeZip writes Standard or Strong.
+    #[doc(hidden)]
+    Cost {
+        memory_kib: u32,
+        passes: u32,
+        lanes: u32,
+    },
 }
 
 impl Strength {
@@ -274,6 +289,11 @@ impl Strength {
         match self {
             Self::Standard => (1 << 20, 2, 4),
             Self::Strong => (2 << 20, 3, 4),
+            Self::Cost {
+                memory_kib,
+                passes,
+                lanes,
+            } => (memory_kib, passes, lanes),
         }
     }
 }
@@ -324,6 +344,19 @@ pub enum Recipient {
 }
 
 impl Recipient {
+    /// A password slot's recipient, for callers that don't hold a `Zeroizing` of their own.
+    pub fn password(password: &str, strength: Strength) -> Self {
+        Self::Password {
+            password: Zeroizing::new(password.to_owned()),
+            strength,
+        }
+    }
+
+    /// A recovery key's recipient, from its 16 bytes.
+    pub fn recovery_key(key: &[u8; 16]) -> Self {
+        Self::RecoveryKey(Zeroizing::new(*key))
+    }
+
     pub const fn kind(&self) -> SlotKind {
         match self {
             Self::Password { .. } => SlotKind::Password,
@@ -362,6 +395,136 @@ pub enum Protection {
     New(Vec<Labelled>),
     /// An edit: the archive it reads keeps its file key and slots (docs/M14.md decision 7).
     Keep(std::sync::Arc<envelope::Unlocked>),
+    /// The archive it reads with ways in removed (by slot, as the key block has them) and
+    /// added, under the same file key: its cells are copied sealed as they are, and the slots
+    /// it keeps are kept byte for byte (`archive.protect`, docs/M14.md §3).
+    Change {
+        from: std::sync::Arc<envelope::Unlocked>,
+        remove: Vec<usize>,
+        add: Vec<Labelled>,
+    },
+}
+
+/// What section 5 says of a slot (bhive.md §12.9): claims, for people, never checked against the
+/// slot.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Description {
+    pub label: Option<String>,
+    /// An X25519 (32 bytes) or X-Wing (1,216) public key.
+    pub public_key: Option<Vec<u8>>,
+    /// A certificate in DER, or a key's SubjectPublicKeyInfo.
+    pub certificate: Option<Vec<u8>>,
+    /// Bound to one machine: a TPM key, Windows Hello.
+    pub machine_bound: bool,
+}
+
+impl Description {
+    /// What a writer says of a recipient.
+    pub fn of(l: &Labelled) -> Self {
+        let (public_key, certificate, machine_bound) = match &l.recipient {
+            Recipient::X25519(k) => (Some(k.to_vec()), None, false),
+            Recipient::XWing(k) => (Some(k.to_vec()), None, false),
+            Recipient::Rsa { spki, certificate } => (
+                None,
+                Some(certificate.clone().unwrap_or_else(|| spki.clone())),
+                false,
+            ),
+            Recipient::Ec {
+                spki,
+                certificate,
+                machine_bound,
+                ..
+            } => (
+                None,
+                Some(certificate.clone().unwrap_or_else(|| spki.clone())),
+                *machine_bound,
+            ),
+            Recipient::Fido2 { machine_bound, .. } => (None, None, *machine_bound),
+            Recipient::Password { .. } | Recipient::RecoveryKey(_) => (None, None, false),
+        };
+        Self {
+            label: l.label.clone(),
+            public_key,
+            certificate,
+            machine_bound,
+        }
+    }
+
+    /// The fields, as one slot's entry of section 5 holds them, without its length.
+    pub fn encode(&self) -> Vec<u8> {
+        use super::layout::put_uvarint;
+        let mut out = Vec::new();
+        let mut field = |tag: u64, value: &[u8]| {
+            put_uvarint(&mut out, tag);
+            put_uvarint(&mut out, value.len() as u64);
+            out.extend_from_slice(value);
+        };
+        if let Some(label) = &self.label {
+            field(1, label.as_bytes());
+        }
+        if let Some(key) = &self.public_key {
+            field(2, key);
+        }
+        if let Some(cert) = &self.certificate {
+            field(3, cert);
+        }
+        if self.machine_bound {
+            field(4, &[]);
+        }
+        out
+    }
+
+    /// One slot's fields. Tags it doesn't know are skipped; tags out of order are refused.
+    pub fn parse(body: &[u8]) -> Result<Self> {
+        let mut b = super::layout::Bytes::new(body);
+        let mut d = Self::default();
+        let mut last = None;
+        while b.left() > 0 {
+            let tag = b.uvarint()?;
+            let value = b.bytes()?;
+            if last.is_some_and(|last| tag <= last) {
+                return Err(super::layout::bad(
+                    "a slot description's fields are out of order",
+                ));
+            }
+            last = Some(tag);
+            match tag {
+                1 => d.label = Some(String::from_utf8_lossy(value).into_owned()),
+                2 => d.public_key = Some(value.to_vec()),
+                3 => d.certificate = Some(value.to_vec()),
+                4 => d.machine_bound = true,
+                _ => {}
+            }
+        }
+        Ok(d)
+    }
+}
+
+/// Section 5's body for these slots' entries, each as [`Description::encode`] gives it.
+pub fn encode_descriptions(entries: &[Vec<u8>]) -> Vec<u8> {
+    use super::layout::put_uvarint;
+    let mut out = Vec::new();
+    put_uvarint(&mut out, entries.len() as u64);
+    for e in entries {
+        put_uvarint(&mut out, e.len() as u64);
+        out.extend_from_slice(e);
+    }
+    out
+}
+
+/// Section 5's entries, one per slot, as they are; `None` unless its count is `slots` and it
+/// parses (bhive.md §12.9: otherwise a reader ignores it).
+pub fn split_descriptions(body: &[u8], slots: usize) -> Option<Vec<Vec<u8>>> {
+    let mut b = super::layout::Bytes::new(body);
+    let count = b.uvarint().ok()?;
+    if count != slots as u64 {
+        return None;
+    }
+    let mut out = Vec::with_capacity(slots);
+    for _ in 0..slots {
+        out.push(b.bytes().ok()?.to_vec());
+    }
+    (b.left() == 0).then_some(out)
 }
 
 /// A slot's public part and secret, made for a [`Recipient`] by its kind's module.
@@ -404,9 +567,63 @@ pub fn typed_secret(slot: &SlotView<'_>, answer: &UnlockAnswer) -> Result<Option
     }
 }
 
+/// A credential id is at most this long, and a relying party id at most this (bhive.md §12.5).
+pub const MAX_CREDENTIAL_ID: usize = 1023;
+pub const MAX_RP_ID: usize = 253;
+
+/// Kinds 5 and 8 carry lengths inside their public parts: those lengths and the fixed fields
+/// must fill the part exactly (bhive.md §12.5, §12.10). Kind 5: a tag (4), the ciphertext's
+/// length (`u16`) and the ciphertext, 256 to 1,024 bytes. Kind 8: flags, reserved, the
+/// credential id's length (`u16`) and the id (1 to 1,023 bytes), the relying party's length
+/// (`u8`) and its id (1 to 253), and a salt (32).
+pub fn check_framing(kind: SlotKind, public: &[u8]) -> Result<()> {
+    let u16_at = |at: usize| {
+        public
+            .get(at..at + 2)
+            .map(|b| usize::from(u16::from_le_bytes([b[0], b[1]])))
+    };
+    match kind {
+        SlotKind::Rsa => match u16_at(4) {
+            Some(len)
+                if (rsa::MIN_MODULUS..=rsa::MAX_MODULUS).contains(&len)
+                    && public.len() == 6 + len =>
+            {
+                Ok(())
+            }
+            _ => Err(super::layout::bad(format!(
+                "an RSA slot's public part of {} bytes doesn't hold a tag and a ciphertext of \
+                 256 to 1,024 bytes exactly",
+                public.len()
+            ))),
+        },
+        SlotKind::Fido2 => {
+            let fits = u16_at(2).is_some_and(|id| {
+                let rp_at = 4 + id;
+                (1..=MAX_CREDENTIAL_ID).contains(&id)
+                    && public.get(rp_at).is_some_and(|&rp| {
+                        let rp = usize::from(rp);
+                        (1..=MAX_RP_ID).contains(&rp) && public.len() == rp_at + 1 + rp + 32
+                    })
+            });
+            if fits {
+                Ok(())
+            } else {
+                Err(super::layout::bad(format!(
+                    "a security-key slot's public part of {} bytes doesn't hold its credential \
+                     id (1 to 1,023 bytes), relying party (1 to 253) and salt exactly",
+                    public.len()
+                )))
+            }
+        }
+        _ => Ok(()),
+    }
+}
+
 /// Checks a slot's public part against its kind's rules before anything is tried with it
-/// (bhive.md §12.10): lengths, Argon2's limits, a credential id's size.
+/// (bhive.md §12.10): lengths and how they fill the part, Argon2's limits, a credential id's
+/// size.
 pub fn check_public(kind: SlotKind, public: &[u8]) -> Result<()> {
+    check_framing(kind, public)?;
     match kind {
         SlotKind::Password => password::check(public),
         SlotKind::RecoveryKey => recovery::check(public),
@@ -478,6 +695,7 @@ mod tests {
                 key_id: &key_id,
                 framed,
                 public: &framed[4..],
+                commitment: slot[framed.len()..framed.len() + 32].try_into().unwrap(),
             };
             let recipient = match name {
                 "x25519" | "p256" | "p384" => hex(&vec["recipient_public"]),
@@ -496,6 +714,79 @@ mod tests {
                 assert_eq!(view.tag_for(b"spki"), None, "{name}");
             }
         }
+    }
+
+    /// vectors.json's RSA and security-key slots fill their public parts exactly; a byte less
+    /// or more, or a length out of its range, is refused.
+    #[test]
+    fn kinds_5_and_8_fill_their_public_parts_exactly() {
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../tests/fixtures/bhive-m14/vectors.json"
+        );
+        let v: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+        for name in ["rsa", "fido2"] {
+            let s = v["slots"][name]["slot"].as_str().unwrap();
+            let slot: Vec<u8> = (0..s.len())
+                .step_by(2)
+                .map(|i| u8::from_str_radix(&s[i..i + 2], 16).unwrap())
+                .collect();
+            let kind = SlotKind::from_id(slot[0]).unwrap();
+            let public = &slot[4..slot.len() - SLOT_TAIL_LEN];
+            assert!(check_framing(kind, public).is_ok(), "{name}");
+            let cut = &public[..public.len() - 1];
+            assert!(check_framing(kind, cut).is_err(), "{name}");
+            let mut longer = public.to_vec();
+            longer.push(0);
+            assert!(check_framing(kind, &longer).is_err(), "{name}");
+            for at in 0..public.len().min(8) {
+                assert!(check_framing(kind, &public[..at]).is_err(), "{name} {at}");
+            }
+        }
+        // RSA: a ciphertext of 255 bytes, or of 1,025, is no modulus BeeZip takes.
+        for len in [0usize, 255, 1025] {
+            let mut p = vec![0u8; 6 + len];
+            p[4..6].copy_from_slice(&(len as u16).to_le_bytes());
+            assert!(check_framing(SlotKind::Rsa, &p).is_err(), "{len}");
+        }
+        for len in [256usize, 1024] {
+            let mut p = vec![0u8; 6 + len];
+            p[4..6].copy_from_slice(&(len as u16).to_le_bytes());
+            assert!(check_framing(SlotKind::Rsa, &p).is_ok(), "{len}");
+        }
+        // FIDO2: the id and the relying party each 1 or more, at most 1,023 and 253.
+        let fido = |id: usize, rp: usize| {
+            let mut p = vec![2u8, 0];
+            p.extend_from_slice(&(id as u16).to_le_bytes());
+            p.extend(std::iter::repeat_n(7u8, id));
+            p.push(rp as u8);
+            p.extend(std::iter::repeat_n(b'r', rp));
+            p.extend([0u8; 32]);
+            check_framing(SlotKind::Fido2, &p).is_ok()
+        };
+        assert!(fido(1, 1) && fido(MAX_CREDENTIAL_ID, MAX_RP_ID));
+        assert!(!fido(0, 6) && !fido(16, 0) && !fido(MAX_CREDENTIAL_ID + 1, 6));
+        assert!(!fido(16, MAX_RP_ID + 1));
+        // The other kinds are checked by their own lengths.
+        assert!(check_framing(SlotKind::Password, &[]).is_ok());
+    }
+
+    /// Tags it doesn't know, 0 among them, are skipped (bhive.md §12.9).
+    #[test]
+    fn descriptions_skip_unknown_tags() {
+        let mut body = vec![0u8, 1, 9];
+        body.extend_from_slice(
+            &Description {
+                label: Some("Password".into()),
+                ..Description::default()
+            }
+            .encode(),
+        );
+        let d = Description::parse(&body).unwrap();
+        assert_eq!(d.label.as_deref(), Some("Password"));
+        assert!(Description::parse(&[1, 1, b'a', 1, 1, b'b']).is_err());
+        assert!(Description::parse(&[0, 0, 0, 0]).is_err());
     }
 
     #[test]

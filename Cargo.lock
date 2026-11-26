@@ -407,6 +407,7 @@ dependencies = [
  "dirs",
  "filetime",
  "open",
+ "ring",
  "schemars 1.2.3",
  "serde",
  "serde_json",
@@ -422,6 +423,7 @@ dependencies = [
  "windows-future",
  "windows-registry",
  "windows-result",
+ "zeroize",
 ]
 
 [[package]]
@@ -473,6 +475,8 @@ dependencies = [
  "sevenz-rust2",
  "sha1",
  "sha2 0.11.1",
+ "sha3",
+ "shake",
  "snap",
  "spki",
  "tar",

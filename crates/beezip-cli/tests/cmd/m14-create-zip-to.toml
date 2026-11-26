@@ -1,0 +1,5 @@
+bin.name = "beezip"
+args = ["create", "out.zip", "tree/hello.txt", "--to", "age1example"]
+status.code = 2
+fs.base = "../../../../tests/fixtures/thirdparty"
+fs.sandbox = true

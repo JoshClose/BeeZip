@@ -50,6 +50,25 @@ fn cli() -> clap::Command {
                 .help("How to print results; ndjson streams every job event"),
         )
         .arg(
+            Arg::new("identity")
+                .short('i')
+                .long("identity")
+                .global(true)
+                .value_name("FILE")
+                .action(ArgAction::Append)
+                .value_parser(value_parser!(PathBuf))
+                .help_heading("Global options")
+                .help("A key file that opens encrypted .bhive archives (age identities, PEM and PKCS #8 keys); repeatable"),
+        )
+        .arg(
+            Arg::new("password-stdin")
+                .long("password-stdin")
+                .global(true)
+                .action(ArgAction::SetTrue)
+                .help_heading("Global options")
+                .help("Read the password or recovery key from the first line of stdin, where other programs can't see it as they can the command line"),
+        )
+        .arg(
             Arg::new("quiet")
                 .short('q')
                 .long("quiet")
@@ -130,8 +149,17 @@ fn dispatch(matches: &ArgMatches, out: &Output) -> Result<(), CmdError> {
     match matches.subcommand() {
         Some(("run", sub)) => {
             let name = sub.get_one::<String>("name").map_or("", String::as_str);
-            let args = json_arg(sub.get_one::<String>("json").map(String::as_str))?;
-            run(name, args, out)
+            let json = sub.get_one::<String>("json").map(String::as_str);
+            if json == Some("-") && password_stdin(matches) {
+                return Err(CmdError::invalid_args(
+                    "--json - and --password-stdin both read stdin; put the password in the JSON",
+                ));
+            }
+            let mut args = json_arg(json)?;
+            if password_stdin(matches) {
+                password_from_stdin(name, &mut args)?;
+            }
+            run(name, args, &identities(matches), out)
         }
         Some(("commands", _)) => {
             out.commands(registry());
@@ -158,8 +186,11 @@ fn dispatch(matches: &ArgMatches, out: &Output) -> Result<(), CmdError> {
                 let words = group.into_iter().chain([name]).collect::<Vec<_>>();
                 CmdError::not_found(format!("no subcommand `{}`", words.join(" ")))
             })?;
-            let args = entry.args_from_matches(sub).unwrap_or_else(|e| e.exit());
-            run(entry.name, args, out)
+            let mut args = entry.args_from_matches(sub).unwrap_or_else(|e| e.exit());
+            if password_stdin(matches) {
+                password_from_stdin(entry.name, &mut args)?;
+            }
+            run(entry.name, args, &identities(matches), out)
         }
         None => Err(CmdError::invalid_args(
             "no subcommand given; see `beezip --help`",
@@ -226,16 +257,84 @@ fn mcp(sub: &ArgMatches, out: &Output) -> Result<(), CmdError> {
         .map_err(|e| CmdError::internal(format!("MCP server failed: {e:#}")))
 }
 
-fn run(name: &str, args: Value, out: &Output) -> Result<(), CmdError> {
+/// The key files `--identity` gives, wherever on the line it was.
+fn identities(matches: &ArgMatches) -> Vec<PathBuf> {
+    let mut found: Vec<PathBuf> = Vec::new();
+    let mut m = Some(matches);
+    while let Some(sub) = m {
+        if let Ok(Some(paths)) = sub.try_get_many::<PathBuf>("identity") {
+            for p in paths {
+                if !found.contains(p) {
+                    found.push(p.clone());
+                }
+            }
+        }
+        m = sub.subcommand().map(|(_, s)| s);
+    }
+    found
+}
+
+/// Whether `--password-stdin` was given, wherever on the line it was.
+fn password_stdin(matches: &ArgMatches) -> bool {
+    let mut m = Some(matches);
+    while let Some(sub) = m {
+        if matches!(sub.try_get_one::<bool>("password-stdin"), Ok(Some(true))) {
+            return true;
+        }
+        m = sub.subcommand().map(|(_, s)| s);
+    }
+    false
+}
+
+/// `--password-stdin`: the first line of stdin, without its line ending, as the input's
+/// `password` (docs/M14.md §8).
+fn password_from_stdin(name: &str, args: &mut Value) -> Result<(), CmdError> {
+    let takes = registry().get(name).is_some_and(|e| {
+        e.input_schema
+            .get("properties")
+            .and_then(|p| p.get("password"))
+            .is_some()
+    });
+    if !takes {
+        return Err(CmdError::invalid_args(format!(
+            "`{name}` takes no password; leave out --password-stdin"
+        )));
+    }
+    let Some(object) = args.as_object_mut() else {
+        return Err(CmdError::invalid_args("the arguments aren't a JSON object"));
+    };
+    if object.contains_key("password") {
+        return Err(CmdError::invalid_args(
+            "give the password once: --password or --password-stdin",
+        ));
+    }
+    let mut line = String::new();
+    std::io::stdin()
+        .read_line(&mut line)
+        .map_err(|e| CmdError::new(ErrorCode::Io, format!("could not read stdin: {e}")))?;
+    let password = line.strip_suffix('\n').unwrap_or(&line);
+    let password = password.strip_suffix('\r').unwrap_or(password);
+    if password.is_empty() {
+        return Err(CmdError::new(
+            ErrorCode::PasswordRequired,
+            "--password-stdin read no password: stdin's first line is empty",
+        ));
+    }
+    object.insert("password".into(), Value::String(password.to_owned()));
+    Ok(())
+}
+
+fn run(name: &str, args: Value, identities: &[PathBuf], out: &Output) -> Result<(), CmdError> {
     // The config is read once, when the process starts (docs/M1.md §4.1).
     let loaded = config::load();
     for w in &loaded.warnings {
         out.warn(w);
     }
-    let engine = Engine::with_options(
-        registry(),
-        EngineOptions::from_loaded(loaded, Policy::unrestricted()),
-    );
+    let policy = Policy {
+        identities: identities.to_vec(),
+        ..Policy::unrestricted()
+    };
+    let engine = Engine::with_options(registry(), EngineOptions::from_loaded(loaded, policy));
     let interactive = std::io::stdin().is_terminal() && std::io::stderr().is_terminal();
     let interactor: Arc<dyn Interactor> = if interactive {
         Arc::new(TtyInteractor::new(out.bars()))
