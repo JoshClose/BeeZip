@@ -147,6 +147,8 @@ export function estimate(password: string, words: Set<string> = new Set()): Stre
   let bits = 0;
   let pieces = 0;
   let at = 0;
+  // A separator used again (the hyphens between words) costs almost nothing the second time.
+  const separators = new Set<string>();
   while (at < lower.length) {
     const word = wordAt(lower, at, words);
     const run = runLength(lower, at);
@@ -155,7 +157,10 @@ export function estimate(password: string, words: Set<string> = new Set()): Stre
     // The piece that covers the most characters, so `password` is one word and not eight letters.
     const best = Math.max(word?.len ?? 0, run, repeat, year);
     if (best === 0) {
-      bits += charBits;
+      const c = lower[at];
+      const separator = !/[\p{L}\p{N}]/u.test(c);
+      bits += separator && separators.has(c) ? 1 : charBits;
+      if (separator) separators.add(c);
       at += 1;
     } else {
       if (best === (word?.len ?? 0)) bits += word!.bits;
@@ -172,6 +177,6 @@ export function estimate(password: string, words: Set<string> = new Set()): Stre
   bits += Math.log2(pieces);
   const rounded = Math.round(bits);
   const weak = bits < WEAK_BITS;
-  const verdict = bits < 28 ? "very weak, guessed quickly" : weak ? "weak: four random words or more are safer" : bits < 70 ? "good" : "strong";
-  return { bits, weak, line: `About ${rounded} bits: ${verdict}.` };
+  const verdict = bits < 28 ? "very weak, guessed in moments." : weak ? "weak. Four random words or more are safer." : bits < 70 ? "good." : "strong.";
+  return { bits, weak, line: `About ${rounded} bits: ${verdict}` };
 }

@@ -21,8 +21,6 @@ import { loadCommands, Palette, type PaletteAction, takesOnlyArchive } from "./f
 import { FormDialog } from "./features/palette/SchemaForm";
 import { Prompts } from "./features/prompts/Prompts";
 import { RecoveryKeyDialog } from "./features/protection/RecoveryKey";
-import { SignDialog } from "./features/protection/Signatures";
-import { WhoCanOpenDialog } from "./features/protection/WhoCanOpen";
 import { UpdateBanner } from "./features/update/UpdateBanner";
 import { Welcome } from "./features/welcome/Welcome";
 import { activeTab, archiveArgs, useArchives } from "./lib/archives";
@@ -99,6 +97,9 @@ const BenchDialog = lazy(() => import("./features/bench/BenchDialog").then((m) =
 // Loaded when first opened, as the Benchmark dialog is: it keeps the first bundle under Vite's
 // 500 kB warning.
 const SettingsDialog = lazy(() => import("./features/settings/Settings").then((m) => ({ default: m.SettingsDialog })));
+// "Who can open this" and Sign (docs/M14.md §8, §11), loaded when first opened, for the same reason.
+const WhoCanOpenDialog = lazy(() => import("./features/protection/WhoCanOpen").then((m) => ({ default: m.WhoCanOpenDialog })));
+const SignDialog = lazy(() => import("./features/protection/SignDialog").then((m) => ({ default: m.SignDialog })));
 
 let started = false;
 
@@ -281,8 +282,16 @@ export default function App() {
       {dialog?.kind === "convert" && dialogTab && <CreateDialog inputs={[]} source={dialogTab} onClose={closeDialog} />}
       {dialog?.kind === "info" && dialogTab && <InfoDialog tab={dialogTab} onClose={closeDialog} />}
       {dialog?.kind === "encoding" && dialogTab && <EncodingDialog tab={dialogTab} onClose={closeDialog} />}
-      {dialog?.kind === "protection" && dialogTab && <WhoCanOpenDialog tab={dialogTab} onClose={closeDialog} />}
-      {dialog?.kind === "sign" && dialogTab && <SignDialog tab={dialogTab} onClose={closeDialog} />}
+      {dialog?.kind === "protection" && dialogTab && (
+        <Suspense fallback={null}>
+          <WhoCanOpenDialog tab={dialogTab} onClose={closeDialog} />
+        </Suspense>
+      )}
+      {dialog?.kind === "sign" && dialogTab && (
+        <Suspense fallback={null}>
+          <SignDialog tab={dialogTab} onClose={closeDialog} />
+        </Suspense>
+      )}
       {dialog?.kind === "about" && <About onClose={closeDialog} />}
       {dialog?.kind === "report" && <ReportDialog title={dialog.title} error={dialog.error} onClose={closeDialog} />}
       {dialog?.kind === "settings" && (

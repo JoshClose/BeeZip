@@ -1,0 +1,140 @@
+import { render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { ask } from "@tauri-apps/plugin-dialog";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { RecoveryKeyDialog, useRecoveryKeys } from "../features/protection/RecoveryKey";
+import { contactFor, leavesPortable, recipientWays, WhoCanOpenDialog, wayTitle } from "../features/protection/WhoCanOpen";
+import type { ArchiveInfoOutput, KeyInfo, WayIn } from "../gen/commands";
+import { type Tab, useArchives } from "../lib/archives";
+import { useKeyring } from "../lib/keyring";
+import { fake } from "./fakeEngine";
+
+vi.mock("../lib/engine", () => import("./fakeEngine"));
+vi.mock("@tauri-apps/plugin-dialog", () => ({ open: vi.fn(async () => null), save: vi.fn(), ask: vi.fn(async () => true) }));
+
+const ANN = `age1pq1${"a".repeat(60)}`;
+const STRANGER = `age1pq1${"s".repeat(60)}`;
+const ways: WayIn[] = [
+  { slot: 0, kind: "password", label: "Password", machine_bound: false, post_quantum: true },
+  { slot: 1, kind: "post-quantum-key", label: "Ann", recipient: ANN, machine_bound: false, post_quantum: true },
+  { slot: 2, kind: "post-quantum-key", label: "Ann's laptop", recipient: STRANGER, machine_bound: false, post_quantum: true },
+  { slot: 3, kind: "rsa-certificate", recipient: "CN=Bob", machine_bound: false, post_quantum: false },
+  { slot: 4, kind: "ec-p256", label: "This PC", machine_bound: true, post_quantum: false },
+];
+const keys: KeyInfo[] = [{ name: "Ann", kind: "post-quantum", public: ANN, fingerprint: "ANNN-ANNN-ANNN-ANNN", own: false, created: 0 }];
+
+const tab: Tab = {
+  id: "tab-1",
+  path: String.raw`C:\work\a.bhive`,
+  name: "a.bhive",
+  dir: "",
+  reverse: false,
+  selected: [],
+  all: false,
+  solidOk: false,
+  version: 0,
+  password: "pw",
+  info: { format: "bhive", encryption: "all" } as ArchiveInfoOutput,
+};
+
+beforeEach(() => {
+  fake.reset();
+  fake.handlers.set("keys.list", () => ({ keys }));
+  fake.handlers.set("certificates.list", () => ({ certificates: [] }));
+  fake.handlers.set("archive.protection", () => ({ encrypted: true, ways, post_quantum: false }));
+  useKeyring.setState({ keys: undefined, certificates: undefined, keysError: undefined, certificatesError: undefined, loading: false });
+  useArchives.setState({ tabs: [tab], active: tab.id });
+  useRecoveryKeys.setState({ queue: [] });
+});
+
+describe("who can open an encrypted .bhive (docs/M14.md §3, §8)", () => {
+  it("knows recipients, contacts and the last portable way in", () => {
+    expect(wayTitle(ways[0])).toBe("Password");
+    expect(wayTitle(ways[1])).toBe("Post-quantum public key: Ann");
+    expect(wayTitle(ways[3])).toBe("RSA certificate");
+    expect(recipientWays(ways).map((w) => w.slot)).toEqual([1, 2, 3]);
+    expect(contactFor(ways[1], keys)?.name).toBe("Ann");
+    expect(contactFor(ways[2], keys)).toBeUndefined();
+    expect(leavesPortable(ways, [0, 1, 2])).toBe(true);
+    expect(leavesPortable(ways, [0, 1, 2, 3])).toBe(false);
+  });
+
+  it("lists the ways in, with the archive's password, and removes one", async () => {
+    const user = userEvent.setup();
+    fake.handlers.set("archive.protect", () => ({ ways: ways.filter((w) => w.slot !== 3), post_quantum: false }));
+    render(<WhoCanOpenDialog tab={tab} onClose={() => {}} />);
+    const list = await screen.findByRole("list", { name: "Ways in" });
+    expect(fake.calls.find((c) => c.name === "archive.protection")?.args).toEqual({ archive: tab.path, password: "pw" });
+    expect(within(list).getAllByRole("listitem")).toHaveLength(5);
+    expect(list).toHaveTextContent("Post-quantum public key: Ann (contact Ann)");
+    expect(list).toHaveTextContent("Only on this PC.");
+    expect(screen.getByText(/Doesn't resist quantum computers/)).toBeInTheDocument();
+    expect(screen.getByText(/Removing a way in isn't taking it back/)).toBeInTheDocument();
+    // It asks first.
+    vi.mocked(ask).mockResolvedValueOnce(false);
+    await user.click(screen.getByRole("button", { name: "Remove RSA certificate" }));
+    expect(ask).toHaveBeenCalledWith(expect.stringMatching(/^Remove RSA certificate from a\.bhive\?/), expect.anything());
+    expect(fake.calls.some((c) => c.name === "archive.protect")).toBe(false);
+    await user.click(screen.getByRole("button", { name: "Remove RSA certificate" }));
+    await waitFor(() => expect(fake.calls.some((c) => c.name === "archive.protect")).toBe(true));
+    expect(fake.calls.find((c) => c.name === "archive.protect")?.args).toEqual({ archive: tab.path, remove: [3], password: "pw" });
+    await waitFor(() => expect(within(screen.getByRole("list", { name: "Ways in" })).getAllByRole("listitem")).toHaveLength(4));
+  });
+
+  it("keeps the last way in that works elsewhere", async () => {
+    fake.handlers.set("archive.protection", () => ({ encrypted: true, ways: [ways[0], ways[4]], post_quantum: false }));
+    render(<WhoCanOpenDialog tab={tab} onClose={() => {}} />);
+    expect(await screen.findByRole("button", { name: "Remove Password" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Remove EC certificate or This PC (P-256): This PC" })).toBeEnabled();
+  });
+
+  it("adds a password and a recovery key, and shows the new key once", async () => {
+    const user = userEvent.setup();
+    fake.handlers.set("archive.protect", () => ({ ways, post_quantum: false, recovery_key: "000011" }));
+    render(
+      <>
+        <WhoCanOpenDialog tab={tab} onClose={() => {}} />
+        <RecoveryKeyDialog />
+      </>,
+    );
+    await user.click(await screen.findByRole("button", { name: /Add a way in/ }));
+    const add = screen.getByRole("button", { name: "Add to the archive" });
+    expect(add).toBeDisabled();
+    await user.type(screen.getByLabelText("Add a password"), "a second password");
+    await user.click(screen.getByText(/Make a recovery key/));
+    await user.click(add);
+    await waitFor(() => expect(fake.calls.some((c) => c.name === "archive.protect")).toBe(true));
+    expect(fake.calls.find((c) => c.name === "archive.protect")?.args).toEqual({ archive: tab.path, add_password: "a second password", recovery_key: true, password: "pw" });
+    expect(await screen.findByTestId("recovery-key")).toHaveTextContent("000011");
+  });
+
+  it("makes a new key, rebuilding only the recipients confirmed (docs/bhive.md §12.9)", async () => {
+    const user = userEvent.setup();
+    fake.handlers.set("archive.protect", () => ({ ways, post_quantum: false }));
+    render(<WhoCanOpenDialog tab={tab} onClose={() => {}} />);
+    await user.click(await screen.findByRole("button", { name: /New key/ }));
+    const confirm = await screen.findByRole("dialog", { name: "Make a new key" });
+    const recipients = within(confirm).getByRole("list", { name: "Recipients" });
+    // Each recipient's key or certificate is shown; a contact's comes ticked, with its fingerprint.
+    expect(within(recipients).getAllByRole("listitem")).toHaveLength(3);
+    expect(recipients).toHaveTextContent("ANNN-ANNN-ANNN-ANNN");
+    expect(recipients).toHaveTextContent(STRANGER);
+    expect(within(confirm).getByRole("checkbox", { name: /Ann, your contact Ann/ })).toBeChecked();
+    expect(within(confirm).getByRole("checkbox", { name: /Ann's laptop/ })).not.toBeChecked();
+    expect(confirm).toHaveTextContent("BeeZip asks for each password again.");
+    expect(confirm).toHaveTextContent("This PC may ask for its PIN.");
+    await user.click(within(confirm).getByRole("checkbox", { name: "RSA certificate" }));
+    await user.click(within(confirm).getByRole("button", { name: /Make a new key/ }));
+    await waitFor(() => expect(fake.calls.some((c) => c.name === "archive.protect")).toBe(true));
+    expect(fake.calls.find((c) => c.name === "archive.protect")?.args).toEqual({ archive: tab.path, new_key: true, remove: [2], password: "pw" });
+  });
+
+  it("says why it can't read the ways in", async () => {
+    fake.handlers.set("archive.protection", () => {
+      throw { code: "UnsupportedOperation", message: "archive.protection is not built yet (docs/M14.md)" };
+    });
+    render(<WhoCanOpenDialog tab={tab} onClose={() => {}} />);
+    expect(await screen.findByRole("alert")).toHaveTextContent("not built yet");
+    expect(screen.getByRole("button", { name: /Add a way in/ })).toBeDisabled();
+  });
+});

@@ -2,6 +2,7 @@
 // `archive.protection`, with ways to add or remove and "New key" through `archive.protect`.
 // Nothing is recompressed. New key rebuilds only the recipients the person confirms, and shows
 // each one's key or certificate first, since the archive's descriptions of them are claims.
+import { ask } from "@tauri-apps/plugin-dialog";
 import { KeyRound, LockKeyhole, Plus, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Button } from "../../components/ui/button";
@@ -141,7 +142,17 @@ export function WhoCanOpenDialog({ tab, onClose }: { tab: Tab; onClose: () => vo
 
   const ways = state?.ways ?? [];
   const check = checkProtection(form, password, windows, ways);
-  const remove = (w: WayIn) => void protect({ remove: [w.slot] }, `Removing a way into ${tab.name}`);
+  const remove = async (w: WayIn) => {
+    const sure = await ask(`Remove ${wayTitle(w)} from ${tab.name}?
+
+It won't open the archive any more. Someone who opened it before could have kept its key: a new key shuts them out of later versions.`, {
+      title: "BeeZip",
+      kind: "warning",
+      okLabel: "Remove",
+      cancelLabel: "Cancel",
+    });
+    if (sure) await protect({ remove: [w.slot] }, `Removing a way into ${tab.name}`);
+  };
   const add = async () => {
     if (await protect(addWaysArgs(form, password, windows), `Adding ways into ${tab.name}`)) {
       setAdding(false);
@@ -166,7 +177,7 @@ export function WhoCanOpenDialog({ tab, onClose }: { tab: Tab; onClose: () => vo
             <>
               <Button onClick={() => setAdding(false)}>Cancel</Button>
               <Button variant="primary" disabled={busy || check.ways === 0 || !!check.problem} onClick={() => void add()}>
-                <Plus /> Add
+                <Plus /> Add to the archive
               </Button>
             </>
           ) : (
@@ -218,7 +229,7 @@ export function WhoCanOpenDialog({ tab, onClose }: { tab: Tab; onClose: () => vo
                       variant="danger"
                       disabled={busy || last}
                       title={last ? "The last way in that works on another machine stays" : undefined}
-                      onClick={() => remove(w)}
+                      onClick={() => void remove(w)}
                       aria-label={`Remove ${wayTitle(w)}`}
                     >
                       <Trash2 /> Remove
