@@ -301,3 +301,17 @@ path = "fuzz_targets/bhive_index.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "bhive-sealed"
+path = "fuzz_targets/bhive_sealed.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "bhive-keyblock"
+path = "fuzz_targets/bhive_keyblock.rs"
+test = false
+doc = false
+bench = false

@@ -237,3 +237,9 @@ opt-level = 3
 opt-level = 3
 [profile.dev.package.crc32fast]
 opt-level = 3
+# Argon2id for password slots (docs/M14.md §5): about 2.7 s for Standard unoptimised, 0.3 s
+# optimised, so a debug build opens a real archive at the speed a release build does.
+[profile.dev.package.argon2]
+opt-level = 3
+[profile.dev.package.blake2]
+opt-level = 3
