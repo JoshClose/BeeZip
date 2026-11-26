@@ -7,6 +7,18 @@ Write a new section as `## X.Y.Z`, with `###` groups and `- ` items, describing 
 using BeeZip will notice. Leave the date out: the Releases page dates each version by its
 `vX.Y.Z` tag.
 
+## 0.8.4
+
+### Fixes
+
+- **Passwords on 7z archives are much harder to guess.** BeeZip ran a 7z password through 256
+  rounds of SHA-256 to make its key, where 7-Zip runs 524,288, so someone trying passwords on a
+  7z from BeeZip could try them 2,048 times faster than on one from 7-Zip. BeeZip now does what
+  7-Zip does, and gives each part of the archive its own starting value (IV), as 7-Zip does,
+  instead of one for all of them. Any program that opens 7z files opens the new ones. 7z archives
+  that earlier versions of BeeZip encrypted keep the weak setting: to strengthen one, extract it
+  and create it again, or convert it to 7z and give it a password again.
+
 ## 0.8.3
 
 ### The desktop app
