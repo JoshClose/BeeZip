@@ -556,18 +556,42 @@ fn check_record(
     info
 }
 
+/// What a rewrite that keeps an archive's contents carries over (docs/M14.md §11): the
+/// archive's section 3 as it is, and the manifest it has. A writer keeps the section when its
+/// own manifest is the same one, so every signature in it checks as it did.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Carried {
+    pub manifest: [u8; 32],
+    pub section: Vec<u8>,
+}
+
+/// [`check`]'s report, and what a rewrite of the archive carries over.
+#[derive(Debug, Clone, Default)]
+pub struct Checked {
+    pub report: Report,
+    pub carried: Option<Carried>,
+}
+
 /// Reads sections 2 and 3 from `index` and checks every signature against the manifest of
 /// `header` and `raw`. Never fails the archive: a signature that can't be checked says so in
 /// its status, and a section 3 that doesn't parse at all is one signature that couldn't be
 /// checked, of algorithm 0. A recovered archive has no index, and is unsigned.
 pub fn check(header: &[u8; 16], raw: &[u8], index: &Index) -> Report {
+    checked(header, raw, index).report
+}
+
+/// [`check`], keeping section 3 and the manifest for a rewrite to carry over.
+pub fn checked(header: &[u8; 16], raw: &[u8], index: &Index) -> Checked {
     let section2 = index.section(SECTION_DIGESTS);
     let section3 = index.section(SECTION_SIGNATURES);
     let digests = section2.and_then(|d| digests(d, index.cells.len()));
     let Some(section3) = section3 else {
-        return Report {
-            signatures: Vec::new(),
-            digests,
+        return Checked {
+            report: Report {
+                signatures: Vec::new(),
+                digests,
+            },
+            carried: None,
         };
     };
     let not_checked = |why: String| SignatureInfo {
@@ -576,21 +600,31 @@ pub fn check(header: &[u8; 16], raw: &[u8], index: &Index) -> Report {
         time: None,
         status: Status::NotChecked(why),
     };
-    let records = match records(section3) {
-        Ok(r) => r,
-        Err(why) => {
-            return Report {
-                signatures: vec![not_checked(why)],
-                digests,
-            };
-        }
-    };
     let manifest = match manifest(header, raw, index) {
         Ok(m) => m,
         Err(e) => {
-            return Report {
-                signatures: vec![not_checked(e.message)],
-                digests,
+            return Checked {
+                report: Report {
+                    signatures: vec![not_checked(e.message)],
+                    digests,
+                },
+                carried: None,
+            };
+        }
+    };
+    let carried = Some(Carried {
+        manifest,
+        section: section3.to_vec(),
+    });
+    let records = match records(section3) {
+        Ok(r) => r,
+        Err(why) => {
+            return Checked {
+                report: Report {
+                    signatures: vec![not_checked(why)],
+                    digests,
+                },
+                carried,
             };
         }
     };
@@ -599,11 +633,59 @@ pub fn check(header: &[u8; 16], raw: &[u8], index: &Index) -> Report {
         (None, None) => Err("the archive has no cell digests (index section 2)"),
         (Some(_), None) => Err("the cell digests (index section 2) don't match the cells"),
     };
-    Report {
-        signatures: records
-            .iter()
-            .map(|r| check_record(r, &manifest, whole))
-            .collect(),
-        digests,
+    Checked {
+        report: Report {
+            signatures: records
+                .iter()
+                .map(|r| check_record(r, &manifest, whole))
+                .collect(),
+            digests,
+        },
+        carried,
     }
+}
+
+/// Section 3 for a writer whose archive has `manifest`: the signatures `carried` over from the
+/// archive it copied, when they were made over that same manifest, then a new one by each of
+/// `signing`'s signers, whose new signature replaces any it had. Byte for byte as it was when
+/// nothing is added. `None` when there are no signatures.
+pub fn section_with(
+    signing: Option<&Signing>,
+    carried: Option<&Carried>,
+    manifest: &[u8; 32],
+    cx: &mut dyn crate::Ctx,
+) -> Result<Option<Vec<u8>>> {
+    let carried = carried.filter(|c| c.manifest == *manifest);
+    let Some(signing) = signing.filter(|s| !s.is_empty()) else {
+        return Ok(carried.map(|c| c.section.clone()));
+    };
+    ready(signing)?;
+    let mut kept: Vec<Vec<u8>> = Vec::new();
+    if let Some(c) = carried {
+        match records(&c.section) {
+            Ok(old) => {
+                let new: Vec<(u8, Vec<u8>)> = signing
+                    .signers
+                    .iter()
+                    .map(|s| (s.algorithm().id(), s.signer_bytes()))
+                    .collect();
+                for r in old {
+                    let same = parts(r)
+                        .is_ok_and(|p| new.iter().any(|(a, s)| *a == p.algorithm && s == p.signer));
+                    if !same {
+                        kept.push(r.to_vec());
+                    }
+                }
+            }
+            Err(why) => cx.warn(format!(
+                "the archive's signatures can't be read ({why}); they are replaced by the new ones"
+            )),
+        }
+    }
+    let time = signing.time.unwrap_or_else(now);
+    for s in &signing.signers {
+        cx.check()?;
+        kept.push(record(s.as_ref(), manifest, time)?);
+    }
+    assemble(&kept).map(Some)
 }

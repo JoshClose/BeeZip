@@ -17,6 +17,8 @@ use ring::{
 };
 use zeroize::Zeroizing;
 
+mod sealed;
+
 use super::{
     edit::{Resign, resign},
     *,
@@ -1234,7 +1236,8 @@ fn archive_sign_adds_and_removes_and_keeps_the_contents() {
     .unwrap_err();
     assert!(e.message.contains("only a .bhive"), "{e}");
 
-    // A cut archive, and an encrypted one (until PR A's edits are in), are left as they are.
+    // A cut archive, and one that says it is encrypted but has no key block, are left as they
+    // are.
     let bytes = std::fs::read(&path).unwrap();
     let cut = t.dir.path().join("cut.bhive");
     std::fs::write(&cut, &bytes[..bytes.len() - 40]).unwrap();
