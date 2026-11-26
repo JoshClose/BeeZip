@@ -429,15 +429,13 @@ fn ed25519_edges_are_rings() {
     let want: Vec<(&str, bool)> = cases.iter().map(|c| (c.0, c.4)).collect();
     assert_eq!(got, want);
 
-    // The cases the Python reader is tested with (PR B's ed25519-edges.json), once the two are
-    // in the same tree: `ring` must give each the verdict the file does.
+    // The cases the Python reader is tested with (ed25519-edges.json): `ring` must give each
+    // the verdict the file does.
     let shared = fixture("ed25519-edges.json");
-    if !shared.exists() {
-        eprintln!("{} isn't here yet", shared.display());
-        return;
-    }
-    let v: serde_json::Value =
-        serde_json::from_str(&std::fs::read_to_string(shared).unwrap()).unwrap();
+    let v: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(&shared).unwrap_or_else(|e| panic!("{}: {e}", shared.display())),
+    )
+    .unwrap();
     let cases = v["cases"].as_array().unwrap();
     assert!(cases.len() >= 10, "{}", cases.len());
     for c in cases {

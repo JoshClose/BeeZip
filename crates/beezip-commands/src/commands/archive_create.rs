@@ -58,7 +58,8 @@ pub struct ArchiveCreateInput {
     #[arg(long)]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub threads: Option<u32>,
-    /// Encrypt the entries with this password (AES-256). Zip and 7z.
+    /// Encrypt with this password (AES-256): a zip's or 7z's entries, or a whole .bhive,
+    /// names and all.
     #[arg(short, long)]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub password: Option<Secret>,

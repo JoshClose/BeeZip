@@ -72,8 +72,9 @@ level?: LevelArg,
  */
 threads?: number,
 /**
- * Encrypt the new files with this password (zip, 7z). It also reads a 7z whose names are
- * encrypted.
+ * Encrypt the new files with this password (zip, 7z). On an encrypted .bhive it is the way in
+ * (a password or recovery key), and the new files are sealed with the rest. It also reads a
+ * 7z whose names are encrypted.
  */
 password?: Secret,
 /**
@@ -163,7 +164,7 @@ threads?: number,
  */
 password?: Secret,
 /**
- * Encrypt the new archive with this password (zip, 7z).
+ * Encrypt the new archive with this password (zip, 7z, .bhive).
  */
 new_password?: Secret,
 /**
@@ -319,7 +320,8 @@ level?: LevelArg,
  */
 threads?: number,
 /**
- * Encrypt the entries with this password (AES-256). Zip and 7z.
+ * Encrypt with this password (AES-256): a zip's or 7z's entries, or a whole .bhive,
+ * names and all.
  */
 password?: Secret,
 /**

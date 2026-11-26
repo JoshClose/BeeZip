@@ -65,7 +65,7 @@ pub struct ArchiveConvertInput {
     #[arg(short, long)]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub password: Option<Secret>,
-    /// Encrypt the new archive with this password (zip, 7z).
+    /// Encrypt the new archive with this password (zip, 7z, .bhive).
     #[arg(long)]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub new_password: Option<Secret>,

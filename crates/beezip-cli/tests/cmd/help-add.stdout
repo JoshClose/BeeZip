@@ -47,8 +47,9 @@ Options:
           Compression threads for codecs that have them; 0 is one per core [default: from config]
 
   -p, --password <PASSWORD>
-          Encrypt the new files with this password (zip, 7z). It also reads a 7z whose names are
-          encrypted
+          Encrypt the new files with this password (zip, 7z). On an encrypted .bhive it is the way
+          in (a password or recovery key), and the new files are sealed with the rest. It also reads
+          a 7z whose names are encrypted
 
       --encryption <ENCRYPTION>
           How to encrypt a zip's new files [default: aes256]. Zip only

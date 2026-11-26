@@ -54,8 +54,9 @@ pub struct ArchiveAddInput {
     #[arg(long)]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub threads: Option<u32>,
-    /// Encrypt the new files with this password (zip, 7z). It also reads a 7z whose names are
-    /// encrypted.
+    /// Encrypt the new files with this password (zip, 7z). On an encrypted .bhive it is the way in
+    /// (a password or recovery key), and the new files are sealed with the rest. It also reads a
+    /// 7z whose names are encrypted.
     #[arg(short, long)]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub password: Option<Secret>,

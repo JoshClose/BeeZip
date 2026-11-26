@@ -52,7 +52,7 @@ Options:
           The source's password, if it is encrypted
 
       --new-password <NEW_PASSWORD>
-          Encrypt the new archive with this password (zip, 7z)
+          Encrypt the new archive with this password (zip, 7z, .bhive)
 
       --encryption <ENCRYPTION>
           How to encrypt a new zip [default: aes256]. Zip only
