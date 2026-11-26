@@ -18,6 +18,9 @@ type KeyringState = {
 };
 
 let inflight: Promise<void> | undefined;
+// Each load's number: only the latest one's lists are kept, so a load started again (after a key
+// is made) isn't overwritten by an earlier one that ends later.
+let latest = 0;
 
 export const useKeyring = create<KeyringState>((set, get) => ({
   loading: false,
@@ -27,20 +30,24 @@ export const useKeyring = create<KeyringState>((set, get) => ({
     if (!again && s.keys !== undefined && s.certificates !== undefined) return Promise.resolve();
     if (inflight && !again) return inflight;
     set({ loading: true });
+    const mine = ++latest;
+    const keep = (patch: Partial<KeyringState>) => mine === latest && set(patch);
     const track = useJobs.getState().track;
     const keys = track("keys.list", {}, { title: "Reading your keys", quiet: true }).then(
-      (out) => set({ keys: out.keys, keysError: undefined }),
-      (e) => set({ keys: [], keysError: describeError(e).message }),
+      (out) => keep({ keys: out.keys, keysError: undefined }),
+      (e) => keep({ keys: [], keysError: describeError(e).message }),
     );
     const certificates = track("certificates.list", { purpose: "all" }, { title: "Reading your certificates", quiet: true }).then(
-      (out) => set({ certificates: out.certificates, certificatesError: undefined }),
-      (e) => set({ certificates: [], certificatesError: describeError(e).message }),
+      (out) => keep({ certificates: out.certificates, certificatesError: undefined }),
+      (e) => keep({ certificates: [], certificatesError: describeError(e).message }),
     );
-    inflight = Promise.all([keys, certificates]).then(() => {
+    const done = Promise.all([keys, certificates]).then(() => {
+      if (mine !== latest) return;
       inflight = undefined;
       set({ loading: false });
     });
-    return inflight;
+    inflight = done;
+    return done;
   },
 }));
 

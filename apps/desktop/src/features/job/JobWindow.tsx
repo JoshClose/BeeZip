@@ -9,10 +9,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CombMark, type MarkState, markKind } from "../../components/CombMark";
 import { Button } from "../../components/ui/button";
 import { Dialog } from "../../components/ui/dialog";
-import type { ArchiveCreateOutput, ArchiveExtractOutput, CmdError, CommandName, EditOutput, Existing, Step } from "../../gen/commands";
+import type { ArchiveCreateOutput, ArchiveExtractOutput, ArchiveInfoOutput, CmdError, CommandName, EditOutput, Existing, Step } from "../../gen/commands";
 import { useCloseGuard } from "../../lib/closeGuard";
 import { baseName, formatDuration, formatRate, formatSize, isCancelled, parentDir, samePath } from "../../lib/format";
-import { type JobRecord, orderedJobs, useJobs } from "../../lib/jobs";
+import { type JobRecord, orderedJobs, stepTab, useJobs } from "../../lib/jobs";
+import { changedSinceSigned } from "../../lib/signatures";
 import type { JobStartup } from "../../lib/startup";
 import { Bar, CANCELLED_TEXT, outputSummary } from "../jobs/JobsPanel";
 import { ReportDialog } from "../jobs/ReportDialog";
@@ -42,7 +43,8 @@ export type Outcome =
   /** `command` is what ran, when an answer changed it (Add to it). */
   | { status: "done"; output: unknown; command?: string }
   | { status: "failed"; error: CmdError }
-  | { status: "skipped" }
+  /** `why` when it wasn't an archive already there that was left. */
+  | { status: "skipped"; why?: string }
   | { status: "cancelled" };
 
 /** The answer about an archive that's already there. */
@@ -86,6 +88,19 @@ export function revealTarget(step: RunStep, output: unknown, command = step.comm
   return undefined;
 }
 
+/** The .bhive a step extracts: its signatures are read first, so one that changed after it was
+ * signed is asked about before anything is written (docs/M14.md decision 26). */
+export function signedArchive(step: RunStep): string | undefined {
+  if (step.command !== "archive.extract") return undefined;
+  const archive = (step.args as { archive?: unknown }).archive;
+  return typeof archive === "string" && /\.bhive$/i.test(archive) ? archive : undefined;
+}
+
+/** A run's arguments with the way in typed while its step read the archive, unless it has one. */
+export function withKept(args: Record<string, unknown>, kept: string | undefined): Record<string, unknown> {
+  return kept && args.password === undefined ? { ...args, password: kept } : args;
+}
+
 /** Whether a finished step lets the window close itself: nothing was skipped or renamed. */
 export function isClean(step: RunStep, output: unknown, command = step.command): boolean {
   if (command === "archive.add") return (output as EditOutput).skipped === 0;
@@ -107,6 +122,11 @@ function useSteps(steps: Step[]) {
   const [current, setCurrent] = useState<number>();
   const [finished, setFinished] = useState(false);
   const answer = useRef<(c: ExistingChoice) => void>(undefined);
+  // The .bhive being asked about, which changed after it was signed, and the answer's resolver.
+  const [changed, setChanged] = useState<string>();
+  const extractAnyway = useRef<(go: boolean) => void>(undefined);
+  // What was typed while a step read its archive, for that step's run (lib/jobs.ts `stepTab`).
+  const kept = useRef(new Map<string, string>());
   const stopped = useRef(false);
   const started = useRef(false);
   // Each step's answer about an existing archive, for running it again.
@@ -121,7 +141,8 @@ function useSteps(steps: Step[]) {
       if (run.title !== step.title) setTitles((all) => all.map((t, j) => (j === i ? run.title : t)));
       set(i, { status: "running" });
       try {
-        const output = await track(run.command as CommandName, run.args as never, { title: run.title });
+        const args = withKept(run.args, kept.current.get(stepTab(i)));
+        const output = await track(run.command as CommandName, args as never, { title: run.title });
         set(i, { status: "done", output, command: run.command });
       } catch (e) {
         if (isCancelled(e)) {
@@ -135,10 +156,31 @@ function useSteps(steps: Step[]) {
     [set, track],
   );
 
+  /** Reads a .bhive's signatures before step `i` extracts it, and asks when it changed after it
+   * was signed. A read that fails for another reason leaves it to the extraction to say. */
+  const signedOk = useCallback(
+    async (i: number, archive: string): Promise<"go" | "skip" | "cancel"> => {
+      let info: ArchiveInfoOutput;
+      try {
+        info = await track("archive.info", { archive }, { title: `Reading ${baseName(archive)}`, quiet: true, tab: stepTab(i) });
+      } catch (e) {
+        return isCancelled(e) ? "cancel" : "go";
+      }
+      if (!changedSinceSigned(info)) return "go";
+      setChanged(archive);
+      const go = await new Promise<boolean>((resolve) => (extractAnyway.current = resolve));
+      extractAnyway.current = undefined;
+      setChanged(undefined);
+      return stopped.current ? "cancel" : go ? "go" : "skip";
+    },
+    [track],
+  );
+
   useEffect(() => {
     // Once, however often React mounts the window (StrictMode does twice in development).
     if (started.current) return;
     started.current = true;
+    useJobs.setState({ onPassword: (tab, secret) => kept.current.set(tab, secret) });
     void (async () => {
       for (let i = 0; i < steps.length; i++) {
         const step = steps[i];
@@ -164,16 +206,30 @@ function useSteps(steps: Step[]) {
           }
         }
         choices.current[i] = choice;
+        const archive = signedArchive(step);
+        if (archive) {
+          const ok = await signedOk(i, archive);
+          if (ok === "cancel") {
+            stopped.current = true;
+            set(i, { status: "cancelled" });
+            continue;
+          }
+          if (ok === "skip") {
+            set(i, { status: "skipped", why: "Not extracted: it changed after it was signed." });
+            continue;
+          }
+        }
         await runStep(i, step, choice);
       }
       setCurrent(undefined);
       setFinished(true);
     })();
-  }, [steps, set, runStep]);
+  }, [steps, set, runStep, signedOk]);
 
   const cancelAll = useCallback(() => {
     stopped.current = true;
     if (answer.current) answer.current("cancel");
+    if (extractAnyway.current) extractAnyway.current(false);
     for (const job of Object.values(useJobs.getState().jobs)) {
       if (job.status === "running") void useJobs.getState().cancel(job.id);
     }
@@ -181,7 +237,34 @@ function useSteps(steps: Step[]) {
 
   const choose = useCallback((c: ExistingChoice) => answer.current?.(c), []);
 
-  return { outcomes, titles, current, finished, cancelAll, choose };
+  const decide = useCallback((go: boolean) => extractAnyway.current?.(go), []);
+
+  return { outcomes, titles, current, finished, cancelAll, choose, changed, decide };
+}
+
+/** A .bhive that changed after it was signed, before it's extracted (docs/M14.md decision 26). */
+function ChangedSincePrompt({ archive, onChoose }: { archive: string; onChoose: (go: boolean) => void }) {
+  return (
+    <Dialog
+      open
+      dismissable={false}
+      onClose={() => onChoose(false)}
+      title={`${baseName(archive)} changed after it was signed`}
+      description={parentDir(archive)}
+      footer={
+        <>
+          <Button variant="primary" autoFocus onClick={() => onChoose(false)}>
+            Don't extract
+          </Button>
+          <Button variant="danger" onClick={() => onChoose(true)}>
+            Extract it anyway
+          </Button>
+        </>
+      }
+    >
+      <p className="pb-1 text-danger">What you extract may not be what the signer made.</p>
+    </Dialog>
+  );
 }
 
 function ExistingPrompt({ existing, onChoose }: { existing: Existing; onChoose: (c: ExistingChoice) => void }) {
@@ -268,7 +351,7 @@ function Row({
     reveal = revealTarget(step, outcome.output, command);
   } else if (outcome.status === "failed") detail = `${outcome.error.code}: ${outcome.error.message}`;
   else if (outcome.status === "cancelled") detail = CANCELLED_TEXT;
-  else if (outcome.status === "skipped") detail = "Skipped: the archive was left as it was.";
+  else if (outcome.status === "skipped") detail = outcome.why ?? "Skipped: the archive was left as it was.";
   else return null;
   return (
     <li className="flex items-start gap-2 border-t border-rule py-2 first:border-t-0">
@@ -309,7 +392,7 @@ function heading(steps: Step[], titles: string[], outcomes: Outcome[], current: 
 
 export function JobWindow({ job }: { job: JobStartup }) {
   const steps = job.steps;
-  const { outcomes, titles, current, finished, cancelAll, choose } = useSteps(steps);
+  const { outcomes, titles, current, finished, cancelAll, choose, changed, decide } = useSteps(steps);
   const [report, setReport] = useState<{ title: string; error: CmdError }>();
   const jobs = useJobs((s) => s.jobs);
   const order = useJobs((s) => s.order);
@@ -333,7 +416,7 @@ export function JobWindow({ job }: { job: JobStartup }) {
 
   // A prompt or the report gets the room it needs; the window starts small.
   const prompting = useJobs((s) => Object.values(s.jobs).some((j) => j.prompts.length > 0));
-  const [needW, needH] = report ? REPORT_SIZE : prompting || asking ? PROMPT_SIZE : [0, 0];
+  const [needW, needH] = report ? REPORT_SIZE : prompting || asking || changed ? PROMPT_SIZE : [0, 0];
   useEffect(() => {
     if (needW > 0) void growTo(needW, needH).catch(() => {});
   }, [needW, needH]);
@@ -398,6 +481,7 @@ export function JobWindow({ job }: { job: JobStartup }) {
         )}
       </footer>
       {asking && <ExistingPrompt existing={asking} onChoose={choose} />}
+      {changed && <ChangedSincePrompt archive={changed} onChoose={decide} />}
       {report && <ReportDialog title={report.title} error={report.error} onClose={() => setReport(undefined)} />}
       <Prompts />
     </div>

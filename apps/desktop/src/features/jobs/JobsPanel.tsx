@@ -8,13 +8,20 @@ import type {
   ArchiveConvertOutput,
   ArchiveCreateOutput,
   ArchiveExtractOutput,
+  ArchiveProtectOutput,
+  ArchiveSignOutput,
   ArchiveTestOutput,
+  CertificatesListOutput,
   EditOutput,
+  JsonValue,
+  KeyInfo,
+  KeysDeleteOutput,
+  KeysListOutput,
   StreamCompressOutput,
 } from "../../gen/commands";
 import { cn } from "../../lib/cn";
 import { baseName, formatRate, formatSize } from "../../lib/format";
-import { type JobRecord, orderedJobs, useJobs } from "../../lib/jobs";
+import { type JobRecord, orderedJobs, useJobs, withoutSecrets } from "../../lib/jobs";
 import { JOBS_ABOVE_MIN, JOBS_HEADER, JOBS_MIN, tallestJobs, usePanes } from "../../lib/panes";
 import { useSize } from "../../lib/size";
 import { toastInfo } from "../../lib/toasts";
@@ -98,8 +105,30 @@ export function outputSummary(command: string, out: unknown): string {
       const o = out as StreamCompressOutput;
       return `Wrote ${o.output}`;
     }
+    case "archive.protection":
+    case "archive.protect": {
+      // A recovery key the output carries is the dialog's to show, once: never here.
+      const o = out as ArchiveProtectOutput;
+      return `${plural(o.ways.length, "way")} in${o.ways.length === 0 ? "" : o.post_quantum ? ", every one post-quantum" : ", some of them classic"}`;
+    }
+    case "archive.sign": {
+      const n = (out as ArchiveSignOutput).signatures.length;
+      return n === 0 ? "No signatures now" : `${plural(n, "signature")} now`;
+    }
+    case "keys.create":
+      return `Made ${(out as KeyInfo).name} (${(out as KeyInfo).fingerprint})`;
+    case "keys.import":
+      return `Added ${(out as KeyInfo).name} (${(out as KeyInfo).fingerprint})`;
+    case "keys.delete":
+      return `Deleted ${(out as KeysDeleteOutput).deleted}`;
+    case "keys.export":
+      return "Exported the key";
+    case "keys.list":
+      return plural((out as KeysListOutput).keys.length, "key");
+    case "certificates.list":
+      return plural((out as CertificatesListOutput).certificates.length, "certificate");
     default: {
-      const text = JSON.stringify(out);
+      const text = JSON.stringify(withoutSecrets(command, out as JsonValue));
       return text.length > 160 ? `${text.slice(0, 160)}…` : text;
     }
   }

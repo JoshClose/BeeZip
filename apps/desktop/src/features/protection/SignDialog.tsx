@@ -7,7 +7,7 @@ import { Button } from "../../components/ui/button";
 import { Checkbox } from "../../components/ui/checkbox";
 import { Dialog } from "../../components/ui/dialog";
 import { Field } from "../../components/ui/input";
-import { archiveArgs, type Tab, useArchives } from "../../lib/archives";
+import { keptWayIn, type Tab, useArchives } from "../../lib/archives";
 import { relist } from "../../lib/edit";
 import { describeError } from "../../lib/format";
 import { useJobs } from "../../lib/jobs";
@@ -15,9 +15,9 @@ import { ownSigners, signaturesOf, signerPhrase } from "../../lib/signatures";
 import { SignWithField } from "./ProtectionFields";
 
 /** Sign: add signatures with your keys or certificates, or remove some or all (`archive.sign`). */
-export function SignDialog({ tab, onClose }: { tab: Tab; onClose: () => void }) {
+export function SignDialog({ tab, initial = [], note, onClose }: { tab: Tab; initial?: string[]; note?: string; onClose: () => void }) {
   const sigs = signaturesOf(tab.info);
-  const [sign, setSign] = useState<string[]>([]);
+  const [sign, setSign] = useState<string[]>(initial);
   const [remove, setRemove] = useState<number[]>([]);
   const [error, setError] = useState<string>();
   const removeAll = sigs.length > 0 && remove.length === sigs.length;
@@ -32,7 +32,7 @@ export function SignDialog({ tab, onClose }: { tab: Tab; onClose: () => void }) 
           archive: tab.path,
           ...(sign.length > 0 ? { sign } : {}),
           ...(removeAll ? { remove_all: true } : remove.length > 0 ? { remove } : {}),
-          ...archiveArgs(tab),
+          ...keptWayIn(tab),
         },
         { title, tab: tab.id },
       );
@@ -61,6 +61,11 @@ export function SignDialog({ tab, onClose }: { tab: Tab; onClose: () => void }) 
       }
     >
       <div className="flex flex-col gap-3 pb-2">
+        {note && (
+          <p role="note" className="rounded-[5px] border border-rule bg-paper px-3 py-2 text-[12px]">
+            {note}
+          </p>
+        )}
         {sigs.length > 0 && (
           <Field label="Its signatures">
             <ul className="flex flex-col gap-1 pt-1" aria-label="Its signatures">

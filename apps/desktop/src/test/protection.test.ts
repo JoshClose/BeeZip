@@ -1,5 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import { outputSummary } from "../features/jobs/JobsPanel";
 import type { KeyInfo, WayIn } from "../gen/commands";
+import { applyEvent, newJob, withoutSecrets } from "../lib/jobs";
 import {
   addWaysArgs,
   checkProtection,
@@ -67,18 +69,80 @@ describe("the strength estimate (docs/M14.md §5)", () => {
     expect(parseWordlist("11111\tabacus\r\n11112\tabdomen\n\n")).toEqual(["abacus", "abdomen"]);
   });
 
-  it("suggests six words joined by hyphens, picked without bias", async () => {
+  it("suggests six words joined by hyphens, leaving out the list's own hyphenated words", async () => {
     expect(suggestPassphrase(["a", "b", "c"], () => 1)).toBe("b-b-b-b-b-b");
+    // drop-down, felt-tip, t-shirt and yo-yo would read as two words each.
+    expect(suggestPassphrase(["drop-down", "a", "yo-yo", "b"], (n) => n - 1)).toBe("b-b-b-b-b-b");
     const words = await loadWordlist();
-    const phrase = suggestPassphrase(words);
+    expect(words.filter((w) => w.includes("-"))).toEqual(["drop-down", "felt-tip", "t-shirt", "yo-yo"]);
+    // Every pick lands on a word with no hyphen, whatever the random source gives.
+    const pool = words.filter((w) => !w.includes("-"));
+    const seen: number[] = [];
+    const phrase = suggestPassphrase(words, (n) => {
+      expect(n).toBe(7772);
+      seen.push(seen.length === 0 ? 0 : n - 1);
+      return seen[seen.length - 1];
+    });
+    expect(phrase).toBe([pool[0], ...Array(5).fill(pool[7771])].join("-"));
     expect(phrase.split("-")).toHaveLength(6);
-    for (const w of phrase.split("-")) expect(words).toContain(w);
-    for (let i = 0; i < 2000; i++) {
-      const n = randomBelow(7776);
-      expect(n).toBeGreaterThanOrEqual(0);
-      expect(n).toBeLessThan(7776);
-    }
     expect(() => suggestPassphrase([])).toThrow();
+  });
+
+  it("picks words without bias: values past the last whole multiple are drawn again", () => {
+    const n = 7776;
+    const limit = Math.floor(0x1_0000_0000 / n) * n;
+    const draws = [limit, 0xffff_ffff, limit - 1];
+    const spy = vi.spyOn(crypto, "getRandomValues").mockImplementation(<T extends ArrayBufferView | null>(buf: T): T => {
+      (buf as unknown as Uint32Array)[0] = draws.shift()!;
+      return buf;
+    });
+    try {
+      // The first two would favour the lowest words; the third is used.
+      expect(randomBelow(n)).toBe((limit - 1) % n);
+      expect(draws).toHaveLength(0);
+    } finally {
+      spy.mockRestore();
+    }
+    for (let i = 0; i < 200; i++) {
+      const v = randomBelow(n);
+      expect(v).toBeGreaterThanOrEqual(0);
+      expect(v).toBeLessThan(n);
+    }
+  });
+
+  it("counts the number row's shifted keys and its zigzag as keyboard runs", () => {
+    for (const p of ["1q2w3e4r5t6y", "!@#$%^&*()", "1q2w3e4r"]) expect(estimate(p).weak, p).toBe(true);
+  });
+});
+
+describe("secrets in the jobs panel (docs/M14.md §8)", () => {
+  const KEY = "123456-234567-345678-456789-567890-678901-789012-890123";
+  const finished = (command: string, output: unknown) =>
+    applyEvent(newJob(1, command, {}, { title: command }, 0), { type: "Finished", output: output as never }, 1).output;
+
+  it("keeps a new recovery key or an exported key out of the job's record", () => {
+    const protect = { ways: [{ slot: 0, kind: "recovery-key", machine_bound: false, post_quantum: true }], post_quantum: true, recovery_key: KEY };
+    expect(finished("archive.protect", protect)).toEqual({ ways: protect.ways, post_quantum: true });
+    expect(finished("archive.create", { path: "a.bhive", recovery_key: KEY })).toEqual({ path: "a.bhive" });
+    expect(finished("keys.export", { text: "AGE-SECRET-KEY-1XYZ" })).toEqual({});
+    expect(withoutSecrets("archive.test", { entries: 1 })).toEqual({ entries: 1 });
+    expect(withoutSecrets("archive.list", null)).toBeNull();
+  });
+
+  it("says what protect, sign and keys jobs did without their secrets", () => {
+    const ways = [{ slot: 0, kind: "recovery-key", machine_bound: false, post_quantum: true }];
+    expect(outputSummary("archive.protect", { ways, post_quantum: true, recovery_key: KEY })).toBe("1 way in, every one post-quantum");
+    expect(outputSummary("archive.protection", { encrypted: true, ways: [...ways, ...ways], post_quantum: false })).toBe("2 ways in, some of them classic");
+    expect(outputSummary("archive.sign", { signatures: [] })).toBe("No signatures now");
+    expect(outputSummary("archive.sign", { signatures: [{}, {}] })).toBe("2 signatures now");
+    expect(outputSummary("keys.create", key("Ann"))).toBe("Made Ann (AAAA-BBBB-CCCC-DDDD)");
+    expect(outputSummary("keys.import", key("Bob"))).toBe("Added Bob (AAAA-BBBB-CCCC-DDDD)");
+    expect(outputSummary("keys.delete", { deleted: "Ann" })).toBe("Deleted Ann");
+    expect(outputSummary("keys.export", { text: "AGE-SECRET-KEY-1XYZ" })).toBe("Exported the key");
+    expect(outputSummary("keys.list", { keys: [key("Ann")] })).toBe("1 key");
+    expect(outputSummary("certificates.list", { certificates: [] })).toBe("0 certificates");
+    // Anything else is its JSON, without a secret it may carry.
+    expect(outputSummary("archive.unknown", { recovery_key: KEY, ok: true })).toBe(`{"ok":true}`);
   });
 });
 
@@ -150,6 +214,25 @@ describe("what the dialogs say about the ways in", () => {
     expect(checkProtection(form({ recipients: [{ kind: "certificate", thumbprint: "AB", subject: "CN=Bob" }] }), "pw").warnings.join()).toMatch(mixing);
     expect(checkProtection(form({ recipients: [{ kind: "contact", name: "Me", postQuantum: true, own: true }] }), "pw").warnings.join()).not.toMatch(mixing);
     expect(checkProtection(form({ recipients: [{ kind: "key", text: CLASSIC }] }), "").warnings.join()).not.toMatch(mixing);
+  });
+
+  it("warns either way round: a password added beside someone else's key already there", () => {
+    const mixing = /could also make an archive your password opens/;
+    const theirs: WayIn = { slot: 0, kind: "post-quantum-key", recipient: `${PQ}Ann`, machine_bound: false, post_quantum: true };
+    const mine: WayIn = { slot: 1, kind: "post-quantum-key", recipient: `${PQ}Me`, machine_bound: false, post_quantum: true };
+    const keys = [key("Ann"), key("Me", { own: true })];
+    expect(checkProtection(NO_PROTECTION, "pw", true, [theirs], keys).warnings.join()).toMatch(mixing);
+    // A key nobody here knows is someone else's too.
+    expect(checkProtection(NO_PROTECTION, "pw", true, [theirs], []).warnings.join()).toMatch(mixing);
+    // Your own key, This PC and a security key aren't.
+    const thisPc: WayIn = { slot: 2, kind: "ec-p256", machine_bound: true, post_quantum: false };
+    const securityKey: WayIn = { slot: 3, kind: "security-key", machine_bound: false, post_quantum: true };
+    expect(checkProtection(NO_PROTECTION, "pw", true, [mine, thisPc, securityKey], keys).warnings.join()).not.toMatch(mixing);
+    // Adding a recovery key beside someone's key mixes nothing.
+    expect(checkProtection(form({ recoveryKey: true }), "", true, [theirs], keys).warnings.join()).not.toMatch(mixing);
+    // The other way round, as before: someone's key added beside a password already there.
+    const password: WayIn = { slot: 4, kind: "password", machine_bound: false, post_quantum: true };
+    expect(checkProtection(form({ recipients: [{ kind: "key", text: CLASSIC }] }), "", true, [password], keys).warnings.join()).toMatch(mixing);
   });
 
   it("says whether it resists quantum computers (decision 9)", () => {

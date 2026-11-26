@@ -90,12 +90,22 @@ export function applyEvent(job: JobRecord, event: JobEvent, now: number): JobRec
       // Only the job's own listener (`JobMeta.onEvent`) wants these.
       return job;
     case "Finished":
-      return { ...job, status: "finished", output: event.output, prompts: [], ended: now };
+      return { ...job, status: "finished", output: withoutSecrets(job.command, event.output), prompts: [], ended: now };
     case "Failed":
       return { ...job, status: "failed", error: event.error, prompts: [], ended: now };
     case "Cancelled":
       return { ...job, status: "cancelled", prompts: [], ended: now };
   }
+}
+
+/** An output as the job's record keeps it: without the secrets some outputs carry, which the
+ * caller has from `track` and shows once (docs/M14.md §8): a new recovery key, a key exported. */
+export function withoutSecrets(command: string, output: JsonValue): JsonValue {
+  if (output === null || typeof output !== "object" || Array.isArray(output)) return output;
+  const secret = command === "keys.export" ? "text" : "recovery_key";
+  if (!(secret in output)) return output;
+  const { [secret]: _, ...rest } = output;
+  return rest as JsonValue;
 }
 
 /** The prompt to show: the oldest unanswered one, from the job that started first. */
@@ -197,6 +207,17 @@ export const useJobs = create<JobsState>((set, get) => ({
     });
   },
 }));
+
+/** A job window's stand-in for a tab (features/job/JobWindow.tsx): a way in typed while one step
+ * reads its archive is kept for that step's own run, and nothing else. */
+export function stepTab(step: number): string {
+  return `step:${step}`;
+}
+
+/** Whether a job's `tab` is a job window's step, which keeps what's typed only for that step. */
+export function forOneStep(tab: string | undefined): boolean {
+  return tab?.startsWith("step:") ?? false;
+}
 
 /** What a reply typed that later calls on the archive pass as `password`: a password, or an
  * encrypted .bhive's recovery key (docs/M14.md §8). A key or device chosen isn't kept. */

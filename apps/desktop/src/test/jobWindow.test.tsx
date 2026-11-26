@@ -2,7 +2,7 @@ import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { argsFor, isClean, JobWindow, revealTarget, type RunStep } from "../features/job/JobWindow";
+import { argsFor, isClean, JobWindow, revealTarget, type RunStep, signedArchive, withKept } from "../features/job/JobWindow";
 import type { ArchiveExtractOutput, JobEvent, Step } from "../gen/commands";
 import { cancel } from "../lib/engine";
 import { useJobs } from "../lib/jobs";
@@ -80,6 +80,16 @@ describe("the job window's helpers", () => {
     expect(revealTarget(create, { path: String.raw`C:\w\work.zip`, volumes: null })).toBe(String.raw`C:\w\work.zip`);
     expect(revealTarget(create, { path: "x", volumes: ["x.001", "x.002"] })).toBe("x.001");
     expect(revealTarget({ ...extract("a.zip"), command: "archive.test" }, {})).toBeUndefined();
+  });
+
+  it("reads a .bhive's signatures before extracting it, with what was typed meanwhile", () => {
+    expect(signedArchive(extract("a.bhive"))).toBe(String.raw`C:\dl\a.bhive`);
+    expect(signedArchive(extract("A.BHIVE"))).toBe(String.raw`C:\dl\A.BHIVE`);
+    expect(signedArchive(extract("a.zip"))).toBeUndefined();
+    expect(signedArchive({ ...extract("a.bhive"), command: "archive.test" })).toBeUndefined();
+    expect(withKept({ archive: "a" }, "pw")).toEqual({ archive: "a", password: "pw" });
+    expect(withKept({ archive: "a", password: "given" }, "pw")).toEqual({ archive: "a", password: "given" });
+    expect(withKept({ archive: "a" }, undefined)).toEqual({ archive: "a" });
   });
 
   it("calls an extraction clean only when nothing was skipped or renamed", () => {
@@ -184,6 +194,43 @@ describe("the job window", () => {
     await user.click(screen.getByRole("button", { name: /Unlock/ }));
     expect(fake.replies[0]).toMatchObject({ prompt: 1, reply: { kind: "Password", password: "hunter2" } });
     expect(await screen.findByRole("heading", { name: "Done" })).toBeInTheDocument();
+  });
+
+  it("asks before extracting a .bhive that changed after it was signed (decision 26)", async () => {
+    const changed = { format: "bhive", encryption: "none", signatures: [{ status: "changed", signer: "Ann", fingerprint: "AAAA-BBBB-CCCC-DDDD" }] };
+    fake.handlers.set("archive.info", () => changed);
+    fake.handlers.set("archive.extract", () => extracted());
+    const { unmount } = show([extract("signed.bhive")], false);
+    expect(await screen.findByRole("dialog", { name: "signed.bhive changed after it was signed" })).toBeInTheDocument();
+    expect(fake.calls.map((c) => c.name)).toEqual(["archive.info"]);
+    await userEvent.setup().click(screen.getByRole("button", { name: "Don't extract" }));
+    expect(await screen.findByText("Not extracted: it changed after it was signed.")).toBeInTheDocument();
+    expect(fake.calls.map((c) => c.name)).toEqual(["archive.info"]);
+    unmount();
+
+    fake.calls = [];
+    useJobs.setState({ jobs: {}, order: [] });
+    show([extract("signed.bhive")], false);
+    await userEvent.setup().click(await screen.findByRole("button", { name: "Extract it anyway" }));
+    expect(await screen.findByRole("heading", { name: "Done" })).toBeInTheDocument();
+    expect(fake.calls.map((c) => c.name)).toEqual(["archive.info", "archive.extract"]);
+  });
+
+  it("extracts a .bhive with the way in typed while its signatures were read", async () => {
+    fake.handlers.set("archive.info", async (_args, emit) => {
+      emit({ type: "Prompt", id: 1, prompt: { kind: "Password", entry: null } });
+      await waitFor(() => expect(fake.replies).toHaveLength(1));
+      return { format: "bhive", encryption: "all", signatures: [] };
+    });
+    fake.handlers.set("archive.extract", () => extracted());
+    show([extract("locked.bhive")], false);
+    const user = userEvent.setup();
+    await user.type(await screen.findByLabelText("Password"), "honey");
+    expect(screen.getByText(/for this job only/)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /Unlock/ }));
+    expect(await screen.findByRole("heading", { name: "Done" })).toBeInTheDocument();
+    expect(fake.calls.find((c) => c.name === "archive.extract")?.args).toMatchObject({ archive: String.raw`C:\dl\locked.bhive`, password: "honey" });
+    expect(screen.queryByRole("dialog")).toBeNull();
   });
 
   it.each([

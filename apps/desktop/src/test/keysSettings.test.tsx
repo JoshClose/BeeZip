@@ -29,6 +29,30 @@ beforeEach(() => {
   useKeyring.setState({ keys: undefined, certificates: undefined, keysError: undefined, certificatesError: undefined, loading: false });
 });
 
+describe("reading your keys", () => {
+  it("keeps the latest load's lists when an earlier one ends later", async () => {
+    let release!: () => void;
+    const slow = new Promise<void>((r) => (release = r));
+    let calls = 0;
+    fake.handlers.set("keys.list", async () => {
+      calls++;
+      if (calls === 1) {
+        await slow;
+        return { keys: [keys[0]] };
+      }
+      return { keys };
+    });
+    const first = useKeyring.getState().load(true);
+    const second = useKeyring.getState().load(true);
+    await second;
+    expect(useKeyring.getState().keys).toEqual(keys);
+    release();
+    await first;
+    expect(useKeyring.getState().keys).toEqual(keys);
+    expect(useKeyring.getState().loading).toBe(false);
+  });
+});
+
 describe("Settings → Keys (docs/M14.md §6)", () => {
   it("lists your keys, your contacts and the certificates", async () => {
     render(<KeysSettings />);

@@ -31,6 +31,12 @@ function names(items: string[]): string {
   return items.length < 2 ? (items[0] ?? "") : `${items.slice(0, -1).join(", ")} and ${items[items.length - 1]}`;
 }
 
+/** The subject of an unknown signer's certificate: shown beside "an unknown signer", never in
+ * its place, since anyone can make a certificate with any subject (§11). */
+export function unknownSubject(s: Signature): string | undefined {
+  return s.trust === "unknown" && s.issuer && s.signer && s.signer !== s.fingerprint ? s.signer : undefined;
+}
+
 /** Whom a valid signature is from, as a phrase. */
 export function signerPhrase(s: Signature): string {
   switch (s.trust) {
@@ -76,4 +82,15 @@ export function changedSinceSigned(info: ArchiveInfoOutput | undefined): boolean
 /** Your own signing keys that signed it: what an edit offers to sign again with (§11). */
 export function ownSigners(sigs: Signature[]): string[] {
   return [...new Set(sigs.filter((s) => s.status === "valid" && s.trust === "yours").map((s) => s.signer))];
+}
+
+/** What an edit's question says about the signatures it drops (§11), or "" for an unsigned
+ * archive: BeeZip offers to sign again when the signer's key is here. */
+export function dropsSignatures(sigs: Signature[]): string {
+  if (sigs.length === 0) return "";
+  const which = sigs.length === 1 ? "Its signature is" : `Its ${sigs.length} signatures are`;
+  const own = ownSigners(sigs);
+  return own.length > 0
+    ? `${which} dropped too. BeeZip then offers to sign it again with your key ${names(own)}.`
+    : `${which} dropped too: only ${sigs.length === 1 ? "its signer" : "its signers"} can sign it again.`;
 }

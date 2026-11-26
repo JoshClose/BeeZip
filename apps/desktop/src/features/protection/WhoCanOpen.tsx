@@ -9,11 +9,11 @@ import { Button } from "../../components/ui/button";
 import { Checkbox } from "../../components/ui/checkbox";
 import { Dialog } from "../../components/ui/dialog";
 import type { ArchiveProtectInput, ArchiveProtectionOutput, KeyInfo, WayIn } from "../../gen/commands";
-import { archiveArgs, type Tab } from "../../lib/archives";
+import { keptWayIn, type Tab } from "../../lib/archives";
 import { describeError } from "../../lib/format";
 import { useJobs } from "../../lib/jobs";
 import { useKeys } from "../../lib/keyring";
-import { addWaysArgs, checkProtection, NO_PROTECTION, type ProtectionForm, SLOT_NAMES } from "../../lib/protection";
+import { addWaysArgs, checkProtection, contactFor, NO_PROTECTION, type ProtectionForm, SLOT_NAMES, wayFingerprint } from "../../lib/protection";
 import { startup } from "../../lib/startup";
 import { NewPasswordField, ProtectionFields } from "./ProtectionFields";
 import { showRecoveryKey } from "./RecoveryKey";
@@ -29,9 +29,11 @@ export function recipientWays(ways: WayIn[]): WayIn[] {
   return ways.filter((w) => w.recipient !== undefined && w.kind !== "password" && w.kind !== "recovery-key" && !w.machine_bound && w.kind !== "security-key");
 }
 
-/** The contact or key of yours a way in is to, matched by its public key. */
-export function contactFor(w: WayIn, keys: KeyInfo[]): KeyInfo | undefined {
-  return w.recipient === undefined ? undefined : keys.find((k) => k.public === w.recipient);
+export { contactFor };
+
+/** A way in that is a certificate's: what the archive says of it is only the subject. */
+export function certificateWay(w: WayIn): boolean {
+  return (w.kind === "rsa-certificate" || w.kind === "ec-p256" || w.kind === "ec-p384") && !w.machine_bound;
 }
 
 /** Whether removing these leaves a way in that works on another machine (decision 11). */
@@ -68,6 +70,7 @@ function NewKeyDialog({ ways, keys, onCancel, onConfirm }: { ways: WayIn[]; keys
             <ul className="flex flex-col gap-2" aria-label="Recipients">
               {recipients.map((w) => {
                 const contact = contactFor(w, keys);
+                const fingerprint = wayFingerprint(w) ?? contact?.fingerprint;
                 return (
                   <li key={w.slot} className="rounded-[5px] border border-rule px-3 py-2">
                     <Checkbox
@@ -75,8 +78,11 @@ function NewKeyDialog({ ways, keys, onCancel, onConfirm }: { ways: WayIn[]; keys
                       onChange={(on) => setKeep((k) => (on ? [...k, w.slot] : k.filter((s) => s !== w.slot)))}
                       label={contact ? `${wayTitle(w)}, ${contact.own ? "your key" : "your contact"} ${contact.name}` : wayTitle(w)}
                     />
-                    {contact && <p className="pt-1 pl-6 font-mono text-[12px]">{contact.fingerprint}</p>}
+                    {fingerprint && <p className="selectable pt-1 pl-6 font-mono text-[12px]">{fingerprint}</p>}
                     <p className="selectable pt-1 pl-6 font-mono text-[11px] break-all text-muted">{w.recipient}</p>
+                    {certificateWay(w) && !fingerprint && (
+                      <p className="pt-1 pl-6 text-[12px] text-muted">Only the certificate's subject is known here, as the archive says it: check with its owner before you rebuild it.</p>
+                    )}
                   </li>
                 );
               })}
@@ -110,11 +116,13 @@ export function WhoCanOpenDialog({ tab, onClose }: { tab: Tab; onClose: () => vo
   const [password, setPassword] = useState("");
   const [form, setForm] = useState<ProtectionForm>(NO_PROTECTION);
 
+  // Read once for the archive, not on every change to its tab: a way in typed into this read's
+  // own prompt is kept on the tab, and reading again would ask again.
   useEffect(() => {
     let live = true;
     useJobs
       .getState()
-      .track("archive.protection", { archive: tab.path, ...archiveArgs(tab) }, { title: `Reading who can open ${tab.name}`, quiet: true, tab: tab.id })
+      .track("archive.protection", { archive: tab.path, ...keptWayIn(tab) }, { title: `Reading who can open ${tab.name}`, quiet: true, tab: tab.id })
       .then(
         (out) => live && setState(out),
         (e) => live && setError(describeError(e).message),
@@ -122,13 +130,13 @@ export function WhoCanOpenDialog({ tab, onClose }: { tab: Tab; onClose: () => vo
     return () => {
       live = false;
     };
-  }, [tab]);
+  }, [tab.id, tab.path]);
 
   const protect = async (args: Omit<ArchiveProtectInput, "archive" | "password">, title: string) => {
     setBusy(true);
     setError(undefined);
     try {
-      const out = await useJobs.getState().track("archive.protect", { archive: tab.path, ...args, ...archiveArgs(tab) }, { title, tab: tab.id });
+      const out = await useJobs.getState().track("archive.protect", { archive: tab.path, ...args, ...keptWayIn(tab) }, { title, tab: tab.id });
       setState({ encrypted: true, ways: out.ways, post_quantum: out.post_quantum });
       showRecoveryKey(tab.path, out);
       return true;
@@ -141,7 +149,7 @@ export function WhoCanOpenDialog({ tab, onClose }: { tab: Tab; onClose: () => vo
   };
 
   const ways = state?.ways ?? [];
-  const check = checkProtection(form, password, windows, ways);
+  const check = checkProtection(form, password, windows, ways, keys);
   const remove = async (w: WayIn) => {
     const sure = await ask(`Remove ${wayTitle(w)} from ${tab.name}?
 
@@ -205,6 +213,7 @@ It won't open the archive any more. Someone who opened it before could have kept
             <ul className="flex flex-col divide-y divide-rule rounded-[5px] border border-rule" aria-label="Ways in">
               {ways.map((w) => {
                 const contact = contactFor(w, keys);
+                const fingerprint = wayFingerprint(w);
                 const last = !leavesPortable(ways, [w.slot]);
                 return (
                   <li key={w.slot} className="flex items-start gap-3 px-3 py-2">
@@ -219,6 +228,7 @@ It won't open the archive any more. Someone who opened it before could have kept
                           {w.recipient}
                         </p>
                       )}
+                      {fingerprint && <p className="selectable font-mono text-[11px] text-muted">{fingerprint}</p>}
                       <p className="text-[12px] text-muted">
                         {w.machine_bound ? "Only on this PC. " : ""}
                         {w.post_quantum ? "Post-quantum." : "Classic: a quantum computer could open it."}

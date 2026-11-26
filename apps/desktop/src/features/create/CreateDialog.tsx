@@ -178,14 +178,15 @@ export function convertFormat(source: string): ArchiveFormatName {
 
 /** The convert mode's fields as `archive.convert` arguments: the new archive's options, the
  * source's password and name encoding, and `decrypt` when its encrypted entries are to be
- * written without one. */
+ * written without one: only when the new archive gets no way in at all. */
 export function convertArgs(source: Tab, f: CreateForm, decrypt: boolean, formats?: FormatsListOutput): ArchiveConvertInput {
   const { inputs: _, password, ...rest } = createArgs(f, formats);
+  const wayIn = !!password || !!rest.recovery_key || (rest.to?.length ?? 0) > 0 || (rest.to_cert?.length ?? 0) > 0 || !!rest.this_pc || !!rest.security_key;
   return {
     archive: source.path,
     ...rest,
     ...(password ? { new_password: password } : {}),
-    ...(decrypt && !password ? { decrypt: true } : {}),
+    ...(decrypt && !wayIn ? { decrypt: true } : {}),
     ...archiveArgs(source),
   };
 }

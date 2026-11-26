@@ -9,7 +9,7 @@ import { Input } from "../../components/ui/input";
 import { type Tab, useArchives } from "../../lib/archives";
 import { useJobs } from "../../lib/jobs";
 import { useKeyring } from "../../lib/keyring";
-import { ALGORITHMS, type Signature, signaturesOf, signerPhrase, summarize } from "../../lib/signatures";
+import { ALGORITHMS, type Signature, signaturesOf, signerPhrase, summarize, unknownSubject } from "../../lib/signatures";
 import { toastError, toastInfo } from "../../lib/toasts";
 
 const STATUS: Record<Signature["status"], string> = {
@@ -77,6 +77,7 @@ export function SignatureDetails({ tab, sigs, onClose }: { tab: Tab; sigs: Signa
           <li key={i} className="rounded-[5px] border border-rule px-3 py-2">
             <dl className="text-[13px]">
               <Row label="Signed by">{s.status === "valid" ? signerPhrase(s) : s.signer}</Row>
+              {s.status === "valid" && unknownSubject(s) && <Row label="Certificate for">{unknownSubject(s)}, as the certificate says</Row>}
               <Row label="Status">
                 <span className={s.status === "changed" ? "text-danger" : undefined}>{STATUS[s.status]}</span>
               </Row>
@@ -114,11 +115,13 @@ export function SignatureLine({ tab }: { tab: Tab }) {
   const Icon = summary.tone === "good" ? BadgeCheck : summary.tone === "bad" ? ShieldX : ShieldAlert;
   const color = summary.tone === "bad" ? "text-danger" : "text-ink";
   const unknown = sigs.find((s) => s.status === "valid" && s.trust === "unknown");
+  // A certificate's subject says whose it claims to be; a key has only its fingerprint.
+  const subject = unknown && unknownSubject(unknown);
   return (
     <div role="status" aria-label="Signature" className={`flex h-8 shrink-0 items-center gap-2 border-b border-rule px-3 text-[12px] ${color}`}>
       <Icon className={`size-4 shrink-0 ${summary.tone === "good" ? "text-amber" : ""}`} />
       <span className={`min-w-0 truncate ${summary.tone === "bad" ? "font-semibold" : ""}`}>{summary.text}</span>
-      {unknown && <span className="shrink-0 font-mono text-muted">{unknown.fingerprint}</span>}
+      {unknown && (subject ? <span className="min-w-0 shrink truncate text-muted">certificate for {subject}</span> : <span className="shrink-0 font-mono text-muted">{unknown.fingerprint}</span>)}
       <Button size="sm" variant="ghost" className="ml-auto" onClick={() => setDetails(true)}>
         Details…
       </Button>

@@ -2,6 +2,8 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { Browser } from "../features/browser/Browser";
+import { deleteSelection } from "../features/edit/confirmDelete";
+import { saveRename } from "../features/edit/rename";
 import { SignDialog } from "../features/protection/SignDialog";
 import { SignatureLine } from "../features/protection/Signatures";
 import type { ArchiveInfoOutput, KeyInfo } from "../gen/commands";
@@ -90,7 +92,36 @@ describe("what the signature line says (docs/M14.md §11)", () => {
   });
 });
 
+describe("an unknown signer's certificate (docs/M14.md §11)", () => {
+  it("shows its subject beside \"an unknown signer\", in the line and the details", async () => {
+    const user = userEvent.setup();
+    const stranger: Signature = { ...cert, trust: "unknown", signer: "CN=Someone Else", issuer: "CN=Nobody's CA" };
+    render(<SignatureLine tab={tab([stranger])} />);
+    const line = screen.getByRole("status", { name: "Signature" });
+    expect(line).toHaveTextContent("Signed by an unknown signer");
+    expect(line).toHaveTextContent("certificate for CN=Someone Else");
+    await user.click(screen.getByRole("button", { name: "Details…" }));
+    const dialog = screen.getByRole("dialog");
+    expect(dialog).toHaveTextContent("Signed byan unknown signer");
+    expect(dialog).toHaveTextContent("Certificate forCN=Someone Else, as the certificate says");
+    expect(dialog).toHaveTextContent("Issued byCN=Nobody's CA");
+    expect(dialog).toHaveTextContent("AAAA-BBBB-CCCC-DDDD");
+  });
+});
+
 describe("Sign", () => {
+  it("opens with your keys ticked after an edit, and sends no name encoding", async () => {
+    const user = userEvent.setup();
+    const t = { ...tab([]), password: "pw", encoding: "cp866" as const };
+    useArchives.setState({ tabs: [t], active: t.id });
+    fake.handlers.set("archive.sign", () => ({ signatures: [base] }));
+    render(<SignDialog tab={t} initial={["Mine"]} note="Deleting dropped its signatures. Sign it again?" onClose={() => {}} />);
+    expect(screen.getByRole("note")).toHaveTextContent("Deleting dropped its signatures. Sign it again?");
+    await user.click(screen.getByRole("button", { name: "Sign" }));
+    await waitFor(() => expect(fake.calls.some((c) => c.name === "archive.sign")).toBe(true));
+    expect(fake.calls.find((c) => c.name === "archive.sign")?.args).toEqual({ archive: t.path, sign: ["Mine"], password: "pw" });
+  });
+
   it("signs with your key", async () => {
     const user = userEvent.setup();
     const t = tab([]);
@@ -177,9 +208,67 @@ describe("deleting from a signed .bhive", () => {
   it("says its signatures drop", async () => {
     const { ask } = await import("@tauri-apps/plugin-dialog");
     const { confirmDelete } = await import("../features/edit/confirmDelete");
-    await confirmDelete(1, "a.bhive", "x.txt", 2);
-    expect(vi.mocked(ask).mock.lastCall?.[0]).toBe("Delete x.txt from a.bhive?\n\nThis can't be undone.\n\nIts 2 signatures are dropped too: sign it again afterwards.");
+    await confirmDelete(1, "a.bhive", "x.txt", [base, cert]);
+    expect(vi.mocked(ask).mock.lastCall?.[0]).toBe(
+      "Delete x.txt from a.bhive?\n\nThis can't be undone.\n\nIts 2 signatures are dropped too. BeeZip then offers to sign it again with your key Mine.",
+    );
+    await confirmDelete(1, "a.bhive", "x.txt", [cert]);
+    expect(vi.mocked(ask).mock.lastCall?.[0]).toBe("Delete x.txt from a.bhive?\n\nThis can't be undone.\n\nIts signature is dropped too: only its signer can sign it again.");
     await confirmDelete(1, "a.zip", "x.txt");
     expect(vi.mocked(ask).mock.lastCall?.[0]).toBe("Delete x.txt from a.zip?\n\nThis can't be undone.");
+  });
+
+  it("offers Sign afterwards, with your key ticked", async () => {
+    const edited = { path: String.raw`C:\work\a.bhive`, added: 0, replaced: 0, removed: 1, renamed: 0, copied: 0, recompressed: 0, skipped: 0, unencrypted: 0, bytes_before: 1, bytes_after: 1, dry_run: false, plan: null };
+    fake.handlers.set("archive.remove", () => edited);
+    const t = tab([base, cert]);
+    useArchives.setState({ tabs: [t], active: t.id });
+    useUi.setState({ dialog: undefined });
+    await deleteSelection(t, 1, { all: false, paths: ["x.txt"] });
+    expect(fake.calls.some((c) => c.name === "archive.remove")).toBe(true);
+    expect(useUi.getState().dialog).toEqual({ kind: "sign", tab: t.id, sign: ["Mine"], note: "Deleting dropped its signatures. Sign it again?" });
+
+    // Signed by others only: nothing to offer.
+    useUi.setState({ dialog: undefined });
+    const theirs = { ...tab([cert]), id: "tab-2" };
+    useArchives.setState({ tabs: [theirs], active: theirs.id });
+    await deleteSelection(theirs, 1, { all: false, paths: ["x.txt"] });
+    expect(useUi.getState().dialog).toBeUndefined();
+  });
+});
+
+describe("renaming in a signed .bhive (docs/M14.md §11)", () => {
+  const edited = { path: String.raw`C:\work\a.bhive`, added: 0, replaced: 0, removed: 0, renamed: 1, copied: 0, recompressed: 0, skipped: 0, unencrypted: 0, bytes_before: 1, bytes_after: 1, dry_run: false, plan: null };
+
+  it("asks first, then offers Sign", async () => {
+    const { ask } = await import("@tauri-apps/plugin-dialog");
+    fake.handlers.set("archive.rename", () => edited);
+    fake.handlers.set("archive.list", () => ({ entries: [], total: 0, offset: 0, has_more: false }));
+    const t = { ...tab([base]), renaming: { index: 0, path: "x.txt", busy: false } };
+    useArchives.setState({ tabs: [t], active: t.id });
+    useUi.setState({ dialog: undefined });
+
+    vi.mocked(ask).mockResolvedValueOnce(false);
+    await saveRename(t, "y.txt");
+    expect(vi.mocked(ask).mock.lastCall?.[0]).toBe("Rename x.txt to y.txt?\n\nIts signature is dropped too. BeeZip then offers to sign it again with your key Mine.");
+    expect(fake.calls.some((c) => c.name === "archive.rename")).toBe(false);
+    expect(useArchives.getState().tabs[0].renaming).toEqual({ index: 0, path: "x.txt", busy: false, error: undefined });
+
+    await saveRename(t, "y.txt");
+    expect(fake.calls.find((c) => c.name === "archive.rename")?.args).toEqual({ archive: t.path, from: "x.txt", to: "y.txt" });
+    expect(useUi.getState().dialog).toEqual({ kind: "sign", tab: t.id, sign: ["Mine"], note: "Renaming dropped its signatures. Sign it again?" });
+  });
+
+  it("doesn't ask in an unsigned archive", async () => {
+    const { ask } = await import("@tauri-apps/plugin-dialog");
+    vi.mocked(ask).mockClear();
+    fake.handlers.set("archive.rename", () => edited);
+    const t = { ...tab([]), renaming: { index: 0, path: "x.txt", busy: false } };
+    useArchives.setState({ tabs: [t], active: t.id });
+    useUi.setState({ dialog: undefined });
+    await saveRename(t, "y.txt");
+    expect(ask).not.toHaveBeenCalled();
+    expect(fake.calls.some((c) => c.name === "archive.rename")).toBe(true);
+    expect(useUi.getState().dialog).toBeUndefined();
   });
 });

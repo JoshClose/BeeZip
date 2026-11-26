@@ -168,6 +168,18 @@ describe("starting a drag", () => {
     expect(listCalls()).toEqual([]);
   });
 
+  it("sends a .bhive that changed after it was signed to the extract dialog, which asks (decision 26)", async () => {
+    const info = { format: "bhive", encryption: "none", signatures: [{ status: "changed", signer: "Ann", fingerprint: "AAAA-BBBB-CCCC-DDDD" }] };
+    const tab = openTab({ info: info as unknown as Tab["info"] });
+    expect(await startDrag(tab, { all: false, rows: [entry("b.txt")] })).toBe("changed");
+    expect(tauri.drags).toHaveLength(0);
+    expect(listCalls()).toEqual([]);
+    const dialog = useUi.getState().dialog;
+    expect(dialog).toMatchObject({ kind: "extract", tab: tab.id, entries: ["b.txt"] });
+    expect(dialog?.kind === "extract" && dialog.note).toMatch(/changed after it was signed/);
+    expect(draggingOut()).toBe(false);
+  });
+
   it("shows the note in the extract dialog", () => {
     render(<ExtractDialog tab={openTab()} entries={["big"]} note="That's 3.0 GiB, more than a drag takes." onClose={() => {}} />);
     expect(screen.getByRole("note")).toHaveTextContent("That's 3.0 GiB, more than a drag takes.");

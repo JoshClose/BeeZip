@@ -140,6 +140,29 @@ export function addWaysArgs(p: ProtectionForm, password: string, windows = true)
   return { ...(password ? { add_password: password } : {}), ...rest, ...(strength ? { strength } : {}) };
 }
 
+/** A way in's fingerprint, or a certificate's thumbprint, when the engine gives one. PR 0's
+ * `WayIn` has only the public key or the certificate's subject, which is a claim anyone who
+ * held the file key could rewrite (docs/bhive.md §12.9); the commands PR is asked to add it. */
+export function wayFingerprint(w: WayIn): string | undefined {
+  const fingerprint = (w as WayIn & { fingerprint?: string }).fingerprint;
+  return typeof fingerprint === "string" && fingerprint ? fingerprint : undefined;
+}
+
+/** The contact or key of yours a way in is to: by its fingerprint when there is one, else by
+ * its public key. A certificate's subject alone never matches. */
+export function contactFor(w: WayIn, keys: KeyInfo[]): KeyInfo | undefined {
+  const fingerprint = wayFingerprint(w);
+  if (fingerprint) return keys.find((k) => k.fingerprint === fingerprint);
+  return w.recipient === undefined ? undefined : keys.find((k) => k.public === w.recipient);
+}
+
+/** A way in that is someone's key or certificate, not one of your own: what decision 12's
+ * warning is about. This PC and security keys are yours, wherever they are. */
+export function someoneElses(w: WayIn, keys: KeyInfo[]): boolean {
+  if (w.kind === "password" || w.kind === "recovery-key" || w.kind === "security-key" || w.machine_bound) return false;
+  return contactFor(w, keys)?.own !== true;
+}
+
 export type ProtectionCheck = {
   /** How many ways in the form adds. */
   ways: number;
@@ -152,8 +175,9 @@ export type ProtectionCheck = {
   postQuantum?: boolean;
 };
 
-/** What the dialogs say about the ways in chosen. `existing` are the archive's ways when adding. */
-export function checkProtection(p: ProtectionForm, password: string, windows = true, existing: WayIn[] = []): ProtectionCheck {
+/** What the dialogs say about the ways in chosen. `existing` are the archive's ways when adding,
+ * and `keys` yours and your contacts', to tell which of them are someone else's. */
+export function checkProtection(p: ProtectionForm, password: string, windows = true, existing: WayIn[] = [], keys: KeyInfo[] = []): ProtectionCheck {
   const thisPc = windows && p.thisPc;
   const securityKey = windows && p.securityKey;
   const ways = (password ? 1 : 0) + (p.recoveryKey ? 1 : 0) + p.recipients.length + (thisPc ? 1 : 0) + (securityKey ? 1 : 0);
@@ -163,9 +187,12 @@ export function checkProtection(p: ProtectionForm, password: string, windows = t
   if (thisPc && !portable) problem = "This PC opens it only on this computer. Add a password, a recovery key or someone's key too, so it can be opened elsewhere.";
   if (securityKey && !portable && !thisPc)
     warnings.push("If Windows offers Windows Hello rather than a security key, it opens only on this PC: a password or a recovery key as well is safer.");
-  const others = p.recipients.some((r) => !(r.kind === "contact" && r.own));
-  const hasPassword = password !== "" || existing.some((w) => w.kind === "password");
-  if (hasPassword && others && (password !== "" || p.recipients.length > 0))
+  // Decision 12, either way round: a password added beside someone else's key, new or already
+  // there, or someone else's key added beside a password.
+  const newOthers = p.recipients.some((r) => !(r.kind === "contact" && r.own));
+  const oldOthers = existing.some((w) => someoneElses(w, keys));
+  const oldPassword = existing.some((w) => w.kind === "password");
+  if ((password !== "" && (newOthers || oldOthers)) || (newOthers && oldPassword))
     warnings.push("Anyone who can open this could also make an archive your password opens.");
   for (const r of p.recipients) if (r.kind === "certificate" && r.warning) warnings.push(`${r.subject}: ${r.warning}`);
   if (ways + existing.length === 0) return { ways, problem, warnings };

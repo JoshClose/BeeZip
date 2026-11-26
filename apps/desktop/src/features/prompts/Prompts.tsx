@@ -7,7 +7,7 @@ import { Dialog } from "../../components/ui/dialog";
 import { Input } from "../../components/ui/input";
 import type { OverwriteChoice, PromptReply } from "../../gen/commands";
 import { baseName } from "../../lib/format";
-import { nextPrompt, orderedJobs, useJobs } from "../../lib/jobs";
+import { forOneStep, nextPrompt, orderedJobs, useJobs } from "../../lib/jobs";
 import { UnlockPrompt } from "../protection/UnlockPrompt";
 
 export function PasswordPrompt({
@@ -131,10 +131,12 @@ export function Prompts() {
   const { job, pending } = next;
   const reply = (r: PromptReply) => void answer(job.id, pending.id, r);
   const key = `${job.id}-${pending.id}`;
+  // A tab keeps what's typed until it closes; a job window's step only for its own run.
+  const kept = job.tab !== undefined && !forOneStep(job.tab);
   if (pending.prompt.kind === "Unlock")
-    return <UnlockPrompt key={key} ways={pending.prompt.ways} attempt={pending.prompt.attempt} title={job.title} onReply={reply} kept={job.tab !== undefined} />;
+    return <UnlockPrompt key={key} ways={pending.prompt.ways} attempt={pending.prompt.attempt} title={job.title} onReply={reply} kept={kept} />;
   return pending.prompt.kind === "Password" ? (
-    <PasswordPrompt key={key} entry={pending.prompt.entry} title={job.title} onReply={reply} kept={job.tab !== undefined} />
+    <PasswordPrompt key={key} entry={pending.prompt.entry} title={job.title} onReply={reply} kept={kept} />
   ) : (
     <OverwritePrompt key={key} path={pending.prompt.path} archive={pending.prompt.archive} title={job.title} onReply={reply} />
   );

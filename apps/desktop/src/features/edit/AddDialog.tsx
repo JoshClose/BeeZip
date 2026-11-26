@@ -18,7 +18,7 @@ import type {
   MethodName,
   OverwritePolicy,
 } from "../../gen/commands";
-import type { Tab } from "../../lib/archives";
+import { archiveArgs, type Tab } from "../../lib/archives";
 import { runEdit } from "../../lib/edit";
 import { normalize } from "../../lib/format";
 import { useFormats } from "../../lib/formats";
@@ -37,7 +37,7 @@ export type AddForm = {
   overwrite?: OverwritePolicy;
   method?: MethodName;
   level?: number;
-  /** Encrypt the new files. On for an archive with encrypted entries; off sends `unencrypted`. */
+  /** Encrypt the new files (zip, 7z). On for an archive with encrypted entries; off sends `unencrypted`. */
   encrypt: boolean;
   password: string;
   encryption: EncryptionName;
@@ -97,11 +97,16 @@ export function initialAdd(tab: Tab, inputs: string[], dir: string): AddForm {
   };
 }
 
-/** The dialog's fields as `archive.add` arguments, with only the ones that apply. */
+/** The dialog's fields as `archive.add` arguments, with only the ones that apply. An encrypted
+ * .bhive's new files are sealed with its own key (docs/M14.md §3): nothing about encryption is
+ * chosen, and the way in kept for its tab opens it, as a removal or rename does. */
 export function addArgs(tab: Tab, f: AddForm, formats?: FormatsListOutput): ArchiveAddInput {
-  const a = applies({ format: editFormat(tab.info, formats), method: f.method }, formats);
+  const format = editFormat(tab.info, formats);
+  const bhive = format === "bhive";
+  const a = applies({ format, method: f.method }, formats);
   const { encrypted, headers } = encryptionOf(tab.info);
   const encrypt = a.password && (f.encrypt || headers);
+  const kept = bhive ? archiveArgs(tab).password : undefined;
   const dir = normalize(f.dir.trim());
   return {
     archive: tab.path,
@@ -110,11 +115,11 @@ export function addArgs(tab: Tab, f: AddForm, formats?: FormatsListOutput): Arch
     ...(f.overwrite ? { overwrite: f.overwrite } : {}),
     ...(a.methods.length > 0 && f.method ? { method: f.method } : {}),
     ...(a.level && f.level !== undefined ? { level: levelArg(a, f.level) } : {}),
-    ...(encrypt && f.password ? { password: f.password } : {}),
+    ...(encrypt && f.password ? { password: f.password } : kept ? { password: kept } : {}),
     ...(encrypt && a.encryption && f.password && f.encryption !== "aes256" ? { encryption: f.encryption } : {}),
-    ...(encrypted && !encrypt ? { unencrypted: true } : {}),
+    ...(encrypted && !encrypt && !bhive ? { unencrypted: true } : {}),
     ...(tab.encoding ? { name_encoding: tab.encoding } : {}),
-    ...(editFormat(tab.info, formats) === "bhive" && f.sign && f.sign.length > 0 ? { sign: f.sign } : {}),
+    ...(bhive && f.sign && f.sign.length > 0 ? { sign: f.sign } : {}),
   };
 }
 
@@ -288,6 +293,11 @@ export function AddDialog({ tab, inputs: given, dir, onClose }: { tab: Tab; inpu
                 )}
               </>
             )}
+          </Field>
+        )}
+        {format === "bhive" && encrypted && (
+          <Field label="Protection">
+            <p className="text-[12px] text-muted">The new files are encrypted like the rest, and the same ways in open them. Who can open this changes who can.</p>
           </Field>
         )}
         {format === "bhive" && (

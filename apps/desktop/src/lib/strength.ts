@@ -55,10 +55,13 @@ export function randomBelow(n: number): number {
   }
 }
 
-/** Six words from the list, joined by hyphens: "Suggest one". */
+/** Six words from the list, joined by hyphens: "Suggest one". The list's four words that have a
+ * hyphen of their own (drop-down, felt-tip, t-shirt, yo-yo) are left out, so the six read as six:
+ * 7,772 words, still about 77 bits. */
 export function suggestPassphrase(words: string[], random: (n: number) => number = randomBelow, count = SUGGESTED_WORDS): string {
-  if (words.length < 2) throw new Error("the wordlist hasn't loaded");
-  return Array.from({ length: count }, () => words[random(words.length)]).join("-");
+  const pool = words.filter((w) => !w.includes("-"));
+  if (pool.length < 2) throw new Error("the wordlist hasn't loaded");
+  return Array.from({ length: count }, () => pool[random(pool.length)]).join("-");
 }
 
 /** Passwords people pick most often, and the words their variants are built on. Matching one
@@ -79,7 +82,10 @@ const COMMON_SET = new Set(COMMON);
 const COMMON_BITS = 10;
 
 /** Keyboard rows and sequences: three or more neighbours in one is a run. */
-const RUNS = ["qwertyuiop", "asdfghjkl", "zxcvbnm", "qwertzuiop", "azertyuiop", "1234567890", "abcdefghijklmnopqrstuvwxyz", "1qaz2wsx3edc4rfv5tgb6yhn7ujm"];
+const RUNS = [
+  "qwertyuiop", "asdfghjkl", "zxcvbnm", "qwertzuiop", "azertyuiop", "1234567890", "!@#$%^&*()", "abcdefghijklmnopqrstuvwxyz",
+  "1qaz2wsx3edc4rfv5tgb6yhn7ujm", "1q2w3e4r5t6y7u8i9o0p",
+];
 /** A run costs this, whatever its length: where it starts, which way it goes, how long. */
 const RUN_BITS = 7;
 

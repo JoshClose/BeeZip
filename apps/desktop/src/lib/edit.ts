@@ -5,6 +5,8 @@ import type { ArchiveInfoOutput, ArchiveRemoveInput, EditOutput } from "../gen/c
 import { archiveArgs, type Tab, useArchives } from "./archives";
 import { archiveParent, baseName } from "./format";
 import { useJobs } from "./jobs";
+import { ownSigners, signaturesOf } from "./signatures";
+import { useUi } from "./ui";
 
 /** Why the tab's archive can't be edited, or `undefined` when it can. Until its info is in, it
  * can't be told, so the commands wait. */
@@ -78,6 +80,14 @@ export async function runEdit(
   const out = (await useJobs.getState().track(command, args as never, { title, tab: tab.id })) as EditOutput;
   relist(tab.id, keep);
   return out;
+}
+
+/** After an edit that dropped a .bhive's signatures: Sign, with your keys that had signed it
+ * ticked (docs/M14.md §11). Nothing when none of them was yours. */
+export function offerToSignAgain(tab: Pick<Tab, "id" | "info">, what: string) {
+  const sign = ownSigners(signaturesOf(tab.info));
+  if (sign.length === 0) return;
+  useUi.getState().show({ kind: "sign", tab: tab.id, sign, note: `${what} dropped its signatures. Sign it again?` });
 }
 
 /** A path as a glob that matches only it: `*`, `?`, `[`, `]`, `{` and `}` in brackets. */

@@ -9,7 +9,7 @@ import { Button } from "../../components/ui/button";
 import { Checkbox } from "../../components/ui/checkbox";
 import { Field, Input, Select } from "../../components/ui/input";
 import type { StrengthName, WayIn } from "../../gen/commands";
-import { certificateWarning, signers, useKeys } from "../../lib/keyring";
+import { certificateWarning, signers, useKeyring, useKeys } from "../../lib/keyring";
 import {
   checkProtection,
   encryptionKeys,
@@ -212,7 +212,8 @@ export function ProtectionFields({
 }) {
   const windows = startup().platform === "windows";
   const set = (patch: Partial<ProtectionForm>) => onChange({ ...value, ...patch });
-  const check = checkProtection(value, password, windows, existing);
+  const keys = useKeyring((s) => s.keys);
+  const check = checkProtection(value, password, windows, existing, keys);
   return (
     <>
       <Field label="Recovery key">

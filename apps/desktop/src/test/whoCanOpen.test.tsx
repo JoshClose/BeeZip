@@ -129,6 +129,45 @@ describe("who can open an encrypted .bhive (docs/M14.md §3, §8)", () => {
     expect(fake.calls.find((c) => c.name === "archive.protect")?.args).toEqual({ archive: tab.path, new_key: true, remove: [2], password: "pw" });
   });
 
+  it("passes only the way in, not a name encoding, and reads once though the tab changes", async () => {
+    const user = userEvent.setup();
+    const t = { ...tab, encoding: "cp866" as const };
+    useArchives.setState({ tabs: [t], active: t.id });
+    fake.handlers.set("archive.protect", () => ({ ways, post_quantum: false }));
+    const { rerender } = render(<WhoCanOpenDialog tab={t} onClose={() => {}} />);
+    await screen.findByRole("list", { name: "Ways in" });
+    expect(fake.calls.find((c) => c.name === "archive.protection")?.args).toEqual({ archive: t.path, password: "pw" });
+    // A way in typed into the read's own prompt is kept on the tab: a new tab object.
+    useArchives.getState().update(t.id, { password: "typed" });
+    rerender(<WhoCanOpenDialog tab={useArchives.getState().tabs[0]} onClose={() => {}} />);
+    expect(fake.calls.filter((c) => c.name === "archive.protection")).toHaveLength(1);
+    await user.click(screen.getByRole("button", { name: "Remove RSA certificate" }));
+    await waitFor(() => expect(fake.calls.some((c) => c.name === "archive.protect")).toBe(true));
+    expect(fake.calls.find((c) => c.name === "archive.protect")?.args).toEqual({ archive: t.path, remove: [3], password: "typed" });
+  });
+
+  it("warns when a password joins someone else's key (decision 12)", async () => {
+    const user = userEvent.setup();
+    render(<WhoCanOpenDialog tab={tab} onClose={() => {}} />);
+    await user.click(await screen.findByRole("button", { name: /Add a way in/ }));
+    await user.type(screen.getByLabelText("Add a password"), "another one");
+    expect(await screen.findByText(/could also make an archive your password opens/)).toBeInTheDocument();
+  });
+
+  it("shows a way in's fingerprint when the engine gives one, and says when a certificate has none", async () => {
+    const user = userEvent.setup();
+    const withPrint = [...ways.slice(0, 2), { ...ways[2], fingerprint: "SSSS-TTTT-RRRR-AAAA" } as WayIn, ways[3], ways[4]];
+    fake.handlers.set("archive.protection", () => ({ encrypted: true, ways: withPrint, post_quantum: false }));
+    render(<WhoCanOpenDialog tab={tab} onClose={() => {}} />);
+    expect(await screen.findByRole("list", { name: "Ways in" })).toHaveTextContent("SSSS-TTTT-RRRR-AAAA");
+    await user.click(screen.getByRole("button", { name: /New key/ }));
+    const confirm = await screen.findByRole("dialog", { name: "Make a new key" });
+    expect(confirm).toHaveTextContent("SSSS-TTTT-RRRR-AAAA");
+    expect(within(confirm).getAllByText(/Only the certificate's subject is known here/)).toHaveLength(1);
+    // Matched by its fingerprint, a contact's way in comes ticked.
+    expect(contactFor(withPrint[2], [{ ...keys[0], name: "Sam", public: "age1other", fingerprint: "SSSS-TTTT-RRRR-AAAA" }])?.name).toBe("Sam");
+  });
+
   it("says why it can't read the ways in", async () => {
     fake.handlers.set("archive.protection", () => {
       throw { code: "UnsupportedOperation", message: "archive.protection is not built yet (docs/M14.md)" };

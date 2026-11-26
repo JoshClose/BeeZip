@@ -6,7 +6,7 @@ import { AddDialog, addArgs, initialAdd } from "../features/edit/AddDialog";
 import { ExtractDialog } from "../features/extract/ExtractDialog";
 import { printSheet, RecoveryKeyDialog, recoveryText, useRecoveryKeys } from "../features/protection/RecoveryKey";
 import type { ArchiveInfoOutput, CertificateInfo, FormatsListOutput, KeyInfo } from "../gen/commands";
-import type { Tab } from "../lib/archives";
+import { type Tab, useArchives } from "../lib/archives";
 import { useKeyring } from "../lib/keyring";
 import type { Signature } from "../lib/signatures";
 import { fake } from "./fakeEngine";
@@ -276,6 +276,47 @@ describe("adding to a signed .bhive (docs/M14.md §11)", () => {
     render(<AddDialog tab={t} inputs={[String.raw`C:\x`]} dir="" onClose={() => {}} />);
     expect(await screen.findByText(/its 2 signatures are dropped/)).toBeInTheDocument();
     await waitFor(() => expect(within(screen.getByRole("list", { name: "Signed with" })).getByText("Mine (your signing key)")).toBeInTheDocument());
+  });
+});
+
+describe("adding to an encrypted .bhive (docs/M14.md §3)", () => {
+  it("opens it with the way in kept for its tab, and never sends `unencrypted`", async () => {
+    const t = tab({ info: info({ encryption: "all" }), password: "honey", encoding: "cp866" });
+    useArchives.setState({ tabs: [t], active: t.id });
+    const form = initialAdd(t, [String.raw`C:\x.txt`], "");
+    expect(addArgs(t, form, formats)).toEqual({ archive: t.path, inputs: [String.raw`C:\x.txt`], password: "honey", name_encoding: "cp866" });
+    // Unlocked with a recovery key: that's what goes.
+    useArchives.getState().update(t.id, { password: KEY });
+    expect(addArgs(t, form, formats)).toMatchObject({ password: KEY });
+    expect(addArgs(t, form, formats)).not.toHaveProperty("unencrypted");
+    // Nothing kept yet: the add asks for a way in itself.
+    useArchives.getState().update(t.id, { password: undefined });
+    expect(addArgs(t, form, formats)).toEqual({ archive: t.path, inputs: [String.raw`C:\x.txt`], name_encoding: "cp866" });
+
+    render(<AddDialog tab={t} inputs={[String.raw`C:\x.txt`]} dir="" onClose={() => {}} />);
+    expect(await screen.findByText(/The new files are encrypted like the rest/)).toBeInTheDocument();
+    expect(screen.queryByLabelText("Password")).toBeNull();
+  });
+});
+
+describe("converting an encrypted archive into a .bhive (docs/M14.md §8)", () => {
+  it("sends `decrypt` only while the new archive has no way in", async () => {
+    const user = userEvent.setup();
+    fake.handlers.set("archive.convert", (args) => ({ path: (args as { output: string }).output, format: "bhive", recovery_key: KEY }));
+    const source = tab({ path: String.raw`C:\work\a.zip`, name: "a.zip", info: info({ format: "zip", chain: "zip", encryption: "all" }), password: "old" });
+    render(<CreateDialog inputs={[]} source={source} onClose={() => {}} />);
+    await waitFor(() => expect(screen.getByRole("option", { name: "bhive" })).toBeInTheDocument());
+    await user.selectOptions(screen.getByLabelText("Format"), "bhive");
+    await user.clear(screen.getByLabelText("Password"));
+    await user.click(screen.getByText(/encrypted entries without a password/));
+    // A way in after all: the checkbox goes, and so does `decrypt`.
+    await user.click(screen.getByText(/Make a recovery key/));
+    expect(screen.queryByText(/encrypted entries without a password/)).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Convert" }));
+    await waitFor(() => expect(fake.calls.some((c) => c.name === "archive.convert")).toBe(true));
+    const args = fake.calls.find((c) => c.name === "archive.convert")?.args;
+    expect(args).toMatchObject({ archive: source.path, format: "bhive", recovery_key: true });
+    expect(args).not.toHaveProperty("decrypt");
   });
 });
 

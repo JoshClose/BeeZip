@@ -237,8 +237,15 @@ export default function App() {
     if (c.name === "archive.test" && tab) return testArchive(tab);
     if (c.name === "archive.info" && tab) return show({ kind: "info", tab: tab.id });
     if (c.name === "bench.run") return show({ kind: "bench", file: tab?.path });
-    if ((c.name === "archive.protection" || c.name === "archive.protect") && tab) return show({ kind: "protection", tab: tab.id });
-    if (c.name === "archive.sign" && tab) return show({ kind: "sign", tab: tab.id });
+    // As the toolbar offers them: Who can open this for an encrypted .bhive, Sign for any .bhive.
+    if ((c.name === "archive.protection" || c.name === "archive.protect") && tab) {
+      if (encryptedBhive(tab.info)) return show({ kind: "protection", tab: tab.id });
+      return toastInfo("Who can open this", tab.info ? `${tab.name} isn't an encrypted .bhive: it has no ways in to change.` : `${tab.name} is still being read.`);
+    }
+    if (c.name === "archive.sign" && tab) {
+      if (tab.info?.format === "bhive" && !blocked) return show({ kind: "sign", tab: tab.id });
+      return toastInfo("Sign", tab.info?.format === "bhive" ? (blocked ?? `${tab.name} can't be signed now.`) : tab.info ? `Only a .bhive can be signed; ${tab.name} is a ${tab.info.format}.` : `${tab.name} is still being read.`);
+    }
     if (c.name.startsWith("keys.") || c.name === "certificates.list") return openSettings();
     if (takesOnlyArchive(c) && tab) {
       useJobs
@@ -289,7 +296,7 @@ export default function App() {
       )}
       {dialog?.kind === "sign" && dialogTab && (
         <Suspense fallback={null}>
-          <SignDialog tab={dialogTab} onClose={closeDialog} />
+          <SignDialog tab={dialogTab} initial={dialog.sign} note={dialog.note} onClose={closeDialog} />
         </Suspense>
       )}
       {dialog?.kind === "about" && <About onClose={closeDialog} />}
