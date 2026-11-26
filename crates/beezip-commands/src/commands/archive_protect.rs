@@ -134,7 +134,9 @@ impl Command for ArchiveProtect {
     }
 
     fn run(input: ArchiveProtectInput, cx: &mut JobCtx) -> Result<ArchiveProtectOutput, CmdError> {
-        let remove = input.remove.clone().unwrap_or_default();
+        let mut remove = input.remove.clone().unwrap_or_default();
+        remove.sort_unstable();
+        remove.dedup();
         let new_key = input.new_key.unwrap_or(false);
         let confirm = input.confirm.clone().unwrap_or_default();
         let ways = input.ways();
