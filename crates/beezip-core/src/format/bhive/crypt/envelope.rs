@@ -686,9 +686,11 @@ impl Memory {
 impl Unlocked {
     /// Opens `block`: tries what this machine has without asking (your software keys through
     /// the context's key source), then asks the context ([`Ctx::unlock`]) for a password, a
-    /// recovery key or a way in, as many times as it allows. A password slot that takes more
-    /// than half the machine's memory is tried only when the context says to
-    /// ([`Ctx::spend_memory`]). Checks the header MAC.
+    /// recovery key or a way in, as many times as it allows. A way in chosen that doesn't open
+    /// it (another security key, a closed dialog, a refused PIN) is asked again for, as a wrong
+    /// password is, while another answer could still open the archive; a cancelled Unlock
+    /// prompt ends it. A password slot that takes more than half the machine's memory is tried
+    /// only when the context says to ([`Ctx::spend_memory`]). Checks the header MAC.
     pub fn open(block: &KeyBlock, cx: &mut dyn Ctx) -> Result<Self> {
         Self::open_with(block, cx, super::super::mem::physical())
     }
@@ -729,6 +731,8 @@ impl Unlocked {
             })
             .collect();
         let mut memory = Memory::new(block.slots.len(), total);
+        // Why the way in the last answer chose didn't open it, when its key or device failed.
+        let mut failed: Option<Error> = None;
         for attempt in 0..MAX_ATTEMPTS {
             let request = UnlockRequest {
                 ways: ways.clone(),
@@ -736,25 +740,29 @@ impl Unlocked {
             };
             let answer = match cx.unlock(&request) {
                 Ok(a) => a,
+                // A context with no answer after the first may say a key is needed instead.
                 Err(e)
                     if matches!(
                         e.kind,
                         ErrorKind::PasswordRequired | ErrorKind::WrongPassword
-                    ) =>
+                    ) || (attempt > 0 && e.kind == ErrorKind::KeyRequired) =>
                 {
-                    // Nobody left to ask: a slot that couldn't be tried says why first.
-                    return Err(match memory.refused.take() {
-                        Some(refused) => refused,
+                    // Nobody left to ask: the device the last answer chose, or a slot that
+                    // couldn't be tried, says why first.
+                    return Err(match failed.take().or_else(|| memory.refused.take()) {
+                        Some(why) => why,
                         None if !typed => key_required(&views),
                         None => e,
                     });
                 }
                 Err(e) => return Err(e),
             };
-            if let Some(u) = Self::answer(block, &views, &answer, &mut memory, cx)? {
+            failed = None;
+            if let Some(u) = Self::answer(block, &views, &answer, &mut memory, &mut failed, cx)? {
                 return Ok(u);
             }
-            // Nothing left that another answer could open.
+            // Nothing left that another answer could open. A way in here whose device failed
+            // is still one: the right security key may be plugged in, the dialog not closed.
             let left = views.iter().zip(&here).any(|(v, &here)| {
                 here || match v.kind {
                     SlotKind::Password => memory.allowed[v.index] != Some(false),
@@ -762,11 +770,11 @@ impl Unlocked {
                     _ => false,
                 }
             });
-            if !left && let Some(refused) = memory.refused.take() {
-                return Err(refused);
+            if !left && let Some(why) = failed.take().or_else(|| memory.refused.take()) {
+                return Err(why);
             }
         }
-        Err(memory.refused.unwrap_or_else(|| {
+        Err(failed.or(memory.refused).unwrap_or_else(|| {
             Error::new(
                 ErrorKind::WrongPassword,
                 "bhive: none of the answers opened the archive",
@@ -775,12 +783,15 @@ impl Unlocked {
     }
 
     /// Tries an answer on the slots it fits. A password that is 48 digits and nothing else is
-    /// tried as a recovery key too, for a context that only asks for passwords.
+    /// tried as a recovery key too, for a context that only asks for passwords. A way in whose
+    /// key or device fails opens nothing, and `failed` says why; only a damaged slot, or a
+    /// cancelled job, is an error.
     fn answer(
         block: &KeyBlock,
         views: &[SlotView<'_>],
         answer: &UnlockAnswer,
         memory: &mut Memory,
+        failed: &mut Option<Error>,
         cx: &mut dyn Ctx,
     ) -> Result<Option<Self>> {
         let of = |kind: SlotKind| views.iter().filter(move |v| v.kind == kind);
@@ -806,7 +817,7 @@ impl Unlocked {
                 }
                 if recovery::typed_as_password(p) {
                     let key = UnlockAnswer::RecoveryKey(p.clone());
-                    return Self::answer(block, views, &key, memory, cx);
+                    return Self::answer(block, views, &key, memory, failed, cx);
                 }
                 Ok(None)
             }
@@ -829,9 +840,24 @@ impl Unlocked {
                 let Some(source) = cx.key_source() else {
                     return Ok(None);
                 };
-                match source.secret(v, true)? {
-                    Some(secret) => block.try_slot(v, &secret),
-                    None => Ok(None),
+                match source.secret(v, true) {
+                    Ok(Some(secret)) => block.try_slot(v, &secret),
+                    Ok(None) => Ok(None),
+                    // Another try won't mend a damaged slot.
+                    Err(e) if e.kind == ErrorKind::Corrupt => Err(e),
+                    // Another security key, a closed dialog, a refused PIN, a device that
+                    // couldn't be reached: the archive may open another way, or this one again.
+                    Err(e) => {
+                        cx.check()?;
+                        if e.kind != ErrorKind::Cancelled {
+                            cx.warn(format!(
+                                "bhive: slot {}'s key or device didn't open the archive: {}",
+                                v.index, e.message
+                            ));
+                        }
+                        *failed = Some(e);
+                        Ok(None)
+                    }
                 }
             }
         }
@@ -945,7 +971,7 @@ impl Unlocked {
 
 #[cfg(test)]
 mod tests {
-    use super::super::{Recipient, SEGMENT, Strength};
+    use super::super::{KeySource, Recipient, SEGMENT, Strength};
     use super::*;
     use crate::SimpleCtx;
 
@@ -1492,7 +1518,229 @@ mod tests {
         let block = read(&bytes).unwrap();
         let mut memory = Memory::new(block.slots.len(), None);
         let views = block.views();
-        let u = Unlocked::answer(&block, &views, &typed, &mut memory, &mut SimpleCtx::new());
+        let mut failed = None;
+        let u = Unlocked::answer(
+            &block,
+            &views,
+            &typed,
+            &mut memory,
+            &mut failed,
+            &mut SimpleCtx::new(),
+        );
         assert!(u.unwrap().is_some());
+    }
+
+    /// A security key standing in for a device: it fails with each of `fails` in turn when
+    /// chosen, then gives the slot's secret. Never asked unless chosen; offered unless it isn't
+    /// `here`.
+    struct Device {
+        secret: [u8; 32],
+        fails: Vec<ErrorKind>,
+        asked: u32,
+        here: bool,
+    }
+
+    impl KeySource for Device {
+        fn offers(&mut self, slot: &SlotView<'_>) -> bool {
+            self.here && slot.kind == SlotKind::Fido2
+        }
+
+        fn secret(&mut self, slot: &SlotView<'_>, device: bool) -> Result<Option<SlotSecret>> {
+            if slot.kind != SlotKind::Fido2 || !device {
+                return Ok(None);
+            }
+            self.asked += 1;
+            if !self.fails.is_empty() {
+                let kind = self.fails.remove(0);
+                return Err(Error::new(kind, format!("the device failed: {kind:?}")));
+            }
+            Ok(Some(SlotSecret::Shared(Zeroizing::new(
+                self.secret.to_vec(),
+            ))))
+        }
+    }
+
+    /// Answers in turn, one per attempt, then says nobody is left to ask, or with `cancel` that
+    /// the Unlock prompt was cancelled. With `cancel_job` the job is cancelled once the device
+    /// has been asked. Keeps the attempts it was asked at, whether each way was here, and what
+    /// it was warned of.
+    struct Choosing {
+        device: Device,
+        answers: Vec<UnlockAnswer>,
+        cancel: bool,
+        cancel_job: bool,
+        attempts: Vec<u32>,
+        here: Vec<bool>,
+        warnings: Vec<String>,
+    }
+
+    impl Choosing {
+        fn new(fails: &[ErrorKind], answers: Vec<UnlockAnswer>) -> Self {
+            Self {
+                device: Device {
+                    secret: [0x5e; 32],
+                    fails: fails.to_vec(),
+                    asked: 0,
+                    here: true,
+                },
+                answers,
+                cancel: false,
+                cancel_job: false,
+                attempts: Vec::new(),
+                here: Vec::new(),
+                warnings: Vec::new(),
+            }
+        }
+    }
+
+    impl Ctx for Choosing {
+        fn is_cancelled(&self) -> bool {
+            self.cancel_job && self.device.asked > 0
+        }
+
+        fn progress(&mut self, _: &crate::Progress) {}
+
+        fn warn(&mut self, message: String) {
+            self.warnings.push(message);
+        }
+
+        fn password(&mut self, _: Option<&str>, _: u32) -> Result<String> {
+            Err(Error::new(ErrorKind::PasswordRequired, "nobody to ask"))
+        }
+
+        fn overwrite(&mut self, existing: &std::path::Path) -> Result<crate::OverwriteChoice> {
+            SimpleCtx::new().overwrite(existing)
+        }
+
+        fn unlock(&mut self, request: &UnlockRequest) -> Result<UnlockAnswer> {
+            self.attempts.push(request.attempt);
+            self.here = request.ways.iter().map(|w| w.here).collect();
+            match self.answers.get(request.attempt as usize) {
+                Some(a) => Ok(a.clone()),
+                None if self.cancel => Err(Error::cancelled()),
+                None => Err(Error::new(
+                    ErrorKind::PasswordRequired,
+                    "nobody left to ask",
+                )),
+            }
+        }
+
+        fn key_source(&mut self) -> Option<&mut dyn KeySource> {
+            Some(&mut self.device)
+        }
+    }
+
+    /// A key block with a security-key slot (0) whose secret is the device's, and, with
+    /// `password_too`, a password slot (1) for "honey".
+    fn device_block(password_too: bool) -> (Envelope, KeyBlock) {
+        let mut ways = vec![Labelled {
+            recipient: Recipient::Fido2 {
+                credential_id: vec![1, 2, 3],
+                rp_id: "beezip".into(),
+                salt: [3; 32],
+                prf: false,
+                secret: Zeroizing::new([0x5e; 32]),
+                machine_bound: false,
+            },
+            label: None,
+        }];
+        if password_too {
+            ways.push(password(1));
+        }
+        let env = envelope(ways);
+        let block = read(&start(&env)).unwrap();
+        (env, block)
+    }
+
+    /// The way in chosen fails (another security key, a closed dialog, a refused PIN, a device
+    /// that couldn't be reached): the Unlock prompt is asked again, as after a wrong password,
+    /// and the password opens it. Only what the person didn't do themselves is warned of.
+    #[test]
+    fn a_device_that_fails_asks_again_and_a_password_opens() {
+        let (env, block) = device_block(true);
+        let honey = UnlockAnswer::Password("honey".into());
+        for kind in [
+            ErrorKind::KeyRequired,
+            ErrorKind::Cancelled,
+            ErrorKind::WrongPassword,
+            ErrorKind::Io,
+            ErrorKind::UnsupportedOperation,
+        ] {
+            let mut cx = Choosing::new(&[kind], vec![UnlockAnswer::Way(0), honey.clone()]);
+            let u = Unlocked::open(&block, &mut cx).unwrap();
+            assert!(env.same_key(&u), "{kind:?}");
+            assert_eq!(u.opened_by(), 1, "{kind:?}");
+            assert_eq!(cx.attempts, [0, 1], "{kind:?}");
+            assert_eq!(cx.device.asked, 1, "{kind:?}");
+            let warned = usize::from(kind != ErrorKind::Cancelled);
+            assert_eq!(cx.warnings.len(), warned, "{kind:?}: {:?}", cx.warnings);
+        }
+        // Or the same way again, once the right key is there.
+        let mut cx = Choosing::new(
+            &[ErrorKind::KeyRequired, ErrorKind::Cancelled],
+            vec![UnlockAnswer::Way(0); 3],
+        );
+        let u = Unlocked::open(&block, &mut cx).unwrap();
+        assert_eq!((u.opened_by(), cx.device.asked), (0, 3));
+        assert_eq!(cx.attempts, [0, 1, 2]);
+    }
+
+    /// Cancelling the Unlock prompt itself still ends the open; so do a job cancelled while the
+    /// device's dialog was up and a damaged slot.
+    #[test]
+    fn a_cancelled_unlock_prompt_still_ends_it() {
+        let (_, block) = device_block(true);
+        let mut cx = Choosing::new(&[ErrorKind::Cancelled], vec![UnlockAnswer::Way(0)]);
+        cx.cancel = true;
+        let e = Unlocked::open(&block, &mut cx).unwrap_err();
+        assert_eq!(e.kind, ErrorKind::Cancelled);
+        assert_eq!(cx.attempts, [0, 1]);
+
+        let honey = UnlockAnswer::Password("honey".into());
+        let mut cx = Choosing::new(&[ErrorKind::Cancelled], vec![UnlockAnswer::Way(0), honey]);
+        cx.cancel_job = true;
+        let e = Unlocked::open(&block, &mut cx).unwrap_err();
+        assert_eq!(e.kind, ErrorKind::Cancelled);
+        assert_eq!(cx.attempts, [0]);
+
+        let mut cx = Choosing::new(&[ErrorKind::Corrupt], vec![UnlockAnswer::Way(0)]);
+        let e = Unlocked::open(&block, &mut cx).unwrap_err();
+        assert_eq!(e.kind, ErrorKind::Corrupt);
+        assert_eq!(cx.attempts, [0]);
+    }
+
+    /// With nobody left to ask, the device's failure is the error, not a wrong password; with
+    /// no answer left that could open the archive, it is the error at once.
+    #[test]
+    fn with_nobody_left_to_ask_the_device_says_why() {
+        let (_, block) = device_block(false);
+        let mut cx = Choosing::new(&[ErrorKind::KeyRequired], vec![UnlockAnswer::Way(0)]);
+        let e = Unlocked::open(&block, &mut cx).unwrap_err();
+        assert_eq!(e.kind, ErrorKind::KeyRequired);
+        assert!(e.message.contains("the device failed"), "{}", e.message);
+        assert_eq!(
+            cx.attempts,
+            [0, 1],
+            "asked again: the right key may be there"
+        );
+
+        // A wrong password after the device: the password is what failed last.
+        let (_, block) = device_block(true);
+        let mut cx = Choosing::new(
+            &[ErrorKind::Cancelled],
+            vec![UnlockAnswer::Way(0), UnlockAnswer::Password("bees".into())],
+        );
+        let e = Unlocked::open(&block, &mut cx).unwrap_err();
+        assert_eq!(e.kind, ErrorKind::PasswordRequired, "{}", e.message);
+        assert_eq!(cx.attempts, [0, 1, 2]);
+
+        // Nothing here offers the slot, and no password or recovery key opens the archive.
+        let (_, block) = device_block(false);
+        let mut cx = Choosing::new(&[ErrorKind::Io], vec![UnlockAnswer::Way(0)]);
+        cx.device.here = false;
+        let e = Unlocked::open(&block, &mut cx).unwrap_err();
+        assert_eq!(e.kind, ErrorKind::Io, "{}", e.message);
+        assert_eq!(cx.attempts, [0]);
+        assert_eq!(cx.here, [false]);
     }
 }

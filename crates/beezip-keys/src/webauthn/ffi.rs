@@ -553,6 +553,15 @@ pub fn foreground_window() -> *mut c_void {
     }
 }
 
+/// The console window this process runs in (`GetConsoleWindow`), or `None` without a console.
+/// In Windows Terminal it is the hidden window ConPTY makes, which the terminal's window owns,
+/// so a dialog that belongs to it comes up over the terminal.
+pub fn console_window() -> Option<isize> {
+    // SAFETY: takes nothing and returns a window handle, or null.
+    let window = unsafe { windows::Win32::System::Console::GetConsoleWindow() };
+    (!window.0.is_null()).then_some(window.0 as isize)
+}
+
 /// A NUL-terminated UTF-16 copy of `s`.
 pub fn wide(s: &str) -> Vec<u16> {
     s.encode_utf16().chain(std::iter::once(0)).collect()

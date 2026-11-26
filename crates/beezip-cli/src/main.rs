@@ -332,6 +332,8 @@ fn run(name: &str, args: Value, identities: &[PathBuf], out: &Output) -> Result<
     }
     let policy = Policy {
         identities: identities.to_vec(),
+        // Windows' PIN and security-key dialogs come up over the terminal.
+        window: beezip_commands::policy::console_window(),
         ..Policy::unrestricted()
     };
     let engine = Engine::with_options(registry(), EngineOptions::from_loaded(loaded, policy));

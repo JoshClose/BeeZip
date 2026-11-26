@@ -185,7 +185,9 @@ impl std::fmt::Debug for SystemKeys {
 /// A test's stand-in for this machine's keys.
 pub trait KeyStub: Send + Sync {
     /// The key sources a job tries after your keys and the key files given, made for each job.
-    fn sources(&self) -> Vec<Box<dyn KeySource + Send>>;
+    /// `window` is the job's [`Policy::window`], which the real sources parent Windows'
+    /// dialogs to.
+    fn sources(&self, window: Option<isize>) -> Vec<Box<dyn KeySource + Send>>;
 
     /// The SubjectPublicKeyInfos of this machine's This PC keys.
     fn this_pc(&self) -> Vec<Vec<u8>> {
@@ -406,7 +408,7 @@ impl JobCtx {
             SystemKeys::Off => {}
             _ if self.policy.unattended => {}
             SystemKeys::Stub(stub) => {
-                for s in stub.sources() {
+                for s in stub.sources(self.window()) {
                     sources.push(s);
                 }
             }
@@ -419,14 +421,19 @@ impl JobCtx {
         sources
     }
 
-    /// This machine's certificate stores and devices. One that this system lacks, or that isn't
-    /// built yet, is left out.
+    /// This machine's certificate stores and devices, whose dialogs belong to the job's window.
+    /// One that this system lacks, or that isn't built yet, is left out.
     fn system_sources(&self) -> Vec<Box<dyn KeySource + Send>> {
+        #[cfg(windows)]
+        let window = self.window();
         let found: Vec<(&str, beezip_core::Result<Box<dyn KeySource + Send>>)> = vec![
             #[cfg(windows)]
-            ("Windows' certificate keys", beezip_keys::cng::source()),
+            (
+                "Windows' certificate keys",
+                beezip_keys::cng::source(window),
+            ),
             #[cfg(windows)]
-            ("security keys", beezip_keys::webauthn::source(None)),
+            ("security keys", beezip_keys::webauthn::source(window)),
             #[cfg(target_os = "macos")]
             ("the Keychain", beezip_keys::mac::source()),
         ];
@@ -572,6 +579,11 @@ impl JobCtx {
 
     pub fn policy(&self) -> &Policy {
         &self.policy
+    }
+
+    /// The window Windows' PIN and security-key dialogs belong to ([`Policy::window`]).
+    pub fn window(&self) -> Option<isize> {
+        self.policy.window
     }
 
     /// The engine's archive cache; `None` for a job run without an engine.

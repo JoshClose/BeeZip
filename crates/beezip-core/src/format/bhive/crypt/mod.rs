@@ -224,7 +224,9 @@ pub trait KeySource {
     fn offers(&mut self, slot: &SlotView<'_>) -> bool;
 
     /// The secret for `slot`, or `None` when this source has nothing for it. `device` says the
-    /// user chose this way in, so the source may show a PIN dialog or ask for a touch.
+    /// user chose this way in, so the source may show a PIN dialog or ask for a touch; then an
+    /// error says why it didn't open (`KeyRequired` for another device, `Cancelled` for a
+    /// closed dialog), and the unlock asks for a way in again. Only `Corrupt` ends it.
     fn secret(&mut self, slot: &SlotView<'_>, device: bool) -> Result<Option<SlotSecret>>;
 }
 

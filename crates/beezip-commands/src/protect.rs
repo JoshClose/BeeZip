@@ -178,7 +178,7 @@ impl Ways {
                     credential,
                     label,
                 } => {
-                    let mut l = security_key(hello, credential.as_deref())?;
+                    let mut l = security_key(hello, credential.as_deref(), cx.window())?;
                     if label.is_some() {
                         l.label = label;
                     }
@@ -505,11 +505,16 @@ fn this_pc(_: Option<&Secret>, _: &mut JobCtx) -> Result<Labelled, CmdError> {
     ))
 }
 
-/// A security key, or with `hello` Windows Hello: Windows asks for a touch, a PIN or a face.
-/// `credential` rebuilds the slot of one already registered ("New key").
+/// A security key, or with `hello` Windows Hello: Windows asks for a touch, a PIN or a face, in
+/// a dialog that belongs to `window` (the job's). `credential` rebuilds the slot of one already
+/// registered ("New key").
 #[cfg(windows)]
-fn security_key(hello: bool, credential: Option<&[u8]>) -> Result<Labelled, CmdError> {
-    let recipient = beezip_keys::webauthn::recipient(hello, credential, None)?;
+fn security_key(
+    hello: bool,
+    credential: Option<&[u8]>,
+    window: Option<isize>,
+) -> Result<Labelled, CmdError> {
+    let recipient = beezip_keys::webauthn::recipient(hello, credential, window)?;
     Ok(Labelled {
         recipient,
         label: Some(
@@ -524,7 +529,7 @@ fn security_key(hello: bool, credential: Option<&[u8]>) -> Result<Labelled, CmdE
 }
 
 #[cfg(not(windows))]
-fn security_key(_: bool, _: Option<&[u8]>) -> Result<Labelled, CmdError> {
+fn security_key(_: bool, _: Option<&[u8]>, _: Option<isize>) -> Result<Labelled, CmdError> {
     Err(CmdError::new(
         ErrorCode::UnsupportedOperation,
         "security keys work through Windows' webauthn.dll; on this system use a password, a \
@@ -558,7 +563,7 @@ pub fn signing(names: &[String], cx: &mut JobCtx) -> Result<Option<Signing>, Cmd
 
 fn signer(text: &str, cx: &JobCtx) -> Result<Arc<dyn sign::Signer>, CmdError> {
     if let Some(t) = thumbprint(text) {
-        return store_signer(&t);
+        return store_signer(&t, cx.window());
     }
     let path = Path::new(text);
     if path.is_file() {
@@ -582,13 +587,17 @@ fn key_beside(certificate: &Path) -> PathBuf {
     }
 }
 
+/// The certificate's signer, whose PIN dialog (a smart card's, a TPM key's) belongs to `window`.
 #[cfg(windows)]
-fn store_signer(thumbprint: &[u8; 20]) -> Result<Arc<dyn sign::Signer>, CmdError> {
-    Ok(beezip_keys::cng::signer(thumbprint)?)
+fn store_signer(
+    thumbprint: &[u8; 20],
+    window: Option<isize>,
+) -> Result<Arc<dyn sign::Signer>, CmdError> {
+    Ok(beezip_keys::cng::signer(thumbprint, window)?)
 }
 
 #[cfg(not(windows))]
-fn store_signer(_: &[u8; 20]) -> Result<Arc<dyn sign::Signer>, CmdError> {
+fn store_signer(_: &[u8; 20], _: Option<isize>) -> Result<Arc<dyn sign::Signer>, CmdError> {
     Err(CmdError::invalid_args(
         "a thumbprint names a certificate in Windows' stores; pass a certificate file and its \
          key",

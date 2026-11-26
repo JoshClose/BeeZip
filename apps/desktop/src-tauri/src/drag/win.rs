@@ -105,20 +105,25 @@ struct Request {
     gui: Arc<GuiInteractor>,
     args: Value,
     sink: EventSink,
+    /// The page's window, which a device's dialog belongs to.
+    page: Option<isize>,
     reply: mpsc::Sender<Result<DragOutcome, CmdError>>,
 }
 
-/// Posts the drag to the window and waits, off the UI thread, until it's over.
+/// Posts the drag to the window and waits, off the UI thread, until it's over. A device the
+/// extraction uses shows its dialog over `page`, the page's window.
 pub async fn drag_out(
     app: &AppHandle,
     args: Value,
     sink: EventSink,
+    page: Option<isize>,
 ) -> Result<DragOutcome, CmdError> {
     let outcome = post(
         app.state::<Engine>().inner().clone(),
         Arc::clone(app.state::<Arc<GuiInteractor>>().inner()),
         args,
         sink,
+        page,
     )?;
     tauri::async_runtime::spawn_blocking(move || outcome.recv())
         .await
@@ -132,6 +137,7 @@ fn post(
     gui: Arc<GuiInteractor>,
     args: Value,
     sink: EventSink,
+    page: Option<isize>,
 ) -> Result<mpsc::Receiver<Result<DragOutcome, CmdError>>, CmdError> {
     let hwnd = window().ok_or_else(|| {
         CmdError::new(
@@ -145,6 +151,7 @@ fn post(
         gui,
         args,
         sink,
+        page,
         reply,
     }));
     // SAFETY: the window's procedure takes the box back; if the post fails, this does.
@@ -197,6 +204,7 @@ fn run(request: Request) -> Result<DragOutcome, CmdError> {
         gui,
         args,
         sink,
+        page,
         ..
     } = request;
     // The page's arguments first, against a stand-in folder.
@@ -218,7 +226,7 @@ fn run(request: Request) -> Result<DragOutcome, CmdError> {
     let args = extract_args(args, &temp)?;
     let materialize: ole::Materialize = {
         let temp = temp.clone();
-        Box::new(move || extract(&engine, gui, args, sink, &temp))
+        Box::new(move || extract(&engine, gui, args, sink, &temp, page))
     };
     let result = ole::drag(temp.clone(), materialize, Rc::new(ole::over_own_window));
     // Moved items have gone already; copied ones, and anything left, go now.
@@ -247,16 +255,19 @@ fn primary_button_down() -> bool {
 }
 
 /// Runs `archive.extract` into `temp` as an ordinary job, pumping this thread's messages until
-/// it ends, and returns the items to drop.
+/// it ends, and returns the items to drop. A device's dialog belongs to `page`, the page's
+/// window.
 pub fn extract(
     engine: &Engine,
     gui: Arc<dyn Interactor>,
     args: Value,
     sink: EventSink,
     temp: &Path,
+    page: Option<isize>,
 ) -> Result<Vec<PathBuf>, String> {
+    let policy = crate::ipc::policy_for(engine, page);
     let job = engine
-        .invoke("archive.extract", args, gui, sink)
+        .invoke_with_policy("archive.extract", args, gui, sink, policy)
         .map_err(|e| e.message)?;
     let id = job.id();
     let done: Arc<Mutex<Option<Result<Value, CmdError>>>> = Arc::default();
@@ -390,7 +401,7 @@ mod tests {
             &temp,
         )
         .unwrap();
-        let items = extract(&engine, Arc::new(NonInteractive), args, sink, &temp).unwrap();
+        let items = extract(&engine, Arc::new(NonInteractive), args, sink, &temp, None).unwrap();
         assert_eq!(items, [temp.join("a.md"), temp.join("deep")]);
         assert_eq!(
             std::fs::read_to_string(temp.join("deep").join("b.md")).unwrap(),
@@ -425,6 +436,7 @@ mod tests {
             Arc::new(GuiInteractor::new(|_| false)),
             json!({ "archive": zip }),
             sink,
+            None,
         )
         .unwrap();
         if primary_button_down() {
@@ -456,6 +468,7 @@ mod tests {
             Arc::new(GuiInteractor::new(|_| false)),
             json!({ "archive": zip, "dest": "C:/elsewhere" }),
             sink,
+            None,
         )
         .unwrap();
         let got = loop {
@@ -483,7 +496,7 @@ mod tests {
         let (sink, seen) = events();
         let args =
             extract_args(json!({ "archive": dir.path().join("missing.zip") }), &temp).unwrap();
-        let why = extract(&engine, Arc::new(NonInteractive), args, sink, &temp).unwrap_err();
+        let why = extract(&engine, Arc::new(NonInteractive), args, sink, &temp, None).unwrap_err();
         assert!(why.starts_with("NotFound"), "{why}");
         assert_eq!(
             seen.lock().unwrap().last().map(String::as_str),

@@ -109,7 +109,8 @@ fn archives_sealed_to_certificates_open_through_cng() {
 }
 
 /// An EC certificate whose key in CNG is ECDSA can't open its slot: silently it is nothing
-/// here, so the archive's password still opens it; chosen as the way in, it says why.
+/// here, so the archive's password still opens it; chosen as the way in, the Unlock prompt is
+/// asked again for the password, and with no answer left it says why.
 #[test]
 fn an_ecdsa_key_never_opens_an_archive_and_its_other_ways_in_still_do() {
     let root = tempfile::tempdir().unwrap();
@@ -145,6 +146,15 @@ fn an_ecdsa_key_never_opens_an_archive_and_its_other_ways_in_still_do() {
         .err()
         .unwrap();
     assert!(e.message.contains("ECDSA"), "{}", e.message);
+    assert_eq!(cx.asked.len(), 2, "asked again, for the password");
+
+    let store = ecdsa();
+    let mut cx = KeyCtx::answering(
+        cng(&store),
+        vec![UnlockAnswer::Way(0), UnlockAnswer::Password(HONEY.into())],
+    );
+    let got = extract(&archive, &root.path().join("z"), &mut cx).unwrap();
+    assert_eq!(got, want);
 }
 
 /// Signed by certificates' keys in CNG: RSA-PSS, ECDSA P-256 and P-384, plain and sealed to a
@@ -171,7 +181,7 @@ fn archives_signed_through_cng_check_and_their_signers_are_unknown() {
         };
         let (store, cert) = store_with(crt, key);
         let thumbprint = cert::parse(cert.der()).unwrap().thumbprint;
-        let signer: Arc<dyn Signer> = signer_in(&store, &thumbprint).unwrap();
+        let signer: Arc<dyn Signer> = signer_in(&store, &thumbprint, None).unwrap();
         let signing = || {
             Some(Signing {
                 signers: vec![signer.clone()],

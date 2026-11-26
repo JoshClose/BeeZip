@@ -146,9 +146,10 @@ impl BeeZipServer {
         base.max_list_entries = Some(MAX_LIST_ENTRIES);
         base.max_read_bytes = Some(MAX_READ_BYTES);
         // Nobody is there to touch a device, keep a recovery key or mean a signature
-        // (docs/M14.md decisions 15 and 27).
+        // (docs/M14.md decisions 15 and 27), so no window for a device's dialog either.
         base.unattended = true;
         base.identities.clear();
+        base.window = None;
         Ok(Self {
             engine,
             base,
