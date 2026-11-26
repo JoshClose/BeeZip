@@ -244,7 +244,8 @@ impl Command for ArchiveConvert {
         let decrypt = input.decrypt.unwrap_or(false);
         if decrypt && !input.ways().is_empty() {
             return Err(CmdError::invalid_args(
-                "`decrypt` writes the entries in the clear; leave out `new_password` and the \n                 other ways in",
+                "`decrypt` writes the entries in the clear; leave out `new_password` and the \
+                 other ways in",
             ));
         }
         let args = SpecArgs {

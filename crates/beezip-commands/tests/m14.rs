@@ -656,6 +656,22 @@ fn an_encrypted_zip_converts_into_an_encrypted_bhive() {
     // encrypted archives this reaches its writer and stops there; never "pass new_password".
     let dir = tempfile::tempdir().unwrap();
     let out = dir.path().join("out.bhive");
+    // `decrypt` with a way in contradicts itself.
+    let e = run(
+        "archive.convert",
+        json!({
+            "archive": fx("thirdparty/7z-aes256.zip"), "output": out, "password": "beezip",
+            "decrypt": true, "to": ["age1x"],
+        }),
+    )
+    .unwrap_err();
+    assert_eq!(e.code, ErrorCode::InvalidArgs);
+    assert!(
+        e.message
+            .ends_with("leave out `new_password` and the other ways in"),
+        "{}",
+        e.message
+    );
     let r = run(
         "archive.convert",
         json!({
