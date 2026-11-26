@@ -55,11 +55,7 @@ fn hrp_expand(hrp: &[u8]) -> impl Iterator<Item = u8> + '_ {
 }
 
 fn checksum(hrp: &[u8], values: &[u8]) -> [u8; 6] {
-    let pm = polymod(
-        hrp_expand(hrp)
-            .chain(values.iter().copied())
-            .chain([0; 6]),
-    ) ^ 1;
+    let pm = polymod(hrp_expand(hrp).chain(values.iter().copied()).chain([0; 6])) ^ 1;
     let mut out = [0; 6];
     for (i, o) in out.iter_mut().enumerate() {
         *o = ((pm >> (5 * (5 - i))) & 31) as u8;
@@ -234,14 +230,14 @@ pub fn parse_key(text: &str) -> Result<KeyText> {
     let (hrp, data) = decode(text).map_err(|e| {
         // Say what it looked like when its start is one BeeZip knows.
         let lower = text.to_ascii_lowercase();
-        let what = if lower.starts_with(hrp::X25519_SECRET) || lower.starts_with(hrp::SIGNING_SECRET)
-        {
-            "a private key"
-        } else if lower.starts_with("age1") || lower.starts_with("bzsig1") {
-            "a public key"
-        } else {
-            return e;
-        };
+        let what =
+            if lower.starts_with(hrp::X25519_SECRET) || lower.starts_with(hrp::SIGNING_SECRET) {
+                "a private key"
+            } else if lower.starts_with("age1") || lower.starts_with("bzsig1") {
+                "a public key"
+            } else {
+                return e;
+            };
         invalid(format!("{what}, but {}", e.message))
     })?;
     let data = Zeroizing::new(data);
@@ -410,7 +406,10 @@ pub(crate) mod tests {
             (KeyText::X25519Public(pk), &x["recipient_text"]),
             (KeyText::X25519Secret(Zeroizing::new(sk)), &x["secret_text"]),
             (KeyText::XWingPublic(Box::new(xpk)), &w["recipient_text"]),
-            (KeyText::XWingSecret(Zeroizing::new(seed)), &w["secret_text"]),
+            (
+                KeyText::XWingSecret(Zeroizing::new(seed)),
+                &w["secret_text"],
+            ),
             (
                 KeyText::SigningPublic(Box::new(signer.clone().try_into().unwrap())),
                 &s["signer_text"],
@@ -458,11 +457,19 @@ pub(crate) mod tests {
         bad[last] = if bad[last] == b'q' { b'p' } else { b'q' };
         let e = parse_key(std::str::from_utf8(&bad).unwrap()).unwrap_err();
         assert_eq!(e.kind, ErrorKind::InvalidArgs);
-        assert!(e.message.starts_with("a public key, but its checksum"), "{}", e.message);
+        assert!(
+            e.message.starts_with("a public key, but its checksum"),
+            "{}",
+            e.message
+        );
         let mut bad = ex[2].clone().into_bytes();
         bad[30] = if bad[30] == b'Q' { b'P' } else { b'Q' };
         let e = parse_key(std::str::from_utf8(&bad).unwrap()).unwrap_err();
-        assert!(e.message.starts_with("a private key, but its checksum"), "{}", e.message);
+        assert!(
+            e.message.starts_with("a private key, but its checksum"),
+            "{}",
+            e.message
+        );
         // Mixed case.
         let mixed = format!("A{}", &ex[1][1..]);
         let e = parse_key(&mixed).unwrap_err();
@@ -495,7 +502,10 @@ pub(crate) mod tests {
         assert!(parse_key(&s).unwrap_err().message.contains("padding"));
         // Not a key at all.
         assert_eq!(parse_key("").unwrap_err().kind, ErrorKind::InvalidArgs);
-        assert_eq!(parse_key("hunter2").unwrap_err().kind, ErrorKind::InvalidArgs);
+        assert_eq!(
+            parse_key("hunter2").unwrap_err().kind,
+            ErrorKind::InvalidArgs
+        );
     }
 
     #[test]

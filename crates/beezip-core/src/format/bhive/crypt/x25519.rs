@@ -5,7 +5,7 @@
 //! the reader trying each.
 
 use x25519_dalek::{PublicKey, StaticSecret};
-use zeroize::{Zeroize, Zeroizing};
+use zeroize::Zeroizing;
 
 use super::{MadeSlot, SlotKind, SlotSecret, SlotView, label};
 use crate::{Error, ErrorKind, Result};
@@ -106,7 +106,26 @@ pub fn commits(slot: &SlotView<'_>, secret: &SlotSecret) -> bool {
         SlotSecret::Extracted(prk) => prk.clone(),
         SlotSecret::Shared(s) => prk(&slot.context(&[]), s),
     };
-    let key = ring::hmac::Key::new(ring::hmac::HMAC_SHA256, &prk[..]);
+    let (key, msg) = expand_second(&prk);
+    ring::hmac::verify(&key, &msg, slot.commitment).is_ok()
+}
+
+/// The commitment a writer puts in a slot it frames as `slot.framed`, for `made`
+/// (bhive.md §12.4 step 3). `slot.commitment` isn't read.
+pub fn commitment(slot: &SlotView<'_>, made: &MadeSlot) -> [u8; 32] {
+    let prk = match &made.secret {
+        SlotSecret::Extracted(prk) => prk.clone(),
+        SlotSecret::Shared(s) => prk(&slot.context(&made.recipient_key), s),
+    };
+    let (key, msg) = expand_second(&prk);
+    let mut out = [0; 32];
+    out.copy_from_slice(ring::hmac::sign(&key, &msg).as_ref());
+    out
+}
+
+/// HKDF-Expand's second block for 64 bytes: its key, and the message `T(1) ‖ info ‖ 02`.
+fn expand_second(prk: &[u8; 32]) -> (ring::hmac::Key, Zeroizing<Vec<u8>>) {
+    let key = ring::hmac::Key::new(ring::hmac::HMAC_SHA256, prk);
     let mut first = ring::hmac::Context::with_key(&key);
     first.update(label::SLOT);
     first.update(&[1]);
@@ -115,9 +134,7 @@ pub fn commits(slot: &SlotView<'_>, secret: &SlotSecret) -> bool {
     msg.extend_from_slice(wrap.as_ref());
     msg.extend_from_slice(label::SLOT);
     msg.push(2);
-    let ok = ring::hmac::verify(&key, &msg, slot.commitment).is_ok();
-    msg.zeroize();
-    ok
+    (key, msg)
 }
 
 /// Fills `out` from the system's random generator.
@@ -185,6 +202,7 @@ pub(crate) mod tests {
         };
         assert_eq!(prk.to_vec(), hex(&vec["prk"]));
         assert_eq!(view.commitment.to_vec(), hex(&vec["commitment"]));
+        assert_eq!(commitment(&view, &made).to_vec(), hex(&vec["commitment"]));
         assert!(open(&view, &identity).unwrap().is_some());
         assert!(open(&view, &[7; 32]).unwrap().is_none());
     }
@@ -217,15 +235,7 @@ pub(crate) mod tests {
 
     /// The commitment a writer computes for `made` (bhive.md §12.4 step 3).
     pub(crate) fn commitment_for(slot: &SlotView<'_>, made: &MadeSlot) -> [u8; 32] {
-        let SlotSecret::Shared(s) = &made.secret else {
-            panic!("a writer's secret is shared")
-        };
-        let prk = prk(&slot.context(&made.recipient_key), s);
-        let key = ring::hmac::Key::new(ring::hmac::HMAC_SHA256, &prk[..]);
-        let t1 = ring::hmac::sign(&key, b"bhive1 slot\x01");
-        let mut msg = t1.as_ref().to_vec();
-        msg.extend(b"bhive1 slot\x02");
-        ring::hmac::sign(&key, &msg).as_ref().try_into().unwrap()
+        commitment(slot, made)
     }
 
     #[test]

@@ -218,6 +218,10 @@ mod tests {
         };
         assert_eq!(s.to_vec(), hex(&vec["secret"]));
         assert_eq!(view.commitment.to_vec(), hex(&vec["commitment"]));
+        assert_eq!(
+            x25519::commitment(&view, &made).to_vec(),
+            hex(&vec["commitment"])
+        );
 
         let SlotSecret::Shared(read) = secret(&view, &identity).unwrap() else {
             panic!("a shared secret")
