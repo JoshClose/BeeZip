@@ -299,6 +299,53 @@ fn test_name(what: &str) -> String {
     format!("BeeZip test {what} {id}")
 }
 
+/// A "This PC" key, or `None` where the TPM can't make one (CI's runners open its provider
+/// but have no TPM behind it).
+fn this_pc_key(pin: Option<&'static str>) -> Option<(String, Vec<u8>, Doomed)> {
+    match create_this_pc(pin) {
+        Ok((name, spki)) => {
+            let doomed = Doomed {
+                name: name.clone(),
+                pin,
+            };
+            Some((name, spki, doomed))
+        }
+        Err(e) if e.kind == ErrorKind::UnsupportedOperation => {
+            eprintln!("no TPM here: {}", e.message);
+            None
+        }
+        Err(e) => panic!("{}", e.message),
+    }
+}
+
+/// A TPM key made under a throwaway name, or `None` where there's no TPM behind the provider.
+fn tpm_key(
+    tpm: &std::sync::Arc<Provider>,
+    algorithm: windows_core::PCWSTR,
+    bits: Option<u32>,
+) -> Option<(Key, Doomed)> {
+    let absent = |e: &WinError| {
+        matches!(e.code >> 16, 0x8028 | 0x8029)
+            || matches!(e.code, 0x8009_0029 | 0x8009_0030 | 0x8009_0035)
+    };
+    let name = test_name("key");
+    let made = tpm.create_key(algorithm, Some(&name)).and_then(|key| {
+        if let Some(bits) = bits {
+            key.set_prop(NCRYPT_LENGTH_PROPERTY, &bits.to_le_bytes())?;
+        }
+        key.finalize()?;
+        Ok(key)
+    });
+    match made {
+        Ok(key) => Some((key, Doomed { name, pin: None })),
+        Err(e) if absent(&e) => {
+            eprintln!("no TPM here: {}", e.what);
+            None
+        }
+        Err(e) => panic!("{}", e.what),
+    }
+}
+
 /// BCrypt's check of a signature under an exported public key.
 fn verify_blob(
     alg: BCRYPT_ALG_HANDLE,
@@ -334,10 +381,8 @@ fn this_pc_keys_open_their_slots() {
     if tpm().is_none() {
         return;
     }
-    let (name, spki) = create_this_pc(None).unwrap();
-    let _doomed = Doomed {
-        name: name.clone(),
-        pin: None,
+    let Some((name, spki, _doomed)) = this_pc_key(None) else {
+        return;
     };
     assert!(name.starts_with(THIS_PC_PREFIX));
     assert!(this_pc().iter().any(|(n, s)| *n == name && *s == spki));
@@ -360,10 +405,8 @@ fn a_this_pc_key_with_a_pin_is_never_tried_without_it() {
     let Some(tpm) = tpm() else { return };
     // A throwaway key's PIN, given silently as a property: never a wrong one.
     const PIN: &str = "BeeZip-test-4821";
-    let (name, spki) = create_this_pc(Some(PIN)).unwrap();
-    let _doomed = Doomed {
-        name: name.clone(),
-        pin: Some(PIN),
+    let Some((name, spki, _doomed)) = this_pc_key(Some(PIN)) else {
+        return;
     };
     let made = ecdh::make(Curve::P256, &spki).unwrap();
     let slot = slot_bytes(SlotKind::EcP256, &made);
@@ -389,12 +432,9 @@ fn a_this_pc_key_with_a_pin_is_never_tried_without_it() {
 fn tpm_keys_unwrap_and_sign_silently() {
     let Some(tpm) = tpm() else { return };
     // RSA-2048 (this TPM has no RSA-3072): OAEP with no label, and PSS.
-    let name = test_name("rsa");
-    let key = tpm.create_key(NCRYPT_RSA_ALGORITHM, Some(&name)).unwrap();
-    key.set_prop(NCRYPT_LENGTH_PROPERTY, &2048u32.to_le_bytes())
-        .unwrap();
-    key.finalize().unwrap();
-    let _doomed = Doomed { name, pin: None };
+    let Some((key, _doomed)) = tpm_key(&tpm, NCRYPT_RSA_ALGORITHM, Some(2048)) else {
+        return;
+    };
     let blob = key.export(BCRYPT_RSAPUBLIC_BLOB).unwrap();
     let (n, e) = win::rsa_of_blob(&blob).unwrap();
     let made = rsa::make(&cert::rsa_spki(&n, &e).unwrap()).unwrap();
@@ -416,12 +456,9 @@ fn tpm_keys_unwrap_and_sign_silently() {
     ));
 
     // ECDSA P-256.
-    let name = test_name("ecdsa");
-    let key = tpm
-        .create_key(NCRYPT_ECDSA_P256_ALGORITHM, Some(&name))
-        .unwrap();
-    key.finalize().unwrap();
-    let _doomed = Doomed { name, pin: None };
+    let Some((key, _doomed)) = tpm_key(&tpm, NCRYPT_ECDSA_P256_ALGORITHM, None) else {
+        return;
+    };
     let blob = key.export(BCRYPT_ECCPUBLIC_BLOB).unwrap();
     let sig = key.sign_hash(Algorithm::EcdsaP256, &hash, true).unwrap();
     assert_eq!(sig.len(), 64);

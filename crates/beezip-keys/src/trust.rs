@@ -143,6 +143,10 @@ fn certificate_trust(signer: &[u8]) -> Result<Trust> {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(
+    not(any(windows, target_os = "macos")),
+    allow(dead_code, reason = "Linux has no system trust for signing")
+)]
 enum System {
     Trusted,
     Expired,
