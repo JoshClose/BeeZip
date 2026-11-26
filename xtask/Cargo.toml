@@ -10,7 +10,7 @@ publish.workspace = true
 [dependencies]
 anyhow.workspace = true
 beezip-commands.workspace = true
-beezip-core.workspace = true
+beezip-core = { workspace = true, features = ["fixtures"] }
 beezip-menu.workspace = true
 bzip2.workspace = true
 crc32fast.workspace = true
