@@ -192,7 +192,7 @@ function ImportKey({ onChanged }: { onChanged: () => void }) {
   const [error, setError] = useState<string>();
   const ready = name.trim().length > 0 && (text.trim().length > 0 || file !== undefined);
   const choose = async () => {
-    const picked = await pickFile({ multiple: false, title: "Add a key or certificate", filters: [{ name: "Keys and certificates", extensions: ["txt", "key", "age", "cer", "crt", "der", "pem"] }, { name: "All files", extensions: ["*"] }] });
+    const picked = await pickFile({ multiple: false, title: "Add a key", filters: [{ name: "Keys", extensions: ["txt", "key", "age"] }, { name: "All files", extensions: ["*"] }] });
     const path = Array.isArray(picked) ? picked[0] : picked;
     if (path) {
       setFile(path);
@@ -213,7 +213,7 @@ function ImportKey({ onChanged }: { onChanged: () => void }) {
     }
   };
   return (
-    <Field label="Add a key" htmlFor="import-name" hint="A public key (age1…, age1pq1…, bzsig1…) or a certificate becomes a contact; a private key becomes yours.">
+    <Field label="Add a key" htmlFor="import-name" hint="A public key (age1…, age1pq1…, bzsig1…) becomes a contact; a private key becomes yours. Certificates come from the system's stores or a file, where you encrypt.">
       <Input id="import-name" className="w-48" placeholder="Whose it is" value={name} onChange={(e) => setName(e.target.value)} />
       {file ? (
         <p className="selectable flex items-center gap-2 text-[12px]">
@@ -291,7 +291,7 @@ export function KeysSettings() {
         )}
         <MakeKey onChanged={reload} />
       </Section>
-      <Section title="Contacts" description="Other people's public keys and certificates, by name, to encrypt to and to know their signatures.">
+      <Section title="Contacts" description="Other people's public keys, by name, to encrypt to and to know their signatures.">
         {!keysError && <KeyList keys={contacts} label="Contacts" empty="No contacts yet." onChanged={reload} />}
         <ImportKey onChanged={reload} />
       </Section>
