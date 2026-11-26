@@ -548,6 +548,7 @@ mod tests {
             key_id: &key_id,
             framed: &framed,
             public: &framed[4..],
+            commitment: &[0; 32],
         };
         let mut source = crate::webauthn::source(None).unwrap();
         assert!(source.offers(&view));
@@ -612,6 +613,7 @@ mod tests {
             key_id: &key_id,
             framed: &framed,
             public: &framed[4..],
+            commitment: &[0; 32],
         };
         let mut source = crate::webauthn::source(None).unwrap();
         let Some(SlotSecret::Shared(again)) = source.secret(&view, true).unwrap() else {

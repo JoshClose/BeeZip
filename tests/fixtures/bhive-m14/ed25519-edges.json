@@ -1,0 +1,103 @@
+{
+  "note": "docs/bhive.md \u00a713.4: Ed25519 as ring 0.17 checks it. Made by make-vectors.py.",
+  "cases": [
+    {
+      "name": "valid",
+      "public": "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a",
+      "message": "6268697665312065646765",
+      "signature": "0d20c4e0e5c868934f911081713fc25aa464dd1166b251cdc4501b10bec6974cbdefec1d27e9ae33353e73f7b0d8946dcb69c52011462f65e44cb08b70ed0d0e",
+      "valid": true
+    },
+    {
+      "name": "S plus the group order",
+      "public": "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a",
+      "message": "6268697665312065646765",
+      "signature": "0d20c4e0e5c868934f911081713fc25aa464dd1166b251cdc4501b10bec6974caac3e27a414cc18b0bdb6a9a8fd27382cb69c52011462f65e44cb08b70ed0d1e",
+      "valid": false
+    },
+    {
+      "name": "S of all ones",
+      "public": "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a",
+      "message": "6268697665312065646765",
+      "signature": "0d20c4e0e5c868934f911081713fc25aa464dd1166b251cdc4501b10bec6974cffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "valid": false
+    },
+    {
+      "name": "a changed message",
+      "public": "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a",
+      "message": "626869766531206564676521",
+      "signature": "0d20c4e0e5c868934f911081713fc25aa464dd1166b251cdc4501b10bec6974cbdefec1d27e9ae33353e73f7b0d8946dcb69c52011462f65e44cb08b70ed0d0e",
+      "valid": false
+    },
+    {
+      "name": "A the identity, R the identity, S 0",
+      "public": "0100000000000000000000000000000000000000000000000000000000000000",
+      "message": "6268697665312065646765",
+      "signature": "01000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+      "valid": true
+    },
+    {
+      "name": "A of order 8, R the identity, S 0",
+      "public": "c7176a703d4dd84fba3c0b760d10670f2a2053fa2c39ccc64ec7fd7792ac037a",
+      "message": "6268697665312065646765",
+      "signature": "01000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+      "valid": false
+    },
+    {
+      "name": "R the identity with y = p + 1",
+      "public": "0100000000000000000000000000000000000000000000000000000000000000",
+      "message": "6268697665312065646765",
+      "signature": "eeffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f0000000000000000000000000000000000000000000000000000000000000000",
+      "valid": false
+    },
+    {
+      "name": "R the identity with x = 0 negative",
+      "public": "0100000000000000000000000000000000000000000000000000000000000000",
+      "message": "6268697665312065646765",
+      "signature": "01000000000000000000000000000000000000000000000000000000000000800000000000000000000000000000000000000000000000000000000000000000",
+      "valid": false
+    },
+    {
+      "name": "A the identity with y = p + 1",
+      "public": "eeffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f",
+      "message": "6268697665312065646765",
+      "signature": "01000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+      "valid": true
+    },
+    {
+      "name": "A the identity with x = 0 negative",
+      "public": "0100000000000000000000000000000000000000000000000000000000000080",
+      "message": "6268697665312065646765",
+      "signature": "01000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+      "valid": true
+    },
+    {
+      "name": "A of mixed order, the equation holds without the cofactor",
+      "public": "9158312a9a8d6e3b34c891d6d61444f8b8211c5117ebad15bdb0bd68b07e0245",
+      "message": "6d697865642033",
+      "signature": "606a554d6e96a184324a9a43fc19ceccb0e594f29ebdd432610846692cabf4a25d6619237c68192ed94eb1de031307c714d3a8bc245783a25f38e5cbc486f705",
+      "valid": true
+    },
+    {
+      "name": "A of mixed order, the equation holds only with the cofactor",
+      "public": "9158312a9a8d6e3b34c891d6d61444f8b8211c5117ebad15bdb0bd68b07e0245",
+      "message": "6d697865642030",
+      "signature": "606a554d6e96a184324a9a43fc19ceccb0e594f29ebdd432610846692cabf4a2a7824cc0807e2e71b06cebf526d6abc1fed4516988f08dab23df608a792dbe04",
+      "valid": false
+    },
+    {
+      "name": "A not on the curve",
+      "public": "0200000000000000000000000000000000000000000000000000000000000000",
+      "message": "6268697665312065646765",
+      "signature": "0d20c4e0e5c868934f911081713fc25aa464dd1166b251cdc4501b10bec6974cbdefec1d27e9ae33353e73f7b0d8946dcb69c52011462f65e44cb08b70ed0d0e",
+      "valid": false
+    },
+    {
+      "name": "a 63-byte signature",
+      "public": "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a",
+      "message": "6268697665312065646765",
+      "signature": "0d20c4e0e5c868934f911081713fc25aa464dd1166b251cdc4501b10bec6974cbdefec1d27e9ae33353e73f7b0d8946dcb69c52011462f65e44cb08b70ed0d",
+      "valid": false
+    }
+  ]
+}

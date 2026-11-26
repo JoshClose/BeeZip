@@ -1610,8 +1610,7 @@ export type KeysExportOutput = { text: Secret, };
 
 /**
  * Add a key: a private key (`AGE-SECRET-KEY-…`, `BZSIG-SECRET-KEY-1…`, or an age identity
- * file) becomes yours; a public key (`age1…`, `age1pq1…`, `bzsig1…`) or a certificate file
- * becomes a contact's.
+ * file) becomes yours; a public key (`age1…`, `age1pq1…`, `bzsig1…`) becomes a contact's.
  */
 export type KeysImportInput = {
 /**
@@ -2486,8 +2485,7 @@ export type CommandMap = {
   "keys.export": { input: KeysExportInput; output: KeysExportOutput };
   /**
    * Add a key: a private key (`AGE-SECRET-KEY-…`, `BZSIG-SECRET-KEY-1…`, or an age identity
-   * file) becomes yours; a public key (`age1…`, `age1pq1…`, `bzsig1…`) or a certificate file
-   * becomes a contact's.
+   * file) becomes yours; a public key (`age1…`, `age1pq1…`, `bzsig1…`) becomes a contact's.
    */
   "keys.import": { input: KeysImportInput; output: KeyInfo };
   /** List your keys (for opening archives and for signing them) and your contacts' public keys. */

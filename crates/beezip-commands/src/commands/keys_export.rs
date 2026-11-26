@@ -2,7 +2,10 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
-use crate::{CmdError, Command, Effect, JobCtx, Surfaces, commands::util::not_built, wire::Secret};
+use super::keys_list::{keys_dir, store};
+use crate::{
+    CliSpec, CmdError, Command, Effect, JobCtx, LogLevel, Surfaces, policy::Access, wire::Secret,
+};
 
 /// Show a key as text: its public key, to share, or with `secret` its private key, for a
 /// backup. Anyone who has a private key can open what it opens, or sign as you.
@@ -27,12 +30,38 @@ pub struct KeysExport;
 impl Command for KeysExport {
     const NAME: &'static str = "keys.export";
     const EFFECT: Effect = Effect::ReadOnly;
-    const SURFACES: Surfaces = Surfaces::NONE;
+    // Never to an assistant: a private key would pass through its context (decision 15).
+    const SURFACES: Surfaces = Surfaces::NO_MCP;
+    const CLI: Option<CliSpec> = Some(CliSpec {
+        name: "export",
+        aliases: &[],
+        group: Some("keys"),
+    });
 
     type Input = KeysExportInput;
     type Output = KeysExportOutput;
 
-    fn run(_: KeysExportInput, _: &mut JobCtx) -> Result<KeysExportOutput, CmdError> {
-        Err(not_built("keys.export"))
+    fn run(input: KeysExportInput, cx: &mut JobCtx) -> Result<KeysExportOutput, CmdError> {
+        let secret = input.secret.unwrap_or(false);
+        let text = store(cx)?.export(&input.name, secret)?;
+        if secret {
+            cx.log(
+                LogLevel::Warn,
+                "this is your private key: anyone who has it can open what it opens, or sign \
+                 as you. Keep it somewhere safe and never share it",
+            );
+        }
+        Ok(KeysExportOutput {
+            text: Secret::new(text.as_str()),
+        })
+    }
+
+    /// Only the text, so that `beezip keys export NAME > key.txt` writes the key.
+    fn human(out: &KeysExportOutput) -> Option<String> {
+        Some(out.text.expose().to_owned())
+    }
+
+    fn access(_: &KeysExportInput) -> Vec<Access> {
+        keys_dir().map(Access::Read).into_iter().collect()
     }
 }

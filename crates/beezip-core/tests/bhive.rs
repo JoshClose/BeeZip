@@ -904,8 +904,23 @@ fn python() -> Option<String> {
     None
 }
 
+/// Whether docs/bhive_reader.py's `test` passes an encrypted archive opened with the recovery
+/// key [`DIGITS`], or None without Python 3.14: what BeeZip refuses, it refuses too.
+fn python_tests_clean(archive: &Path) -> Option<bool> {
+    let out = std::process::Command::new(python()?)
+        .arg("-I")
+        .arg(repo().join("docs/bhive_reader.py"))
+        .arg("test")
+        .arg(archive)
+        .args(["--recovery-key", DIGITS])
+        .output()
+        .unwrap();
+    Some(out.status.success())
+}
+
 /// docs/bhive_reader.py, a reader written from the specification alone, lists, tests and
-/// extracts every fixture as its record says (docs/M13.md decision 12).
+/// extracts every fixture as its record says (docs/M13.md decision 12), the encrypted ones
+/// too (docs/M14.md §10).
 #[test]
 fn the_python_reader_agrees() {
     use std::ffi::OsStr;
@@ -925,13 +940,35 @@ fn the_python_reader_agrees() {
         (Some(s), Some(n)) => format!("{}.{:09}", s.as_i64().unwrap(), n.as_u64().unwrap()),
         _ => "-".to_owned(),
     };
-    for fx in &manifest() {
+    // Each encrypted fixture's ways in, as the reader takes them.
+    let ways = |fx: &serde_json::Value| -> Vec<[String; 2]> {
+        let mut ways: Vec<[String; 2]> = fx["passwords"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .map(|p| ["--password".to_owned(), p.as_str().unwrap().to_owned()])
+            .collect();
+        if let Some(k) = fx["recovery_key"].as_str() {
+            ways.push(["--recovery-key".to_owned(), k.to_owned()]);
+        }
+        ways
+    };
+    let sealed = sealed_manifest();
+    for fx in manifest().iter().chain(&sealed) {
         let name = fx["file"].as_str().unwrap();
         let path = fixture_dir().join(name);
         let recover = fx["recover"] == true;
+        // An encrypted fixture is read with the first way in its record lists; the others are
+        // tried below.
+        let way: Vec<String> = ways(fx)
+            .into_iter()
+            .next()
+            .map(Vec::from)
+            .unwrap_or_default();
         let with = |command: &'static str, more: &[&OsStr]| {
             let mut args: Vec<&OsStr> = vec![command.as_ref(), path.as_os_str()];
             args.extend_from_slice(more);
+            args.extend(way.iter().map(OsStr::new));
             if recover {
                 args.push("--recover".as_ref());
             }
@@ -991,6 +1028,28 @@ fn the_python_reader_agrees() {
         let err = String::from_utf8_lossy(&out.stderr).into_owned();
         assert_eq!(out.status.code(), Some(code), "{name}: {err}");
         assert_eq!(hashes(dest.path()), expected_files(fx), "{name}");
+    }
+
+    // Each encrypted fixture opens with every way in its record lists, and with none of them,
+    // or a wrong one, it is said to be locked (exit code 3).
+    for fx in &sealed {
+        let name = fx["file"].as_str().unwrap();
+        let path = fixture_dir().join(name);
+        for [flag, value] in ways(fx) {
+            let out = run(&[
+                "test".as_ref(),
+                path.as_os_str(),
+                flag.as_ref(),
+                value.as_ref(),
+            ]);
+            let err = String::from_utf8_lossy(&out.stderr).into_owned();
+            assert_eq!(out.status.code(), Some(0), "{name} {flag}: {err}");
+        }
+        for wrong in [&["--password", "Honey"][..], &[]] {
+            let mut args: Vec<&OsStr> = vec!["test".as_ref(), path.as_os_str()];
+            args.extend(wrong.iter().map(OsStr::new));
+            assert_eq!(run(&args).status.code(), Some(3), "{name} {wrong:?}");
+        }
     }
 
     // And it refuses what breaks the format's rules, as BeeZip does.
@@ -2192,6 +2251,9 @@ fn sealed_cells_that_moved_are_refused() {
             &mut ctx(Some(HONEY)),
         )
         .unwrap();
+        if let Some(clean) = python_tests_clean(&p) {
+            assert_eq!(clean, t.errors.is_empty(), "docs/bhive_reader.py");
+        }
         t.errors.len()
     };
     assert_eq!(failing(&bytes), 0);
@@ -2269,6 +2331,7 @@ fn reordered_segments_and_changed_frames_are_refused() {
     )
     .unwrap();
     assert!(!t.errors.is_empty());
+    assert_ne!(python_tests_clean(&p), Some(true), "docs/bhive_reader.py");
     // One segment copied over the other: its nonce is the other's, so it fails.
     let mut twice = bytes.clone();
     twice[at + seg..at + 2 * seg].copy_from_slice(&bytes[at..at + seg]);
@@ -2281,6 +2344,7 @@ fn reordered_segments_and_changed_frames_are_refused() {
     )
     .unwrap();
     assert!(!t.errors.is_empty());
+    assert_ne!(python_tests_clean(&p), Some(true), "docs/bhive_reader.py");
 
     // The sealed index changed: refused, and recovered from the records.
     let footer = bytes.len() - 16;
@@ -2292,6 +2356,7 @@ fn reordered_segments_and_changed_frames_are_refused() {
         open_err(&p, Some(DIGITS), false).unwrap().kind,
         ErrorKind::Corrupt
     );
+    assert_ne!(python_tests_clean(&p), Some(true), "docs/bhive_reader.py");
     assert!(open_err(&p, Some(DIGITS), true).is_none());
     assert_eq!(
         contents_as_recovered(&p),
@@ -2305,6 +2370,7 @@ fn reordered_segments_and_changed_frames_are_refused() {
     record[c.offset as usize - 40] ^= 1;
     fs::write(&p, &record).unwrap();
     assert!(open_err(&p, Some(DIGITS), false).is_none());
+    assert_eq!(python_tests_clean(&p), python().map(|_| true));
     record[index_at + 60] ^= 1;
     fs::write(&p, &record).unwrap();
     assert_eq!(contents_as_recovered(&p).len(), 1);
@@ -2332,6 +2398,11 @@ fn the_sealed_index_and_the_footer_end_the_file() {
         fs::write(&p, &b).unwrap();
         let e = open_err(&p, Some(DIGITS), false).unwrap();
         assert_eq!(e.kind, ErrorKind::Corrupt, "{wrong}: {}", e.message);
+        assert_ne!(
+            python_tests_clean(&p),
+            Some(true),
+            "docs/bhive_reader.py: {wrong}"
+        );
         assert_eq!(contents_as_recovered(&p), want, "{wrong}");
     }
 }

@@ -68,6 +68,10 @@ pub const CLI_GROUPS: &[(&str, &str)] = &[
         "Show and change BeeZip's settings (config.toml)",
     ),
     ("shell", "BeeZip's Explorer menu: what a click on it does"),
+    (
+        "keys",
+        "Your keys for opening and signing .bhive archives, and your contacts' public keys",
+    ),
 ];
 
 /// A command: one input type and one output type, shared by every front end.
