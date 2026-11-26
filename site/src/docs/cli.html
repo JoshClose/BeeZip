@@ -110,7 +110,7 @@ beezip convert disk.vhdx files.zip          # a disk image's files, as a zip
 beezip convert secret.7z open.zip --decrypt # encryption is only dropped when you say so
 beezip convert secret.7z secret.zip -p old --new-password new
 beezip convert secret.zip for-bob.bhive -p old --to bob</code></pre>
-<p>The source isn't changed. What the new format can't hold is left out and reported. Entries are copied without decoding when the formats match and no option asks otherwise. An encrypted .bhive converted into a .bhive keeps its ways in unless you give it new ones, and a signed one keeps its signatures as long as its entries stay as they were.</p>
+<p>The source isn't changed. What the new format can't hold is left out and reported. Entries are copied without decoding when the formats match and no option asks otherwise. An encrypted .bhive converted into a .bhive keeps its ways in unless you give it new ones, and a signed one keeps its signatures as long as its entries stay as they were. Choosing entries, a level or another format drops them, and BeeZip says so first.</p>
 
 <h2 id="bhive-encryption">Encrypted and signed .bhive</h2>
 <p>A <a href="formats.html#bhive-encryption">.bhive</a> can have any number of ways in, and any one opens it. These options are for a .bhive only, on <code>create</code> and <code>convert</code>; the <a href="reference.html#encryption-keys-and-signatures">command reference</a> has every option of the commands below.</p>

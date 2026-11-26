@@ -39,7 +39,8 @@ using BeeZip will notice. Leave the date out: the Releases page dates each versi
   key, which seals everything again so that someone who kept the old key can't open later
   versions.
 - **Edits keep the encryption:** adding, removing and renaming need one way in, and new files
-  are sealed with the rest.
+  are sealed with the rest. Converting an encrypted `.bhive` into a `.bhive` keeps who can open
+  it, unless you give it new ways in.
 - **Zip and 7z keep their own encryption,** as 0.8.4 left it. With a password on one, BeeZip
   says what a `.bhive` hides that they don't.
 
@@ -48,9 +49,10 @@ using BeeZip will notice. Leave the date out: the Releases page dates each versi
 - **Sign a `.bhive`,** encrypted or not, with your own signing key or a certificate, to show who
   made what's in it and that nothing has changed since. Several people can sign one archive.
 - **What's signed is the contents:** changing who can open it, a new key, or encrypting it keeps
-  the signatures. Adding, removing or renaming files drops them, and BeeZip says so first. The
-  app offers to sign again with your keys that signed it; on the command line, `add --sign`
-  does, or `beezip sign` afterwards.
+  the signatures. Adding, removing or renaming files drops them, and so does converting with
+  other entries, another level or into another format; BeeZip says so first. The app offers to
+  sign again with your keys that signed it; on the command line, `add --sign` does, or
+  `beezip sign` afterwards.
 - **Checked as it opens:** "Signed by" you, a contact or a certificate the system trusts; "an
   unknown signer", with a fingerprint to compare by phone; or, in red, "Changed after it was
   signed", and BeeZip asks before extracting. The time a signature gives is the signer's claim.
