@@ -220,7 +220,11 @@ impl Command for ArchiveExtract {
             open_archive_with(&input.archive, input.password.as_ref(), &open_opts, cx)?;
         // Before anything is written (docs/M14.md §11). A cell that differs from what was
         // signed fails as it is read, as a bad checksum does.
-        crate::protect::require(crate::protect::signatures_of(&mut *opened.reader), &wanted)?;
+        crate::protect::require(
+            crate::protect::signatures_of(&mut *opened.reader),
+            &wanted,
+            cx.key_store().ok().as_ref(),
+        )?;
         // A signature that fails warns; it doesn't block (decision 26).
         crate::protect::warn_changed(&mut *opened.reader, cx);
         let links = input.links.unwrap_or(config.extract.links);

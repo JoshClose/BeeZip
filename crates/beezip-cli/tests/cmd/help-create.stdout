@@ -128,7 +128,7 @@ Options:
 
       --sign <SIGNER>
           Sign it: your signing key by name, a certificate's thumbprint in your stores, a
-          certificate file with its key beside it, or a `.pfx` (on Windows). `.bhive` only
+          certificate file with its key beside it, or a `.pfx` (Windows, macOS). `.bhive` only
 
       --dry-run[=<DRY_RUN>]
           Show what would be added without writing anything
@@ -152,7 +152,7 @@ Global options:
 
   -i, --identity <FILE>
           A key file that opens encrypted .bhive archives (age identities, PEM and PKCS #8 keys,
-          .pfx files on Windows); repeatable
+          .pfx files on Windows and macOS); repeatable
 
       --password-stdin
           Read the password or recovery key from the first line of stdin, where other programs can't

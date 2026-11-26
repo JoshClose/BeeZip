@@ -24,7 +24,7 @@ pub struct ArchiveSignInput {
     /// The archive.
     pub archive: PathBuf,
     /// Sign with these: your signing key by name, a certificate's thumbprint in your stores,
-    /// a certificate file with its key beside it, or a `.pfx` (on Windows).
+    /// a certificate file with its key beside it, or a `.pfx` (Windows, macOS).
     #[arg(long, value_name = "SIGNER")]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sign: Option<Vec<String>>,

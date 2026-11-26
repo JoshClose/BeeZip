@@ -590,7 +590,7 @@ fn security_key(_: bool, _: Option<&[u8]>, _: Option<isize>) -> Result<Labelled,
 
 /// Whom `sign` names: your signing key by name, a certificate's thumbprint in your stores, a
 /// certificate file with its key beside it (`name.key`, or in the same PEM file), or a `.pfx`
-/// (opened in memory, on Windows). A key file under a password asks for it.
+/// (Windows and macOS). A key file under a password asks for it.
 pub fn signing(names: &[String], cx: &mut JobCtx) -> Result<Option<Signing>, CmdError> {
     if names.is_empty() {
         return Ok(None);
@@ -621,7 +621,7 @@ fn signer(text: &str, cx: &mut JobCtx) -> Result<Arc<dyn sign::Signer>, CmdError
     if path.is_file() {
         let bytes = std::fs::read(path)
             .map_err(|e| beezip_core::Error::io(format!("reading {}", path.display()), &e))?;
-        // A .pfx holds its key, opened in memory (Windows); its password is asked for.
+        // A .pfx holds its key (opened on Windows and macOS); its password is asked for.
         if beezip_keys::pfx::is_pfx(&bytes) {
             return cx.with_file_password(path, |password| {
                 beezip_keys::pfx::signer(&bytes, password).map_err(|e| {
@@ -795,14 +795,38 @@ fn wanted_one(text: &str, cx: &JobCtx) -> Result<Wanted, CmdError> {
 }
 
 /// `Ok` when a valid signature is from each signer `wanted` names; `SignatureRequired`
-/// otherwise. `report` is `None` for an archive that can't be signed (not a `.bhive`).
-pub fn require(report: Option<&sign::Report>, wanted: &[(String, Wanted)]) -> Result<(), CmdError> {
+/// otherwise. `report` is `None` for an archive that can't be signed (not a `.bhive`). A
+/// certificate's signature doesn't count once `store`'s trust finds the certificate expired or
+/// revoked (a contact's, or one the system trusts; docs/M14.md §11).
+pub fn require(
+    report: Option<&sign::Report>,
+    wanted: &[(String, Wanted)],
+    store: Option<&Store>,
+) -> Result<(), CmdError> {
+    use beezip_keys::trust::Trust;
     let signatures = report.map(|r| r.signatures.as_slice()).unwrap_or_default();
     for (name, want) in wanted {
-        if signatures.iter().any(|s| want.matches(s)) {
+        // Each of their signatures, with why it doesn't count when it doesn't.
+        let lapses: Vec<Option<&str>> = signatures
+            .iter()
+            .filter(|s| want.matches(s))
+            .map(|s| match (want, store) {
+                (Wanted::Certificate(_), Some(store)) => {
+                    match beezip_keys::trust::trust(store, s) {
+                        Ok(Trust::Expired { .. }) => Some("has expired"),
+                        Ok(Trust::Revoked { .. }) => Some("was revoked"),
+                        _ => None,
+                    }
+                }
+                _ => None,
+            })
+            .collect();
+        if lapses.iter().any(Option::is_none) {
             continue;
         }
-        let why = if signatures.is_empty() {
+        let why = if let Some(Some(why)) = lapses.first() {
+            format!("it is signed with their certificate, which {why}")
+        } else if signatures.is_empty() {
             "the archive isn't signed".to_owned()
         } else if signatures.iter().any(|s| s.status == Status::Invalid) {
             "it changed after it was signed".to_owned()
@@ -943,8 +967,9 @@ pub fn reports(report: &sign::Report, cx: &JobCtx) -> Vec<SignatureReport> {
 fn signature_report(s: &SignatureInfo, store: Result<&Store, &CmdError>) -> SignatureReport {
     let algorithm = Algorithm::from_id(s.algorithm);
     let fingerprint = fingerprint(&s.signer);
+    // DER from the archive: never read as PEM.
     let leaf = signer_certificates(&s.signer)
-        .and_then(|c| c.first().and_then(|der| cert::parse(der).ok()));
+        .and_then(|c| c.first().and_then(|der| cert::parse_der(der).ok()));
     let (status, mut note) = match &s.status {
         Status::Valid => (SignatureStatusName::Valid, None),
         Status::Invalid => (
@@ -961,6 +986,21 @@ fn signature_report(s: &SignatureInfo, store: Result<&Store, &CmdError>) -> Sign
         Some(Algorithm::MlDsa65Ed25519) => <[u8; 1984]>::try_from(&s.signer[..])
             .ok()
             .map(|k| bech32::key_text(&KeyText::SigningPublic(Box::new(k)))),
+        // A certificate whose key usage forbids signatures is nobody's, contact or not
+        // (`beezip_keys::trust`): there is nothing to add.
+        _ if leaf
+            .as_ref()
+            .is_some_and(|c| c.digital_signature == Some(false)) =>
+        {
+            if status == SignatureStatusName::Valid && note.is_none() {
+                note = Some(
+                    "its certificate's key usage doesn't allow signatures, so it can't be \
+                     known as anyone's, a contact's included"
+                        .to_owned(),
+                );
+            }
+            None
+        }
         _ => signer_certificates(&s.signer).and_then(|c| c.first().map(|der| pem(der))),
     };
     let mut signer = leaf
@@ -1003,6 +1043,9 @@ fn signature_report(s: &SignatureInfo, store: Result<&Store, &CmdError>) -> Sign
         trust,
         signer,
         fingerprint,
+        certificate_fingerprint: leaf
+            .as_ref()
+            .map(beezip_keys::identity::certificate_fingerprint),
         public,
         issuer: leaf.map(|c| c.issuer),
         claimed_time: s.time,
@@ -1650,20 +1693,20 @@ mod tests {
     fn require_says_why() {
         let key = vec![1u8; 1984];
         let wanted = vec![("alice".to_owned(), Wanted::Key(sha256(&key)))];
-        let e = require(None, &wanted).unwrap_err();
+        let e = require(None, &wanted, None).unwrap_err();
         assert_eq!(e.code, ErrorCode::SignatureRequired);
         assert!(e.message.contains("isn't signed"), "{}", e.message);
         let report = sign::Report {
             signatures: vec![signature(1, key.clone(), Status::Invalid)],
             digests: None,
         };
-        let e = require(Some(&report), &wanted).unwrap_err();
+        let e = require(Some(&report), &wanted, None).unwrap_err();
         assert!(e.message.contains("changed after"), "{}", e.message);
         let report = sign::Report {
             signatures: vec![signature(1, vec![2; 1984], Status::Valid)],
             digests: None,
         };
-        let e = require(Some(&report), &wanted).unwrap_err();
+        let e = require(Some(&report), &wanted, None).unwrap_err();
         assert!(e.message.contains("none of its 1"), "{}", e.message);
         let report = sign::Report {
             signatures: vec![
@@ -1672,8 +1715,8 @@ mod tests {
             ],
             digests: None,
         };
-        require(Some(&report), &wanted).unwrap();
-        require(None, &[]).unwrap();
+        require(Some(&report), &wanted, None).unwrap();
+        require(None, &[], None).unwrap();
     }
 
     #[test]
@@ -1990,5 +2033,85 @@ mod tests {
         )
         .unwrap_err();
         assert!(e.message.contains("could be checked"), "{}", e.message);
+    }
+
+    /// A test certificate of `beezip-keys`' (its `files/testdata`, published on purpose).
+    fn test_certificate(name: &str) -> (Vec<u8>, Vec<u8>) {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../beezip-keys/src/files/testdata")
+            .join(name);
+        let bytes = std::fs::read(path).unwrap();
+        let der = cert::parse(&bytes).unwrap().der;
+        (bytes, der)
+    }
+
+    /// The signer bytes of a signature carrying `der` alone.
+    fn signer_of(der: &[u8]) -> Vec<u8> {
+        beezip_core::format::bhive::crypt::sig::signer_bytes(&[der.to_vec()]).unwrap()
+    }
+
+    /// `require_signer` matches whole certificates, and a contact's certificate that has
+    /// expired doesn't count, though its hash matches (docs/M14.md §11).
+    #[test]
+    fn a_lapsed_contact_isnt_the_signer_required() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::new(dir.path().to_owned());
+        let (bytes, der) = test_certificate("rsa-expired.crt");
+        store.import_file("Old", &bytes).unwrap();
+        let wanted = vec![("Old".to_owned(), Wanted::Certificate(sha256(&der)))];
+        let report = sign::Report {
+            signatures: vec![signature(2, signer_of(&der), Status::Valid)],
+            digests: None,
+        };
+        // Without your contacts, only the hash is checked.
+        require(Some(&report), &wanted, None).unwrap();
+        let e = require(Some(&report), &wanted, Some(&store)).unwrap_err();
+        assert_eq!(e.code, ErrorCode::SignatureRequired);
+        assert!(e.message.contains("which has expired"), "{}", e.message);
+        // A valid contact's does, and so does a certificate nobody vouches for.
+        let (bytes, der) = test_certificate("rsa.crt");
+        store.import_file("Bob", &bytes).unwrap();
+        let wanted = vec![("Bob".to_owned(), Wanted::Certificate(sha256(&der)))];
+        let report = sign::Report {
+            signatures: vec![signature(2, signer_of(&der), Status::Valid)],
+            digests: None,
+        };
+        require(Some(&report), &wanted, Some(&store)).unwrap();
+        let (_, der) = test_certificate("p256-ecdsa.crt");
+        let wanted = vec![("file".to_owned(), Wanted::Certificate(sha256(&der)))];
+        let report = sign::Report {
+            signatures: vec![signature(4, signer_of(&der), Status::Valid)],
+            digests: None,
+        };
+        require(Some(&report), &wanted, Some(&store)).unwrap();
+    }
+
+    /// A certificate signer's report gives its own certificate's fingerprint beside the signer
+    /// bytes', and the one a contact made from it shows; one whose key usage forbids signatures
+    /// offers nothing to add, and says why.
+    #[test]
+    fn certificate_signers_are_shown_by_their_certificates() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::new(dir.path().to_owned());
+        let (bytes, der) = test_certificate("rsa.crt");
+        let r = signature_report(&signature(2, signer_of(&der), Status::Valid), Ok(&store));
+        assert_eq!(r.fingerprint, fingerprint(&signer_of(&der)));
+        let contact = store.import_file("Bob", &bytes).unwrap();
+        assert_eq!(r.certificate_fingerprint, Some(contact.fingerprint));
+        assert_ne!(
+            r.certificate_fingerprint.as_deref(),
+            Some(r.fingerprint.as_str())
+        );
+        assert!(r.public.unwrap().starts_with("-----BEGIN CERTIFICATE-----"));
+        // A signing key has no certificate.
+        let key = signature_report(&signature(1, vec![3; 1984], Status::Valid), Ok(&store));
+        assert_eq!(key.certificate_fingerprint, None);
+
+        let (_, der) = test_certificate("rsa-encrypt-only.crt");
+        let r = signature_report(&signature(2, signer_of(&der), Status::Valid), Ok(&store));
+        assert_eq!(r.trust, Some(TrustName::Unknown));
+        assert_eq!(r.public, None);
+        assert!(r.note.unwrap().contains("key usage"));
+        assert!(r.certificate_fingerprint.is_some());
     }
 }

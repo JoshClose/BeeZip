@@ -12,7 +12,7 @@ Arguments:
 Options:
       --sign <SIGNER>
           Sign with these: your signing key by name, a certificate's thumbprint in your stores, a
-          certificate file with its key beside it, or a `.pfx` (on Windows)
+          certificate file with its key beside it, or a `.pfx` (Windows, macOS)
 
       --remove <N>
           Remove these signatures, by their place in the list `archive.info` shows, from 1
@@ -42,7 +42,7 @@ Global options:
 
   -i, --identity <FILE>
           A key file that opens encrypted .bhive archives (age identities, PEM and PKCS #8 keys,
-          .pfx files on Windows); repeatable
+          .pfx files on Windows and macOS); repeatable
 
       --password-stdin
           Read the password or recovery key from the first line of stdin, where other programs can't

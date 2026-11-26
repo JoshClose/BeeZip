@@ -87,7 +87,7 @@ Options:
 
       --sign <SIGNER>
           Sign the archive again after adding: an edit drops its signatures otherwise. Your signing
-          key by name, a certificate's thumbprint, a certificate file, or a `.pfx` (on Windows).
+          key by name, a certificate's thumbprint, a certificate file, or a `.pfx` (Windows, macOS).
           `.bhive` only
 
       --dry-run[=<DRY_RUN>]
@@ -112,7 +112,7 @@ Global options:
 
   -i, --identity <FILE>
           A key file that opens encrypted .bhive archives (age identities, PEM and PKCS #8 keys,
-          .pfx files on Windows); repeatable
+          .pfx files on Windows and macOS); repeatable
 
       --password-stdin
           Read the password or recovery key from the first line of stdin, where other programs can't

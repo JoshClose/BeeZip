@@ -96,7 +96,7 @@ describe("an unknown signer's certificate (docs/M14.md §11)", () => {
   it("shows its subject beside \"an unknown signer\", in the line and the details", async () => {
     const user = userEvent.setup();
     const pem = "-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----\n";
-    const stranger: Signature = { ...cert, trust: "unknown", signer: "CN=Someone Else (issued by CN=Nobody's CA)", issuer: "CN=Nobody's CA", public: pem };
+    const stranger: Signature = { ...cert, trust: "unknown", signer: "CN=Someone Else (issued by CN=Nobody's CA)", issuer: "CN=Nobody's CA", public: pem, certificate_fingerprint: "CERT-CERT-CERT-CERT" };
     // keys.import keeps a certificate as a contact: "Add to contacts" adds its PEM.
     expect(contactKey(stranger)).toBe(pem);
     expect(contactKey(unknown)).toBe("bzsig1stranger");
@@ -117,7 +117,10 @@ describe("an unknown signer's certificate (docs/M14.md §11)", () => {
     expect(dialog).toHaveTextContent("Certificate forCN=Someone Else (issued by CN=Nobody's CA), as the certificate says");
     expect(dialog).toHaveTextContent("Issued byCN=Nobody's CA");
     expect(dialog).toHaveTextContent("AAAA-BBBB-CCCC-DDDD");
-    expect(dialog).toHaveTextContent("The system doesn't trust this certificate. Check the fingerprint with the signer");
+    // What is checked with the signer is the certificate's own fingerprint, which the contact
+    // will show, not the signature's (of the chain it carries).
+    expect(dialog).toHaveTextContent("Certificate's fingerprintCERT-CERT-CERT-CERT");
+    expect(dialog).toHaveTextContent("The system doesn't trust this certificate. Check its fingerprint, CERT-CERT-CERT-CERT, with the signer");
     // Added as a contact under its subject, or the name typed: its certificate, as PEM.
     expect(within(dialog).getByLabelText("Contact's name")).toHaveValue("CN=Someone Else");
     await user.clear(within(dialog).getByLabelText("Contact's name"));
@@ -125,6 +128,18 @@ describe("an unknown signer's certificate (docs/M14.md §11)", () => {
     await user.click(within(dialog).getByRole("button", { name: /Add to contacts/ }));
     await waitFor(() => expect(fake.calls.find((c) => c.name === "keys.import")?.args).toEqual({ name: "Someone", text: pem }));
     await waitFor(() => expect(useArchives.getState().tabs[0].info).toBeUndefined());
+  });
+
+  it("doesn't offer to add a certificate whose key usage forbids signatures, and says why", async () => {
+    const user = userEvent.setup();
+    const note = "its certificate's key usage doesn't allow signatures, so it can't be known as anyone's, a contact's included";
+    const encryptOnly: Signature = { ...cert, trust: "unknown", signer: "CN=Encrypt Only (self-signed)", issuer: "CN=Encrypt Only", certificate_fingerprint: "CERT-CERT-CERT-CERT", note };
+    expect(contactKey(encryptOnly)).toBeUndefined();
+    render(<SignatureLine tab={tab([encryptOnly])} />);
+    await user.click(screen.getByRole("button", { name: "Details…" }));
+    const dialog = screen.getByRole("dialog");
+    expect(within(dialog).queryByRole("button", { name: /Add to contacts/ })).toBeNull();
+    expect(dialog).toHaveTextContent(`It can't be added to your contacts: ${note}.`);
   });
 });
 

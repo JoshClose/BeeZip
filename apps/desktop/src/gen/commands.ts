@@ -104,8 +104,8 @@ follow_links?: boolean,
 name_encoding?: NameEncoding,
 /**
  * Sign the archive again after adding: an edit drops its signatures otherwise. Your
- * signing key by name, a certificate's thumbprint, a certificate file, or a `.pfx` (on
- * Windows). `.bhive` only.
+ * signing key by name, a certificate's thumbprint, a certificate file, or a `.pfx`
+ * (Windows, macOS). `.bhive` only.
  */
 sign?: Array<string>,
 /**
@@ -240,7 +240,7 @@ windows_hello?: boolean,
 strength?: StrengthName,
 /**
  * Sign it: your signing key by name, a certificate's thumbprint in your stores, a
- * certificate file with its key beside it, or a `.pfx` (on Windows). `.bhive` only.
+ * certificate file with its key beside it, or a `.pfx` (Windows, macOS). `.bhive` only.
  */
 sign?: Array<string>,
 /**
@@ -397,7 +397,7 @@ windows_hello?: boolean,
 strength?: StrengthName,
 /**
  * Sign it: your signing key by name, a certificate's thumbprint in your stores, a
- * certificate file with its key beside it, or a `.pfx` (on Windows). `.bhive` only.
+ * certificate file with its key beside it, or a `.pfx` (Windows, macOS). `.bhive` only.
  */
 sign?: Array<string>,
 /**
@@ -871,7 +871,7 @@ export type ArchiveSignInput = {
 archive: string,
 /**
  * Sign with these: your signing key by name, a certificate's thumbprint in your stores,
- * a certificate file with its key beside it, or a `.pfx` (on Windows).
+ * a certificate file with its key beside it, or a `.pfx` (Windows, macOS).
  */
 sign?: Array<string>,
 /**
@@ -2225,11 +2225,18 @@ trust?: TrustName,
  */
 signer: string,
 /**
- * 16 characters in groups of four (docs/bhive.md §13.5).
+ * 16 characters in groups of four (docs/bhive.md §13.5), of the signer bytes: for a
+ * certificate, of its chain as the signature carries it.
  */
 fingerprint: string,
 /**
- * The signer's public key (`bzsig1…`) or certificate (PEM), for "Add to contacts".
+ * A certificate signer's own certificate's fingerprint, the same whatever chain follows it:
+ * what its owner can read out, and what the contact made from it shows.
+ */
+certificate_fingerprint?: string,
+/**
+ * The signer's public key (`bzsig1…`) or certificate (PEM), for "Add to contacts"; absent
+ * for a certificate whose key usage forbids signatures, which no contact makes known.
  */
 public?: string, issuer?: string,
 /**

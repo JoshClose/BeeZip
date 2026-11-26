@@ -132,9 +132,9 @@ mod tests {
         std::fs::read(data(f)).unwrap()
     }
 
-    /// What a `.pfx` opened in memory must leave as it was: the user's Personal store, the keys
+    /// What a `.pfx` opened in memory must add nothing to: the user's Personal store, the keys
     /// CNG's software provider has persisted, and the legacy CryptoAPI's key containers.
-    #[derive(Debug, PartialEq, Eq)]
+    #[derive(Debug)]
     struct Persisted {
         personal: BTreeSet<String>,
         cng_keys: BTreeSet<String>,
@@ -265,11 +265,19 @@ mod tests {
             check_signed_by(&report, &signer, algorithm, &self_signed(crt));
             assert!(!signer.sign(&[3; MESSAGE_LEN]).unwrap().is_empty());
         }
+        // Nothing new: no test certificate in Personal, no persisted key, no key container.
+        // Something gone since is another program's doing, not this test's.
         let after = persisted();
-        assert_eq!(after, before, "a .pfx left something behind");
         for t in test_thumbprints() {
             assert!(!after.personal.contains(&t), "{t} reached Personal");
         }
+        let keys: Vec<_> = after.cng_keys.difference(&before.cng_keys).collect();
+        assert!(keys.is_empty(), "keys persisted: {keys:?}");
+        let containers: Vec<_> = after
+            .capi_containers
+            .difference(&before.capi_containers)
+            .collect();
+        assert!(containers.is_empty(), "key containers made: {containers:?}");
     }
 
     #[test]

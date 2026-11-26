@@ -7,6 +7,8 @@
 //! only used for a way in the user chose (a slot's `device`), or to sign. Finding which slot
 //! is whose needs only the certificates, and never asks.
 
+pub(crate) mod pfx;
+
 use std::sync::Arc;
 
 use beezip_core::{

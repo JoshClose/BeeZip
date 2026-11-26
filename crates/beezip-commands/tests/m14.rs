@@ -1186,9 +1186,10 @@ fn a_certificate_contact_is_encrypted_to_and_known_as_a_signer() {
     let s = &info["signatures"][0];
     assert_eq!(s["trust"], "contact", "{info}");
     assert_eq!(s["signer"], "Bob");
-    // A signature's fingerprint is of its signer bytes; Bob's, of his certificate, as his way
-    // into an archive shows it.
+    // A signature's fingerprint is of its signer bytes; its certificate's is Bob's, as his
+    // contact and his way into an archive show it.
     assert_ne!(s["fingerprint"], bob["fingerprint"]);
+    assert_eq!(s["certificate_fingerprint"], bob["fingerprint"], "{info}");
     at.ok(&[], "archive.verify", json!({ "archive": signed }));
     at.ok(
         &[],
@@ -1208,10 +1209,11 @@ fn a_certificate_contact_is_encrypted_to_and_known_as_a_signer() {
     assert_eq!(info["signatures"][0]["trust"], "unknown", "{info}");
 }
 
-/// A `.pfx` given to open or to sign: on Windows it is opened in memory, its password asked
-/// for; elsewhere it is refused with what to do instead, before anything is asked.
+/// A `.pfx` given to open or to sign: on Windows (in memory) and macOS (in a keychain of its
+/// own) it is opened with its password asked for; on Linux it is refused with what to do
+/// instead, before anything is asked.
 #[test]
-fn a_pfx_opens_and_signs_on_windows_and_is_refused_elsewhere() {
+fn a_pfx_opens_and_signs_on_windows_and_macos_and_is_refused_elsewhere() {
     let settings = tempfile::tempdir().unwrap();
     let at = At(settings.path());
     let work = tempfile::tempdir().unwrap();
@@ -1222,59 +1224,91 @@ fn a_pfx_opens_and_signs_on_windows_and_is_refused_elsewhere() {
         "archive.create",
         json!({ "output": archive, "inputs": [input], "to_cert": [testdata("rsa.crt")] }),
     );
-    // Its password is asked for, and nobody is here to type it.
-    let opened = at.err(&["rsa.pfx"], "archive.test", json!({ "archive": archive }));
-    // Signing with one whose password is empty needs nobody.
-    let signed = work.path().join("s.bhive");
-    let (sign, _) = at.run(
-        &[],
-        "archive.create",
-        json!({ "output": signed, "inputs": [input], "sign": [testdata("p256-ecdsa.pfx")] }),
+    // Its password is asked for, and nobody is here to type it. The 3DES files are what every
+    // macOS reads, as Windows does.
+    let opened = at.err(
+        &["rsa-3des.pfx"],
+        "archive.test",
+        json!({ "archive": archive }),
     );
-    if cfg!(windows) {
-        assert_eq!(opened.code, ErrorCode::PasswordRequired, "{opened:?}");
-        assert!(
-            opened.message.contains("under a password"),
-            "{}",
-            opened.message
-        );
-        sign.unwrap();
-        let info = at.ok(&[], "archive.info", json!({ "archive": signed }));
-        assert_eq!(info["signatures"][0]["status"], "valid", "{info}");
-        assert_eq!(info["signatures"][0]["algorithm"], "ecdsa-p256");
-        // Someone types the password: a wrong one is asked for again, the right one opens it.
-        let asked = Scripted::new(vec![
-            PromptReply::Password {
-                password: "comb".into(),
-            },
-            PromptReply::Password {
-                password: "honey".into(),
-            },
-        ]);
-        at.engine(&["rsa.pfx"])
-            .invoke(
-                "archive.test",
-                json!({ "archive": archive }),
-                asked.clone(),
-                Arc::new(|_| {}),
-            )
-            .unwrap()
-            .join()
-            .unwrap();
-        let prompts = asked.asked.lock().unwrap().clone();
-        assert_eq!(prompts.len(), 2, "{prompts:?}");
-        assert!(
-            matches!(&prompts[0], Prompt::Password { entry: Some(e) } if e.contains("rsa.pfx")),
-            "{prompts:?}"
-        );
-    } else {
+    if cfg!(not(any(windows, target_os = "macos"))) {
         assert_eq!(opened.code, ErrorCode::UnsupportedOperation, "{opened:?}");
         assert!(
             opened.message.contains("openssl pkcs12"),
             "{}",
             opened.message
         );
-        let e = sign.unwrap_err();
+        let e = at.err(
+            &[],
+            "archive.create",
+            json!({
+                "output": work.path().join("s.bhive"), "inputs": [input],
+                "sign": [testdata("p256-3des.pfx")],
+            }),
+        );
         assert_eq!(e.code, ErrorCode::UnsupportedOperation, "{e:?}");
+        return;
+    }
+    assert_eq!(opened.code, ErrorCode::PasswordRequired, "{opened:?}");
+    assert!(
+        opened.message.contains("under a password"),
+        "{}",
+        opened.message
+    );
+    // Someone types the password: a wrong one is asked for again, the right one opens it.
+    let replies = |n: usize| {
+        let mut r = vec![
+            PromptReply::Password {
+                password: "comb".into(),
+            };
+            n - 1
+        ];
+        r.push(PromptReply::Password {
+            password: "honey".into(),
+        });
+        Scripted::new(r)
+    };
+    let asked = replies(2);
+    at.engine(&["rsa-3des.pfx"])
+        .invoke(
+            "archive.test",
+            json!({ "archive": archive }),
+            asked.clone(),
+            Arc::new(|_| {}),
+        )
+        .unwrap()
+        .join()
+        .unwrap();
+    let prompts = asked.asked.lock().unwrap().clone();
+    assert_eq!(prompts.len(), 2, "{prompts:?}");
+    assert!(
+        matches!(&prompts[0], Prompt::Password { entry: Some(e) } if e.contains("rsa-3des.pfx")),
+        "{prompts:?}"
+    );
+    // Signing with one asks for its password the same way.
+    let signed = work.path().join("s.bhive");
+    at.engine(&[])
+        .invoke(
+            "archive.create",
+            json!({ "output": signed, "inputs": [input], "sign": [testdata("p256-3des.pfx")] }),
+            replies(1),
+            Arc::new(|_| {}),
+        )
+        .unwrap()
+        .join()
+        .unwrap();
+    let info = at.ok(&[], "archive.info", json!({ "archive": signed }));
+    assert_eq!(info["signatures"][0]["status"], "valid", "{info}");
+    assert_eq!(info["signatures"][0]["algorithm"], "ecdsa-p256");
+    // On Windows, one whose password is empty needs nobody.
+    if cfg!(windows) {
+        at.ok(
+            &[],
+            "archive.create",
+            json!({
+                "output": work.path().join("e.bhive"), "inputs": [input],
+                "sign": [testdata("p256-ecdsa.pfx")],
+            }),
+        );
     }
 }

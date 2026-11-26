@@ -12,6 +12,7 @@ from 2020 to 2126, so a machine whose clock is behind still finds it valid, exce
 | `rsa-pkcs1.key` | `rsa.key` as PKCS #1 (`RSA PRIVATE KEY`) |
 | `rsa-sign-only.crt` | the same key, key usage digitalSignature only: can't be encrypted to |
 | `rsa-expired.crt` | the same key, valid only in 2020 |
+| `rsa-encrypt-only.crt` | the same key, key usage keyEncipherment only: can be encrypted to, can't sign |
 | `rsa1024.crt` | another key, RSA-1024: too small (its key isn't kept) |
 | `p256.crt`, `p384.crt` | self-signed, key usage digitalSignature and keyAgreement |
 | `p256-sec1.key` | `p256.key` as SEC 1 (`EC PRIVATE KEY`) |
@@ -20,5 +21,5 @@ from 2020 to 2126, so a machine whose clock is behind still finds it valid, exce
 | `p384-encrypted.key` | `p384.key` as encrypted PKCS #8 (PBES2, PBKDF2-SHA256, AES-256-CBC), password `honey` |
 | `chain.pem` | `p256.key`'s certificate issued by a test CA, then the CA's certificate (its key isn't kept) |
 | `rsa.pfx`, `p256.pfx` | `rsa.key` with `rsa.crt`, `p256.key` with `p256.crt`, as PKCS #12 (OpenSSL 3's defaults: PBES2, PBKDF2-SHA256, AES-256-CBC, an HMAC-SHA256 MAC), password `honey` |
-| `rsa-3des.pfx` | `rsa.pfx` with the older encryption many tools still write (`pbeWithSHA1And3-KeyTripleDES-CBC`, an HMAC-SHA1 MAC), password `honey` |
+| `rsa-3des.pfx`, `p256-3des.pfx` | `rsa.pfx` and `p256.pfx` with the older encryption many tools still write, and every macOS reads (`pbeWithSHA1And3-KeyTripleDES-CBC`, an HMAC-SHA1 MAC), password `honey` |
 | `p256-ecdsa.pfx` | `p256.key` with `p256-ecdsa.crt`, as `rsa.pfx` is made but with an empty password |

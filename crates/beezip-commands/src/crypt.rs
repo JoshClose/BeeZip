@@ -160,9 +160,16 @@ pub struct SignatureReport {
     /// Who signed, as BeeZip shows it: your key's or a contact's name, a certificate's subject,
     /// or the fingerprint.
     pub signer: String,
-    /// 16 characters in groups of four (docs/bhive.md §13.5).
+    /// 16 characters in groups of four (docs/bhive.md §13.5), of the signer bytes: for a
+    /// certificate, of its chain as the signature carries it.
     pub fingerprint: String,
-    /// The signer's public key (`bzsig1…`) or certificate (PEM), for "Add to contacts".
+    /// A certificate signer's own certificate's fingerprint, the same whatever chain follows it:
+    /// what its owner can read out, and what the contact made from it shows.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub certificate_fingerprint: Option<String>,
+    /// The signer's public key (`bzsig1…`) or certificate (PEM), for "Add to contacts"; absent
+    /// for a certificate whose key usage forbids signatures, which no contact makes known.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub public: Option<String>,
