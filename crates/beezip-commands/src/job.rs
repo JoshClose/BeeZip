@@ -116,6 +116,13 @@ pub trait Interactor: Send + Sync {
     /// Called just before the `Prompt` event goes out, so a reply can't arrive before the
     /// interactor is ready for it. A GUI makes its reply slot here.
     fn expect(&self, _job: JobId, _id: u64) {}
+
+    /// Whether to let a password slot's Argon2 use `need_mib` of this machine's `total_mib`,
+    /// more than half of it (docs/M14.md §5). With nobody to ask it says no, and the slot is
+    /// left untried.
+    fn spend_memory(&self, _job: JobId, _need_mib: u64, _total_mib: u64) -> bool {
+        false
+    }
 }
 
 /// An [`Interactor`] with nobody to ask: every prompt fails with a hint about which argument to
@@ -242,6 +249,8 @@ pub struct JobCtx {
     /// The ways into the last encrypted archive an Unlock prompt couldn't be answered for, as
     /// `details.ways`.
     unlock_ways: Option<serde_json::Value>,
+    /// The This PC keys this job made, deleted again if it fails.
+    made_this_pc: Vec<String>,
 }
 
 impl JobCtx {
@@ -277,12 +286,43 @@ impl JobCtx {
             keys: None,
             key_error: None,
             unlock_ways: None,
+            made_this_pc: Vec::new(),
+        }
+    }
+
+    /// Notes a This PC key made for the archive being written: if the job then fails, the key
+    /// opens nothing and is deleted ([`JobCtx::failed`]).
+    pub fn made_this_pc(&mut self, name: String) {
+        self.made_this_pc.push(name);
+    }
+
+    /// The job failed: the This PC keys it made are deleted, since no archive has them.
+    pub(crate) fn failed(&mut self) {
+        for name in std::mem::take(&mut self.made_this_pc) {
+            #[cfg(windows)]
+            if let Err(e) = beezip_keys::cng::delete_this_pc(&name) {
+                self.log(
+                    LogLevel::Warn,
+                    format!(
+                        "the This PC key {name} made for it couldn't be deleted: {}",
+                        e.message
+                    ),
+                );
+            }
+            #[cfg(not(windows))]
+            let _ = name;
         }
     }
 
     /// `e` with the ways into the archive nothing opened, for an error that says so
     /// (`KeyRequired`, `PasswordRequired`) and doesn't list them already.
     pub(crate) fn with_ways(&mut self, e: CmdError) -> CmdError {
+        // No key here opened it, and a key file given couldn't be read: that is why.
+        if e.code == ErrorCode::KeyRequired
+            && let Some(k) = self.key_error.take()
+        {
+            return k;
+        }
         let wants = matches!(e.code, ErrorCode::KeyRequired | ErrorCode::PasswordRequired);
         match (self.unlock_ways.take(), wants) {
             (Some(ways), true) => {
@@ -321,8 +361,12 @@ impl JobCtx {
         match self.live.system_keys() {
             SystemKeys::Off => Vec::new(),
             SystemKeys::Stub(stub) => stub.this_pc(),
-            // PR D's `cng::this_pc()` lists them; until it is in, none is known here, and each
-            // machine-bound slot is confirmed as other people's are.
+            #[cfg(windows)]
+            SystemKeys::Real => beezip_keys::cng::this_pc()
+                .into_iter()
+                .map(|(_, spki)| spki)
+                .collect(),
+            #[cfg(not(windows))]
             SystemKeys::Real => Vec::new(),
         }
     }
@@ -335,9 +379,15 @@ impl JobCtx {
         let mut sources = beezip_keys::Sources::default();
         match self
             .key_store()
-            .and_then(|store| store.source().map_err(CmdError::from))
+            .and_then(|store| store.source_with_problems().map_err(CmdError::from))
         {
-            Ok(own) => sources.push(own),
+            Ok((own, problems)) => {
+                sources.push(own);
+                // So that an archive none of your keys opened says why.
+                for p in problems {
+                    self.log(LogLevel::Warn, p.message);
+                }
+            }
             Err(e) => self.log(
                 LogLevel::Warn,
                 format!("your keys aren't available: {}", e.message),
@@ -394,10 +444,24 @@ impl JobCtx {
         out
     }
 
-    /// The key file at `path` (`--identity`): a file under a password asks for it, without
-    /// echo, up to [`PASSWORD_PROMPTS`] times.
+    /// The key file at `path` (`--identity`): an age identity file (`AGE-SECRET-KEY-…`
+    /// lines), or a PEM or DER private key, which under a password asks for it, without echo,
+    /// up to [`PASSWORD_PROMPTS`] times.
     fn key_file(&mut self, path: &Path) -> Result<Box<dyn KeySource + Send>, CmdError> {
         use beezip_core::ErrorKind;
+        let in_file = |e: beezip_core::Error| {
+            let e = CmdError::from(e);
+            CmdError::new(e.code, format!("{}: {}", path.display(), e.message))
+        };
+        let bytes = std::fs::read(path)
+            .map_err(|e| in_file(beezip_core::Error::io("reading the key file", &e)))?;
+        if let Ok(text) = std::str::from_utf8(&bytes)
+            && text
+                .lines()
+                .any(|l| l.trim().starts_with("AGE-SECRET-KEY-"))
+        {
+            return beezip_keys::identity::identity_file(text).map_err(in_file);
+        }
         let mut passphrase: Option<String> = None;
         let mut asked = 0;
         loop {
@@ -689,8 +753,9 @@ impl beezip_core::Ctx for JobCtx {
 
         use crate::crypt::{UnlockReply, UnlockWay};
         self.password_used = true;
-        if let Some(e) = self.key_error.take() {
-            return Err(e.into());
+        // Kept for the job's error too: core may go on to say only that no key fit.
+        if let Some(e) = &self.key_error {
+            return Err(e.clone().into());
         }
         if request.attempt == 0 {
             self.typed = self.typed_answers(request);
@@ -765,6 +830,18 @@ impl beezip_core::Ctx for JobCtx {
             self.keys = Some(sources);
         }
         self.keys.as_mut().map(|s| s as &mut dyn KeySource)
+    }
+
+    /// Asks the front end before a password slot's Argon2 takes more than half this machine's
+    /// memory (docs/M14.md §5); an unattended job (MCP) never spends it.
+    fn spend_memory(&mut self, need: u64, total: u64) -> beezip_core::Result<bool> {
+        if self.policy.unattended {
+            return Ok(false);
+        }
+        self.check_cancelled()?;
+        Ok(self
+            .interactor
+            .spend_memory(self.id, need >> 20, total >> 20))
     }
 
     fn overwrite_entry(

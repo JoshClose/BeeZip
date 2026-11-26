@@ -136,7 +136,7 @@ fn formats_list_has_everything() {
     assert_eq!(own["menu"], true);
     assert_eq!(own["caps"]["create"], true);
     assert_eq!(own["caps"]["rename"], true);
-    assert_eq!(own["caps"]["encrypt"], false);
+    assert_eq!(own["caps"]["encrypt"], true);
     assert_eq!(own["levels"]["default"], 2);
     assert_eq!(own["level_names"][4], "max");
     assert_eq!(out["create"][1], "bhive");

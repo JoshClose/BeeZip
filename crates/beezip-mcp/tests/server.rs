@@ -977,4 +977,47 @@ async fn encrypted_and_signed_bhive_over_mcp() {
         .await
         .unwrap();
     assert_eq!(error(&r).0, "SignatureRequired");
+
+    // A real encrypted archive: the model is asked for its password, never the user, and the
+    // ways in come with the error.
+    let sealed = fixture("bhive-m14/spec-sealed.bhive");
+    let r = h
+        .client
+        .call_tool(call("archive_list", json!({ "archive": sealed })))
+        .await
+        .unwrap();
+    assert_eq!(error(&r).0, "PasswordRequired");
+    let details = &r.structured_content.as_ref().unwrap()["details"];
+    assert_eq!(details["ways"][0]["kind"], "password", "{details}");
+    let r = h
+        .client
+        .call_tool(call(
+            "archive_list",
+            json!({ "archive": sealed, "password": "honey" }),
+        ))
+        .await
+        .unwrap();
+    assert!(!output(&r)["entries"].as_array().unwrap().is_empty());
+
+    // One only a key opens: no key file or system key is tried over MCP, so it is KeyRequired.
+    let examples = std::fs::read_to_string(fixture("keys/age-spec-examples.txt")).unwrap();
+    let recipient = examples.lines().find(|l| l.starts_with("age1z")).unwrap();
+    let keyed = root.join("keyed.bhive");
+    let r = h
+        .client
+        .call_tool(call(
+            "archive_create",
+            json!({ "output": keyed, "inputs": [fixture("bhive/README.md")], "to": [recipient] }),
+        ))
+        .await
+        .unwrap();
+    output(&r);
+    let r = h
+        .client
+        .call_tool(call("archive_list", json!({ "archive": keyed })))
+        .await
+        .unwrap();
+    assert_eq!(error(&r).0, "KeyRequired");
+    let details = &r.structured_content.as_ref().unwrap()["details"];
+    assert_eq!(details["ways"][0]["kind"], "public-key", "{details}");
 }

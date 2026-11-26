@@ -9,7 +9,7 @@ use beezip_commands::{
     CmdError, ErrorCode, Interactor, JobId, OverwriteChoice, Prompt, PromptReply,
     crypt::{SlotKindName, UnlockReply, UnlockWay},
 };
-use dialoguer::{Password, Select, theme::ColorfulTheme};
+use dialoguer::{Confirm, Password, Select, theme::ColorfulTheme};
 
 use crate::progress::Bars;
 
@@ -66,6 +66,20 @@ impl Interactor for TtyInteractor {
                 }
             }
             Prompt::Unlock { ways, attempt } => unlock(&theme, ways, *attempt),
+        })
+    }
+
+    fn spend_memory(&self, _job: JobId, need_mib: u64, total_mib: u64) -> bool {
+        let theme = ColorfulTheme::default();
+        self.bars.suspend(|| {
+            Confirm::with_theme(&theme)
+                .with_prompt(format!(
+                    "Its password takes {need_mib} MiB of memory to check, more than half of \
+                     this PC's {total_mib} MiB. Check it anyway?"
+                ))
+                .default(false)
+                .interact()
+                .unwrap_or(false)
         })
     }
 }

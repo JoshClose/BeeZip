@@ -680,41 +680,47 @@ fn an_encrypted_zip_converts_into_an_encrypted_bhive() {
             "new_password": "pw2",
         }),
     );
-    match r {
-        Ok(_) => assert!(encrypted(&out)),
-        Err(e) => {
-            assert_eq!(e.code, ErrorCode::UnsupportedOperation, "{e:?}");
-            assert!(e.message.contains("not built yet"), "{}", e.message);
-            assert!(!out.exists());
-        }
-    }
+    r.unwrap();
+    assert!(encrypted(&out));
+    let listed = run(
+        "archive.list",
+        json!({ "archive": out, "password": "pw2", "flat": true }),
+    )
+    .unwrap();
+    assert!(!listed["entries"].as_array().unwrap().is_empty());
 }
 
 #[test]
 fn an_encrypted_bhive_is_never_written_in_the_clear() {
-    // Converted without new ways in, or edited, an encrypted .bhive keeps its slots (PR A's
-    // core); until it can be read, the change fails and nothing is written.
+    // Converted without new ways in, or edited, an encrypted .bhive keeps its slots.
     let sealed = fixtures().join("bhive-m14/spec-sealed.bhive");
     let dir = tempfile::tempdir().unwrap();
     let out = dir.path().join("out.bhive");
-    let r = run(
+    run(
         "archive.convert",
         json!({ "archive": sealed, "output": out, "password": "honey" }),
-    );
-    if r.is_ok() {
-        assert!(encrypted(&out));
-    } else {
-        assert!(!out.exists());
-    }
+    )
+    .unwrap();
+    assert!(encrypted(&out));
     let copy = dir.path().join("copy.bhive");
     std::fs::copy(&sealed, &copy).unwrap();
     let new = dir.path().join("new.txt");
     std::fs::write(&new, "new").unwrap();
-    let r = run(
+    run(
         "archive.add",
         json!({ "archive": copy, "inputs": [new], "password": "honey" }),
+    )
+    .unwrap();
+    assert!(encrypted(&copy));
+    let listed = run(
+        "archive.list",
+        json!({ "archive": copy, "password": "honey", "flat": true }),
+    )
+    .unwrap();
+    assert!(
+        listed["entries"].to_string().contains("new.txt"),
+        "{listed}"
     );
-    assert!(encrypted(&copy), "{r:?}");
 }
 
 #[test]
@@ -805,4 +811,114 @@ fn encrypted(path: &Path) -> bool {
     use beezip_core::format::bhive::layout;
     let bytes = std::fs::read(path).unwrap();
     layout::check_header(&bytes[..16]).unwrap() & layout::FEATURE_ENCRYPTED != 0
+}
+
+/// The example keys of age's specification: an X25519 identity and recipient, an X-Wing
+/// identity and recipient.
+fn age_examples() -> Vec<String> {
+    let text = std::fs::read_to_string(fixtures().join("keys/age-spec-examples.txt")).unwrap();
+    text.lines()
+        .filter(|l| !l.starts_with('#') && !l.trim().is_empty())
+        .map(str::to_owned)
+        .collect()
+}
+
+/// Each slot's bytes, and the key id, from the key block of the `.bhive` at `path`.
+fn key_block(path: &Path) -> (Vec<Vec<u8>>, [u8; 16]) {
+    use beezip_core::format::bhive::crypt::envelope::KeyBlock;
+    let mut file = std::fs::File::open(path).unwrap();
+    let mut header = [0u8; 16];
+    std::io::Read::read_exact(&mut file, &mut header).unwrap();
+    let block = KeyBlock::read(&header, &mut file).unwrap();
+    let slots = block
+        .slots
+        .iter()
+        .map(|(_, range)| block.bytes[range.clone()].to_vec())
+        .collect();
+    (slots, block.key_id)
+}
+
+#[test]
+fn new_key_changes_every_slot_and_add_keeps_them() {
+    let keys = age_examples();
+    let dir = tempfile::tempdir().unwrap();
+    let identities = dir.path().join("identities.txt");
+    std::fs::write(&identities, format!("{}\n{}\n", keys[0], keys[2])).unwrap();
+    let policy = Policy {
+        identities: vec![identities],
+        ..Policy::unrestricted()
+    };
+    let archive = dir.path().join("a.bhive");
+    run_as(
+        policy.clone(),
+        "archive.create",
+        json!({
+            "output": archive, "inputs": [fixtures().join("bhive/README.md")],
+            "to": [keys[1], keys[3]], "sign": [],
+        }),
+    )
+    .unwrap();
+    let (before, key_id) = key_block(&archive);
+    assert_eq!(before.len(), 2);
+
+    // Neither key is among anyone's keys or contacts here: each must be confirmed.
+    let e = run_as(
+        policy.clone(),
+        "archive.protect",
+        json!({ "archive": archive, "new_key": true }),
+    )
+    .unwrap_err();
+    assert_eq!(e.code, ErrorCode::InvalidArgs);
+    assert_eq!(
+        e.details.unwrap()["unconfirmed"].as_array().unwrap().len(),
+        2
+    );
+    assert_eq!(key_block(&archive).0, before, "nothing changed");
+
+    let out = run_as(
+        policy.clone(),
+        "archive.protect",
+        json!({ "archive": archive, "new_key": true, "confirm": [0, 1] }),
+    )
+    .unwrap();
+    assert_eq!(out["ways"].as_array().unwrap().len(), 2);
+    assert_eq!(out["post_quantum"], false);
+    let (after, new_id) = key_block(&archive);
+    assert_ne!(new_id, key_id);
+    assert_eq!(after.len(), 2);
+    for (old, new) in before.iter().zip(&after) {
+        assert_ne!(old, new, "every slot is rebuilt");
+    }
+    // Each identity still opens it.
+    for key in [&keys[0], &keys[2]] {
+        let one = dir.path().join("one.txt");
+        std::fs::write(&one, key).unwrap();
+        let p = Policy {
+            identities: vec![one],
+            ..Policy::unrestricted()
+        };
+        run_as(p, "archive.test", json!({ "archive": archive })).unwrap();
+    }
+
+    // Removing a way in keeps the file key and the other slot byte for byte.
+    let out = run_as(
+        policy.clone(),
+        "archive.protect",
+        json!({ "archive": archive, "remove": [0] }),
+    )
+    .unwrap();
+    assert_eq!(out["ways"].as_array().unwrap().len(), 1);
+    assert_eq!(out["post_quantum"], true);
+    let (kept, kept_id) = key_block(&archive);
+    assert_eq!(kept_id, new_id);
+    assert_eq!(kept, vec![after[1].clone()]);
+    // The last way in can't go.
+    let e = run_as(
+        policy,
+        "archive.protect",
+        json!({ "archive": archive, "remove": [0] }),
+    )
+    .unwrap_err();
+    assert_eq!(e.code, ErrorCode::InvalidArgs, "{e:?}");
+    assert!(e.message.contains("no way in"), "{}", e.message);
 }

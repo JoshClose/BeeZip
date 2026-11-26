@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use beezip_core::{ConvertOptions, Selection, WriteSpec, ops::ArchiveKind};
+use beezip_core::{ConvertOptions, Selection, ops::ArchiveKind};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
@@ -267,9 +267,9 @@ impl Command for ArchiveConvert {
         let sign = input.sign.as_deref().unwrap_or_default();
         crate::commands::archive_create::bhive_only(kind, &input.ways(), sign)?;
         // Raw copies only when nothing asks the entries to change: a .bhive's cells are then
-        // copied as they are stored, sealed again under its new ways in. Its signatures don't
-        // carry over yet (`sign` signs the new archive); a source's slots are kept by core when
-        // no new ways in are given (docs/M14.md §3).
+        // copied as they are stored, sealed again under its new ways in, and its signatures
+        // carried over; a source's slots are kept by core when no new ways in are given
+        // (docs/M14.md §3).
         let raw = input.method.is_none()
             && input.level.is_none()
             && (input.new_password.is_none() || kind == ArchiveKind::Bhive)
@@ -277,7 +277,7 @@ impl Command for ArchiveConvert {
             && input.encrypt_headers.is_none()
             && input.solid.is_none()
             && !decrypt;
-        let mut opts = ConvertOptions {
+        let opts = ConvertOptions {
             selection: Selection::new(
                 input.entries.as_deref().unwrap_or_default(),
                 input.glob.as_deref().unwrap_or_default(),
@@ -311,15 +311,17 @@ impl Command for ArchiveConvert {
                 cx,
             )?
         };
-        // An encrypted source into a .bhive with new ways in: its entries are opened and sealed
-        // again, so core's "encrypted source" rule is met (core sees only a zip's or a 7z's
-        // password as encrypting).
-        if matches!(&spec, WriteSpec::Bhive(o) if o.protection.is_some()) {
-            opts.decrypt = true;
-        }
-        if !opts.dry_run && sign.is_empty() {
+        // A .bhive's signatures carry over when every entry is copied as it is stored; a
+        // selection, a level or a method changes what they signed.
+        let whole = input.entries.as_ref().is_none_or(Vec::is_empty)
+            && input.glob.as_ref().is_none_or(Vec::is_empty)
+            && input.exclude.as_ref().is_none_or(Vec::is_empty);
+        let carried = kind == ArchiveKind::Bhive && raw && whole;
+        if !opts.dry_run && sign.is_empty() && !carried {
             let why = if kind == ArchiveKind::Bhive {
-                "won't carry over to the new archive: pass `sign` to sign it again".to_owned()
+                "won't carry over to the new archive, whose entries change: pass `sign` to sign \
+                 it again"
+                    .to_owned()
             } else {
                 format!("can't go into a {}", kind.name())
             };

@@ -126,16 +126,9 @@ pub fn info(
     trusted: bool,
 ) -> CertificateInfo {
     let refused = c.slot_kind().err();
-    let can_sign = key.is_some()
-        && c.digital_signature != Some(false)
-        && match c.algorithm {
-            // What a reader checks (docs/bhive.md §13.4): a bigger key's signatures never verify.
-            KeyAlgorithm::Rsa { bits } => {
-                beezip_core::format::bhive::sign::RSA_BITS.contains(&bits)
-            }
-            KeyAlgorithm::Ec(_) => true,
-            KeyAlgorithm::Other => false,
-        };
+    // Its key is here, it may sign with an algorithm readers check (docs/bhive.md §13.4: an RSA
+    // key of 2,048 to 8,192 bits, P-256 or P-384), and it hasn't expired.
+    let can_sign = key.is_some() && c.sign_algorithm().is_ok() && !c.expired(crate::protect::now());
     CertificateInfo {
         thumbprint: c.thumbprint.iter().map(|b| format!("{b:02X}")).collect(),
         subject: c.subject.clone(),
@@ -207,7 +200,7 @@ mod tests {
         assert_eq!(i.thumbprint, "AB".repeat(20));
         assert_eq!(i.algorithm, "ec-p256");
         assert!(i.can_sign);
-        // Whether it can encrypt is core's to say (PR D); it says why when it can't.
+        // Whether it can encrypt is the certificate's to say; it says why when it can't.
         assert_eq!(i.can_encrypt, i.refused.is_none());
         let i = info(&c, None, None, true);
         assert!(!i.can_sign, "no private key here");

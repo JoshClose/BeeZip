@@ -858,8 +858,8 @@ dry_run?: boolean, };
 /**
  * Sign a `.bhive`, or remove its signatures (docs/bhive.md §13). A signature says who made the
  * archive's contents and that they haven't changed since; changing who can open it keeps it,
- * changing the contents drops it. Signing an archive that has no cell digests yet reads every
- * cell once.
+ * changing the contents drops it. Signing reads every cell once, to make its digests or to
+ * check the cells against them.
  */
 export type ArchiveSignInput = {
 /**
@@ -872,7 +872,7 @@ archive: string,
  */
 sign?: Array<string>,
 /**
- * Remove these signatures, by their place in the list.
+ * Remove these signatures, by their place in the list `archive.info` shows, from 1.
  */
 remove?: Array<number>,
 /**
@@ -2495,8 +2495,8 @@ export type CommandMap = {
   /**
    * Sign a `.bhive`, or remove its signatures (docs/bhive.md §13). A signature says who made the
    * archive's contents and that they haven't changed since; changing who can open it keeps it,
-   * changing the contents drops it. Signing an archive that has no cell digests yet reads every
-   * cell once.
+   * changing the contents drops it. Signing reads every cell once, to make its digests or to
+   * check the cells against them.
    */
   "archive.sign": { input: ArchiveSignInput; output: ArchiveSignOutput };
   /**

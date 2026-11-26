@@ -14,14 +14,6 @@ use crate::{
 };
 
 /// `path` made absolute against the current directory, as the CLI's relative paths mean.
-/// What M14's commands return until their PR builds them (docs/M14.md §10).
-pub fn not_built(what: &str) -> CmdError {
-    CmdError::new(
-        crate::ErrorCode::UnsupportedOperation,
-        format!("{what} is not built yet (docs/M14.md)"),
-    )
-}
-
 pub fn absolute(path: &Path) -> PathBuf {
     std::path::absolute(path).unwrap_or_else(|_| path.to_path_buf())
 }

@@ -1,22 +1,22 @@
 use std::path::PathBuf;
 
+use beezip_core::edit::sign::{SignOptions, sign};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
-use std::sync::Arc;
-
-use beezip_core::format::bhive::{BhiveWriteOptions, crypt::Protection};
-
 use crate::{
-    Access, CliSpec, CmdError, Command, Effect, JobCtx, Surfaces, commands::util::not_built,
-    crypt::SignatureReport, protect, wire::Secret,
+    Access, CliSpec, CmdError, Command, Effect, JobCtx, Surfaces,
+    commands::util::{absolute, open_options},
+    crypt::SignatureReport,
+    protect,
+    wire::Secret,
 };
 
 /// Sign a `.bhive`, or remove its signatures (docs/bhive.md §13). A signature says who made the
 /// archive's contents and that they haven't changed since; changing who can open it keeps it,
-/// changing the contents drops it. Signing an archive that has no cell digests yet reads every
-/// cell once.
+/// changing the contents drops it. Signing reads every cell once, to make its digests or to
+/// check the cells against them.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, clap::Args, TS)]
 #[serde(deny_unknown_fields)]
 #[ts(optional_fields)]
@@ -28,7 +28,7 @@ pub struct ArchiveSignInput {
     #[arg(long, value_name = "SIGNER")]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sign: Option<Vec<String>>,
-    /// Remove these signatures, by their place in the list.
+    /// Remove these signatures, by their place in the list `archive.info` shows, from 1.
     #[arg(long, value_name = "N")]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub remove: Option<Vec<u32>>,
@@ -71,43 +71,43 @@ impl Command for ArchiveSign {
     fn run(input: ArchiveSignInput, cx: &mut JobCtx) -> Result<ArchiveSignOutput, CmdError> {
         let names = input.sign.clone().unwrap_or_default();
         let remove_all = input.remove_all.unwrap_or(false);
-        if names.is_empty() && !remove_all && input.remove.is_none() {
+        let places = input.remove.clone().unwrap_or_default();
+        if names.is_empty() && !remove_all && places.is_empty() {
             return Err(CmdError::invalid_args(
-                "nothing to do: pass `sign` to sign it, or `remove_all` to remove its signatures",
+                "nothing to do: pass `sign` to sign it, `remove` to remove some of its \
+                 signatures, or `remove_all` to remove them all",
             ));
         }
-        if input.remove.is_some() {
-            return Err(not_built(
-                "removing some signatures and keeping the others (pass `remove_all` to remove \
-                 them all)",
+        if places.contains(&0) {
+            return Err(CmdError::invalid_args(
+                "signatures are numbered from 1, as `archive.info` lists them",
             ));
         }
-        let signing = protect::signing(&names, cx)?;
-        let threads = cx.config()?.create.threads;
-        protect::rewrite_bhive(
-            &input.archive,
-            input.password.as_ref(),
-            cx,
-            |_, reader, _| {
-                if !remove_all && !reader.signatures().signatures.is_empty() {
-                    return Err(not_built(
-                        "adding a signature beside the ones an archive has (pass `remove_all` \
-                         to replace them)",
-                    ));
-                }
-                Ok(BhiveWriteOptions {
-                    threads,
-                    // The archive keeps its file key and every way in (docs/M14.md §3).
-                    protection: reader.unlocked().map(|u| Protection::Keep(Arc::clone(u))),
-                    signing: signing.clone(),
-                    ..BhiveWriteOptions::default()
-                })
-            },
-        )?;
+        let remove = places.iter().map(|&n| n as usize - 1).collect();
+        let signing = protect::signing(&names, cx)?.unwrap_or_default();
+        let path = absolute(&input.archive);
+        let canonical = std::fs::canonicalize(&path).map_err(|e| {
+            CmdError::from(beezip_core::Error::io(
+                format!("opening {}", input.archive.display()),
+                &e,
+            ))
+        })?;
+        let _guard = cx.edit_lock(&canonical)?;
+        cx.set_password(input.password.as_ref());
+        let opts = SignOptions {
+            open: open_options(None, cx),
+            signing,
+            remove,
+            remove_all,
+        };
+        let report = sign(&path, &opts, cx);
+        // The cache forgets the archive once it has changed, or once a change of it failed.
+        if let Some(cache) = cx.cache() {
+            cache.evict(&canonical);
+        }
+        let report = report?;
         Ok(ArchiveSignOutput {
-            signatures: signing
-                .map(|s| protect::signed_reports(&s, cx))
-                .unwrap_or_default(),
+            signatures: protect::reports(&report.signatures, cx),
         })
     }
 

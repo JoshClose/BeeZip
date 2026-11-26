@@ -417,7 +417,11 @@ fn execute(inner: &Inner, job: JobSetup, args: Value) -> Result<Value, CmdError>
         })
     };
     // An encrypted archive nothing opened: its ways in, which core's error can't carry.
-    let result = result.map_err(|e| cx.with_ways(e));
+    // A failed job deletes the This PC keys it made for an archive it didn't write.
+    let result = result.map_err(|e| {
+        cx.failed();
+        cx.with_ways(e)
+    });
     // The last progress update always goes out, before the final event.
     cx.flush_progress();
     inner.jobs().remove(&id);

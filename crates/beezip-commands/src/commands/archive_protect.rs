@@ -6,12 +6,11 @@ use ts_rs::TS;
 
 use beezip_core::format::bhive::{
     BhiveWriteOptions,
-    crypt::{Labelled, Protection, Recipient, SlotKind},
+    crypt::{Labelled, Protection, Recipient, SlotKind, envelope::Unlocked},
 };
 
 use crate::{
     Access, CliSpec, CmdError, Command, Effect, ErrorCode, JobCtx, LogLevel, Surfaces,
-    commands::util::not_built,
     crypt::{StrengthName, WayIn},
     protect::{self, WaysArgs},
     wire::Secret,
@@ -152,6 +151,7 @@ impl Command for ArchiveProtect {
         }
         let threads = cx.config()?.create.threads;
         let mut made: Vec<Labelled> = Vec::new();
+        let mut kept: Vec<WayIn> = Vec::new();
         let mut recovery_key = None;
         protect::rewrite_bhive(
             &input.archive,
@@ -174,21 +174,24 @@ impl Command for ArchiveProtect {
                     }
                 }
                 if !new_key {
-                    // Kept: the file key and every slot not removed, byte for byte.
-                    let _ = unlocked;
-                    return Err(not_built(
-                        "adding and removing ways in while keeping the file key (pass \
-                         `new_key` to rebuild them all)",
-                    ));
+                    // Kept: the file key and every slot not removed, byte for byte; the
+                    // contents, and so their signatures, stay as they are.
+                    let mut ways = changed(&input, &unlocked, &slots, &remove, cx)?;
+                    ways.make_devices(cx)?;
+                    kept = kept_ways(&unlocked, &slots, &remove);
+                    made = ways.recipients.clone();
+                    recovery_key = ways.recovery_key;
+                    return Ok(BhiveWriteOptions {
+                        threads,
+                        protection: Some(Protection::Change {
+                            from: unlocked,
+                            remove: remove.iter().map(|&r| r as usize).collect(),
+                            add: ways.recipients,
+                        }),
+                        ..BhiveWriteOptions::default()
+                    });
                 }
-                // A new key keeps the contents, so their signatures should stay (docs/M14.md
-                // §11); until the writer can carry them over, a signed archive isn't changed.
-                if !reader.signatures().signatures.is_empty() {
-                    return Err(not_built(
-                        "keeping an archive's signatures through a new key (remove them first \
-                         with `archive.sign` and `remove_all`, then sign it again)",
-                    ));
-                }
+                // The contents stay the same, so the writer carries their signatures over.
                 let mut ways = rebuilt(&input, &slots, &remove, &confirm, cx)?;
                 // Last, once everything else has been checked.
                 ways.make_devices(cx)?;
@@ -202,7 +205,13 @@ impl Command for ArchiveProtect {
                 })
             },
         )?;
-        let ways = protect::ways_of(&made);
+        // The slots kept come first, then the ones made, as the key block has them.
+        let mut ways = kept;
+        let first = ways.len() as u32;
+        ways.extend(protect::ways_of(&made).into_iter().map(|mut w| {
+            w.slot += first;
+            w
+        }));
         Ok(ArchiveProtectOutput {
             post_quantum: protect::post_quantum(&ways),
             ways,
@@ -223,6 +232,90 @@ impl Command for ArchiveProtect {
         }
         Some(s)
     }
+}
+
+/// The ways in an archive keeps when its file key stays, numbered as the new key block has
+/// them: each slot not removed, in order, with what its description says.
+fn kept_ways(unlocked: &Unlocked, slots: &[protect::Slot], remove: &[u32]) -> Vec<WayIn> {
+    let mut out = Vec::new();
+    let mut next = 0;
+    for i in 0..unlocked.kinds().len() as u32 {
+        if remove.contains(&i) {
+            continue;
+        }
+        // A slot of a kind this BeeZip doesn't know is kept too, unlisted.
+        if let Some(slot) = slots.iter().find(|s| s.index == i) {
+            let mut w = protect::way_in(slot);
+            w.slot = next;
+            out.push(w);
+        }
+        next += 1;
+    }
+    out
+}
+
+/// Whether a slot kept opens the archive away from this PC (decision 11): any but This PC and
+/// Windows Hello.
+fn leaves_this_pc(slot: &protect::Slot) -> bool {
+    if slot.kind == SlotKind::Fido2 {
+        return protect::security_key_device(slot).is_ok_and(|d| !d.machine_bound());
+    }
+    !slot.description.machine_bound
+}
+
+/// The ways in that adding makes while the archive keeps its file key and the slots not
+/// removed (docs/M14.md §3), devices still to ask. What is left must open it away from this PC.
+fn changed(
+    input: &ArchiveProtectInput,
+    unlocked: &Unlocked,
+    slots: &[protect::Slot],
+    remove: &[u32],
+    cx: &mut JobCtx,
+) -> Result<protect::Ways, CmdError> {
+    let left = unlocked.kinds().len().saturating_sub(remove.len());
+    let known_left: Vec<&protect::Slot> = slots
+        .iter()
+        .filter(|s| !remove.contains(&s.index))
+        .collect();
+    // A kind this BeeZip doesn't know counts as a way in that works elsewhere, as for core.
+    let leaves = left > known_left.len() || known_left.iter().any(|s| leaves_this_pc(s));
+    let ways = protect::ways(
+        &WaysArgs {
+            kept: leaves,
+            ..input.ways()
+        },
+        cx,
+    )?;
+    let added = !ways.recipients.is_empty() || !ways.devices.is_empty();
+    if left == 0 && !added {
+        return Err(CmdError::invalid_args(
+            "that would leave the archive with no way in",
+        ));
+    }
+    if !leaves {
+        if !added {
+            return Err(CmdError::invalid_args(
+                "every way in left would work only on this PC, so the archive would be lost \
+                 with it. Keep or add a password, a recovery key or someone's key.",
+            ));
+        }
+        protect::leaves_the_machine(&ways.recipients, &ways.devices)?;
+    }
+    // Decision 12: a password beside other people's keys, when this change puts them together.
+    let key = |s: &protect::Slot| match s.kind {
+        SlotKind::X25519 | SlotKind::XWing | SlotKind::Rsa | SlotKind::EcP384 => true,
+        SlotKind::EcP256 => !s.description.machine_bound,
+        _ => false,
+    };
+    let has_password = known_left.iter().any(|s| s.kind == SlotKind::Password);
+    let has_key = known_left.iter().any(|s| key(s));
+    let adds_password = input.add_password.is_some();
+    let adds_key = input.to.as_ref().is_some_and(|t| !t.is_empty())
+        || input.to_cert.as_ref().is_some_and(|t| !t.is_empty());
+    if (adds_password && (has_key || adds_key)) || (adds_key && has_password) {
+        protect::warn_password_beside_keys(cx);
+    }
+    Ok(ways)
 }
 
 /// Every way in "New key" writes (docs/M14.md §3), devices still to ask: each slot kept is

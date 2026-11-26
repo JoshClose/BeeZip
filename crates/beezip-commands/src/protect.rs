@@ -141,18 +141,24 @@ pub struct Ways {
     pub recipients: Vec<Labelled>,
     pub recovery_key: Option<Secret>,
     pub devices: Vec<Device>,
+    /// The archive keeps a way in that works elsewhere (`archive.protect`), so these may all
+    /// be bound to this PC.
+    pub kept: bool,
 }
 
 impl Ways {
     /// Refuses ways in that would all be bound to this PC, before any device is asked.
     pub fn check(&self) -> Result<(), CmdError> {
+        if self.kept {
+            return Ok(());
+        }
         leaves_the_machine(&self.recipients, &self.devices)
     }
 
     /// Asks the devices, last: the security keys and Windows Hello first, since a person may
     /// cancel them, then the TPM. Their ways in join the others; the rule of decision 11 is
     /// checked again on what the devices made.
-    pub fn make_devices(&mut self, cx: &JobCtx) -> Result<(), CmdError> {
+    pub fn make_devices(&mut self, cx: &mut JobCtx) -> Result<(), CmdError> {
         let mut devices = std::mem::take(&mut self.devices);
         devices.sort_by_key(|d| matches!(d, Device::ThisPc(_)));
         for device in devices {
@@ -162,8 +168,11 @@ impl Ways {
                 Device::Fido2 { .. } => "security_key",
             };
             attended(cx, option, NO_DEVICES)?;
+            if let Device::Fido2 { hello, .. } = &device {
+                fido2_supported(*hello)?;
+            }
             self.recipients.push(match device {
-                Device::ThisPc(pin) => this_pc(pin.as_ref())?,
+                Device::ThisPc(pin) => this_pc(pin.as_ref(), cx)?,
                 Device::Fido2 {
                     hello,
                     credential,
@@ -177,7 +186,7 @@ impl Ways {
                 }
             });
         }
-        leaves_the_machine(&self.recipients, &[])
+        self.check()
     }
 }
 
@@ -193,6 +202,30 @@ fn attended(cx: &JobCtx, option: &str, why: &str) -> Result<(), CmdError> {
 }
 
 const NO_DEVICES: &str = "nobody is there to touch a device or type its PIN";
+
+/// Refuses a security key, or with `hello` Windows Hello, that this machine can't ask for the
+/// secret a slot needs (hmac-secret), before Windows shows anything.
+fn fido2_supported(hello: bool) -> Result<(), CmdError> {
+    let support = beezip_keys::webauthn::support();
+    if (hello && support.hello) || (!hello && support.security_keys) {
+        return Ok(());
+    }
+    let why = if !cfg!(windows) {
+        "security keys and Windows Hello work through Windows' webauthn.dll; on this system use \
+         a password, a recovery key or a key"
+            .to_owned()
+    } else if hello {
+        "Windows Hello isn't set up on this PC, or this Windows can't use it for archives"
+            .to_owned()
+    } else {
+        format!(
+            "this Windows can't ask a security key for the secret an archive needs \
+             (webauthn.dll's API version is {})",
+            support.api_version
+        )
+    };
+    Err(CmdError::new(ErrorCode::UnsupportedOperation, why))
+}
 
 /// Makes the recipients `args` asks for, and lists the devices it needs without asking them:
 /// the caller checks everything else first, then calls [`Ways::make_devices`], so a key string
@@ -244,7 +277,10 @@ pub fn ways(args: &WaysArgs<'_>, cx: &mut JobCtx) -> Result<Ways, CmdError> {
         )));
     }
 
-    let mut out = Ways::default();
+    let mut out = Ways {
+        kept: args.kept,
+        ..Ways::default()
+    };
     if let Some(password) = args.password {
         if password.expose().is_empty() {
             return Err(CmdError::invalid_args("the password is empty"));
@@ -444,9 +480,11 @@ pub fn certificate_recipient(c: Certificate) -> Result<Labelled, CmdError> {
     })
 }
 
+/// A new This PC key, which the job deletes again if it then fails (`JobCtx::made_this_pc`).
 #[cfg(windows)]
-fn this_pc(pin: Option<&Secret>) -> Result<Labelled, CmdError> {
-    let (_name, spki) = beezip_keys::cng::create_this_pc(pin.map(Secret::expose))?;
+fn this_pc(pin: Option<&Secret>, cx: &mut JobCtx) -> Result<Labelled, CmdError> {
+    let (name, spki) = beezip_keys::cng::create_this_pc(pin.map(Secret::expose))?;
+    cx.made_this_pc(name);
     Ok(Labelled {
         recipient: Recipient::Ec {
             curve: Curve::P256,
@@ -459,7 +497,7 @@ fn this_pc(pin: Option<&Secret>) -> Result<Labelled, CmdError> {
 }
 
 #[cfg(not(windows))]
-fn this_pc(_: Option<&Secret>) -> Result<Labelled, CmdError> {
+fn this_pc(_: Option<&Secret>, _: &mut JobCtx) -> Result<Labelled, CmdError> {
     Err(CmdError::new(
         ErrorCode::UnsupportedOperation,
         "This PC keys are in Windows' TPM; on this system use a password, a recovery key or a \
@@ -563,24 +601,9 @@ fn sha256(data: &[u8]) -> [u8; 32] {
     out
 }
 
-/// A signer's fingerprint (docs/bhive.md §13.5): the first 10 bytes of the SHA-256 of its
-/// bytes, in base32, in four groups of four. For people to compare; never matched on.
+/// A signer's fingerprint (docs/bhive.md §13.5), for people to compare; never matched on.
 pub fn fingerprint(signer: &[u8]) -> String {
-    const ALPHABET: &[u8; 32] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
-    let hash = sha256(signer);
-    let mut bits: u128 = 0;
-    for &b in &hash[..10] {
-        bits = bits << 8 | u128::from(b);
-    }
-    let mut out = String::with_capacity(19);
-    for i in 0..16 {
-        if i > 0 && i % 4 == 0 {
-            out.push('-');
-        }
-        let index = (bits >> (75 - 5 * i)) & 31;
-        out.push(char::from(ALPHABET[index as usize]));
-    }
-    out
+    sign::fingerprint(signer)
 }
 
 /// A `uvarint` (docs/bhive.md §2) from the front of `data`.
@@ -631,7 +654,7 @@ impl Wanted {
         }
         match (self, Algorithm::from_id(signature.algorithm)) {
             (Self::Key(want), Some(Algorithm::MlDsa65Ed25519)) => {
-                sha256(&signature.signer) == *want
+                sign::signer_id(&signature.signer) == *want
             }
             (Self::Certificate(want), Some(a)) if a != Algorithm::MlDsa65Ed25519 => {
                 signer_certificates(&signature.signer)
@@ -918,16 +941,7 @@ pub fn signed_reports(signing: &Signing, cx: &JobCtx) -> Vec<SignatureReport> {
 
 /// What section 5 says of one slot (docs/bhive.md §12.9): claims anyone who has held the file
 /// key could have written, shown as such and never used to open the archive.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct Description {
-    pub label: Option<String>,
-    /// Tag 2: an X25519 or X-Wing public key.
-    pub public_key: Option<Vec<u8>>,
-    /// Tag 3: a certificate, or a key's SubjectPublicKeyInfo.
-    pub certificate: Option<Vec<u8>>,
-    /// Tag 4.
-    pub machine_bound: bool,
-}
+pub use beezip_core::format::bhive::crypt::Description;
 
 /// One slot of an encrypted `.bhive`'s key block.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -977,11 +991,12 @@ pub fn slots(path: &Path, reader: Option<&BhiveReader>) -> Result<Option<Vec<Slo
     Ok(Some(out))
 }
 
-/// Section 5 of an open archive, one description per slot. PR A's reader keeps the index's
-/// sections; until it says what section 5 holds, the ways in are listed by kind alone.
+/// Section 5 of an open archive, one description per slot; none when it has no section 5.
 fn descriptions(reader: &BhiveReader) -> Vec<Description> {
-    let _ = reader;
-    Vec::new()
+    reader
+        .unlocked()
+        .and_then(|u| u.descriptions())
+        .unwrap_or_default()
 }
 
 /// A way in as `archive.protection` lists it.
@@ -1387,7 +1402,8 @@ pub fn protection_text(p: &ArchiveProtectionOutput) -> String {
 /// The human lines for an archive's signatures.
 pub fn signatures_text(signatures: &[SignatureReport]) -> String {
     let mut s = String::new();
-    for r in signatures {
+    // Numbered from 1, as `archive.sign`'s `remove` takes them.
+    for (n, r) in signatures.iter().enumerate() {
         let line = match (r.status, r.trust) {
             (SignatureStatusName::Valid, Some(TrustName::Yours)) => {
                 format!("signed by you ({})", r.signer)
@@ -1411,7 +1427,7 @@ pub fn signatures_text(signatures: &[SignatureReport]) -> String {
                 format!("a signature that couldn't be checked, by {}", r.signer)
             }
         };
-        s.push_str(&format!("\n  {line} [{}]", r.fingerprint));
+        s.push_str(&format!("\n  {}. {line} [{}]", n + 1, r.fingerprint));
         if let Some(note) = &r.note {
             s.push_str(&format!("\n    {note}"));
         }

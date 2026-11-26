@@ -65,8 +65,8 @@ Commands:
                 [alias: rn]
   sign          Sign a `.bhive`, or remove its signatures (docs/bhive.md §13). A signature says who
                 made the archive's contents and that they haven't changed since; changing who can
-                open it keeps it, changing the contents drops it. Signing an archive that has no
-                cell digests yet reads every cell once.
+                open it keeps it, changing the contents drops it. Signing reads every cell once, to
+                make its digests or to check the cells against them.
   test          Test an archive's integrity: read every entry to the end, checking CRCs and codec
                 checksums. Fails with `Corrupt`, listing the damaged entries in `details`. [alias:
                 t]
@@ -100,6 +100,7 @@ Commands:
                 `a.tgz` → `a.tar`, `notes.txt.gz` → `notes.txt`. The output keeps the input's
                 modification time; the input is left in place.
   certificates  The certificates archives can be encrypted to and signed with
+  keys          Your keys for opening and signing .bhive archives, and your contacts' public keys
   settings      Show and change BeeZip's settings (config.toml)
   shell         BeeZip's Explorer menu: what a click on it does
   help          Print this message or the help of the given subcommand(s)
