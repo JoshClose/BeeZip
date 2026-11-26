@@ -755,9 +755,14 @@ pub fn slots(path: &Path, reader: Option<&BhiveReader>) -> Result<Option<Vec<Slo
     let mut file = std::fs::File::open(path)
         .map_err(|e| beezip_core::Error::io(format!("opening {}", path.display()), &e))?;
     let mut header = [0u8; 16];
-    file.read_exact(&mut header)
-        .map_err(|e| beezip_core::Error::io(format!("reading {}", path.display()), &e))?;
-    if layout::check_header(&header)? & layout::FEATURE_ENCRYPTED == 0 {
+    // A .bhive read through a codec (`a.bhive.zst`) has no key block at the file's start.
+    if file.read_exact(&mut header).is_err() {
+        return Ok(None);
+    }
+    let Ok(features) = layout::check_header(&header) else {
+        return Ok(None);
+    };
+    if features & layout::FEATURE_ENCRYPTED == 0 {
         return Ok(None);
     }
     let block = KeyBlock::read(&header, &mut file)?;
@@ -1022,12 +1027,15 @@ pub fn rewrite_bhive(
     let writer = file_writer(&WriteSpec::Bhive(wopts), partial.try_clone()?, &target.path)?;
     let report = rewrite(&mut *opened.reader, &items, writer, true, cx);
     drop(opened);
+    let result = match report {
+        Ok(r) => target.swap(partial, cx).map(|()| r),
+        Err(e) => Err(e),
+    };
+    // The cache forgets the archive once it has changed, or once a change of it failed.
     if let Some(cache) = cx.cache() {
         cache.evict(&canonical);
     }
-    let report = report?;
-    target.swap(partial, cx)?;
-    Ok(report)
+    Ok(result?)
 }
 
 /// The ways in a writer was given, as `archive.protect` reports them afterwards.
@@ -1392,6 +1400,138 @@ mod tests {
         let public = [3u8, 0, 2, 0, 0xAA, 0xBB, 1, b'x'];
         assert_eq!(credential_id(&public), Some(&[0xAA, 0xBB][..]));
         assert_eq!(credential_id(&[0, 0, 9]), None);
+    }
+
+    fn slot(kind: SlotKind, description: Description) -> Slot {
+        Slot {
+            index: 1,
+            kind,
+            public: Vec::new(),
+            description,
+        }
+    }
+
+    #[test]
+    fn new_key_rebuilds_from_descriptions_only_what_they_say() {
+        let x = slot(
+            SlotKind::X25519,
+            Description {
+                public_key: Some(vec![9; 32]),
+                ..Description::default()
+            },
+        );
+        assert!(matches!(
+            described_recipient(&x).unwrap(),
+            Some(Recipient::X25519(k)) if k == [9; 32]
+        ));
+        // A description of the wrong size, or none: the slot can't be rebuilt.
+        let short = slot(
+            SlotKind::XWing,
+            Description {
+                public_key: Some(vec![1; 32]),
+                ..Description::default()
+            },
+        );
+        let e = described_recipient(&short).unwrap_err();
+        assert_eq!(e.code, ErrorCode::UnsupportedOperation);
+        assert!(described_recipient(&slot(SlotKind::Rsa, Description::default())).is_err());
+        // Passwords, recovery keys and security keys come from a person, not a description.
+        for kind in [SlotKind::Password, SlotKind::RecoveryKey, SlotKind::Fido2] {
+            assert!(
+                described_recipient(&slot(kind, Description::default()))
+                    .unwrap()
+                    .is_none()
+            );
+        }
+
+        // Only your own PC's key, your keys and contacts are rebuilt without asking.
+        let store = Store::new(std::env::temp_dir().join("beezip-no-such-store"));
+        let bound = slot(
+            SlotKind::EcP256,
+            Description {
+                certificate: Some(vec![0x30]),
+                machine_bound: true,
+                ..Description::default()
+            },
+        );
+        assert!(known_recipient(&bound, &store));
+        assert!(!known_recipient(&x, &store));
+        let cert = slot(
+            SlotKind::Rsa,
+            Description {
+                certificate: Some(vec![0x30]),
+                ..Description::default()
+            },
+        );
+        assert!(!known_recipient(&cert, &store));
+    }
+
+    #[test]
+    fn some_way_in_must_leave_this_pc() {
+        let pc = Labelled {
+            recipient: Recipient::Ec {
+                curve: Curve::P256,
+                spki: vec![1],
+                certificate: None,
+                machine_bound: true,
+            },
+            label: Some("This PC".into()),
+        };
+        let pw = password_recipient("pw", Strength::Standard, None);
+        assert!(leaves_the_machine(&[]).is_err());
+        let e = leaves_the_machine(std::slice::from_ref(&pc)).unwrap_err();
+        assert!(e.message.contains("only on this PC"), "{}", e.message);
+        leaves_the_machine(&[pc.clone(), pw.clone()]).unwrap();
+
+        let ways = ways_of(&[pw, pc]);
+        assert_eq!(ways.len(), 2);
+        assert_eq!(ways[0].kind, SlotKindName::Password);
+        assert_eq!(ways[0].label.as_deref(), Some("Password"));
+        assert!(ways[0].post_quantum && !ways[0].machine_bound);
+        assert_eq!((ways[1].slot, ways[1].kind), (1, SlotKindName::EcP256));
+        assert!(ways[1].machine_bound && !ways[1].post_quantum);
+        assert!(!post_quantum(&ways));
+    }
+
+    #[test]
+    fn what_people_are_shown() {
+        let p = ArchiveProtectionOutput {
+            encrypted: true,
+            ways: vec![
+                WayIn {
+                    slot: 0,
+                    kind: SlotKindName::Password,
+                    label: Some("Password".into()),
+                    recipient: None,
+                    machine_bound: false,
+                    post_quantum: true,
+                },
+                WayIn {
+                    slot: 1,
+                    kind: SlotKindName::EcP256,
+                    label: Some("This PC".into()),
+                    recipient: None,
+                    machine_bound: true,
+                    post_quantum: false,
+                },
+            ],
+            post_quantum: false,
+        };
+        let text = protection_text(&p);
+        assert!(
+            text.contains("ways in: 2, not safe from quantum computers"),
+            "{text}"
+        );
+        assert!(
+            text.contains("1: EC P-256 key, \"This PC\", this PC only"),
+            "{text}"
+        );
+        assert!(text.contains("could have changed them"), "{text}");
+        let store = Store::new(std::env::temp_dir().join("beezip-no-such-store"));
+        let changed = signature_report(&signature(1, vec![5; 1984], Status::Invalid), &store);
+        let text = signatures_text(&[changed]);
+        assert!(text.contains("CHANGED after it was signed"), "{text}");
+        assert!(text.contains(&fingerprint(&[5; 1984])), "{text}");
     }
 
     #[test]

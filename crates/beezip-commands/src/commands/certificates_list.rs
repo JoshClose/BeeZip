@@ -115,6 +115,10 @@ impl Command for CertificatesList {
 }
 
 /// A certificate as `certificates.list` shows it.
+#[cfg_attr(
+    not(windows),
+    allow(dead_code, reason = "only Windows' stores are listed so far")
+)]
 pub fn info(
     c: &Certificate,
     store: Option<String>,
