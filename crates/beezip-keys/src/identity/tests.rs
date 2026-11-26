@@ -3,7 +3,15 @@
 //! so the Keychain keeps nothing of a test's.
 
 use beezip_core::format::bhive::crypt::{
-    KEY_ID_LEN, MadeSlot, SLOT_TAIL_LEN, SlotKind, SlotView, bech32, x25519, xwing,
+    KEY_ID_LEN, Labelled, MadeSlot, Protection, Recipient, SLOT_TAIL_LEN, SlotKind, SlotView,
+    bech32, envelope::Envelope, x25519, xwing,
+};
+use beezip_core::{
+    CreateOptions, Ctx, FsOptions, OpenOptions, OverwriteChoice, Progress, Selection, SimpleCtx,
+    WriteSpec,
+    format::bhive::{BhiveReader, BhiveWriteOptions},
+    ops,
+    source::Source,
 };
 
 use super::*;
@@ -237,24 +245,18 @@ fn private_keys_are_sealed_on_disk() {
     let _ = id;
 }
 
-/// A slot of `kind` for `made`, framed as a writer frames it, with its commitment.
-fn framed(kind: SlotKind, made: &MadeSlot, key_id: &[u8; KEY_ID_LEN]) -> Vec<u8> {
-    let body = u16::try_from(made.public.len() + SLOT_TAIL_LEN).unwrap();
-    let mut slot = vec![kind.id(), 0];
-    slot.extend(body.to_le_bytes());
-    slot.extend(&made.public);
-    let probe = SlotView {
-        index: 0,
-        kind,
-        key_id,
-        framed: &slot,
-        public: &slot[4..],
-        commitment: &[0; 32],
-    };
-    let commitment = x25519::commitment(&probe, made);
-    slot.extend(commitment);
-    slot.extend([0; 48]);
-    slot
+/// What wraps slots as the archive writer does (bhive.md §12.4), under one file key.
+fn envelope() -> Envelope {
+    Envelope::new(&Protection::New(vec![Labelled {
+        recipient: Recipient::recovery_key(&[1; 16]),
+        label: None,
+    }]))
+    .unwrap()
+}
+
+/// A slot of `kind` for `made`, as the writer wraps it.
+fn framed(env: &Envelope, kind: SlotKind, made: &MadeSlot) -> Vec<u8> {
+    env.wrap(kind, made).unwrap()
 }
 
 fn view<'a>(index: usize, key_id: &'a [u8; KEY_ID_LEN], slot: &'a [u8]) -> SlotView<'a> {
@@ -277,7 +279,8 @@ fn your_keys_open_the_slots_made_for_them() {
     let pq = s.store.create("Quantum", KeyKind::XWing).unwrap();
     s.store.import("Alice", &age_examples()[3]).unwrap();
 
-    let key_id = [7; KEY_ID_LEN];
+    let env = envelope();
+    let key_id = *env.key_id();
     let KeyText::X25519Public(to_second) = bech32::parse_key(&second.public).unwrap() else {
         panic!()
     };
@@ -288,18 +291,14 @@ fn your_keys_open_the_slots_made_for_them() {
         panic!()
     };
     let slots = [
-        framed(
-            SlotKind::X25519,
-            &x25519::make(&to_second).unwrap(),
-            &key_id,
-        ),
-        framed(SlotKind::XWing, &xwing::make(&to_pq).unwrap(), &key_id),
+        framed(&env, SlotKind::X25519, &x25519::make(&to_second).unwrap()),
+        framed(&env, SlotKind::XWing, &xwing::make(&to_pq).unwrap()),
         // A contact's key: only its holder opens it.
-        framed(SlotKind::XWing, &xwing::make(&to_alice).unwrap(), &key_id),
+        framed(&env, SlotKind::XWing, &xwing::make(&to_alice).unwrap()),
         framed(
+            &env,
             SlotKind::X25519,
             &x25519::make(&x25519::public_of(&[9; 32])).unwrap(),
-            &key_id,
         ),
     ];
     let mut source = s.store.source().unwrap();
@@ -339,7 +338,8 @@ fn an_identity_file_opens_its_slots() {
         ex[0], ex[2]
     );
     let mut source = identity_file(&file).unwrap();
-    let key_id = [1; KEY_ID_LEN];
+    let env = envelope();
+    let key_id = *env.key_id();
     let KeyText::XWingPublic(to_pq) = bech32::parse_key(&ex[3]).unwrap() else {
         panic!()
     };
@@ -347,8 +347,8 @@ fn an_identity_file_opens_its_slots() {
         panic!()
     };
     for slot in [
-        framed(SlotKind::XWing, &xwing::make(&to_pq).unwrap(), &key_id),
-        framed(SlotKind::X25519, &x25519::make(&to_x).unwrap(), &key_id),
+        framed(&env, SlotKind::XWing, &xwing::make(&to_pq).unwrap()),
+        framed(&env, SlotKind::X25519, &x25519::make(&to_x).unwrap()),
     ] {
         let v = view(0, &key_id, &slot);
         assert!(source.offers(&v));
@@ -390,11 +390,12 @@ fn a_key_that_cant_be_unsealed_says_why() {
         problems[0].message
     );
     // The other keys still open their slots, and the source alone is no error.
-    let key_id = [3; KEY_ID_LEN];
+    let env = envelope();
+    let key_id = *env.key_id();
     let KeyText::X25519Public(to_good) = bech32::parse_key(&good.public).unwrap() else {
         panic!()
     };
-    let slot = framed(SlotKind::X25519, &x25519::make(&to_good).unwrap(), &key_id);
+    let slot = framed(&env, SlotKind::X25519, &x25519::make(&to_good).unwrap());
     assert!(source.offers(&view(0, &key_id, &slot)));
     assert!(s.store.source().is_ok());
     #[cfg(all(unix, not(target_os = "macos")))]
@@ -440,4 +441,148 @@ fn keys_added_at_once_are_all_kept() {
         let name = f.unwrap().file_name();
         assert!(!name.to_string_lossy().ends_with(".tmp"), "{name:?}");
     }
+}
+
+// End to end: archives the core writer seals to age keys, opened with your stored keys through
+// the key source a job hands core (docs/M14.md §6, §8, §9).
+
+/// A job that opens archives with `source`'s keys and has nobody to ask for a password.
+struct Keyed(Box<dyn KeySource + Send>);
+
+impl Ctx for Keyed {
+    fn is_cancelled(&self) -> bool {
+        false
+    }
+
+    fn progress(&mut self, _: &Progress) {}
+
+    fn warn(&mut self, _: String) {}
+
+    fn password(&mut self, _: Option<&str>, _: u32) -> Result<String> {
+        Err(Error::new(ErrorKind::PasswordRequired, "nobody to ask"))
+    }
+
+    fn overwrite(&mut self, _: &Path) -> Result<OverwriteChoice> {
+        Ok(OverwriteChoice::Replace)
+    }
+
+    fn key_source(&mut self) -> Option<&mut dyn KeySource> {
+        Some(&mut *self.0)
+    }
+}
+
+/// The recipient an `age1…` or `age1pq1…` key names.
+fn to(public: &str) -> Labelled {
+    let recipient = match bech32::parse_key(public).unwrap() {
+        KeyText::X25519Public(k) => Recipient::X25519(k),
+        KeyText::XWingPublic(k) => Recipient::XWing(k),
+        other => panic!("{other:?} isn't a recipient"),
+    };
+    Labelled {
+        recipient,
+        label: Some(public[..12].to_owned()),
+    }
+}
+
+/// `files`, sealed by the archive writer to `ways`.
+fn seal(dir: &Path, name: &str, ways: Vec<Labelled>) -> PathBuf {
+    let archive = dir.join(format!("{name}.bhive"));
+    ops::create(
+        &archive,
+        &[dir.join("in")],
+        &WriteSpec::Bhive(BhiveWriteOptions {
+            threads: 1,
+            protection: Some(Protection::New(ways)),
+            ..BhiveWriteOptions::default()
+        }),
+        &CreateOptions::default(),
+        &mut SimpleCtx::new(),
+    )
+    .unwrap();
+    archive
+}
+
+fn open_with(archive: &Path, cx: &mut dyn Ctx) -> Result<BhiveReader> {
+    let source = Source::new(archive, Vec::new(), &OpenOptions::default())?;
+    BhiveReader::open(source, cx)
+}
+
+#[test]
+fn archives_sealed_to_your_keys_open_with_them() {
+    let s = Scratch::new();
+    let classic = s.store.create("Classic", KeyKind::X25519).unwrap();
+    let pq = s.store.create("Quantum", KeyKind::XWing).unwrap();
+    let ex = age_examples();
+    // A contact's key, which only its holder opens.
+    s.store.import("Alice", &ex[3]).unwrap();
+
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir(dir.path().join("in")).unwrap();
+    std::fs::write(dir.path().join("in/honey.txt"), b"sealed to a key").unwrap();
+
+    // Each archive, and the slot your keys open it by.
+    let cases = [
+        ("classic", vec![to(&classic.public)], 0),
+        ("quantum", vec![to(&pq.public)], 0),
+        (
+            "both",
+            vec![to(&ex[3]), to(&pq.public), to(&classic.public)],
+            1,
+        ),
+    ];
+    for (name, ways, slot) in cases {
+        let archive = seal(dir.path(), name, ways);
+
+        // Opened silently with your keys, and every file comes out.
+        let r = open_with(&archive, &mut Keyed(s.store.source().unwrap())).unwrap();
+        assert_eq!(r.unlocked().unwrap().opened_by(), slot, "{name}");
+        let out = dir.path().join(format!("out-{name}"));
+        ops::extract(
+            &archive,
+            &out,
+            &Selection::all(),
+            &OpenOptions::default(),
+            FsOptions::default(),
+            &mut Keyed(s.store.source().unwrap()),
+        )
+        .unwrap();
+        assert_eq!(
+            std::fs::read(out.join("in/honey.txt")).unwrap(),
+            b"sealed to a key",
+            "{name}"
+        );
+
+        // Your exported key, as an identity file, opens it too.
+        let file = format!(
+            "{}\n{}\n",
+            *s.store.export("Classic", true).unwrap(),
+            *s.store.export("Quantum", true).unwrap()
+        );
+        let r = open_with(&archive, &mut Keyed(identity_file(&file).unwrap())).unwrap();
+        assert_eq!(r.unlocked().unwrap().opened_by(), slot, "{name}");
+
+        // Nobody else's keys open it, and without keys it says a key is needed.
+        let other = Scratch::new();
+        other.store.create("Theirs", KeyKind::X25519).unwrap();
+        other.store.create("Theirs too", KeyKind::XWing).unwrap();
+        let e = open_with(&archive, &mut Keyed(other.store.source().unwrap()))
+            .err()
+            .unwrap();
+        assert_eq!(e.kind, ErrorKind::KeyRequired, "{name}: {}", e.message);
+        let e = open_with(&archive, &mut SimpleCtx::new()).err().unwrap();
+        assert_eq!(e.kind, ErrorKind::KeyRequired, "{name}: {}", e.message);
+    }
+
+    // The archive's descriptions name the keys, and the store tells yours from a contact's.
+    let archive = dir.path().join("both.bhive");
+    let r = open_with(&archive, &mut Keyed(s.store.source().unwrap())).unwrap();
+    let described = r.unlocked().unwrap().descriptions().unwrap();
+    let names: Vec<_> = described
+        .iter()
+        .map(|d| {
+            let key = d.public_key.as_deref().unwrap();
+            s.store.find_public(key).unwrap().unwrap().name
+        })
+        .collect();
+    assert_eq!(names, ["Alice", "Quantum", "Classic"]);
 }

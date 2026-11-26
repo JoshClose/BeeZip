@@ -109,8 +109,7 @@ fn decapsulate(identity: &[u8; 32], ct: &[u8]) -> Result<Zeroizing<Vec<u8>>> {
 }
 
 pub fn make(recipient: &[u8; PUBLIC_KEY_LEN]) -> Result<MadeSlot> {
-    let mut eseed = Zeroizing::new([0u8; 64]);
-    x25519::random(&mut eseed[..])?;
+    let eseed = Zeroizing::new(super::prim::random::<64>()?);
     make_with(recipient, &eseed)
 }
 
@@ -174,9 +173,9 @@ pub fn check(public: &[u8]) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
+    use super::super::SlotKind;
     use super::super::bech32::tests::hex;
-    use super::super::x25519::tests::{commitment_for, slot_vector, view};
-    use super::super::{KEY_ID_LEN, SlotKind};
+    use super::super::x25519::tests::{slot_vector, view, wrapped};
     use super::*;
 
     /// draft-connolly-cfrg-xwing-kem-10, Appendix C (tests/fixtures/keys/xwing-draft-10.json).
@@ -220,10 +219,7 @@ mod tests {
         };
         assert_eq!(s.to_vec(), hex(&vec["secret"]));
         assert_eq!(view.commitment.to_vec(), hex(&vec["commitment"]));
-        assert_eq!(
-            x25519::commitment(&view, &made).to_vec(),
-            hex(&vec["commitment"])
-        );
+        assert!(x25519::commits(&view, &made.secret));
 
         let SlotSecret::Shared(read) = secret(&view, &identity).unwrap() else {
             panic!("a shared secret")
@@ -239,20 +235,7 @@ mod tests {
         let public = public_of(&identity).unwrap();
         let made = make(&public).unwrap();
         assert_ne!(made.public, make(&public).unwrap().public);
-        let key_id = [5; KEY_ID_LEN];
-        let mut slot = vec![4, 0, 0xb0, 0x04];
-        slot.extend(&made.public);
-        let probe = SlotView {
-            index: 0,
-            kind: SlotKind::XWing,
-            key_id: &key_id,
-            framed: &slot,
-            public: &slot[4..],
-            commitment: &[0; 32],
-        };
-        let commitment = commitment_for(&probe, &made);
-        slot.extend(commitment);
-        slot.extend([0; 48]);
+        let (key_id, slot) = wrapped(SlotKind::XWing, &made);
         let v = view(&key_id, &slot);
         assert!(open(&v, &identity).unwrap().is_some());
         assert!(open(&v, &generate().unwrap()).unwrap().is_none());

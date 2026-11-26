@@ -7,7 +7,7 @@
 use x25519_dalek::{PublicKey, StaticSecret};
 use zeroize::Zeroizing;
 
-use super::{MadeSlot, SlotKind, SlotSecret, SlotView, label};
+use super::{MadeSlot, SlotKind, SlotSecret, SlotView, label, prim};
 use crate::{Error, ErrorKind, Result};
 
 /// The public part: the ephemeral share.
@@ -15,9 +15,8 @@ pub const PUBLIC_LEN: usize = 32;
 
 /// A slot for `recipient`, with a fresh ephemeral secret.
 pub fn make(recipient: &[u8; 32]) -> Result<MadeSlot> {
-    let mut e = Zeroizing::new([0u8; 32]);
-    random(&mut e[..])?;
-    make_with(recipient, &e)
+    let ephemeral = generate()?;
+    make_with(recipient, &ephemeral)
 }
 
 /// [`make`] with the ephemeral secret given, for the specification's vectors.
@@ -74,9 +73,7 @@ pub fn public_of(identity: &[u8; 32]) -> [u8; 32] {
 
 /// A new X25519 private key.
 pub fn generate() -> Result<Zeroizing<[u8; 32]>> {
-    let mut k = Zeroizing::new([0u8; 32]);
-    random(&mut k[..])?;
-    Ok(k)
+    prim::random().map(Zeroizing::new)
 }
 
 pub fn check(public: &[u8]) -> Result<()> {
@@ -90,11 +87,8 @@ pub fn check(public: &[u8]) -> Result<()> {
 }
 
 /// `PRK = HMAC-SHA256(key = context, message = S)` (bhive.md §12.4 step 2).
-pub(crate) fn prk(context: &[u8; 32], s: &[u8]) -> Zeroizing<[u8; 32]> {
-    let key = ring::hmac::Key::new(ring::hmac::HMAC_SHA256, context);
-    let mut out = Zeroizing::new([0u8; 32]);
-    out.copy_from_slice(ring::hmac::sign(&key, s).as_ref());
-    out
+fn prk(context: &[u8; 32], s: &[u8]) -> Zeroizing<[u8; 32]> {
+    Zeroizing::new(prim::hmac(context, &[s]))
 }
 
 /// Whether `secret` gives `slot`'s commitment, compared in constant time: the second half of
@@ -106,51 +100,14 @@ pub fn commits(slot: &SlotView<'_>, secret: &SlotSecret) -> bool {
         SlotSecret::Extracted(prk) => prk.clone(),
         SlotSecret::Shared(s) => prk(&slot.context(&[]), s),
     };
-    let (key, msg) = expand_second(&prk);
-    ring::hmac::verify(&key, &msg, slot.commitment).is_ok()
-}
-
-/// The commitment a writer puts in a slot it frames as `slot.framed`, for `made`
-/// (bhive.md §12.4 step 3). `slot.commitment` isn't read.
-pub fn commitment(slot: &SlotView<'_>, made: &MadeSlot) -> [u8; 32] {
-    let prk = match &made.secret {
-        SlotSecret::Extracted(prk) => prk.clone(),
-        SlotSecret::Shared(s) => prk(&slot.context(&made.recipient_key), s),
-    };
-    let (key, msg) = expand_second(&prk);
-    let mut out = [0; 32];
-    out.copy_from_slice(ring::hmac::sign(&key, &msg).as_ref());
-    out
-}
-
-/// HKDF-Expand's second block for 64 bytes: its key, and the message `T(1) ‖ info ‖ 02`.
-fn expand_second(prk: &[u8; 32]) -> (ring::hmac::Key, Zeroizing<Vec<u8>>) {
-    let key = ring::hmac::Key::new(ring::hmac::HMAC_SHA256, prk);
-    let mut first = ring::hmac::Context::with_key(&key);
-    first.update(label::SLOT);
-    first.update(&[1]);
-    let wrap = first.sign();
-    let mut msg = Zeroizing::new(Vec::with_capacity(32 + label::SLOT.len() + 1));
-    msg.extend_from_slice(wrap.as_ref());
-    msg.extend_from_slice(label::SLOT);
-    msg.push(2);
-    (key, msg)
-}
-
-/// Fills `out` from the system's random generator.
-pub(crate) fn random(out: &mut [u8]) -> Result<()> {
-    getrandom::fill(out).map_err(|e| {
-        Error::new(
-            ErrorKind::Io,
-            format!("the system's random generator failed: {e}"),
-        )
-    })
+    prim::same(&prim::expand64(&prk, label::SLOT)[32..], slot.commitment)
 }
 
 #[cfg(test)]
 pub(crate) mod tests {
     use super::super::bech32::tests::{hex, vectors};
-    use super::super::{KEY_ID_LEN, SLOT_TAIL_LEN};
+    use super::super::envelope::Envelope;
+    use super::super::{KEY_ID_LEN, Labelled, Protection, Recipient, SLOT_TAIL_LEN};
     use super::*;
 
     /// The slot vector's parts: its key id, its bytes.
@@ -202,7 +159,7 @@ pub(crate) mod tests {
         };
         assert_eq!(prk.to_vec(), hex(&vec["prk"]));
         assert_eq!(view.commitment.to_vec(), hex(&vec["commitment"]));
-        assert_eq!(commitment(&view, &made).to_vec(), hex(&vec["commitment"]));
+        assert!(commits(&view, &SlotSecret::Extracted(prk)));
         assert!(open(&view, &identity).unwrap().is_some());
         assert!(open(&view, &[7; 32]).unwrap().is_none());
     }
@@ -213,29 +170,20 @@ pub(crate) mod tests {
         let made = make(&public_of(&identity)).unwrap();
         let again = make(&public_of(&identity)).unwrap();
         assert_ne!(made.public, again.public, "a fresh ephemeral key each time");
-        // A slot as a writer would frame it, with the commitment its secret gives.
-        let key_id = [9; KEY_ID_LEN];
-        let mut slot = vec![3, 0, 112, 0];
-        slot.extend(&made.public);
-        let probe = SlotView {
-            index: 0,
-            kind: SlotKind::X25519,
-            key_id: &key_id,
-            framed: &slot,
-            public: &slot[4..],
-            commitment: &[0; 32],
-        };
-        let commitment = commitment_for(&probe, &made);
-        slot.extend(commitment);
-        slot.extend([0; 48]);
+        let (key_id, slot) = wrapped(SlotKind::X25519, &made);
         let v = view(&key_id, &slot);
         assert!(open(&v, &identity).unwrap().is_some());
         assert!(open(&v, &generate().unwrap()).unwrap().is_none());
     }
 
-    /// The commitment a writer computes for `made` (bhive.md §12.4 step 3).
-    pub(crate) fn commitment_for(slot: &SlotView<'_>, made: &MadeSlot) -> [u8; 32] {
-        commitment(slot, made)
+    /// A slot of `kind` for `made` as the writer wraps it (bhive.md §12.4), and its key id.
+    pub(crate) fn wrapped(kind: SlotKind, made: &MadeSlot) -> ([u8; KEY_ID_LEN], Vec<u8>) {
+        let env = Envelope::new(&Protection::New(vec![Labelled {
+            recipient: Recipient::recovery_key(&[1; 16]),
+            label: None,
+        }]))
+        .unwrap();
+        (*env.key_id(), env.wrap(kind, made).unwrap())
     }
 
     #[test]
