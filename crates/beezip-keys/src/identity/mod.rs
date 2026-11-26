@@ -5,11 +5,12 @@
 //!   name. A private key is sealed by the system ([`seal`]): DPAPI-NG for this Windows account,
 //!   the login Keychain as a generic password, or a file readable only by you on Linux. Each
 //!   exports as its text (`AGE-SECRET-KEY-PQ-1…`, `BZSIG-SECRET-KEY-1…`), with a warning.
-//! - **Contacts** are other people's public keys, by name.
+//! - **Contacts** are other people's public keys and certificates, by name: to encrypt to, and
+//!   to know their signatures by ([`crate::trust`]). A certificate is kept alone, as its PEM.
 //!
 //! The store is a folder, `keys` under BeeZip's settings folder: `keys.json` lists every key
-//! and contact with its public key, and each private key is kept beside it (or in the
-//! Keychain) under the record's id.
+//! and contact with its public key or certificate, and each private key is kept beside it (or
+//! in the Keychain) under the record's id.
 
 #[cfg(windows)]
 mod dpapi;
@@ -24,16 +25,18 @@ use std::{
 
 use beezip_core::{
     Error, ErrorKind, Result,
-    format::bhive::crypt::{
-        KeySource, SlotKind, SlotSecret, SlotView,
-        bech32::{self, KeyText},
-        mldsa, x25519, xwing,
+    format::bhive::{
+        crypt::{
+            KeySource, SlotKind, SlotSecret, SlotView,
+            bech32::{self, KeyText},
+            cert::{self, Certificate},
+            mldsa, x25519, xwing,
+        },
+        sign,
     },
 };
 use serde::{Deserialize, Serialize};
 use zeroize::Zeroizing;
-
-use crate::not_built;
 
 /// What a key is for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -46,6 +49,9 @@ pub enum KeyKind {
     XWing,
     /// Signs archives: a `bzsig1…` key.
     Signing,
+    /// Someone else's certificate (a contact's, never yours): encrypted to, and known as a
+    /// signer. Kept as its PEM.
+    Certificate,
 }
 
 impl KeyKind {
@@ -58,12 +64,13 @@ impl KeyKind {
         }
     }
 
-    /// The slot kind its keys open; `None` for a signing key.
+    /// The slot kind its keys open; `None` for a signing key, and for a certificate, whose
+    /// slot is its key's (RSA, P-256, P-384) and which is never yours to open with.
     pub const fn slot(self) -> Option<SlotKind> {
         match self {
             Self::X25519 => Some(SlotKind::X25519),
             Self::XWing => Some(SlotKind::XWing),
-            Self::Signing => None,
+            Self::Signing | Self::Certificate => None,
         }
     }
 }
@@ -73,14 +80,18 @@ impl KeyKind {
 pub struct KeyEntry {
     pub name: String,
     pub kind: KeyKind,
-    /// The public key as text, to share.
+    /// The public key as text, to share; a certificate's PEM.
     pub public: String,
-    /// 16 characters in groups of four (docs/bhive.md §13.5).
+    /// 16 characters in groups of four (docs/bhive.md §13.5): of the public key, or of a
+    /// certificate's DER ([`certificate_fingerprint`]).
     pub fingerprint: String,
     /// Yours (with a private key), or a contact's.
     pub own: bool,
     /// Seconds since 1970.
     pub created: i64,
+    /// A certificate contact's certificate, parsed: its subject, issuer, dates and what it can
+    /// do. `None` for a key, or a certificate `keys.json` holds damaged.
+    pub certificate: Option<Certificate>,
 }
 
 /// `keys.json`.
@@ -108,10 +119,17 @@ struct Record {
 
 impl Record {
     fn entry(&self) -> KeyEntry {
-        let fingerprint = bech32::parse_key(&self.public)
-            .ok()
-            .and_then(|k| k.public_bytes().map(bech32::fingerprint))
-            .unwrap_or_default();
+        // `keys.json` is a file anyone can edit: a certificate is read as PEM, never as DER.
+        let certificate = (self.kind == KeyKind::Certificate)
+            .then(|| cert::parse(self.public.as_bytes()).ok())
+            .flatten();
+        let fingerprint = match &certificate {
+            Some(c) => certificate_fingerprint(c),
+            None => bech32::parse_key(&self.public)
+                .ok()
+                .and_then(|k| k.public_bytes().map(bech32::fingerprint))
+                .unwrap_or_default(),
+        };
         KeyEntry {
             name: self.name.clone(),
             kind: self.kind,
@@ -119,8 +137,16 @@ impl Record {
             fingerprint,
             own: self.own,
             created: self.created,
+            certificate,
         }
     }
+}
+
+/// A certificate's fingerprint (docs/bhive.md §13.5's, of its DER): what `archive.protection`
+/// shows for a way in sealed to it, so a contact is known there by it. A signature's
+/// fingerprint is of its signer bytes, which carry the chain too, so it differs.
+pub fn certificate_fingerprint(certificate: &Certificate) -> String {
+    sign::fingerprint(&certificate.der)
 }
 
 fn invalid(message: impl Into<String>) -> Error {
@@ -266,15 +292,21 @@ impl Store {
             KeyKind::X25519 => KeyText::X25519Secret(x25519::generate()?),
             KeyKind::XWing => KeyText::XWingSecret(xwing::generate()?),
             KeyKind::Signing => KeyText::SigningSecret(mldsa::HybridKey::generate()?.seeds),
+            KeyKind::Certificate => {
+                return Err(invalid(
+                    "BeeZip doesn't make certificates: add someone's with `keys.import`",
+                ));
+            }
         };
         self.add(name, &key)
     }
 
     /// A key from its text: a private key becomes yours, a public key a contact. The text may
-    /// be an age identity file, comments and all, with one key in it.
+    /// be an age identity file, comments and all, with one key in it; or a certificate's PEM,
+    /// which becomes a contact ([`Store::import_certificate`]).
     pub fn import(&self, name: &str, text: &str) -> Result<KeyEntry> {
         if text.contains("-----BEGIN") {
-            return Err(not_built("certificates as contacts"));
+            return self.import_certificate(name, text.as_bytes());
         }
         let lines: Vec<&str> = text
             .lines()
@@ -294,7 +326,70 @@ impl Store {
         self.add(name, &key)
     }
 
+    /// A key or certificate from a file's bytes: a DER certificate (`.cer`, `.der`), or text,
+    /// as [`Store::import`] takes it (a key, an age identity file, a PEM certificate).
+    pub fn import_file(&self, name: &str, bytes: &[u8]) -> Result<KeyEntry> {
+        // DER is read as DER, whatever text it holds (`cert::parse_all`).
+        if cert::parse_der(bytes).is_ok() {
+            return self.import_certificate(name, bytes);
+        }
+        let text = std::str::from_utf8(bytes).map_err(|_| {
+            invalid("it is neither a key nor a certificate: it isn't text, nor a DER certificate")
+        })?;
+        self.import(name, text)
+    }
+
+    /// Someone else's certificate as a contact, from DER or PEM (from PEM, its first
+    /// certificate: a chain's own one): to encrypt to by name, and to know their signatures by
+    /// (docs/M14.md §6, §11). Only the certificate is kept, as PEM. One that can neither be
+    /// encrypted to nor sign is refused with the reasons, and so is a file that holds a private
+    /// key: a contact never has one, and BeeZip doesn't keep a key it was only shown.
+    pub fn import_certificate(&self, name: &str, bytes: &[u8]) -> Result<KeyEntry> {
+        let certificate = cert::parse(bytes)
+            .map_err(|e| invalid(format!("it isn't a certificate: {}", e.message)))?;
+        let pem = cert::parse_der(bytes).is_err();
+        if pem
+            && cert::pem_blocks(bytes)?
+                .iter()
+                .any(|(label, _)| label.ends_with("PRIVATE KEY"))
+        {
+            return Err(invalid(
+                "it holds a private key too: a contact is someone else's certificate alone. \
+                 Add the certificate by itself; to open archives with the key, give its file \
+                 with --identity",
+            ));
+        }
+        if let (Err(encrypt), Err(sign)) = (certificate.slot_kind(), certificate.sign_algorithm()) {
+            return Err(invalid(format!(
+                "this certificate is no use to BeeZip: an archive can't be encrypted to it \
+                 ({encrypt}), and it can't sign ({sign})"
+            )));
+        }
+        let public = cert::pem("CERTIFICATE", &certificate.der)?;
+        self.add_record(name, KeyKind::Certificate, public, None)
+    }
+
     fn add(&self, name: &str, key: &KeyText) -> Result<KeyEntry> {
+        let public = key.public()?;
+        let secret = key.is_secret().then(|| {
+            // The fingerprint, which no other key here has: the public key is unique.
+            let id = bech32::fingerprint(public.public_bytes().unwrap_or_default())
+                .replace('-', "")
+                .to_lowercase();
+            (id, Zeroizing::new(bech32::key_text(key)))
+        });
+        self.add_record(name, KeyKind::of(key), bech32::key_text(&public), secret)
+    }
+
+    /// Adds a record under `name` for `public`, a key's text or a certificate's PEM; with
+    /// `secret` (its id and its private key's text), yours, its private key sealed.
+    fn add_record(
+        &self,
+        name: &str,
+        kind: KeyKind,
+        public: String,
+        secret: Option<(String, Zeroizing<String>)>,
+    ) -> Result<KeyEntry> {
         let name = name.trim();
         if name.is_empty() {
             return Err(invalid("a key needs a name"));
@@ -316,36 +411,35 @@ impl Store {
                 format!("a key or contact is already called `{}`", r.name),
             ));
         }
-        let public = key.public()?;
-        let public_text = bech32::key_text(&public);
-        if let Some(r) = index.keys.iter().find(|r| r.public == public_text) {
+        if let Some(r) = index.keys.iter().find(|r| r.public == public) {
             let whose = if r.own {
                 "one of your keys"
             } else {
                 "a contact"
             };
+            let what = if kind == KeyKind::Certificate {
+                "certificate"
+            } else {
+                "key"
+            };
             return Err(Error::new(
                 ErrorKind::Conflict,
-                format!("this key is already here, as {whose}: `{}`", r.name),
+                format!("this {what} is already here, as {whose}: `{}`", r.name),
             ));
         }
-        let own = key.is_secret();
-        let id = if own {
-            // The fingerprint, which no other key here has: the public key is unique.
-            let id = bech32::fingerprint(public.public_bytes().unwrap_or_default())
-                .replace('-', "")
-                .to_lowercase();
-            std::fs::create_dir_all(self.keys_dir())?;
-            let text = Zeroizing::new(bech32::key_text(key));
-            seal::put(&self.keys_dir(), &id, text.as_bytes())?;
-            id
-        } else {
-            String::new()
+        let own = secret.is_some();
+        let id = match secret {
+            Some((id, text)) => {
+                std::fs::create_dir_all(self.keys_dir())?;
+                seal::put(&self.keys_dir(), &id, text.as_bytes())?;
+                id
+            }
+            None => String::new(),
         };
         let record = Record {
             name: name.to_owned(),
-            kind: KeyKind::of(key),
-            public: public_text,
+            kind,
+            public,
             own,
             created: now(),
             id,
@@ -377,6 +471,12 @@ impl Store {
     }
 
     fn secret_of(&self, record: &Record) -> Result<KeyText> {
+        if record.kind == KeyKind::Certificate {
+            return Err(invalid(format!(
+                "`{}` is a contact's certificate: only the certificate is here",
+                record.name
+            )));
+        }
         if !record.own {
             return Err(invalid(format!(
                 "`{}` is a contact's key: only its public key is here",
@@ -398,7 +498,8 @@ impl Store {
     }
 
     /// The key or contact whose public key is `public` (its bytes): to tell a signer, or a
-    /// slot description's recipient, by the name you gave it.
+    /// slot description's recipient, by the name you gave it. Certificates are found by
+    /// [`Store::find_certificate`].
     pub fn find_public(&self, public: &[u8]) -> Result<Option<KeyEntry>> {
         Ok(self
             .load()?
@@ -410,6 +511,15 @@ impl Store {
                     .is_some_and(|k| k.public_bytes() == Some(public))
             })
             .map(Record::entry))
+    }
+
+    /// The contact whose certificate is `der`, compared whole (never by a fingerprint or a
+    /// name): to tell a certificate signer, or a slot's recipient, by the name you gave it.
+    pub fn find_certificate(&self, der: &[u8]) -> Result<Option<KeyEntry>> {
+        Ok(self
+            .list()?
+            .into_iter()
+            .find(|e| e.certificate.as_ref().is_some_and(|c| c.der == der)))
     }
 
     /// Deletes the key or contact `name`, and gives what it was. A private key is forgotten

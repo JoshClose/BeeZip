@@ -58,7 +58,7 @@ fn cli() -> clap::Command {
                 .action(ArgAction::Append)
                 .value_parser(value_parser!(PathBuf))
                 .help_heading("Global options")
-                .help("A key file that opens encrypted .bhive archives (age identities, PEM and PKCS #8 keys); repeatable"),
+                .help("A key file that opens encrypted .bhive archives (age identities, PEM and PKCS #8 keys, .pfx files on Windows); repeatable"),
         )
         .arg(
             Arg::new("password-stdin")

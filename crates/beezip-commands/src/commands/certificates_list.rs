@@ -116,8 +116,8 @@ impl Command for CertificatesList {
 
 /// A certificate as `certificates.list` shows it.
 #[cfg_attr(
-    not(windows),
-    allow(dead_code, reason = "only Windows' stores are listed so far")
+    not(any(windows, target_os = "macos")),
+    allow(dead_code, reason = "Linux has no certificate store BeeZip lists")
 )]
 pub fn info(
     c: &Certificate,
@@ -171,8 +171,21 @@ fn store_certificates() -> Result<Vec<CertificateInfo>, CmdError> {
         .collect())
 }
 
-/// No certificate stores are read here yet: certificate files work everywhere.
-#[cfg(not(windows))]
+/// The Keychain's identities (personal) and certificates without a key (other people), on
+/// macOS. A key in the Keychain is in software, as far as BeeZip can tell.
+#[cfg(target_os = "macos")]
+fn store_certificates() -> Result<Vec<CertificateInfo>, CmdError> {
+    Ok(beezip_keys::mac::certificates()?
+        .iter()
+        .map(|c| {
+            let key = c.key.then_some(KeyHomeName::Software);
+            info(&c.certificate, Some(c.store.clone()), key, c.trusted)
+        })
+        .collect())
+}
+
+/// No certificate store is read on Linux: certificate files work everywhere.
+#[cfg(not(any(windows, target_os = "macos")))]
 fn store_certificates() -> Result<Vec<CertificateInfo>, CmdError> {
     Ok(Vec::new())
 }
@@ -204,5 +217,25 @@ mod tests {
         assert_eq!(i.can_encrypt, i.refused.is_none());
         let i = info(&c, None, None, true);
         assert!(!i.can_sign, "no private key here");
+    }
+
+    /// This system's stores, whatever they hold: listing never fails, and every certificate is
+    /// in one of the two stores BeeZip names (none on Linux).
+    #[test]
+    fn this_systems_stores_list() {
+        let listed = store_certificates().unwrap();
+        for c in &listed {
+            assert_eq!(c.thumbprint.len(), 40);
+            assert!(
+                matches!(c.store.as_deref(), Some("personal" | "other-people")),
+                "{:?}",
+                c.store
+            );
+            assert_eq!(c.can_encrypt, c.refused.is_none());
+            assert!(!c.can_sign || c.key.is_some());
+        }
+        if cfg!(not(any(windows, target_os = "macos"))) {
+            assert!(listed.is_empty());
+        }
     }
 }

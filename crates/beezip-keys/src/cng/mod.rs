@@ -13,6 +13,7 @@
 
 #![allow(unsafe_code)]
 
+pub(crate) mod pfx;
 mod win;
 
 use std::sync::{Arc, Mutex};
@@ -35,6 +36,9 @@ use windows::Win32::Security::Cryptography::{
 
 pub use win::Chain;
 use win::{Cert, Key, Provider, Store, WinError};
+
+/// The name of CNG's software key storage provider, `MS_KEY_STORAGE_PROVIDER`.
+const SOFTWARE_PROVIDER: &str = "Microsoft Software Key Storage Provider";
 
 /// The names of "This PC" keys in the TPM start with this.
 pub const THIS_PC_PREFIX: &str = "BeeZip This PC ";
@@ -438,6 +442,16 @@ pub fn signer(thumbprint: &[u8; 20]) -> Result<Arc<dyn Signer>> {
 }
 
 fn signer_in(store: &Store, thumbprint: &[u8; 20]) -> Result<Arc<dyn Signer>> {
+    signer_with(store, thumbprint, None)
+}
+
+/// [`signer_in`], its chain built with the certificates in `extra` besides the system's (a
+/// `.pfx` file's own).
+fn signer_with(
+    store: &Store,
+    thumbprint: &[u8; 20],
+    extra: Option<&Store>,
+) -> Result<Arc<dyn Signer>> {
     let hex: String = thumbprint.iter().map(|b| format!("{b:02x}")).collect();
     let cert = store.find_sha1(thumbprint).ok_or_else(|| {
         Error::new(
@@ -462,8 +476,11 @@ fn signer_in(store: &Store, thumbprint: &[u8; 20]) -> Result<Arc<dyn Signer>> {
         Err(e) if e.needs_person() => cert.private_key(false).map_err(no_key)?,
         Err(e) => return Err(no_key(e)),
     };
+    // The software provider's EC keys sign whether they were made for ECDH or ECDSA (measured:
+    // it imports every EC key of a .pfx as ECDH, and signs with it); other providers' ECDH keys
+    // (the TPM's, a smart card's) may not, so they aren't offered to sign.
     let key_algorithm = key.algorithm();
-    if key_algorithm.starts_with("ECDH") {
+    if key_algorithm.starts_with("ECDH") && key.provider_name() != SOFTWARE_PROVIDER {
         return Err(Error::new(
             ErrorKind::InvalidArgs,
             format!(
@@ -479,7 +496,7 @@ fn signer_in(store: &Store, thumbprint: &[u8; 20]) -> Result<Arc<dyn Signer>> {
     // The chain the machine has, without its root, which a reader must have anyway. A chain
     // that stops short of a root ends with an intermediate, which stays.
     let (mut ders, complete) = cert
-        .chain(None, false)
+        .chain(extra, false)
         .map(|c| {
             let complete = c.complete();
             (c.certificates, complete)

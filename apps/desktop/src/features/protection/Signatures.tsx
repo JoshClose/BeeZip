@@ -9,7 +9,7 @@ import { Input } from "../../components/ui/input";
 import { type Tab, useArchives } from "../../lib/archives";
 import { useJobs } from "../../lib/jobs";
 import { useKeyring } from "../../lib/keyring";
-import { ALGORITHMS, contactKey, type Signature, signaturesOf, signerPhrase, summarize, unknownSubject } from "../../lib/signatures";
+import { ALGORITHMS, contactKey, type Signature, signaturesOf, signerPhrase, suggestedName, summarize, unknownSubject } from "../../lib/signatures";
 import { toastError, toastInfo } from "../../lib/toasts";
 
 const STATUS: Record<Signature["status"], string> = {
@@ -24,9 +24,9 @@ function claimed(seconds: number): string {
   return new Date(seconds * 1000).toLocaleString();
 }
 
-/** "Add to contacts": the signer's `bzsig1…` key, under a name, with `keys.import`. */
+/** "Add to contacts": the signer's `bzsig1…` key or certificate, under a name, with `keys.import`. */
 function AddContact({ sig, tab }: { sig: Signature; tab: Tab }) {
-  const [name, setName] = useState(sig.signer === sig.fingerprint ? "" : sig.signer);
+  const [name, setName] = useState(suggestedName(sig));
   const [busy, setBusy] = useState(false);
   const text = contactKey(sig);
   if (!text) return null;
@@ -96,12 +96,14 @@ export function SignatureDetails({ tab, sigs, onClose }: { tab: Tab; sigs: Signa
             </dl>
             {s.status === "valid" && s.trust === "unknown" && contactKey(s) && (
               <div className="pt-2">
-                <p className="pb-1.5 text-[12px] text-muted">Check the fingerprint with the signer, by phone or in person, before you add them.</p>
+                <p className="pb-1.5 text-[12px] text-muted">
+                  {s.issuer ? "The system doesn't trust this certificate. " : ""}Check the fingerprint with the signer, by phone or in person, before you add them.
+                </p>
                 <AddContact sig={s} tab={tab} />
               </div>
             )}
             {s.status === "valid" && s.trust === "unknown" && !contactKey(s) && s.issuer && (
-              <p className="pt-2 text-[12px] text-muted">Windows doesn't trust this certificate. Check the fingerprint with the signer before you trust what they signed.</p>
+              <p className="pt-2 text-[12px] text-muted">The system doesn't trust this certificate. Check the fingerprint with the signer before you trust what they signed.</p>
             )}
           </li>
         ))}

@@ -11,10 +11,22 @@ export function signaturesOf(info: Pick<ArchiveInfoOutput, "signatures"> | undef
   return info?.signatures ?? [];
 }
 
-/** What "Add to contacts" adds: a signer's `bzsig1…` key. A certificate can't be a contact
- * yet (`keys.import` takes keys); the system's stores say whether to trust one. */
+/** What "Add to contacts" adds: a signer's `bzsig1…` key, or its certificate (PEM), which
+ * `keys.import` keeps as a contact, known by the whole certificate. */
 export function contactKey(s: Signature): string | undefined {
-  return s.public?.startsWith("bzsig1") ? s.public : undefined;
+  const p = s.public;
+  return p?.startsWith("bzsig1") || p?.startsWith("-----BEGIN CERTIFICATE-----") ? p : undefined;
+}
+
+/** The name "Add to contacts" suggests: a certificate's subject, without what BeeZip adds to
+ * an unknown one's ("(self-signed)", "(issued by …)"); nothing for a key, which only has its
+ * fingerprint. */
+export function suggestedName(s: Signature): string {
+  if (s.signer === s.fingerprint) return "";
+  for (const suffix of [" (self-signed)", ...(s.issuer ? [` (issued by ${s.issuer})`] : [])]) {
+    if (s.signer.endsWith(suffix)) return s.signer.slice(0, -suffix.length);
+  }
+  return s.signer;
 }
 
 export const ALGORITHMS: Record<SignatureAlgorithmName, string> = {

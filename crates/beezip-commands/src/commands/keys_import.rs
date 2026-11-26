@@ -14,24 +14,25 @@ use crate::{
 };
 
 /// Add a key: a private key (`AGE-SECRET-KEY-…`, `BZSIG-SECRET-KEY-1…`, or an age identity
-/// file) becomes yours; a public key (`age1…`, `age1pq1…`, `bzsig1…`) becomes a contact's.
+/// file) becomes yours; a public key (`age1…`, `age1pq1…`, `bzsig1…`) or someone's
+/// certificate (PEM or DER) becomes a contact's.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, clap::Args, TS)]
 #[serde(deny_unknown_fields)]
 #[ts(optional_fields)]
 pub struct KeysImportInput {
     /// What to call it.
     pub name: String,
-    /// The key as text.
+    /// The key, or a certificate's PEM, as text.
     #[arg(long)]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub text: Option<Secret>,
-    /// Or a file that holds it.
+    /// Or a file that holds it: a key file, or a `.pem`, `.crt`, `.cer` or `.der` certificate.
     #[arg(long)]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub file: Option<PathBuf>,
 }
 
-/// A key file is a line or a few; anything much larger isn't one.
+/// A key file is a line or a few, a certificate a few kilobytes; anything much larger isn't one.
 const FILE_MAX: u64 = 1 << 20;
 
 pub struct KeysImport;
@@ -50,22 +51,21 @@ impl Command for KeysImport {
     type Output = KeyInfo;
 
     fn run(input: KeysImportInput, cx: &mut JobCtx) -> Result<KeyInfo, CmdError> {
-        let text = match (&input.text, &input.file) {
-            (Some(text), None) => text.expose().to_owned(),
+        let store = store(cx)?;
+        let entry = match (&input.text, &input.file) {
+            (Some(text), None) => store.import(&input.name, text.expose())?,
             (None, Some(file)) => {
                 let path = absolute(file);
-                let f = std::fs::File::open(&path).map_err(|e| {
-                    let e = CmdError::from(beezip_core::Error::from(e));
+                let in_file = |e: beezip_core::Error| {
+                    let e = CmdError::from(e);
                     CmdError::new(e.code, format!("{}: {}", path.display(), e.message))
-                })?;
-                let mut text = String::new();
-                f.take(FILE_MAX).read_to_string(&mut text).map_err(|_| {
-                    CmdError::invalid_args(format!(
-                        "{} isn't a key file: it isn't text",
-                        path.display()
-                    ))
-                })?;
-                text
+                };
+                let f = std::fs::File::open(&path).map_err(|e| in_file(e.into()))?;
+                let mut bytes = zeroize::Zeroizing::new(Vec::new());
+                f.take(FILE_MAX)
+                    .read_to_end(&mut bytes)
+                    .map_err(|e| in_file(e.into()))?;
+                store.import_file(&input.name, &bytes).map_err(in_file)?
             }
             _ => {
                 return Err(CmdError::invalid_args(
@@ -73,7 +73,7 @@ impl Command for KeysImport {
                 ));
             }
         };
-        Ok(info(store(cx)?.import(&input.name, &text)?))
+        Ok(info(entry))
     }
 
     fn human(out: &KeyInfo) -> Option<String> {

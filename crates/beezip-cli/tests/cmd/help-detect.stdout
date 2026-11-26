@@ -24,8 +24,8 @@ Global options:
           [default: human]
 
   -i, --identity <FILE>
-          A key file that opens encrypted .bhive archives (age identities, PEM and PKCS #8 keys);
-          repeatable
+          A key file that opens encrypted .bhive archives (age identities, PEM and PKCS #8 keys,
+          .pfx files on Windows); repeatable
 
       --password-stdin
           Read the password or recovery key from the first line of stdin, where other programs can't
