@@ -74,6 +74,15 @@ pub trait Ctx {
         None
     }
 
+    /// Whether to spend `need` bytes of memory on a password slot of an encrypted `.bhive`,
+    /// more than half of this machine's `total` (docs/M14.md §5). Asked once for each such slot
+    /// an unlock tries, before its Argon2 runs; `false` leaves the slot untried. The default
+    /// has nobody to ask, so it says no. `JobCtx` asks the user (PR F).
+    fn spend_memory(&mut self, need: u64, total: u64) -> Result<bool> {
+        let _ = (need, total);
+        Ok(false)
+    }
+
     /// What to do about an entry already in `archive` at `entry`, when adding a file of the
     /// same name with the `ask` policy (docs/M5.md §7.1). The default asks as for a file.
     fn overwrite_entry(&mut self, archive: &Path, entry: &str) -> Result<OverwriteChoice> {
@@ -261,6 +270,10 @@ impl Ctx for MeteredCtx<'_> {
 
     fn key_source(&mut self) -> Option<&mut dyn KeySource> {
         self.inner.key_source()
+    }
+
+    fn spend_memory(&mut self, need: u64, total: u64) -> Result<bool> {
+        self.inner.spend_memory(need, total)
     }
 
     fn check(&mut self) -> Result<()> {

@@ -474,16 +474,16 @@ impl Description {
     pub fn parse(body: &[u8]) -> Result<Self> {
         let mut b = super::layout::Bytes::new(body);
         let mut d = Self::default();
-        let mut last = 0;
+        let mut last = None;
         while b.left() > 0 {
             let tag = b.uvarint()?;
             let value = b.bytes()?;
-            if tag <= last {
+            if last.is_some_and(|last| tag <= last) {
                 return Err(super::layout::bad(
                     "a slot description's fields are out of order",
                 ));
             }
-            last = tag;
+            last = Some(tag);
             match tag {
                 1 => d.label = Some(String::from_utf8_lossy(value).into_owned()),
                 2 => d.public_key = Some(value.to_vec()),
@@ -563,9 +563,63 @@ pub fn typed_secret(slot: &SlotView<'_>, answer: &UnlockAnswer) -> Result<Option
     }
 }
 
+/// A credential id is at most this long, and a relying party id at most this (bhive.md §12.5).
+pub const MAX_CREDENTIAL_ID: usize = 1023;
+pub const MAX_RP_ID: usize = 253;
+
+/// Kinds 5 and 8 carry lengths inside their public parts: those lengths and the fixed fields
+/// must fill the part exactly (bhive.md §12.5, §12.10). Kind 5: a tag (4), the ciphertext's
+/// length (`u16`) and the ciphertext, 256 to 1,024 bytes. Kind 8: flags, reserved, the
+/// credential id's length (`u16`) and the id (1 to 1,023 bytes), the relying party's length
+/// (`u8`) and its id (1 to 253), and a salt (32).
+pub fn check_framing(kind: SlotKind, public: &[u8]) -> Result<()> {
+    let u16_at = |at: usize| {
+        public
+            .get(at..at + 2)
+            .map(|b| usize::from(u16::from_le_bytes([b[0], b[1]])))
+    };
+    match kind {
+        SlotKind::Rsa => match u16_at(4) {
+            Some(len)
+                if (rsa::MIN_MODULUS..=rsa::MAX_MODULUS).contains(&len)
+                    && public.len() == 6 + len =>
+            {
+                Ok(())
+            }
+            _ => Err(super::layout::bad(format!(
+                "an RSA slot's public part of {} bytes doesn't hold a tag and a ciphertext of \
+                 256 to 1,024 bytes exactly",
+                public.len()
+            ))),
+        },
+        SlotKind::Fido2 => {
+            let fits = u16_at(2).is_some_and(|id| {
+                let rp_at = 4 + id;
+                (1..=MAX_CREDENTIAL_ID).contains(&id)
+                    && public.get(rp_at).is_some_and(|&rp| {
+                        let rp = usize::from(rp);
+                        (1..=MAX_RP_ID).contains(&rp) && public.len() == rp_at + 1 + rp + 32
+                    })
+            });
+            if fits {
+                Ok(())
+            } else {
+                Err(super::layout::bad(format!(
+                    "a security-key slot's public part of {} bytes doesn't hold its credential \
+                     id (1 to 1,023 bytes), relying party (1 to 253) and salt exactly",
+                    public.len()
+                )))
+            }
+        }
+        _ => Ok(()),
+    }
+}
+
 /// Checks a slot's public part against its kind's rules before anything is tried with it
-/// (bhive.md §12.10): lengths, Argon2's limits, a credential id's size.
+/// (bhive.md §12.10): lengths and how they fill the part, Argon2's limits, a credential id's
+/// size.
 pub fn check_public(kind: SlotKind, public: &[u8]) -> Result<()> {
+    check_framing(kind, public)?;
     match kind {
         SlotKind::Password => password::check(public),
         SlotKind::RecoveryKey => recovery::check(public),
@@ -655,6 +709,79 @@ mod tests {
                 assert_eq!(view.tag_for(b"spki"), None, "{name}");
             }
         }
+    }
+
+    /// vectors.json's RSA and security-key slots fill their public parts exactly; a byte less
+    /// or more, or a length out of its range, is refused.
+    #[test]
+    fn kinds_5_and_8_fill_their_public_parts_exactly() {
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../tests/fixtures/bhive-m14/vectors.json"
+        );
+        let v: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+        for name in ["rsa", "fido2"] {
+            let s = v["slots"][name]["slot"].as_str().unwrap();
+            let slot: Vec<u8> = (0..s.len())
+                .step_by(2)
+                .map(|i| u8::from_str_radix(&s[i..i + 2], 16).unwrap())
+                .collect();
+            let kind = SlotKind::from_id(slot[0]).unwrap();
+            let public = &slot[4..slot.len() - SLOT_TAIL_LEN];
+            assert!(check_framing(kind, public).is_ok(), "{name}");
+            let cut = &public[..public.len() - 1];
+            assert!(check_framing(kind, cut).is_err(), "{name}");
+            let mut longer = public.to_vec();
+            longer.push(0);
+            assert!(check_framing(kind, &longer).is_err(), "{name}");
+            for at in 0..public.len().min(8) {
+                assert!(check_framing(kind, &public[..at]).is_err(), "{name} {at}");
+            }
+        }
+        // RSA: a ciphertext of 255 bytes, or of 1,025, is no modulus BeeZip takes.
+        for len in [0usize, 255, 1025] {
+            let mut p = vec![0u8; 6 + len];
+            p[4..6].copy_from_slice(&(len as u16).to_le_bytes());
+            assert!(check_framing(SlotKind::Rsa, &p).is_err(), "{len}");
+        }
+        for len in [256usize, 1024] {
+            let mut p = vec![0u8; 6 + len];
+            p[4..6].copy_from_slice(&(len as u16).to_le_bytes());
+            assert!(check_framing(SlotKind::Rsa, &p).is_ok(), "{len}");
+        }
+        // FIDO2: the id and the relying party each 1 or more, at most 1,023 and 253.
+        let fido = |id: usize, rp: usize| {
+            let mut p = vec![2u8, 0];
+            p.extend_from_slice(&(id as u16).to_le_bytes());
+            p.extend(std::iter::repeat_n(7u8, id));
+            p.push(rp as u8);
+            p.extend(std::iter::repeat_n(b'r', rp));
+            p.extend([0u8; 32]);
+            check_framing(SlotKind::Fido2, &p).is_ok()
+        };
+        assert!(fido(1, 1) && fido(MAX_CREDENTIAL_ID, MAX_RP_ID));
+        assert!(!fido(0, 6) && !fido(16, 0) && !fido(MAX_CREDENTIAL_ID + 1, 6));
+        assert!(!fido(16, MAX_RP_ID + 1));
+        // The other kinds are checked by their own lengths.
+        assert!(check_framing(SlotKind::Password, &[]).is_ok());
+    }
+
+    /// Tags it doesn't know, 0 among them, are skipped (bhive.md §12.9).
+    #[test]
+    fn descriptions_skip_unknown_tags() {
+        let mut body = vec![0u8, 1, 9];
+        body.extend_from_slice(
+            &Description {
+                label: Some("Password".into()),
+                ..Description::default()
+            }
+            .encode(),
+        );
+        let d = Description::parse(&body).unwrap();
+        assert_eq!(d.label.as_deref(), Some("Password"));
+        assert!(Description::parse(&[1, 1, b'a', 1, 1, b'b']).is_err());
+        assert!(Description::parse(&[0, 0, 0, 0]).is_err());
     }
 
     #[test]

@@ -848,13 +848,14 @@ pub fn edit(
             if let (true, Some(level)) = (o.inherit, own) {
                 o.level = level;
             }
-            // An encrypted archive keeps its file key and slots (docs/M14.md §3).
+            // An encrypted archive keeps its file key and slots (docs/M14.md §3). It is sealed
+            // whole, so `unencrypted` doesn't apply: new files are sealed with the rest.
             if o.protection.is_none() {
                 o.protection = keep_protection(r.as_deref());
             }
         }
     }
-    if unencrypted && encrypted {
+    if unencrypted && encrypted && !matches!(spec, WriteSpec::Bhive(_)) {
         report.unencrypted = new_files;
     }
 

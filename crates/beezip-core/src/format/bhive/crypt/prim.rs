@@ -20,6 +20,7 @@ fn failed(what: &str) -> Error {
     Error::new(ErrorKind::Io, format!("bhive: {what} failed"))
 }
 
+#[cfg(feature = "fixtures")]
 thread_local! {
     /// A seed and a counter, while [`seeded`] runs on this thread.
     static SEEDED: std::cell::RefCell<Option<([u8; 32], u64)>> = const { std::cell::RefCell::new(None) };
@@ -27,7 +28,9 @@ thread_local! {
 
 /// Runs `f` with this thread's random bytes made from `seed`, so that `cargo xtask
 /// gen-fixtures` writes the same encrypted fixtures every time. Never for an archive anyone
-/// keeps: its keys are as good as the seed is secret.
+/// keeps: its keys are as good as the seed is secret. Only with core's `fixtures` feature,
+/// which only xtask turns on.
+#[cfg(feature = "fixtures")]
 #[doc(hidden)]
 pub fn seeded<T>(seed: [u8; 32], f: impl FnOnce() -> T) -> T {
     struct Reset;
@@ -44,21 +47,24 @@ pub fn seeded<T>(seed: [u8; 32], f: impl FnOnce() -> T) -> T {
 /// `N` bytes from the system's random generator.
 pub fn random<const N: usize>() -> Result<[u8; N]> {
     let mut out = [0u8; N];
-    let seeded = SEEDED.with(|s| {
-        let mut s = s.borrow_mut();
-        let (seed, counter) = s.as_mut()?;
-        for (i, chunk) in out.chunks_mut(32).enumerate() {
-            let block = hmac(
-                &seed[..],
-                &[&counter.to_le_bytes(), &(i as u64).to_le_bytes()],
-            );
-            chunk.copy_from_slice(&block[..chunk.len()]);
+    #[cfg(feature = "fixtures")]
+    {
+        let seeded = SEEDED.with(|s| {
+            let mut s = s.borrow_mut();
+            let (seed, counter) = s.as_mut()?;
+            for (i, chunk) in out.chunks_mut(32).enumerate() {
+                let block = hmac(
+                    &seed[..],
+                    &[&counter.to_le_bytes(), &(i as u64).to_le_bytes()],
+                );
+                chunk.copy_from_slice(&block[..chunk.len()]);
+            }
+            *counter += 1;
+            Some(())
+        });
+        if seeded.is_some() {
+            return Ok(out);
         }
-        *counter += 1;
-        Some(())
-    });
-    if seeded.is_some() {
-        return Ok(out);
     }
     getrandom::fill(&mut out).map_err(|e| {
         Error::new(

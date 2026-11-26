@@ -1153,13 +1153,22 @@ impl ArchiveWriter for BhiveWriter {
             *runs = joined;
         }
         // A cell goes as it is, under a new number, while at least half of it is still used.
+        // Sealed under a new key (Protect, New key), every cell still used goes as it is. Taken
+        // out into the clear, only a cell that is all still used does: the rest of a cell may
+        // be files left out or removed before, which were sealed and mustn't come out readable.
+        let sealing = self.finish.envelope.is_some();
+        let whole = |left: u64, raw: u64| match (as_is, sealing) {
+            (true, _) => left * 2 >= raw,
+            (false, true) => true,
+            (false, false) => left >= raw,
+        };
         let mut fates = Vec::with_capacity(r.cells.len());
         let mut copies = 0u32;
         for (cell, runs) in r.cells.iter().zip(&live) {
             let left: u64 = runs.iter().map(|(a, b)| u64::from(b - a)).sum();
             fates.push(if left == 0 {
                 Fate::Gone
-            } else if left * 2 >= u64::from(cell.raw) || !as_is {
+            } else if whole(left, u64::from(cell.raw)) {
                 copies += 1;
                 Fate::Copy(copies - 1)
             } else {

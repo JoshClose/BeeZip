@@ -48,9 +48,6 @@ pub fn parse(text: &str) -> Result<Zeroizing<[u8; 16]>> {
             digits.len()
         )));
     }
-    if text.chars().any(char::is_alphabetic) {
-        return Err(not_a_key("it has letters"));
-    }
     let mut key = Zeroizing::new([0u8; 16]);
     for (i, group) in digits.chunks(6).enumerate() {
         let value = group.iter().fold(0u32, |n, &d| n * 10 + u32::from(d));
@@ -62,6 +59,12 @@ pub fn parse(text: &str) -> Result<Zeroizing<[u8; 16]>> {
         key[2 * i + 1] = k[1];
     }
     Ok(key)
+}
+
+/// Whether a password someone typed is a recovery key: 48 digits that [`parse`] takes, and no
+/// letters, so that a password with 48 digits among its words is never taken for one.
+pub fn typed_as_password(text: &str) -> bool {
+    !text.chars().any(char::is_alphabetic) && parse(text).is_ok()
 }
 
 /// A slot for `key`, with a fresh salt.
@@ -121,6 +124,10 @@ mod tests {
         assert!(parse(&("720896-".repeat(7) + "000011")).is_err());
         assert!(parse(&good[..54]).is_err());
         assert!(parse(&(good.clone() + "1")).is_err());
-        assert!(parse(&good.replacen('-', "a", 1)).is_err());
+        // Any separators, letters too; but a password with letters is never taken for a key.
+        assert!(parse(&good.replacen('-', "a", 1)).is_ok());
+        assert!(typed_as_password(&good) && typed_as_password(&good.replace('-', " ")));
+        assert!(!typed_as_password(&good.replacen('-', "a", 1)));
+        assert!(!typed_as_password(&good[..54]));
     }
 }

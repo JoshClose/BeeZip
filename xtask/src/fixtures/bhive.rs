@@ -510,7 +510,9 @@ fn sealed_fixtures() -> anyhow::Result<Vec<(String, Vec<u8>)>> {
             .with("recovery_key", json!(digits)),
     );
     let manifest = json!({
-        "note": "Written by `cargo xtask gen-fixtures` (xtask/src/fixtures/bhive.rs). Encrypted                  archives (docs/bhive.md §12), each opened by the passwords and the recovery key                  its record lists. These are test secrets, never a real archive's.",
+        "note": "Written by `cargo xtask gen-fixtures` (xtask/src/fixtures/bhive.rs). Encrypted \
+                 archives (docs/bhive.md §12), each opened by the passwords and the recovery key \
+                 its record lists. These are test secrets, never a real archive's.",
         "fixtures": all.iter().map(|f| f.record.clone()).collect::<Vec<_>>(),
     });
     let mut out: Vec<(String, Vec<u8>)> = all

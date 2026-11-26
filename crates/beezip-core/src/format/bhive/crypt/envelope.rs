@@ -103,9 +103,9 @@ fn wrap_with(
         framed: &slot,
         public: &slot[4..],
     };
-    let prk = prim::hmac(&view.context(&made.recipient_key), &[secret]);
+    let prk = Zeroizing::new(prim::hmac(&view.context(&made.recipient_key), &[secret]));
     let (wrap, commitment) = slot_keys(&prk);
-    let mut wrapped = file_key.0.to_vec();
+    let mut wrapped = Zeroizing::new(file_key.0.to_vec());
     prim::seal(&prim::key(&wrap)?, [0; 12], &slot, &mut wrapped)?;
     slot.extend_from_slice(&commitment);
     slot.extend_from_slice(&wrapped);
@@ -542,8 +542,8 @@ impl KeyBlock {
     /// Tries `secret` on `view`: `None` when its commitment isn't the slot's (a wrong secret);
     /// `Corrupt` when the commitment matches and the key or the header MAC doesn't.
     fn try_slot(&self, view: &SlotView<'_>, secret: &SlotSecret) -> Result<Option<Unlocked>> {
-        let prk = match secret {
-            SlotSecret::Extracted(prk) => **prk,
+        let prk: Zeroizing<[u8; 32]> = match secret {
+            SlotSecret::Extracted(prk) => prk.clone(),
             SlotSecret::Shared(_)
                 if matches!(
                     view.kind,
@@ -560,7 +560,7 @@ impl KeyBlock {
                     ),
                 ));
             }
-            SlotSecret::Shared(s) => prim::hmac(&view.context(&[]), &[s]),
+            SlotSecret::Shared(s) => Zeroizing::new(prim::hmac(&view.context(&[]), &[s])),
         };
         let (wrap, commitment) = slot_keys(&prk);
         let range: &Range<usize> = &self.slots[view.index].1;
@@ -568,7 +568,8 @@ impl KeyBlock {
         if !prim::same(&commitment, &tail[..32]) {
             return Ok(None);
         }
-        let mut wrapped = tail[32..].to_vec();
+        // Opened in place, it holds the file key: wiped when dropped, as the key is.
+        let mut wrapped = Zeroizing::new(tail[32..].to_vec());
         let Some(32) = prim::open(&prim::key(&wrap)?, [0; 12], view.framed, &mut wrapped) else {
             return Err(bad(format!(
                 "slot {} fits the secret, but the key it holds doesn't open: the file is damaged",
@@ -617,11 +618,75 @@ fn key_required(views: &[SlotView<'_>]) -> Error {
     )
 }
 
+/// Whether a password slot whose Argon2 takes `need` bytes asks first, on a machine with
+/// `total` (docs/M14.md §5): when it is more than half.
+fn asks_first(need: u64, total: u64) -> bool {
+    need > total / 2
+}
+
+/// What an unlock knows of its password slots' memory (docs/M14.md §5): whether each may spend
+/// it, asked at most once a slot, and why the last slot that couldn't be tried wasn't.
+struct Memory {
+    /// By slot: `Some(false)` once its memory was refused, or wasn't there to be had.
+    allowed: Vec<Option<bool>>,
+    refused: Option<Error>,
+    /// This machine's memory, when the system says.
+    total: Option<u64>,
+}
+
+impl Memory {
+    fn new(slots: usize, total: Option<u64>) -> Self {
+        Self {
+            allowed: vec![None; slots],
+            refused: None,
+            total,
+        }
+    }
+
+    /// Whether `v`'s Argon2 may run: the context is asked, once, about a slot that takes more
+    /// than half the machine's memory.
+    fn allows(&mut self, v: &SlotView<'_>, cx: &mut dyn Ctx) -> Result<bool> {
+        if let Some(ok) = self.allowed[v.index] {
+            return Ok(ok);
+        }
+        let ok = match (password::memory(v.public), self.total) {
+            (Some(need), Some(total)) if asks_first(need, total) => {
+                let ok = cx.spend_memory(need, total)?;
+                if !ok {
+                    self.refused = Some(Error::limit(format!(
+                        "bhive: slot {}'s password takes {} MiB of memory, more than half of this \
+                         machine's {} MiB, and it wasn't allowed to spend it",
+                        v.index,
+                        need >> 20,
+                        total >> 20
+                    )));
+                }
+                ok
+            }
+            _ => true,
+        };
+        self.allowed[v.index] = Some(ok);
+        Ok(ok)
+    }
+
+    /// `v`'s Argon2 couldn't have its memory: it isn't tried again.
+    fn failed(&mut self, v: &SlotView<'_>, e: Error) {
+        self.allowed[v.index] = Some(false);
+        self.refused = Some(e);
+    }
+}
+
 impl Unlocked {
     /// Opens `block`: tries what this machine has without asking (your software keys through
     /// the context's key source), then asks the context ([`Ctx::unlock`]) for a password, a
-    /// recovery key or a way in, as many times as it allows. Checks the header MAC.
+    /// recovery key or a way in, as many times as it allows. A password slot that takes more
+    /// than half the machine's memory is tried only when the context says to
+    /// ([`Ctx::spend_memory`]). Checks the header MAC.
     pub fn open(block: &KeyBlock, cx: &mut dyn Ctx) -> Result<Self> {
+        Self::open_with(block, cx, super::super::mem::physical())
+    }
+
+    fn open_with(block: &KeyBlock, cx: &mut dyn Ctx, total: Option<u64>) -> Result<Self> {
         let views = block.views();
         if views.is_empty() {
             return Err(Error::unsupported_format(
@@ -656,6 +721,7 @@ impl Unlocked {
                 here,
             })
             .collect();
+        let mut memory = Memory::new(block.slots.len(), total);
         for attempt in 0..MAX_ATTEMPTS {
             let request = UnlockRequest {
                 ways: ways.clone(),
@@ -664,55 +730,76 @@ impl Unlocked {
             let answer = match cx.unlock(&request) {
                 Ok(a) => a,
                 Err(e)
-                    if !typed
-                        && matches!(
-                            e.kind,
-                            ErrorKind::PasswordRequired | ErrorKind::WrongPassword
-                        ) =>
+                    if matches!(
+                        e.kind,
+                        ErrorKind::PasswordRequired | ErrorKind::WrongPassword
+                    ) =>
                 {
-                    return Err(key_required(&views));
+                    // Nobody left to ask: a slot that couldn't be tried says why first.
+                    return Err(match memory.refused.take() {
+                        Some(refused) => refused,
+                        None if !typed => key_required(&views),
+                        None => e,
+                    });
                 }
                 Err(e) => return Err(e),
             };
-            if let Some(u) = Self::answer(block, &views, &answer, cx)? {
+            if let Some(u) = Self::answer(block, &views, &answer, &mut memory, cx)? {
                 return Ok(u);
             }
+            // Nothing left that another answer could open.
+            let left = views.iter().zip(&here).any(|(v, &here)| {
+                here || match v.kind {
+                    SlotKind::Password => memory.allowed[v.index] != Some(false),
+                    SlotKind::RecoveryKey => true,
+                    _ => false,
+                }
+            });
+            if !left && let Some(refused) = memory.refused.take() {
+                return Err(refused);
+            }
         }
-        Err(Error::new(
-            ErrorKind::WrongPassword,
-            "bhive: none of the answers opened the archive",
-        ))
+        Err(memory.refused.unwrap_or_else(|| {
+            Error::new(
+                ErrorKind::WrongPassword,
+                "bhive: none of the answers opened the archive",
+            )
+        }))
     }
 
-    /// Tries an answer on the slots it fits. A password that is 48 digits is tried as a
-    /// recovery key too, for a context that only asks for passwords.
+    /// Tries an answer on the slots it fits. A password that is 48 digits and nothing else is
+    /// tried as a recovery key too, for a context that only asks for passwords.
     fn answer(
         block: &KeyBlock,
         views: &[SlotView<'_>],
         answer: &UnlockAnswer,
+        memory: &mut Memory,
         cx: &mut dyn Ctx,
     ) -> Result<Option<Self>> {
         let of = |kind: SlotKind| views.iter().filter(move |v| v.kind == kind);
         match answer {
             UnlockAnswer::Password(p) => {
                 for v in of(SlotKind::Password) {
-                    if let Some(need) = password::memory(v.public)
-                        && super::super::mem::physical().is_some_and(|total| need > total / 2)
-                    {
-                        cx.warn(format!(
-                            "opening the archive's password takes {} MiB, more than half of this \
-                             machine's memory",
-                            need >> 20
-                        ));
+                    if !memory.allows(v, cx)? {
+                        continue;
                     }
                     cx.check()?;
-                    let secret = password::secret(v, p)?;
+                    let secret = match password::secret(v, p) {
+                        Ok(s) => s,
+                        // Memory that isn't free: the other slots may still open.
+                        Err(e) if e.kind == ErrorKind::LimitExceeded => {
+                            memory.failed(v, e);
+                            continue;
+                        }
+                        Err(e) => return Err(e),
+                    };
                     if let Some(u) = block.try_slot(v, &secret)? {
                         return Ok(Some(u));
                     }
                 }
-                if recovery::parse(p).is_ok() {
-                    return Self::answer(block, views, &UnlockAnswer::RecoveryKey(p.clone()), cx);
+                if recovery::typed_as_password(p) {
+                    let key = UnlockAnswer::RecoveryKey(p.clone());
+                    return Self::answer(block, views, &key, memory, cx);
                 }
                 Ok(None)
             }
@@ -1301,5 +1388,104 @@ mod tests {
         salted[20] ^= 1;
         assert!(u.open_index(&salted).is_err());
         assert!(u.open_index(&ib[..ib.len() - 1]).is_err());
+    }
+
+    /// Answers passwords in turn, and says `yes` or no when asked to spend memory, counting the
+    /// asks.
+    struct Asked {
+        inner: SimpleCtx,
+        yes: bool,
+        asks: u32,
+    }
+
+    impl Asked {
+        fn new(answers: &[&str], yes: bool) -> Self {
+            Self {
+                inner: SimpleCtx::new().with_passwords(answers),
+                yes,
+                asks: 0,
+            }
+        }
+    }
+
+    impl Ctx for Asked {
+        fn is_cancelled(&self) -> bool {
+            false
+        }
+
+        fn progress(&mut self, _: &crate::Progress) {}
+
+        fn warn(&mut self, message: String) {
+            self.inner.warn(message);
+        }
+
+        fn password(&mut self, entry: Option<&str>, attempt: u32) -> Result<String> {
+            self.inner.password(entry, attempt)
+        }
+
+        fn overwrite(&mut self, existing: &std::path::Path) -> Result<crate::OverwriteChoice> {
+            self.inner.overwrite(existing)
+        }
+
+        fn spend_memory(&mut self, _: u64, _: u64) -> Result<bool> {
+            self.asks += 1;
+            Ok(self.yes)
+        }
+    }
+
+    /// A password slot that takes more than half the machine's memory is tried only when the
+    /// context says to, and the context is asked once a slot however many answers it gives
+    /// (docs/M14.md §5). Here the machine is made to have 100 KiB, against the slots' 64.
+    #[test]
+    fn memory_over_half_the_machine_is_asked_for_once_a_slot() {
+        assert!(!asks_first(1 << 30, 4 << 30) && !asks_first(2 << 30, 4 << 30));
+        assert!(asks_first((2 << 30) + 1, 4 << 30));
+        let total = Some(100 << 10);
+        let env = envelope(vec![password(1), password(2)]);
+        let block = read(&start(&env)).unwrap();
+
+        // Refused: neither slot is tried, and the unlock says why.
+        let mut cx = Asked::new(&["honey", "honey", "honey"], false);
+        let e = Unlocked::open_with(&block, &mut cx, total).unwrap_err();
+        assert_eq!(e.kind, ErrorKind::LimitExceeded, "{}", e.message);
+        assert_eq!(cx.asks, 2);
+        // The default context has nobody to ask, so it refuses too.
+        let mut simple = SimpleCtx::new().with_password("honey");
+        let e = Unlocked::open_with(&block, &mut simple, total).unwrap_err();
+        assert_eq!(e.kind, ErrorKind::LimitExceeded);
+        // Allowed: asked once for each slot tried, over every wrong answer.
+        let mut cx = Asked::new(&["bees", "wasps", "honey"], true);
+        let u = Unlocked::open_with(&block, &mut cx, total).unwrap();
+        assert!(env.same_key(&u));
+        assert_eq!(cx.asks, 2);
+        // Enough memory: nobody is asked.
+        let mut cx = Asked::new(&["honey"], false);
+        Unlocked::open_with(&block, &mut cx, Some(1 << 30)).unwrap();
+        assert_eq!(cx.asks, 0);
+
+        // A refused slot leaves the recovery key, which opens.
+        let env = envelope(vec![password(1), recovery_slot(DIGITS, None)]);
+        let block = read(&start(&env)).unwrap();
+        let mut cx = Asked::new(&["honey", DIGITS], false);
+        let u = Unlocked::open_with(&block, &mut cx, total).unwrap();
+        assert_eq!((u.opened_by(), cx.asks), (1, 1));
+    }
+
+    /// A password with 48 digits among letters is never taken for a recovery key; the digits
+    /// alone, with any separators that aren't letters, are.
+    #[test]
+    fn only_digits_are_tried_as_a_recovery_key() {
+        let env = envelope(vec![recovery_slot(DIGITS, None)]);
+        let bytes = start(&env);
+        assert!(unlock(&bytes, &DIGITS.replace('-', " ")).is_ok());
+        let e = unlock(&bytes, &DIGITS.replace('-', "x")).unwrap_err();
+        assert_eq!(e.kind, ErrorKind::WrongPassword);
+        // Asked for as a recovery key, the same text is one: separators are any characters.
+        let typed = UnlockAnswer::RecoveryKey(DIGITS.replace('-', "x"));
+        let block = read(&bytes).unwrap();
+        let mut memory = Memory::new(block.slots.len(), None);
+        let views = block.views();
+        let u = Unlocked::answer(&block, &views, &typed, &mut memory, &mut SimpleCtx::new());
+        assert!(u.unwrap().is_some());
     }
 }
