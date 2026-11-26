@@ -11,6 +11,7 @@ use crate::{
         edit::{SpecArgs, spec_for},
         util::{absolute, open_options},
     },
+    protect::WaysArgs,
     wire::{
         ArchiveFormatName, ByteSize, EncryptionName, LevelArg, MethodName, NameEncoding, Secret,
         human_size, ratio,
@@ -146,16 +147,19 @@ pub struct ArchiveConvertInput {
 }
 
 impl ArchiveConvertInput {
-    /// Whether this asks for what M14 builds (docs/M14.md §8, §11).
-    fn m14_asked(&self) -> bool {
-        self.recovery_key.is_some()
-            || self.to.is_some()
-            || self.to_cert.is_some()
-            || self.this_pc.is_some()
-            || self.this_pc_pin.is_some()
-            || self.security_key.is_some()
-            || self.strength.is_some()
-            || self.sign.is_some()
+    /// The ways in the new archive gets (docs/M14.md §8).
+    fn ways(&self) -> WaysArgs<'_> {
+        WaysArgs {
+            password: self.new_password.as_ref(),
+            recovery_key: self.recovery_key.unwrap_or(false),
+            to: self.to.as_deref().unwrap_or_default(),
+            to_cert: self.to_cert.as_deref().unwrap_or_default(),
+            this_pc: self.this_pc.unwrap_or(false),
+            this_pc_pin: self.this_pc_pin.as_ref(),
+            security_key: self.security_key.unwrap_or(false),
+            strength: self.strength,
+            kept: false,
+        }
     }
 }
 
@@ -217,11 +221,6 @@ impl Command for ArchiveConvert {
     }
 
     fn run(input: ArchiveConvertInput, cx: &mut JobCtx) -> Result<ArchiveConvertOutput, CmdError> {
-        if input.m14_asked() {
-            return Err(crate::commands::util::not_built(
-                "encrypting and signing a .bhive",
-            ));
-        }
         let output = absolute(&input.output);
         let kind = match input.format {
             Some(f) => f.kind(),
@@ -248,17 +247,24 @@ impl Command for ArchiveConvert {
             level: input.level.and_then(LevelArg::number),
             level_name: input.level.and_then(LevelArg::name),
             threads: input.threads,
-            password: input.new_password.as_ref().map(|p| p.expose().to_owned()),
+            // A .bhive's password is one of its ways in (`protection`).
+            password: (kind != ArchiveKind::Bhive)
+                .then(|| input.new_password.as_ref().map(|p| p.expose().to_owned()))
+                .flatten(),
             encryption: input.encryption,
             encrypt_headers: input.encrypt_headers,
             solid: input.solid,
+            ..SpecArgs::default()
         };
         let config = cx.config()?.clone();
-        let spec = spec_for(kind, &args, &config)?;
-        // Raw copies only when nothing asks the entries to change.
+        let mut spec = spec_for(kind, &args, &config)?;
+        let sign = input.sign.as_deref().unwrap_or_default();
+        crate::commands::archive_create::bhive_only(kind, &input.ways(), sign)?;
+        // Raw copies only when nothing asks the entries to change. A .bhive's cells are copied
+        // as they are stored into an encrypted one, so its signatures stay (docs/M14.md §11).
         let raw = input.method.is_none()
             && input.level.is_none()
-            && input.new_password.is_none()
+            && (input.new_password.is_none() || kind == ArchiveKind::Bhive)
             && input.encryption.is_none()
             && input.encrypt_headers.is_none()
             && input.solid.is_none()
@@ -275,6 +281,11 @@ impl Command for ArchiveConvert {
             decrypt,
             dry_run: input.dry_run.unwrap_or(false),
         };
+        let recovery_key = if input.dry_run.unwrap_or(false) {
+            None
+        } else {
+            crate::commands::archive_create::protect_spec(&mut spec, &input.ways(), sign, cx)?
+        };
         cx.set_password(input.password.as_ref());
         let open_opts = open_options(
             crate::commands::util::Opening::new(input.name_encoding, input.recover),
@@ -290,7 +301,7 @@ impl Command for ArchiveConvert {
             cx,
         )?;
         Ok(ArchiveConvertOutput {
-            recovery_key: None,
+            recovery_key,
             path: input.output,
             format: ArchiveFormatName::from_kind(kind),
             files: r.files,

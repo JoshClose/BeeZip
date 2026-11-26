@@ -475,7 +475,13 @@ recover?: boolean,
 /**
  * Show what would be extracted, and where, without writing anything.
  */
-dry_run?: boolean, };
+dry_run?: boolean,
+/**
+ * Refuse the archive unless it is signed, validly, by each of these: a `bzsig1…` key, a
+ * certificate file, or the name of a signing key or contact. Matched by their whole
+ * SHA-256, never a fingerprint (docs/M14.md §11).
+ */
+require_signer?: Array<string>, };
 
 export type ArchiveExtractOutput = { dest: string, files: number, dirs: number, links: number, bytes: number,
 /**
@@ -586,7 +592,16 @@ properties: Array<InfoProperty>,
 /**
  * Things to know about the archive: where an MSI's files are listed.
  */
-notes: Array<string>, };
+notes: Array<string>,
+/**
+ * A `.bhive`'s ways in, when it is encrypted. Their names and keys are what the archive
+ * says of itself, which anyone who could open it could have changed (docs/bhive.md §12.9).
+ */
+protection?: ArchiveProtectionOutput,
+/**
+ * A `.bhive`'s signatures, checked (docs/bhive.md §13).
+ */
+signatures?: Array<SignatureReport>, };
 
 /**
  * List an archive's entries. Without `flat`, one folder level at a time (the root, or `dir`),
@@ -711,9 +726,16 @@ strength?: StrengthName,
  */
 remove?: Array<number>,
 /**
- * Make a new file key: every cell sealed again, every slot rebuilt.
+ * Make a new file key: every cell sealed again, every slot rebuilt. A password slot is
+ * rebuilt with `add_password`, a recovery key is new, a security key needs a touch.
  */
-new_key?: boolean, };
+new_key?: boolean,
+/**
+ * With `new_key`, rebuild these ways in, by slot, although their keys or certificates
+ * aren't among your keys and contacts. What the archive says of whose they are is a claim
+ * anyone who could open it could have changed: check each in `archive.protection` first.
+ */
+confirm?: Array<number>, };
 
 export type ArchiveProtectOutput = { ways: Array<WayIn>, post_quantum: boolean,
 /**
@@ -877,7 +899,13 @@ name_encoding?: NameEncoding,
  * Open a .bhive whose index is missing or damaged (a download cut short) from the
  * records before its cells, with the entries they still hold.
  */
-recover?: boolean, };
+recover?: boolean,
+/**
+ * Refuse the archive unless it is signed, validly, by each of these: a `bzsig1…` key, a
+ * certificate file, or the name of a signing key or contact. Matched by their whole
+ * SHA-256, never a fingerprint (docs/M14.md §11).
+ */
+require_signer?: Array<string>, };
 
 export type ArchiveTestOutput = { archive: string, entries: number,
 /**
@@ -888,7 +916,37 @@ bytes: number,
  * What the test couldn't check: a format that stores no checksums of its files' data (a
  * CHM help file, a disk image's FAT) shows only that every file can be read.
  */
-note?: string | null, };
+note?: string | null,
+/**
+ * A `.bhive`'s ways in, when it is encrypted. Their names and keys are what the archive
+ * says of itself, which anyone who could open it could have changed (docs/bhive.md §12.9).
+ */
+protection?: ArchiveProtectionOutput,
+/**
+ * A `.bhive`'s signatures, checked (docs/bhive.md §13).
+ */
+signatures?: Array<SignatureReport>, };
+
+/**
+ * Check a `.bhive`'s signatures: that one is valid (from each signer `require_signer` names,
+ * when given), and that every cell is what was signed, read to the end as `archive.test` reads
+ * it. Fails with `SignatureRequired` when the archive isn't signed that way, and `Corrupt`
+ * when it changed after it was signed.
+ */
+export type ArchiveVerifyInput = {
+/**
+ * The archive.
+ */
+archive: string,
+/**
+ * The password or recovery key, for an encrypted archive none of your keys opens.
+ */
+password?: Secret,
+/**
+ * Signed, validly, by each of these: a `bzsig1…` key, a certificate file, or the name of
+ * a signing key or contact. Matched by their whole SHA-256, never a fingerprint.
+ */
+require_signer?: Array<string>, };
 
 /**
  * One codec at one level and thread count.
@@ -2431,6 +2489,13 @@ export type CommandMap = {
    * Fails with `Corrupt`, listing the damaged entries in `details`.
    */
   "archive.test": { input: ArchiveTestInput; output: ArchiveTestOutput };
+  /**
+   * Check a `.bhive`'s signatures: that one is valid (from each signer `require_signer` names,
+   * when given), and that every cell is what was signed, read to the end as `archive.test` reads
+   * it. Fails with `SignatureRequired` when the archive isn't signed that way, and `Corrupt`
+   * when it changed after it was signed.
+   */
+  "archive.verify": { input: ArchiveVerifyInput; output: ArchiveTestOutput };
   /**
    * Benchmark the codecs: compress and decompress a sample in memory with each codec at the
    * levels and thread counts of a grid, and report the size, the speed and the memory each way.

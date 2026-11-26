@@ -14,6 +14,7 @@ mod engine;
 mod error;
 mod job;
 pub mod policy;
+pub mod protect;
 mod registry;
 pub mod shell;
 pub mod wire;

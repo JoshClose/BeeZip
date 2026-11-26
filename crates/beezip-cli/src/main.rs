@@ -50,6 +50,17 @@ fn cli() -> clap::Command {
                 .help("How to print results; ndjson streams every job event"),
         )
         .arg(
+            Arg::new("identity")
+                .short('i')
+                .long("identity")
+                .global(true)
+                .value_name("FILE")
+                .action(ArgAction::Append)
+                .value_parser(value_parser!(PathBuf))
+                .help_heading("Global options")
+                .help("A key file that opens encrypted .bhive archives (age identities, PEM and PKCS #8 keys); repeatable"),
+        )
+        .arg(
             Arg::new("quiet")
                 .short('q')
                 .long("quiet")
@@ -131,7 +142,7 @@ fn dispatch(matches: &ArgMatches, out: &Output) -> Result<(), CmdError> {
         Some(("run", sub)) => {
             let name = sub.get_one::<String>("name").map_or("", String::as_str);
             let args = json_arg(sub.get_one::<String>("json").map(String::as_str))?;
-            run(name, args, out)
+            run(name, args, &identities(matches), out)
         }
         Some(("commands", _)) => {
             out.commands(registry());
@@ -159,7 +170,7 @@ fn dispatch(matches: &ArgMatches, out: &Output) -> Result<(), CmdError> {
                 CmdError::not_found(format!("no subcommand `{}`", words.join(" ")))
             })?;
             let args = entry.args_from_matches(sub).unwrap_or_else(|e| e.exit());
-            run(entry.name, args, out)
+            run(entry.name, args, &identities(matches), out)
         }
         None => Err(CmdError::invalid_args(
             "no subcommand given; see `beezip --help`",
@@ -226,16 +237,34 @@ fn mcp(sub: &ArgMatches, out: &Output) -> Result<(), CmdError> {
         .map_err(|e| CmdError::internal(format!("MCP server failed: {e:#}")))
 }
 
-fn run(name: &str, args: Value, out: &Output) -> Result<(), CmdError> {
+/// The key files `--identity` gives, wherever on the line it was.
+fn identities(matches: &ArgMatches) -> Vec<PathBuf> {
+    let mut found: Vec<PathBuf> = Vec::new();
+    let mut m = Some(matches);
+    while let Some(sub) = m {
+        if let Ok(Some(paths)) = sub.try_get_many::<PathBuf>("identity") {
+            for p in paths {
+                if !found.contains(p) {
+                    found.push(p.clone());
+                }
+            }
+        }
+        m = sub.subcommand().map(|(_, s)| s);
+    }
+    found
+}
+
+fn run(name: &str, args: Value, identities: &[PathBuf], out: &Output) -> Result<(), CmdError> {
     // The config is read once, when the process starts (docs/M1.md §4.1).
     let loaded = config::load();
     for w in &loaded.warnings {
         out.warn(w);
     }
-    let engine = Engine::with_options(
-        registry(),
-        EngineOptions::from_loaded(loaded, Policy::unrestricted()),
-    );
+    let policy = Policy {
+        identities: identities.to_vec(),
+        ..Policy::unrestricted()
+    };
+    let engine = Engine::with_options(registry(), EngineOptions::from_loaded(loaded, policy));
     let interactive = std::io::stdin().is_terminal() && std::io::stderr().is_terminal();
     let interactor: Arc<dyn Interactor> = if interactive {
         Arc::new(TtyInteractor::new(out.bars()))

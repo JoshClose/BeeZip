@@ -1,0 +1,40 @@
+Check a `.bhive`'s signatures: that one is valid (from each signer `require_signer` names,
+when given), and that every cell is what was signed, read to the end as `archive.test` reads
+it. Fails with `SignatureRequired` when the archive isn't signed that way, and `Corrupt`
+when it changed after it was signed.
+
+Usage: beezip verify [OPTIONS] <ARCHIVE>
+
+Arguments:
+  <ARCHIVE>
+          The archive
+
+Options:
+  -p, --password <PASSWORD>
+          The password or recovery key, for an encrypted archive none of your keys opens
+
+      --require-signer <SIGNER>
+          Signed, validly, by each of these: a `bzsig1…` key, a certificate file, or the name of a
+          signing key or contact. Matched by their whole SHA-256, never a fingerprint
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+Global options:
+      --output <FORMAT>
+          How to print results; ndjson streams every job event
+
+          Possible values:
+          - human:  Text for people
+          - json:   One JSON document on stdout: the output, or `{"error": {...}}`
+          - ndjson: Every job event as a JSON line on stdout, ending with `Finished`, `Failed` or
+            `Cancelled`
+          
+          [default: human]
+
+  -i, --identity <FILE>
+          A key file that opens encrypted .bhive archives (age identities, PEM and PKCS #8 keys);
+          repeatable
+
+  -q, --quiet
+          No progress bars or info messages; warnings still print

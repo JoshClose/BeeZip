@@ -7,6 +7,7 @@ use std::{
     time::{Duration, Instant},
 };
 
+use beezip_core::format::bhive::crypt::{KeySource, SlotKind, UnlockAnswer, UnlockRequest};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
@@ -195,6 +196,18 @@ pub struct JobCtx {
     password_used: bool,
     cache: Option<Arc<ArchiveCache>>,
     locks: Arc<EditLocks>,
+    /// What the input's password may open an encrypted `.bhive` as, still to try: a recovery
+    /// key, a password (docs/M14.md §8).
+    typed: Vec<UnlockAnswer>,
+    unlock_prompts: u32,
+    /// Your keys, the key files given, the system's certificates and devices; made when an
+    /// encrypted archive first needs them.
+    keys: Option<beezip_keys::Sources>,
+    /// Why a key file given couldn't be read, reported when a key is needed.
+    key_error: Option<CmdError>,
+    /// The ways into the last encrypted archive an Unlock prompt couldn't be answered for, as
+    /// `details.ways`.
+    unlock_ways: Option<serde_json::Value>,
 }
 
 impl JobCtx {
@@ -225,7 +238,95 @@ impl JobCtx {
             password_used: false,
             cache,
             locks: locks.unwrap_or_default(),
+            typed: Vec::new(),
+            unlock_prompts: 0,
+            keys: None,
+            key_error: None,
+            unlock_ways: None,
         }
+    }
+
+    /// `e` with the ways into the archive nothing opened, for an error that says so
+    /// (`KeyRequired`, `PasswordRequired`) and doesn't list them already.
+    pub(crate) fn with_ways(&mut self, e: CmdError) -> CmdError {
+        let wants = matches!(e.code, ErrorCode::KeyRequired | ErrorCode::PasswordRequired);
+        match (self.unlock_ways.take(), wants) {
+            (Some(ways), true) => {
+                let mut details = e.details.clone().unwrap_or_else(|| serde_json::json!({}));
+                if let Some(d) = details.as_object_mut() {
+                    d.entry("ways").or_insert(ways);
+                }
+                e.with_details(details)
+            }
+            _ => e,
+        }
+    }
+
+    /// Your keys and contacts, kept beside the config (docs/M14.md §6).
+    pub fn key_store(&self) -> beezip_keys::identity::Store {
+        let dir = self
+            .config_path()
+            .and_then(|p| p.parent().map(Path::to_path_buf))
+            .unwrap_or_else(|| std::env::temp_dir().join("BeeZip"));
+        beezip_keys::identity::Store::new(dir)
+    }
+
+    /// The key sources an encrypted `.bhive` is opened with: your keys first, then the key
+    /// files given (`--identity`), then the system's certificates and devices.
+    fn sources(&mut self) -> beezip_keys::Sources {
+        let mut sources = beezip_keys::Sources::system();
+        match self.key_store().source() {
+            Ok(own) => sources.push(own),
+            Err(e) => self.log(LogLevel::Warn, format!("your keys aren't available: {e}")),
+        }
+        let identities = self.policy.identities.clone();
+        if !identities.is_empty() {
+            let paths: Vec<&Path> = identities.iter().map(PathBuf::as_path).collect();
+            match beezip_keys::files::source(&paths, None) {
+                Ok(files) => sources.push(files),
+                Err(e) => self.key_error = Some(e.into()),
+            }
+        }
+        sources
+    }
+
+    /// What the input's password may be, for the ways in an archive has: a recovery key when
+    /// it reads as one, a password, or both in turn. Last first.
+    fn typed_answers(&self, request: &UnlockRequest) -> Vec<UnlockAnswer> {
+        let Some(given) = &self.password else {
+            return Vec::new();
+        };
+        let has = |kind| request.ways.iter().any(|w| w.kind == kind);
+        let mut answers = Vec::new();
+        let digits = given.chars().filter(char::is_ascii_digit).count();
+        let recovery = digits == 48
+            && given
+                .chars()
+                .all(|c| c.is_ascii_digit() || matches!(c, '-' | ' '));
+        if recovery && has(SlotKind::RecoveryKey) {
+            answers.push(UnlockAnswer::RecoveryKey(given.clone()));
+        }
+        if has(SlotKind::Password) || answers.is_empty() {
+            answers.push(UnlockAnswer::Password(given.clone()));
+        }
+        answers.reverse();
+        answers
+    }
+
+    /// The ways in, as an error's `details.ways` lists them.
+    fn ways_details(request: &UnlockRequest) -> serde_json::Value {
+        let ways: Vec<serde_json::Value> = request
+            .ways
+            .iter()
+            .map(|w| {
+                serde_json::json!({
+                    "slot": w.slot,
+                    "kind": crate::crypt::SlotKindName::from(w.kind),
+                    "here": w.here,
+                })
+            })
+            .collect();
+        serde_json::json!({ "ways": ways })
     }
 
     /// Waits until no other job of this engine is editing the archive at `path` (canonical),
@@ -420,6 +521,91 @@ impl beezip_core::Ctx for JobCtx {
 
     fn overwrite(&mut self, existing: &Path) -> beezip_core::Result<beezip_core::OverwriteChoice> {
         self.ask_overwrite(existing.display().to_string(), None)
+    }
+
+    /// The input's password first, as a recovery key or a password (or both, in turn); then
+    /// up to [`PASSWORD_PROMPTS`] Unlock prompts, which list the ways in. With nobody to ask,
+    /// a first ask fails as the front end says (`KeyRequired`, or `PasswordRequired` over
+    /// MCP) with `details.ways`, and a later one is `WrongPassword`. An encrypted archive never
+    /// goes back to the archive cache.
+    fn unlock(&mut self, request: &UnlockRequest) -> beezip_core::Result<UnlockAnswer> {
+        use beezip_core::{Error, ErrorKind};
+
+        use crate::crypt::{UnlockReply, UnlockWay};
+        self.password_used = true;
+        if let Some(e) = self.key_error.take() {
+            return Err(e.into());
+        }
+        if request.attempt == 0 {
+            self.typed = self.typed_answers(request);
+        }
+        if let Some(answer) = self.typed.pop() {
+            return Ok(answer);
+        }
+        if self.unlock_prompts >= PASSWORD_PROMPTS {
+            return Err(Error::new(
+                ErrorKind::WrongPassword,
+                "nothing given opens the archive: a wrong password or recovery key",
+            ));
+        }
+        let ways = request
+            .ways
+            .iter()
+            .map(|w| UnlockWay {
+                slot: w.slot,
+                kind: w.kind.into(),
+                here: w.here,
+            })
+            .collect();
+        let reply = self.prompt(Prompt::Unlock {
+            ways,
+            attempt: request.attempt,
+        });
+        match reply {
+            Ok(PromptReply::Unlock { answer }) => {
+                self.unlock_prompts += 1;
+                Ok(match answer {
+                    UnlockReply::Password { password } => {
+                        self.password = Some(password.clone());
+                        UnlockAnswer::Password(password)
+                    }
+                    UnlockReply::RecoveryKey { key } => UnlockAnswer::RecoveryKey(key),
+                    UnlockReply::Slot { slot } => UnlockAnswer::Way(slot),
+                })
+            }
+            // A front end that knows only passwords.
+            Ok(PromptReply::Password { password }) => {
+                self.unlock_prompts += 1;
+                self.password = Some(password.clone());
+                Ok(UnlockAnswer::Password(password))
+            }
+            Ok(PromptReply::Cancel) => Err(Error::cancelled()),
+            Ok(other) => Err(Error::invalid_args(format!(
+                "expected a way into the archive, got {other:?}"
+            ))),
+            Err(e)
+                if request.attempt > 0
+                    && matches!(e.code, ErrorCode::PasswordRequired | ErrorCode::KeyRequired) =>
+            {
+                Err(Error::new(
+                    ErrorKind::WrongPassword,
+                    "nothing given opens the archive: a wrong password or recovery key, and no \
+                     key here fits",
+                ))
+            }
+            Err(e) => {
+                self.unlock_ways = Some(Self::ways_details(request)["ways"].clone());
+                Err(e.into())
+            }
+        }
+    }
+
+    fn key_source(&mut self) -> Option<&mut dyn KeySource> {
+        if self.keys.is_none() {
+            let sources = self.sources();
+            self.keys = Some(sources);
+        }
+        self.keys.as_mut().map(|s| s as &mut dyn KeySource)
     }
 
     fn overwrite_entry(

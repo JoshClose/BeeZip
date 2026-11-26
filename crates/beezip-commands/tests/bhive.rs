@@ -125,7 +125,8 @@ fn options_that_do_not_fit_are_refused_before_anything_is_written() {
         (json!({ "level": 5 }), "0 to 4"),
         (json!({ "level": -1 }), "0 to 4"),
         (json!({ "method": "zstd" }), "has levels"),
-        (json!({ "password": "pw" }), "isn't encrypted"),
+        // A .bhive's password is a way in (docs/M14.md §8); zip's AES choice isn't.
+        (json!({ "encryption": "aes256" }), "`encryption` is for zip"),
         (json!({ "solid": true }), "is for 7z"),
     ] {
         let mut args = json!({ "output": s(&out), "inputs": [s(&src)] });

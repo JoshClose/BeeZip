@@ -54,12 +54,15 @@ The rest of the config (default levels, the overwrite policy, limits) applies to
 |---|---|---|
 | `formats_list` | | The formats and codecs BeeZip reads and writes: zip, its own `.bhive`, 7z, tar, cpio, ar, CAB, ISO, squashfs and DMG, RAR, Debian packages, RPMs, LHA, UDF, ARJ, ACE, ZOO, ARC, XAR and macOS packages (read only), tar and cpio under any codec, and bare compressed files (Unix `.Z` and lzop among them). |
 | `file_detect` | | What a file is: `zstd → tar`, `gzip → cpio`, a deb, RPM or macOS package, a 7z, a RAR, zip, CAB or LHA SFX, a volume set (`a.7z.001`…, `a.part1.rar`…, `a.arj` with `a.a01`…, `a.ace` with `a.c00`…), a disk image, an installer (`msi`, `nsis`) or a help file, or not an archive. |
-| `archive_info` | | Counts, sizes, ratio, methods, encryption, solid blocks, the volumes of a split archive, and why the edit tools would refuse it (`not_editable`). For a disk image, an installer or a help file, also the `levels` it opened (`vhdx`, `gpt`, `ntfs`), their `properties` (a volume's label, a cluster size) and `notes` (where an MSI lists its files). For a `.bhive`, the `properties` are the level it was made at, its cells, and the bytes that storing repeated content once saved. |
+| `archive_info` | | Counts, sizes, ratio, methods, encryption, solid blocks, the volumes of a split archive, and why the edit tools would refuse it (`not_editable`). For a disk image, an installer or a help file, also the `levels` it opened (`vhdx`, `gpt`, `ntfs`), their `properties` (a volume's label, a cluster size) and `notes` (where an MSI lists its files). For a `.bhive`, the `properties` are the level it was made at, its cells, and the bytes that storing repeated content once saved; an encrypted one's `protection` (its ways in), and a signed one's `signatures`, each with its status and signer. |
 | `archive_list` | | Entries, one folder level at a time or `flat`, with `glob` filters, `kind`, and `sort` (folders first). |
-| `archive_test` | | Reads everything back and checks CRCs. For a format that stores no checksums of its files (a disk image's FAT, a CHM help file, an MSI patch), `note` says that the test shows only that every file can be read. |
+| `archive_test` | | Reads everything back and checks CRCs. For a format that stores no checksums of its files (a disk image's FAT, a CHM help file, an MSI patch), `note` says that the test shows only that every file can be read. A signed `.bhive`'s cells are checked against what was signed; `require_signer` refuses it unless it is signed, validly, by each signer named. |
+| `archive_verify` | | A `.bhive`'s signatures: fails with `SignatureRequired` unless one is valid (from each of `require_signer`, when given), then reads every entry as `archive_test` does. |
+| `archive_protection` | | An encrypted `.bhive`'s ways in (passwords, recovery keys, public keys, certificates, This PC, security keys), with their labels, and whether it is safe from quantum computers. |
+| `certificates_list` | | The certificates in the user's stores (Personal and Other People on Windows) that archives can be encrypted to or signed with, and why the others can't. |
 | `entry_read` | | Part of one entry, as text, hex or base64. |
-| `archive_extract` | ✓ | All entries, or selected ones, into `dest`. |
-| `archive_create` | ✓ | A zip, `.bhive`, 7z, tar or cpio (those two optionally compressed), ar, CAB, ISO, squashfs or DMG from files and folders (ar and CAB hold files only), optionally split into volumes (`volume_size`). A 7z with a password encrypts the names too, unless `encrypt_headers` is false. A `.bhive`'s `level` is 0 to 4, or `none`, `fast`, `balanced` (the default), `high` or `max`; it takes no method and no password. |
+| `archive_extract` | ✓ | All entries, or selected ones, into `dest`. `require_signer` refuses a `.bhive` that isn't signed, validly, by each signer named, before anything is written. |
+| `archive_create` | ✓ | A zip, `.bhive`, 7z, tar or cpio (those two optionally compressed), ar, CAB, ISO, squashfs or DMG from files and folders (ar and CAB hold files only), optionally split into volumes (`volume_size`). A 7z with a password encrypts the names too, unless `encrypt_headers` is false. A `.bhive`'s `level` is 0 to 4, or `none`, `fast`, `balanced` (the default), `high` or `max`; it takes no method. A `.bhive` with a `password`, `to` public keys (`age1…`, `age1pq1…`, a contact's name) or `to_cert` certificates is encrypted with AES-256-GCM, names and all (see below). |
 | `archive_add` | ✓ (destructive) | Files and folders added to a zip, `.bhive`, 7z, tar, cpio or ar (tar and cpio compressed or not), in `dir` if given. An entry already there is asked about, or follows `overwrite`. |
 | `archive_remove` | ✓ (destructive) | Entries removed, by path (a folder takes everything under it) or `glob`. |
 | `archive_rename` | ✓ (destructive) | One entry, or a folder and everything under it, renamed or moved (`from`, `to`). |
@@ -98,6 +101,15 @@ They read disk images and installers themselves too: the virtual disks VHD, VHDX
   - Declining the question cancels the job.
 - **Passwords are never asked for over MCP.** The spec forbids asking for secrets in elicitation forms. An encrypted archive fails with `PasswordRequired` (with `details.param = "password"`). The assistant asks the user and calls again with `password`. That means the password passes through the assistant's context, so only give it one you are willing to share there.
 
+## Encrypted and signed `.bhive`
+
+- **Opening.** BeeZip first tries the user's own stored keys, silently. When none opens the archive, the call fails with `PasswordRequired` if the archive has a password or a recovery key (`details.ways` lists its ways in): the assistant asks the user and calls again with `password`, which takes the password or the 48-digit recovery key. An archive that only keys, certificates or devices open fails with `KeyRequired`: the user opens it in the app or the CLI.
+- **No devices.** Nobody is there to touch a security key, use Windows Hello or type a TPM's PIN, so the MCP server never uses them, to open an archive or to make one: `this_pc` and `security_key` fail with `UnsupportedOperation`.
+- **No new recovery keys.** A recovery key made over MCP would pass through the assistant's context, so `recovery_key` fails with `UnsupportedOperation`; make one in the app or the CLI.
+- **No signing.** A signature says that the user made the archive, so the MCP server never signs: `sign` fails with `UnsupportedOperation`, and `archive_sign` isn't offered. It shows and checks signatures (`archive_info`, `archive_test`, `archive_verify`) and can require a signer (`require_signer`), which is matched by the whole SHA-256 of a `bzsig1…` key, a certificate file or a contact, never by a fingerprint.
+- **Changing who can open an archive** (`archive_protect`) isn't offered either: it can make recovery keys, touch devices and lock people out.
+- **What an archive says of its ways in** (the labels and keys `archive_protection` shows) is a claim anyone who could open it could have changed.
+
 ## Limits
 
 - **`archive_list`** returns at most 500 entries per call, whatever `limit` asks for. While `has_more` is true, call it again with a larger `offset`.
@@ -110,7 +122,7 @@ They read disk images and installers themselves too: the virtual disks VHD, VHDX
 - **Cancellation:** cancelling a call (`notifications/cancelled`) cancels its job, which removes its partly written file. When the client disconnects, running jobs are cancelled too.
 - **Errors:** failures come back as tool results with `isError: true`. Their structured content is `{code, message, details?}`, where `code` is stable:
   - `NotFound`, `InvalidArgs`, `UnsupportedFormat`, `UnsupportedOperation`;
-  - `PasswordRequired`, `WrongPassword`;
+  - `PasswordRequired`, `WrongPassword`, `KeyRequired` (an encrypted `.bhive` nothing given opens), `SignatureRequired` (not signed by the signer `require_signer` names);
   - `Corrupt`;
   - `OutsideSandbox`, `Conflict`, `LimitExceeded`, `Unsafe`;
   - `BackendUnavailable` (only from a build without the `rar` feature, for a RAR archive; before 0.6.0, also a format that needed 7-Zip);

@@ -84,6 +84,12 @@ pub struct ArchiveExtractInput {
     #[arg(long, num_args = 0..=1, require_equals = true, default_missing_value = "true")]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub dry_run: Option<bool>,
+    /// Refuse the archive unless it is signed, validly, by each of these: a `bzsig1…` key, a
+    /// certificate file, or the name of a signing key or contact. Matched by their whole
+    /// SHA-256, never a fingerprint (docs/M14.md §11).
+    #[arg(long, value_name = "SIGNER")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub require_signer: Option<Vec<String>>,
 }
 
 /// An entry that wasn't extracted.
@@ -198,6 +204,8 @@ impl Command for ArchiveExtract {
 
     fn run(input: ArchiveExtractInput, cx: &mut JobCtx) -> Result<ArchiveExtractOutput, CmdError> {
         let config = cx.config()?.clone();
+        let wanted =
+            crate::protect::wanted(input.require_signer.as_deref().unwrap_or_default(), cx)?;
         let paths = input.entries.clone().unwrap_or_default();
         let sel = Selection::new(
             &paths,
@@ -210,6 +218,9 @@ impl Command for ArchiveExtract {
         );
         let mut opened =
             open_archive_with(&input.archive, input.password.as_ref(), &open_opts, cx)?;
+        // Before anything is written (docs/M14.md §11). A cell that differs from what was
+        // signed fails as it is read, as a bad checksum does.
+        crate::protect::require(crate::protect::signatures_of(&mut *opened.reader), &wanted)?;
         let links = input.links.unwrap_or(config.extract.links);
         let strip = input.strip_components.unwrap_or(0) as usize;
 

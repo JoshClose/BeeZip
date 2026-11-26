@@ -880,8 +880,9 @@ async fn bhive_is_made_described_and_recovered() {
     // The second file is the first's bytes: 12,000 of them stored once.
     assert_eq!(property("Stored Once").as_deref(), Some("12000"));
 
-    // A level that isn't one, and a password, are refused.
-    for extra in [json!({ "level": 9 }), json!({ "password": "pw" })] {
+    // A level that isn't one, and zip's AES choice, are refused. (A password is a way in,
+    // docs/M14.md §8.)
+    for extra in [json!({ "level": 9 }), json!({ "encryption": "aes256" })] {
         let mut args = json!({ "output": root.join("b.bhive"), "inputs": [src] });
         for (k, v) in extra.as_object().unwrap() {
             args[k] = v.clone();
@@ -918,4 +919,62 @@ async fn bhive_is_made_described_and_recovered() {
         .await
         .unwrap();
     assert_eq!(output(&r)["total"], 3);
+}
+
+/// MCP never signs, touches no device and makes no recovery key; it lists the ways into an
+/// encrypted `.bhive` and checks signatures (docs/M14.md decisions 15 and 27).
+#[tokio::test]
+async fn encrypted_and_signed_bhive_over_mcp() {
+    let (_dir, root) = sandbox();
+    let h = connect(rooted(&root), TestClient::new(), false).await;
+    let names: Vec<String> = h
+        .client
+        .list_all_tools()
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|t| t.name.into_owned())
+        .collect();
+    for tool in ["archive_protection", "archive_verify", "certificates_list"] {
+        assert!(names.contains(&tool.to_owned()), "{tool}: {names:?}");
+    }
+    for tool in ["archive_sign", "archive_protect"] {
+        assert!(!names.contains(&tool.to_owned()), "{tool}: {names:?}");
+    }
+
+    let out = root.join("a.bhive");
+    for (option, value) in [
+        ("sign", json!(["me"])),
+        ("recovery_key", json!(true)),
+        ("this_pc", json!(true)),
+        ("security_key", json!(true)),
+    ] {
+        let r = h
+            .client
+            .call_tool(call(
+                "archive_create",
+                json!({
+                    "output": out,
+                    "inputs": [fixture("bhive/README.md")],
+                    "password": "pw",
+                    option: value,
+                }),
+            ))
+            .await
+            .unwrap();
+        let (code, message) = error(&r);
+        assert_eq!(code, "UnsupportedOperation", "{option}: {message}");
+        assert!(message.contains(option), "{option}: {message}");
+    }
+    assert!(!out.exists());
+
+    let r = h
+        .client
+        .call_tool(call(
+            "archive_verify",
+            json!({ "archive": fixture("bhive/spec-small.bhive") }),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(error(&r).0, "SignatureRequired");
 }
