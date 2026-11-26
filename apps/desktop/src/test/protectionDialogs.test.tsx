@@ -354,7 +354,8 @@ describe("converting an encrypted .bhive into a .bhive (docs/M14.md §3)", () =>
     await user.click(screen.getByRole("button", { name: "Convert" }));
     await waitFor(() => expect(converted()).toBeDefined());
     // The tab's password opens the source; nothing makes new ways in.
-    expect(converted()).toEqual({ archive: source.path, output: String.raw`C:\work\a.bhive`, format: "bhive", password: "honey" });
+    // Save as never offers the source itself, which the engine refuses: `a (1).bhive`.
+    expect(converted()).toEqual({ archive: source.path, output: String.raw`C:\work\a (1).bhive`, format: "bhive", password: "honey" });
   });
 
   it("gives it new ways in when asked, or writes it in the clear", async () => {

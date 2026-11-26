@@ -1,7 +1,7 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { applies, type CreateForm, CreateDialog, createArgs, defaultLevel, defaultOutput, levelHint, levelLabel, levelNote, withFormat } from "../features/create/CreateDialog";
+import { apartFrom, applies, type CreateForm, CreateDialog, createArgs, defaultLevel, defaultOutput, levelHint, levelLabel, levelNote, withFormat } from "../features/create/CreateDialog";
 import { ownLevel } from "../features/edit/AddDialog";
 import { levelTargets } from "../features/settings/Settings";
 import type { FormatsListOutput } from "../gen/commands";
@@ -153,6 +153,10 @@ describe("the create dialog's arguments", () => {
     expect(withFormat(String.raw`C:\a\b.iso`, "squashfs")).toBe(String.raw`C:\a\b.squashfs`);
     expect(withFormat(String.raw`C:\a\b.sqfs`, "dmg")).toBe(String.raw`C:\a\b.dmg`);
     expect(withFormat(String.raw`C:\a\b.dmg`, "zip")).toBe(String.raw`C:\a\b.zip`);
+    // Converting into the source's own format never offers the source's own path.
+    expect(apartFrom(String.raw`C:\a\b.bhive`, String.raw`C:\A\B.bhive`)).toBe(String.raw`C:\A\B (1).bhive`);
+    expect(apartFrom(String.raw`C:\a\b.tar.zst`, String.raw`C:\a\b.tar.zst`)).toBe(String.raw`C:\a\b (1).tar.zst`);
+    expect(apartFrom(String.raw`C:\a\b.bhive`, String.raw`C:\a\b.zip`)).toBe(String.raw`C:\a\b.zip`);
   });
 
   it("finds the codec of a compressed tar or cpio, whatever the case", () => {

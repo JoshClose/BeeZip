@@ -20,7 +20,7 @@ import type {
   MethodName,
 } from "../../gen/commands";
 import { archiveArgs, type Tab } from "../../lib/archives";
-import { baseName, joinPath, parentDir } from "../../lib/format";
+import { baseName, joinPath, parentDir, samePath } from "../../lib/format";
 import { codecOfTar, methodsOf, useFormats } from "../../lib/formats";
 import { useJobs } from "../../lib/jobs";
 import { checkProtection, encryptedBhive, NO_PROTECTION, protectionArgs, type ProtectionForm } from "../../lib/protection";
@@ -172,6 +172,19 @@ export function convertOutput(source: string, to: string): string {
   const dot = name.lastIndexOf(".");
   const stem = hit ? name.slice(0, name.length - hit.length - 1) : dot > 0 ? name.slice(0, dot) : name;
   return joinPath(parentDir(source), `${stem}.${to}`);
+}
+
+/** A converted archive's name that isn't the source's own: converting `a.bhive` into a .bhive
+ * (keeping who can open it, at another level) offers `a (1).bhive`, as BeeZip names a file that
+ * would clash, rather than the source's path, which the engine refuses. */
+export function apartFrom(source: string, output: string): string {
+  if (!samePath(source, output)) return output;
+  const lower = output.toLowerCase();
+  const hit = KNOWN.find((k) => lower.endsWith(`.${k}`));
+  const dot = output.lastIndexOf(".");
+  const sep = Math.max(output.lastIndexOf("\\"), output.lastIndexOf("/"));
+  const cut = hit ? output.length - hit.length - 1 : dot > sep + 1 ? dot : output.length;
+  return `${output.slice(0, cut)} (1)${output.slice(cut)}`;
 }
 
 /** The first format offered for converting: another than the source's own. */
@@ -371,7 +384,7 @@ export function CreateDialog({
       method: undefined,
       level: undefined,
       threads: undefined,
-      output: f.output ? withFormat(f.output, format) : f.output,
+      output: f.output ? (source ? apartFrom(source.path, withFormat(f.output, format)) : withFormat(f.output, format)) : f.output,
     }));
 
   const create = () => {
