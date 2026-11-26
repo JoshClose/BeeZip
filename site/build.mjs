@@ -165,6 +165,7 @@ const GROUPS = [
   ["Looking inside", ["info", "list", "read", "test", "detect", "formats"]],
   ["Extracting and opening", ["extract", "open"]],
   ["Creating and changing archives", ["create", "add", "remove", "rename", "convert"]],
+  ["Encryption, keys and signatures", ["protection", "protect", "keys list", "keys create", "keys import", "keys export", "keys delete", "certificates list", "sign", "verify"]],
   ["Single files", ["compress", "decompress"]],
   ["Settings and Explorer's menu", ["settings get", "settings set", "shell status", "shell install", "shell uninstall", "shell plan"]],
   ["Everything else", ["bench", "version", "mcp", "commands", "schema", "run"]],

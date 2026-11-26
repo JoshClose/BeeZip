@@ -1,4 +1,4 @@
-<!-- {"title": "Questions and problems", "description": "Answers about BeeZip: Windows' warning on first run, the Microsoft Store copy, the portable copy and the installer, the right-click menu, formats BeeZip refuses, passwords, garbled names and more.", "layout": "docs"} -->
+<!-- {"title": "Questions and problems", "description": "Answers about BeeZip: Windows' warning on first run, the Microsoft Store copy, the portable copy and the installer, the right-click menu, formats BeeZip refuses, passwords, encrypted .bhive archives, garbled names and more.", "layout": "docs"} -->
 <h1>Questions and problems</h1>
 <p class="lede">Answers to what people run into most. If yours isn't here, <a href="https://github.com/JoshClose/BeeZip/issues">ask on GitHub</a>.</p>
 
@@ -36,7 +36,22 @@
 </ul>
 
 <h2 id="wrong-password">BeeZip says my archive is damaged, but it isn't</h2>
-<p>7z and older RAR archives can't tell a wrong password from damage, so a mistyped password looks like damaged data. BeeZip asks again; check the password. If it's right and the archive still fails, <code>beezip test</code> names the damaged entries.</p>
+<p>7z and older RAR archives can't tell a wrong password from damage, so a mistyped password looks like damaged data. BeeZip asks again; check the password. If it's right and the archive still fails, <code>beezip test</code> names the damaged entries. A .bhive knows a wrong password from damage, and says which it is.</p>
+
+<h2 id="which-encryption">Which should I encrypt with: zip, 7z or .bhive?</h2>
+<p>A <a href="formats.html#bhive-encryption">.bhive</a>, when the people who open it have BeeZip 0.9 or later. It hides the files' names, dates and folders, notices any changed byte, makes each password guess take a gigabyte of memory, and can be opened with a key or a certificate instead of a password you have to pass on. A zip with AES-256 opens in most other archive tools, but leaves its names, sizes and dates readable, and its passwords are quick to guess at; ZipCrypto, for the oldest tools, is weak. A 7z hides its names but doesn't notice changed bytes. BeeZip keeps zip's and 7z's encryption as it is, for the tools that read them.</p>
+
+<h2 id="lost-password">I've lost the password to a .bhive</h2>
+<p>Then only its other ways in can open it. If you made a recovery key, type it where the password goes, or under <strong>Recovery key</strong> in Unlock. If it was encrypted to one of your keys, or to a security key or This PC as well, that opens it. There's no other way in, for anyone, BeeZip included: that's what keeps it safe. Once it's open, <a href="app.html#who-can-open">Who can open this</a> or <code>beezip protect</code> can give it a new password.</p>
+
+<h2 id="this-pc-alone">Why won't BeeZip let This PC be the only way in?</h2>
+<p>Because the archive would be lost with the PC. This PC's key lives in the PC's TPM and never leaves it, and Windows Hello works only on that PC too. If the PC breaks or is replaced, or Windows is installed again, an archive only they opened couldn't be opened anywhere. Add a password, a recovery key, a security key or someone's key beside them.</p>
+
+<h2 id="security-keys">Does BeeZip work with my security key or smart card?</h2>
+<p>On Windows, BeeZip works with FIDO2 security keys that support hmac-secret, through Windows' own dialog, and with certificates whose private keys are on a smart card, through Windows' smart card support, which asks for the PIN. Neither has been tried on a physical device yet. If yours doesn't work, please <a href="https://github.com/JoshClose/BeeZip/issues">say so on GitHub</a>. On macOS and Linux, security keys and smart cards aren't supported; passwords, recovery keys, public keys and certificates in files (or the Keychain on macOS) are.</p>
+
+<h2 id="quantum">Are my archives safe from quantum computers?</h2>
+<p>A .bhive is when every way in is: passwords, recovery keys, security keys, Windows Hello and the post-quantum keys BeeZip makes (<code>age1pq1…</code>) are; classic <code>age1…</code> keys, certificates and This PC aren't. BeeZip says which in Protection, Who can open this and <code>beezip protection</code>. Your signing key is post-quantum too. Zip and 7z have passwords only.</p>
 
 <h2 id="garbled-names">The file names are garbled</h2>
 <p>The archive was made on a system that stored names in another code page, such as Japanese or Russian Windows. Choose its encoding: in the app, Name encoding in the command palette (<kbd>Ctrl</kbd>+<kbd>K</kbd>); on the command line, <code>--name-encoding cp932</code> and the like. See <a href="cli.html#names">Names from other systems</a>.</p>
@@ -45,7 +60,7 @@
 <p>BeeZip skips entries that would land outside the destination, links when they're off, and special files such as devices, and lists what it skipped and why. See <a href="safety.html">Safety</a>. Entries skipped because a file was already there follow your choice in the Extract dialog, or <code>extract.overwrite</code>.</p>
 
 <h2 id="cant-edit">I can't add to or delete from an archive</h2>
-<p>BeeZip changes zip, 7z, tar, cpio and ar archives. RAR, CAB, packages, disk images, and split and self-extracting archives can't be changed; convert one to a format BeeZip writes first. A read-only file can't be changed either. The app says why when it can't.</p>
+<p>BeeZip changes zip, .bhive, 7z, tar, cpio and ar archives. RAR, CAB, packages, disk images, and split and self-extracting archives can't be changed; convert one to a format BeeZip writes first. A read-only file can't be changed either. The app says why when it can't.</p>
 
 <h2 id="downloaded-files">Why are programs I extracted marked as downloaded?</h2>
 <p>Because the archive was. BeeZip copies a downloaded archive's Mark of the Web to what it extracts, as Explorer does, so Windows still checks those programs. <code>extract.mark_of_the_web = "none"</code> in <a href="settings.html#extract">Settings</a> turns that off.</p>

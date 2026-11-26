@@ -76,7 +76,7 @@
     <tr><td><strong>Links</strong></td><td>Create symbolic links that stay inside the destination; it starts as Settings → Extracting says. Links that lead outside it are never created, and hard links are extracted as copies.</td></tr>
   </tbody>
 </table>
-<p><strong>Show plan</strong> lists what would be written, and where, without writing anything; entries that would be skipped say why. <strong>Extract</strong> starts the job, which shows in the <a href="#jobs-panel">jobs panel</a>.</p>
+<p><strong>Show plan</strong> lists what would be written, and where, without writing anything; entries that would be skipped say why. <strong>Extract</strong> starts the job, which shows in the <a href="#jobs-panel">jobs panel</a>. A .bhive that changed after it was <a href="#signatures">signed</a> says so in red, and extracts only once you tick <strong>Extract it anyway</strong>.</p>
 
 <h3 id="extract-safety">Entries that aren't extracted as stored</h3>
 <p>Extraction never writes outside the destination. Entries whose paths lead out of it, and links that do, are skipped. Names Windows can't store, such as <code>CON</code> or names with <code>:</code> in them, are renamed, and the result counts them. When anything was skipped for safety, the rest is still extracted, then the job ends with an <code>Unsafe</code> error and a <strong>Show report</strong> button, which lists the entries skipped, and why, and the ones renamed. Extracted files keep the archive's <em>downloaded</em> mark, as Explorer's do, so Windows still warns before opening a program from a downloaded archive. <a href="safety.html">Safety</a> has the details, and Settings changes the defaults.</p>
@@ -98,12 +98,56 @@
     <tr><td><strong>Level</strong></td><td>A slider over the method's or codec's levels, the lowest fastest and the highest smallest. Leave it alone and the job uses your default level for that codec or method, which Settings → Compression levels sets; the slider starts there, and says so. A .bhive's five levels have names, None, Fast, Balanced, High and Max, and the slider says what each does.</td></tr>
     <tr><td><strong>Solid</strong></td><td>7z only, on by default: compresses files together, which is smaller but slower when you read one file.</td></tr>
     <tr><td><strong>Threads</strong></td><td>For formats and codecs that compress on several threads. Empty uses the setting in Settings; 0 is one per core.</td></tr>
-    <tr><td><strong>Password</strong></td><td>zip and 7z only. Leave it empty for no encryption. For zip, choose <strong>AES-256</strong> or <strong>ZipCrypto (weak, for old tools)</strong>. For 7z, <strong>Encrypt file names too</strong> is on, so nobody can list the archive without the password.</td></tr>
+    <tr><td><strong>Password</strong></td><td>zip, 7z and .bhive. Leave it empty for no password. For zip, choose <strong>AES-256</strong> or <strong>ZipCrypto (weak, for old tools)</strong>. For 7z, <strong>Encrypt file names too</strong> is on, so nobody can list the archive without the password. With a password on a zip or 7z, a line says what a .bhive's encryption does better, with <strong>Use .bhive</strong> to switch. For a .bhive, see <a href="#protection">Protection</a>.</td></tr>
+    <tr><td><strong>Protection</strong></td><td>.bhive only: a recovery key, people and keys, This PC, a security key and Windows Hello, beside the password. See <a href="#protection">Protection</a>.</td></tr>
+    <tr><td><strong>Sign with</strong></td><td>.bhive only: your signing keys, the certificates that may sign, or a certificate file. See <a href="#signatures">Signatures</a>.</td></tr>
     <tr><td><strong>Split into volumes</strong></td><td>A size such as <code>100m</code>, <code>4g</code> or <code>700MB</code> (in powers of 1024), for an archive in parts: <code>a.7z.001</code>, <code>a.7z.002</code>… Empty writes one file. Every format can be split.</td></tr>
     <tr><td><strong>Leave out</strong></td><td>Patterns of files to skip, one per line, such as <code>*.tmp</code> or <code>node_modules</code>.</td></tr>
   </tbody>
 </table>
 <p><strong>Create</strong> starts the job. BeeZip doesn't write over an existing file: when <strong>Save as</strong> names one that's there, the job fails and says so.</p>
+
+<h2 id="encryption">Encrypting a .bhive</h2>
+<p>A <a href="formats.html#bhive-encryption">.bhive</a> can be encrypted, names and all, with as many ways in as you like; any one of them opens it. Opening one that none of your keys opens asks with <a href="#unlock">Unlock</a>. Zip and 7z keep their own encryption, which hides less.</p>
+
+<h3 id="protection">Protection</h3>
+<p>With .bhive as the format, New archive and Convert show these fields:</p>
+<table>
+  <thead>
+    <tr><th>Field</th><th>What it does</th></tr>
+  </thead>
+  <tbody>
+    <tr><td><strong>Password</strong></td><td>Leave it empty for none. A line under it estimates how hard it is to guess, and warns under about 50 bits, though you can keep it. <strong>Suggest one</strong> fills in six random words. <strong>Standard</strong> takes about 0.3 s to open and 1 GiB of memory; <strong>Strong</strong> about a second and 2 GiB, which makes each guess slower still.</td></tr>
+    <tr><td><strong>Recovery key</strong></td><td>Makes 48 digits that open the archive when every other way in is lost. See <a href="#recovery-key">below</a>.</td></tr>
+    <tr><td><strong>People and keys</strong></td><td>Encrypts to someone's public key or certificate, so they open it with their private key. Paste an <code>age1…</code> or <code>age1pq1…</code> key, or a contact's name; pick a contact or one of <a href="#keys">your keys</a>, or a certificate from the system's stores (one that can't be used says why); or pick a certificate file (<code>.cer</code>, <code>.crt</code>, <code>.der</code>, <code>.pem</code>). Each one shows as a chip with a <strong>×</strong>.</td></tr>
+    <tr><td><strong>This PC</strong></td><td>Windows. Lets this PC open it, with a key BeeZip makes in its TPM, which never leaves it. A PIN is optional: the TPM guards it against guessing, and without one anyone signed in to this PC as you can open the archive.</td></tr>
+    <tr><td><strong>Security key</strong></td><td>Windows. Lets a FIDO2 security key open it; Windows asks for a touch, once to register it and once to make the way in. Security keys haven't been tried on a physical device yet.</td></tr>
+    <tr><td><strong>Windows Hello</strong></td><td>Windows. Lets Windows Hello open it, with your face, a fingerprint or its PIN, on this PC only, where Windows supports it for this; when it doesn't, BeeZip says so and points to This PC.</td></tr>
+  </tbody>
+</table>
+<p>Under them, BeeZip says what the choice means: This PC or Windows Hello alone is refused, since the archive would be lost with the PC; a password beside someone else's key is warned of, since they could make an archive your password opens; and a line says whether the archive resists quantum computers, and which ways in don't. A key you paste that's a private key is refused, saying why.</p>
+
+<h3 id="recovery-key">The recovery key</h3>
+<p>When the archive is made, BeeZip shows its recovery key once and never keeps it. <strong>Copy</strong>, <strong>Save…</strong> (to a file you choose) and <strong>Print</strong> keep it, and <strong>Done</strong> waits until you've used one of them or ticked <strong>I've written it down</strong>. Anyone who has it can open the archive, so keep it somewhere safe, apart from the archive.</p>
+
+<h3 id="who-can-open">Who can open this</h3>
+<p><strong>Who can open this</strong>, on the toolbar of an encrypted .bhive or in the command palette, lists its ways in: what each is, its label, the key or certificate and its fingerprint, whether it works only on this PC, and whether it's post-quantum. Nothing is recompressed by what it does:</p>
+<ul>
+  <li><strong>Add a way in…</strong> shows the Protection fields, to add a password, a recovery key, people, This PC, a security key or Windows Hello.</li>
+  <li><strong>Remove</strong> takes one away, after asking. The last way in that works on another machine can't go. Removing isn't taking back: someone who opened the archive before could have kept its key.</li>
+  <li><strong>New key…</strong> seals everything under a new key and rebuilds every way in, which shuts out anyone who kept the old key from later versions. It shows each person's key or certificate with its fingerprint, ticked when it's yours or a contact's, and rebuilds the ones you tick: what the archive says of whose they are could have been changed by anyone who opened it. It asks for the password again (one password, or none), makes a new recovery key, and asks each security key for a touch.</li>
+</ul>
+<p>What the list shows of each way in is what the archive says of itself.</p>
+
+<h2 id="signatures">Signatures</h2>
+<p>A .bhive can be signed, to show who made what's in it and that nothing has changed since. Your own signing key, made in <a href="#keys">Settings</a>, or a certificate that may sign can sign it; several people can sign one archive. See <a href="formats.html#bhive-signatures">Signatures</a> for what a signature covers.</p>
+<ul>
+  <li><strong>The signature line,</strong> at the top of a signed archive, says “Signed by” you, a contact or the certificate's owner when the system trusts it; “Signed by an unknown signer”, with its fingerprint; or, in red, “Changed after it was signed”. A certificate that has expired or been revoked is named as such.</li>
+  <li><strong>Details</strong> shows each signature: the signer, its status, its fingerprint, the issuer, the algorithm, and the time the signer claims, which isn't proved. <strong>Add to contacts</strong> adds an unknown signer under a name, so their signatures show it from then on; check the fingerprint with them first, by phone or in person.</li>
+  <li><strong>An archive that changed after it was signed</strong> still opens, but extracting it asks first, from the Extract dialog, a drag out or Explorer's job windows.</li>
+  <li><strong>Sign…</strong>, on the toolbar of a .bhive or in the command palette, adds signatures or removes some or all of them. <strong>Sign with</strong> in New archive, Convert and Add signs as the archive is written.</li>
+  <li><strong>Changing who can open it keeps its signatures.</strong> Adding, deleting or renaming files drops them: BeeZip says so first, and offers to sign again with your own keys that signed it.</li>
+</ul>
 
 <h2 id="editing">Editing an archive</h2>
 <p>You can add to, delete from and rename entries in zip, .bhive, 7z, tar, cpio and ar archives, tar and cpio compressed or not. Each edit runs as a job, and when it ends the tab lists the same folder again, with the same entries selected.</p>
@@ -119,22 +163,23 @@
     <tr><td><strong>Into the folder</strong></td><td>The folder inside the archive, which starts as the one shown. Empty is the top. A folder that isn't there is made.</td></tr>
     <tr><td><strong>Already there</strong></td><td>When the archive already has an entry at a file's path: <strong>As in the settings</strong> (the default, naming what Settings says), <strong>Ask each time</strong>, <strong>Replace the archive's entry</strong>, <strong>Replace it if the file is newer</strong>, <strong>Keep both, adding the new one as “name (1)”</strong>, or <strong>Skip the file</strong>.</td></tr>
     <tr><td><strong>Method</strong> and <strong>Level</strong></td><td>For the new files. In a compressed tar the whole archive is compressed again, at this level.</td></tr>
-    <tr><td><strong>Encrypt the new files</strong></td><td>zip and 7z. When the archive already has encrypted entries, this starts on and needs a password; turn it off to add the new files unencrypted beside them. In a 7z whose names are encrypted, new files always take its password.</td></tr>
+    <tr><td><strong>Encrypt the new files</strong></td><td>zip and 7z. When the archive already has encrypted entries, this starts on and needs a password; turn it off to add the new files unencrypted beside them. In a 7z whose names are encrypted, new files always take its password. An encrypted .bhive needs nothing here: the new files are encrypted like the rest, and the same ways in open them; <a href="#who-can-open">Who can open this</a> changes who can.</td></tr>
+    <tr><td><strong>Sign with</strong></td><td>.bhive only. Adding files changes what's in a signed .bhive, so its signatures are dropped, and the dialog says so; your own keys that signed it start here, to sign it again.</td></tr>
   </tbody>
 </table>
 <p><strong>Add</strong> starts the job.</p>
 
 <h3 id="deleting">Deleting entries</h3>
-<p><strong>Delete</strong> in the toolbar, or <kbd>Del</kbd>, deletes the selected entries. A folder takes everything in it. Windows' own dialog asks first (“Delete 3 items from a.zip?”), since it can't be undone.</p>
+<p><strong>Delete</strong> in the toolbar, or <kbd>Del</kbd>, deletes the selected entries. A folder takes everything in it. Windows' own dialog asks first (“Delete 3 items from a.zip?”), since it can't be undone. For a signed .bhive it also says the signatures are dropped, and afterwards BeeZip offers to sign it again with your own keys that signed it.</p>
 
 <h3 id="renaming">Renaming an entry</h3>
-<p><strong>Rename</strong> in the toolbar, or <kbd>F2</kbd>, turns the selected entry's name into a field, with the name before its extension selected. <kbd>Enter</kbd> saves and <kbd>Esc</kbd> cancels, as does clicking elsewhere. A name can't be empty or contain <code>/</code> or <code>\</code>. When the new name is taken, or the rename fails, the reason shows beside the field and you can try another. Renaming a folder renames everything in it.</p>
+<p><strong>Rename</strong> in the toolbar, or <kbd>F2</kbd>, turns the selected entry's name into a field, with the name before its extension selected. <kbd>Enter</kbd> saves and <kbd>Esc</kbd> cancels, as does clicking elsewhere. A name can't be empty or contain <code>/</code> or <code>\</code>. When the new name is taken, or the rename fails, the reason shows beside the field and you can try another. Renaming a folder renames everything in it. Renaming in a signed .bhive asks first, since its signatures are dropped, and offers to sign it again as deleting does.</p>
 
 <h3 id="cant-be-edited">What can't be edited</h3>
 <p>RAR archives, split and self-extracting archives, read-only files, and the formats BeeZip only reads (or writes but doesn't edit, such as CAB and the disk images) can't be edited. For those, the add, rename and delete buttons are disabled: hover one, or look at the status line, for the reason. Files dropped on such an archive's entries open New archive instead, saying why. <a href="#convert">Convert</a> turns a split or self-extracting archive into one you can edit.</p>
 
 <h3 id="how-edits-are-written">How an edit is written</h3>
-<p>BeeZip never writes into the archive. It writes a new one beside it and swaps it in, so an edit that fails, or that you cancel, leaves the archive as it was. Entries that stay are copied without being decoded: zip entries byte for byte, whole 7z blocks, .bhive cells, and tar, cpio and ar members. A solid 7z block that loses an entry is encoded again, and so are a .bhive cell that lost more than half its bytes and a compressed tar's or cpio's stream. A .bhive keeps the level it was made at unless you choose another. The archive keeps its downloaded mark, hidden attribute and creation time.</p>
+<p>BeeZip never writes into the archive. It writes a new one beside it and swaps it in, so an edit that fails, or that you cancel, leaves the archive as it was. Entries that stay are copied without being decoded: zip entries byte for byte, whole 7z blocks, .bhive cells, and tar, cpio and ar members. A solid 7z block that loses an entry is encoded again, and so are a .bhive cell that lost more than half its bytes and a compressed tar's or cpio's stream. A .bhive keeps the level it was made at unless you choose another, and an encrypted one keeps its key and its ways in, its cells copied still sealed. The archive keeps its downloaded mark, hidden attribute and creation time.</p>
 
 <h2 id="opening-entries">Opening an entry</h2>
 <p>Double-click a file, or press <kbd>Enter</kbd> on it, and BeeZip extracts it to its temp folder and opens it:</p>
@@ -160,6 +205,7 @@
   <li><strong>Where they land:</strong> entries arrive without the folders above the one shown. Dragging <code>report.pdf</code> while you're in <code>docs/2026</code> drops <code>report.pdf</code>, not <code>docs\2026\report.pdf</code>.</li>
   <li><strong>Several entries:</strong> pressing on one row of a selection keeps the whole selection, so a drag takes all of it. A click without a drag selects just that row.</li>
   <li><strong>The 2 GiB rule:</strong> a selection of more than 2 GiB doesn't drag. The Extract dialog opens for it instead, saying why: Explorer would stop responding until it was all extracted.</li>
+  <li><strong>A .bhive that changed after it was signed</strong> doesn't drag either: the Extract dialog opens, saying why, and asks before extracting it.</li>
 </ul>
 <p>BeeZip never drops entries on its own window.</p>
 
@@ -174,7 +220,8 @@
 <h3 id="convert">Convert</h3>
 <p><strong>Convert…</strong> in the toolbar writes the archive again in another format, or with other options. The source stays as it was. The dialog is New archive's, with <strong>Source</strong> in place of the files: the new archive starts beside the source with the same name and the new extension, as 7z for a zip and as zip otherwise. <strong>Leave out</strong> skips entries, and <strong>Split into volumes</strong> splits the result.</p>
 <ul>
-  <li><strong>Encrypted sources</strong> stay encrypted: give the new archive a password (the tab's is filled in when you've typed it), or tick <strong>Write a.zip's encrypted entries without a password</strong>. Formats that can't be encrypted, such as tar, need the tick.</li>
+  <li><strong>Encrypted sources</strong> stay encrypted: give the new archive a password (the tab's is filled in when you've typed it), or for a .bhive any <a href="#protection">way in</a>, or tick <strong>Write a.zip's encrypted entries without a password</strong>. Formats that can't be encrypted, such as tar, need the tick.</li>
+  <li><strong>Signatures:</strong> a signed .bhive written again with the same entries, as a .bhive, keeps its signatures; choosing entries, a level or another format drops them, and <strong>Sign with</strong> signs the new archive.</li>
   <li><strong>Copies where it can:</strong> converting to the same format, with no option asking for something else, copies entries without decoding them. <code>a.tar.gz</code> to <code>a.tar.zst</code> copies the tar entries and compresses the stream again.</li>
   <li><strong>What the new format can't hold</strong>, such as a symbolic link in a format without links, is left out, and the result says how many entries were.</li>
 </ul>
@@ -215,6 +262,15 @@
 <h3 id="password-prompt">Passwords</h3>
 <p>An encrypted archive, or an encrypted entry, brings up <strong>Password needed</strong>, naming the entry. Type the password and click <strong>Unlock</strong>; the eye button shows what you typed. BeeZip keeps the password in memory for that tab, and passes it to everything you do in the tab afterwards, until you close it. It never saves it.</p>
 
+<h3 id="unlock">Unlock</h3>
+<p>An encrypted .bhive that none of your own keys opens brings up <strong>Unlock</strong>, which lists its ways in:</p>
+<ul>
+  <li><strong>Password</strong> and <strong>Recovery key</strong>, to type. The recovery key goes in its 8 groups of 6 digits, and a group that can't be right shows as a typo before anything is tried.</li>
+  <li><strong>On this machine:</strong> a button for each key or device here that fits a way in, such as <strong>Use your certificate</strong> or <strong>Use a security key or Windows Hello</strong>. Windows then asks for a PIN, a touch or your face in its own dialog. BeeZip never uses a device unless you choose it here.</li>
+  <li><strong>Other ways in:</strong> the ones this machine doesn't have.</li>
+</ul>
+<p>After a way in that didn't open it, such as a wrong password or another security key, Unlock says so and asks again. A password or recovery key you type is kept for the tab, as passwords are; the choice of a device isn't. In a job window from Explorer's menu, what you type is used for that job only.</p>
+
 <h3 id="overwrite-prompt">Files that are already there</h3>
 <p>When extracting would write over a file and <strong>Existing files</strong> is <strong>Ask each time</strong>, BeeZip shows the file's path and asks:</p>
 <ul>
@@ -236,13 +292,21 @@
 <p>The Extract, New archive, Convert, add and Benchmark dialogs, and the palette's forms, have <strong>Copy as CLI</strong>. It shows the <code>beezip</code> command that does the same as the dialog, filled in as it is now, and copies it to the clipboard. A password is left out, and the line says so: the command asks for it when you run it. See <a href="cli.html">The command line</a>.</p>
 
 <h2 id="settings">Settings</h2>
-<p><strong>Settings</strong> opens from the welcome screen, from <strong>Settings…</strong> in the command palette, or with <kbd>Ctrl</kbd>+<kbd>,</kbd>. Its sections are Appearance, Extracting, Editing, Creating, Limits, Job windows, Updates, Explorer menu and MCP server.</p>
+<p><strong>Settings</strong> opens from the welcome screen, from <strong>Settings…</strong> in the command palette, or with <kbd>Ctrl</kbd>+<kbd>,</kbd>. Its sections are Appearance, Extracting, Editing, Creating, Limits, Your keys, Contacts, Certificates, Job windows, Updates, Explorer menu and MCP server.</p>
 <ul>
   <li><strong>Saved as you go:</strong> each change is written to <code>config.toml</code> as you make it, keeping the file's comments, and the next job uses it. There's nothing to apply.</li>
   <li><strong>Errors beside the field:</strong> a value BeeZip can't take shows its error beside the field and isn't saved.</li>
   <li><strong>The file:</strong> its path is at the bottom, with <strong>Open config.toml</strong> and <strong>Show in folder</strong>. When the file can't be used, the page says why, and BeeZip uses the defaults until it's fixed.</li>
 </ul>
 <p><a href="settings.html">Settings</a> describes every setting.</p>
+
+<h3 id="keys">Keys</h3>
+<p>Three sections of Settings hold the keys .bhive archives are encrypted to and signed with. They aren't in <code>config.toml</code>, but in a <code>keys</code> folder beside it.</p>
+<ul>
+  <li><strong>Your keys:</strong> <strong>Make a key</strong> names a new one, for opening archives (post-quantum, the default, or classic, for older age tools) or for signing them. Its private key stays on this machine, sealed by the system: by Windows for your account, in your login Keychain on macOS, in a file only you can read on Linux. Archives encrypted to your keys open without asking. Each key has <strong>Copy</strong>, for its public key to share; <strong>Back up</strong>, which shows the private key after a warning, since anyone who has it can open what it opens or sign as you; and <strong>Delete</strong>, which asks first: an archive only that key opens can't be opened afterwards.</li>
+  <li><strong>Contacts:</strong> other people's public keys and certificates, by name, to encrypt to and to know their signatures by. <strong>Add a key</strong> takes a pasted key (<code>age1…</code>, <code>age1pq1…</code>, <code>bzsig1…</code>) or a file, a certificate file among them. A private key added there becomes one of yours.</li>
+  <li><strong>Certificates:</strong> the ones the system has that can encrypt archives or sign them (Personal and Other People on Windows, your Keychain on macOS), with their issuer, their expiry, where the private key is (here, on a smart card, in the TPM), whether the system trusts them, and why one can't encrypt. On Linux, certificates come from files.</li>
+</ul>
 
 <h3 id="theme">Theme</h3>
 <p>Choose <strong>System</strong> (which follows Windows' light or dark mode), <strong>Light</strong> or <strong>Dark</strong> in Settings → Appearance, or from the palette's <strong>Theme: …</strong> actions, where the current one says <strong>current</strong>. Every BeeZip window switches at once, and BeeZip starts in that theme next time.</p>
@@ -295,6 +359,7 @@
   <li><strong>No Explorer:</strong> there's no right-click menu, no job windows, and no dragging entries out to the file manager. Settings leaves out the Explorer menu and Job windows sections.</li>
   <li><strong>Opening archives:</strong> from the file manager's <em>Open With</em> on Linux, or Finder's <em>Open With</em> on macOS, for the archive types BeeZip registers. Opening another archive while BeeZip runs adds a tab to the running window, as on Windows.</li>
   <li><strong>Keys:</strong> on macOS, <kbd>⌘</kbd> works wherever this page says <kbd>Ctrl</kbd>.</li>
+  <li><strong>Encryption:</strong> This PC, security keys and Windows Hello are Windows only, so Protection leaves them out. Certificates come from your Keychain on macOS and from files on Linux, where a <code>.pfx</code> must be turned into PEM files with <code>openssl pkcs12</code> first.</li>
   <li><strong>The downloaded mark:</strong> on macOS, extracted files keep the archive's quarantine, as Archive Utility does, so macOS still checks an app that came in a download. Linux has no such mark, and Settings leaves the setting out there.</li>
   <li><strong>Settings</strong> are in <code>~/.config/BeeZip/config.toml</code> on Linux and <code>~/Library/Application Support/BeeZip/config.toml</code> on macOS.</li>
 </ul>
