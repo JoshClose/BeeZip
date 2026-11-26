@@ -96,7 +96,7 @@ pub(crate) fn signer(bytes: &[u8], password: Option<&str>) -> Result<Arc<dyn Sig
         let Ok(parsed) = cert::parse_der(c.der()) else {
             continue;
         };
-        match super::signer_with(&store, &parsed.thumbprint, Some(&store)) {
+        match super::signer_with(&store, &parsed.thumbprint, Some(&store), None) {
             Ok(signer) => return Ok(signer),
             Err(e) => {
                 first_refusal.get_or_insert(e);

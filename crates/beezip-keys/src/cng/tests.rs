@@ -161,6 +161,60 @@ fn ecdsa_keys_are_refused_for_encryption() {
     assert!(err.message.contains("ECDSA"), "{}", err.message);
 }
 
+/// The window a key's PIN dialog belongs to, as its provider holds it.
+fn parent_of(cert: &Cert) -> Option<Vec<u8>> {
+    cert.private_key(true)
+        .unwrap()
+        .prop(NCRYPT_WINDOW_HANDLE_PROPERTY)
+        .ok()
+}
+
+/// A way in the user chose, and signing, hand the window the source or signer was given to the
+/// key, for Windows' PIN dialog; a silent try leaves it alone. Software keys show no dialog, so
+/// nothing shows here, and the window needn't be a real one.
+#[test]
+fn a_chosen_way_in_and_signing_give_the_key_their_window() {
+    let window: isize = 0x0bee_0001;
+    let v = vectors();
+    let key_id: [u8; KEY_ID_LEN] = hex(&v["slots"]["key_id"]).try_into().unwrap();
+    let pkcs8 = hex(&v["slots"]["p256"]["pkcs8"]);
+    let (store, cert) = store_with("p256.crt", import_ec(&pkcs8, Curve::P256, true));
+    let slot = hex(&v["slots"]["p256"]["slot"]);
+    let view = view(&slot, &key_id);
+    let mut source = CngSource::new(&[&store], Vec::new());
+    source.window = Some(window);
+    assert!(source.secret(&view, false).unwrap().is_some());
+    assert_ne!(parent_of(&cert), Some(window.to_ne_bytes().to_vec()));
+    let secret = source.secret(&view, true).unwrap().unwrap();
+    assert_eq!(secret_bytes(secret), hex(&v["slots"]["p256"]["prk"]));
+    assert_eq!(parent_of(&cert), Some(window.to_ne_bytes().to_vec()));
+
+    let key = import_ec(&pkcs8_of("p256.key"), Curve::P256, false);
+    let (store, cert) = store_with("p256-ecdsa.crt", key);
+    let thumbprint = cert::parse(cert.der()).unwrap().thumbprint;
+    let signer = signer_in(&store, &thumbprint, Some(window)).unwrap();
+    assert_eq!(parent_of(&cert), Some(window.to_ne_bytes().to_vec()));
+    assert!(signer.sign(&[7; MESSAGE_LEN]).is_ok());
+}
+
+/// A closed PIN dialog is a cancel, so an unlock asks for another way in; other failures are
+/// I/O errors.
+#[test]
+fn a_closed_pin_dialog_is_a_cancel() {
+    for code in [0x8007_04C7, 0x8009_0036, 0x8010_006E] {
+        let e = WinError {
+            code,
+            what: "NCryptSecretAgreement".into(),
+        };
+        assert_eq!(Error::from(e).kind, ErrorKind::Cancelled, "{code:08X}");
+    }
+    let e = WinError {
+        code: 0x8009_0030,
+        what: "NCryptSecretAgreement".into(),
+    };
+    assert_eq!(Error::from(e).kind, ErrorKind::Io);
+}
+
 #[test]
 fn certificates_sign_through_cng_and_windows_checks_them() {
     let message = [7; MESSAGE_LEN];
@@ -178,7 +232,7 @@ fn certificates_sign_through_cng_and_windows_checks_them() {
         };
         let (store, cert) = store_with(crt, key);
         let thumbprint = cert::parse(cert.der()).unwrap().thumbprint;
-        let signer = signer_in(&store, &thumbprint).unwrap();
+        let signer = signer_in(&store, &thumbprint, None).unwrap();
         assert_eq!(signer.algorithm(), algorithm, "{crt}");
         assert_eq!(
             sig::certificates(&signer.signer_bytes()).unwrap(),
@@ -204,7 +258,7 @@ fn signing_is_refused_with_the_reason() {
     let refused = |crt: &str, key: Key| {
         let (store, cert) = store_with(crt, key);
         let thumbprint = cert::parse(cert.der()).unwrap().thumbprint;
-        signer_in(&store, &thumbprint).err().unwrap()
+        signer_in(&store, &thumbprint, None).err().unwrap()
     };
     let expired = refused("rsa-expired.crt", import_rsa(&pkcs8_of("rsa.key")));
     assert!(expired.message.contains("valid now"), "{}", expired.message);
@@ -215,7 +269,7 @@ fn signing_is_refused_with_the_reason() {
         import_ec(&pkcs8_of("p256.key"), Curve::P256, true),
     );
     let thumbprint = cert::parse(cert.der()).unwrap().thumbprint;
-    let ecdh = signer_in(&store, &thumbprint).unwrap();
+    let ecdh = signer_in(&store, &thumbprint, None).unwrap();
     assert_eq!(ecdh.algorithm(), Algorithm::EcdsaP256);
     let message = [8; MESSAGE_LEN];
     let hash = cert::digest(Algorithm::EcdsaP256, &message).unwrap();
@@ -223,7 +277,7 @@ fn signing_is_refused_with_the_reason() {
     assert!(cert.verify(Algorithm::EcdsaP256, &hash, &sig).unwrap());
     let store = Store::memory().unwrap();
     assert_eq!(
-        signer_in(&store, &[0; 20]).err().unwrap().kind,
+        signer_in(&store, &[0; 20], None).err().unwrap().kind,
         ErrorKind::NotFound
     );
 }
@@ -242,7 +296,7 @@ fn the_users_stores_are_read_without_changing_them() {
     let v = vectors();
     let key_id = [1; KEY_ID_LEN];
     let slot = hex(&v["slots"]["rsa"]["slot"]);
-    let mut source = source().unwrap();
+    let mut source = source(None).unwrap();
     assert!(!source.offers(&view(&slot, &key_id)));
     assert!(
         source
@@ -408,7 +462,7 @@ fn this_pc_keys_open_their_slots() {
     let key_id = [4; KEY_ID_LEN];
     let view = view(&slot, &key_id);
     let want = secret_bytes(ecdh::extract(&view, &made.recipient_key, shared(&made)));
-    let mut source = source().unwrap();
+    let mut source = source(None).unwrap();
     assert!(source.offers(&view));
     let secret = source.secret(&view, false).unwrap().unwrap();
     assert_eq!(secret_bytes(secret), want);
@@ -433,7 +487,7 @@ fn a_this_pc_key_with_a_pin_is_never_tried_without_it() {
     // lockout, which the user's other TPM uses share.
     let key = tpm.open_key(&name).unwrap();
     assert!(key.needs_pin());
-    let mut source = source().unwrap();
+    let mut source = source(None).unwrap();
     assert!(source.offers(&view));
     assert!(source.secret(&view, false).unwrap().is_none());
     // With its PIN, as Windows' dialog gives it when the user chooses this way in.

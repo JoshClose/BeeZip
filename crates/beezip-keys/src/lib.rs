@@ -32,6 +32,21 @@ pub mod cng;
 pub mod mac;
 pub mod webauthn;
 
+/// The console window this process runs in: the window Windows' own dialogs (a smart card's or
+/// TPM key's PIN, Windows Security's for a security key or Windows Hello) belong to when a
+/// command runs in a terminal, as the CLI's do. `None` without a console, and on macOS and
+/// Linux.
+pub fn console_window() -> Option<isize> {
+    #[cfg(windows)]
+    {
+        webauthn::ffi::console_window()
+    }
+    #[cfg(not(windows))]
+    {
+        None
+    }
+}
+
 /// What M14's parts return until their PR builds them.
 pub fn not_built(what: &str) -> Error {
     Error::new(

@@ -32,6 +32,19 @@ pub struct Policy {
     pub unattended: bool,
     /// Key files that open encrypted `.bhive` archives (the CLI's `--identity`).
     pub identities: Vec<PathBuf>,
+    /// The window Windows' own dialogs belong to when a job uses a key or device that asks
+    /// for a person (a smart card's or TPM key's PIN, Windows Security's for a security key or
+    /// Windows Hello): the HWND of the front end's window that started the job, or the CLI's
+    /// console ([`console_window`]). `None` puts them over the window in front; MCP, which
+    /// uses no devices, and other systems leave it so.
+    pub window: Option<isize>,
+}
+
+/// The console window this process runs in, for [`Policy::window`]: what the CLI passes, so
+/// that Windows' PIN and security-key dialogs come up over the terminal. `None` without a
+/// console, and on macOS and Linux.
+pub fn console_window() -> Option<isize> {
+    beezip_keys::console_window()
 }
 
 impl Policy {
@@ -45,6 +58,7 @@ impl Policy {
             max_read_bytes: None,
             unattended: false,
             identities: Vec::new(),
+            window: None,
         }
     }
 

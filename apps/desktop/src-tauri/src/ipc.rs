@@ -6,7 +6,7 @@
 use std::sync::Arc;
 
 use beezip_commands::{
-    CmdError, CommandInfo, Engine, EventSink, JobEvent, JobId, JsonObject, PromptReply,
+    CmdError, CommandInfo, Engine, EventSink, JobEvent, JobId, JsonObject, Policy, PromptReply,
 };
 use serde::Serialize;
 use serde_json::Value;
@@ -18,7 +18,31 @@ use crate::{
     prompts::GuiInteractor,
 };
 
-/// Starts command `name` and streams its events to `on_event`. Returns the job id at once.
+/// The HWND of `window`, as [`Policy::window`] takes it; `None` off Windows.
+pub fn hwnd(window: &Window) -> Option<isize> {
+    #[cfg(windows)]
+    {
+        window.hwnd().ok().map(|h| h.0 as isize)
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = window;
+        None
+    }
+}
+
+/// What a job started from `window` runs under: the engine's policy, with Windows' PIN and
+/// security-key dialogs belonging to that window (docs/M14.md §6), not to whatever is in front.
+pub fn policy_for(engine: &Engine, window: Option<isize>) -> Arc<Policy> {
+    Arc::new(Policy {
+        window,
+        ..Policy::clone(&engine.policy())
+    })
+}
+
+/// Starts command `name` and streams its events to `on_event`. Returns the job id at once. The
+/// job's devices show their dialogs over the window that started it: the main window, or the
+/// job window of a request from Explorer.
 #[tauri::command]
 pub fn cmd_run(
     window: Window,
@@ -38,7 +62,8 @@ pub fn cmd_run(
         sink = opened.watch(&args, sink);
     }
     let interactor: Arc<GuiInteractor> = Arc::clone(&gui);
-    let job = engine.invoke(&name, args, interactor, sink)?;
+    let policy = policy_for(&engine, hwnd(&window));
+    let job = engine.invoke_with_policy(&name, args, interactor, sink, policy)?;
     Ok(job.id())
 }
 
@@ -138,5 +163,22 @@ mod tests {
         assert!(!offered_here("shell.install", false));
         assert!(offered_here("archive.list", false));
         assert!(offered_here("settings.get", false));
+    }
+
+    /// A job the page starts runs under the engine's policy, with its window's handle for
+    /// Windows' dialogs.
+    #[test]
+    fn a_job_gets_the_engines_policy_and_its_window() {
+        let engine = Engine::new(registry());
+        let policy = policy_for(&engine, Some(0x5e1f));
+        assert_eq!(policy.window, Some(0x5e1f));
+        assert_eq!(policy.limits, engine.policy().limits);
+        assert!(!policy.unattended);
+        assert_eq!(
+            engine.policy().window,
+            None,
+            "the engine's own is left alone"
+        );
+        assert_eq!(policy_for(&engine, None).window, None);
     }
 }

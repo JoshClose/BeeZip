@@ -509,7 +509,7 @@ impl KeySource for Offers {
 struct Stub(Arc<Mutex<Vec<bool>>>);
 
 impl KeyStub for Stub {
-    fn sources(&self) -> Vec<Box<dyn KeySource + Send>> {
+    fn sources(&self, _window: Option<isize>) -> Vec<Box<dyn KeySource + Send>> {
         vec![Box::new(Offers(Arc::clone(&self.0)))]
     }
 }
@@ -623,6 +623,82 @@ fn keys_come_from_your_store_key_files_then_the_system() {
     )
     .unwrap();
     assert_eq!(r["offered"], json!(false), "{r}");
+}
+
+/// Keeps the window each job's system sources were made for.
+struct Windows(Arc<Mutex<Vec<Option<isize>>>>);
+
+impl KeyStub for Windows {
+    fn sources(&self, window: Option<isize>) -> Vec<Box<dyn KeySource + Send>> {
+        self.0.lock().unwrap().push(window);
+        Vec::new()
+    }
+}
+
+/// The window a front end gives a job reaches the system's key sources, which parent Windows'
+/// PIN and security-key dialogs to it: the engine's (the CLI's console) or the job's own (the
+/// desktop's window that started it). MCP's jobs make no system source at all.
+#[test]
+fn the_jobs_window_reaches_the_systems_key_sources() {
+    let seen: Arc<Mutex<Vec<Option<isize>>>> = Arc::default();
+    let system = SystemKeys::Stub(Arc::new(Windows(Arc::clone(&seen))));
+    let args = json!({ "kind": 3, "unlock": false });
+    let console = Policy {
+        window: Some(0x0c11),
+        ..Policy::unrestricted()
+    };
+    keys(
+        console,
+        system.clone(),
+        args.clone(),
+        Arc::new(NonInteractive),
+    )
+    .unwrap();
+    keys(
+        Policy::unrestricted(),
+        system.clone(),
+        args.clone(),
+        Arc::new(NonInteractive),
+    )
+    .unwrap();
+    assert_eq!(*seen.lock().unwrap(), [Some(0x0c11), None]);
+
+    // Per job, as the desktop starts them: the engine's policy with the window.
+    seen.lock().unwrap().clear();
+    let mut r = Registry::new();
+    r.register::<TestKeys>();
+    let (engine, _dir) = engine_in(
+        Box::leak(Box::new(r)),
+        Policy::unrestricted(),
+        system.clone(),
+    );
+    for window in [Some(0x0a11), Some(0x0b22)] {
+        let policy = Arc::new(Policy {
+            window,
+            ..Policy::clone(&engine.policy())
+        });
+        engine
+            .invoke_with_policy(
+                "test.keys",
+                args.clone(),
+                Arc::new(NonInteractive),
+                Arc::new(|_| {}),
+                policy,
+            )
+            .unwrap()
+            .join()
+            .unwrap();
+    }
+    assert_eq!(*seen.lock().unwrap(), [Some(0x0a11), Some(0x0b22)]);
+
+    // Nobody there: no source, whatever the window.
+    seen.lock().unwrap().clear();
+    let mcp = Policy {
+        window: Some(0x0d33),
+        ..unattended()
+    };
+    keys(mcp, system, args, Arc::new(NonInteractive)).unwrap();
+    assert!(seen.lock().unwrap().is_empty());
 }
 
 #[test]

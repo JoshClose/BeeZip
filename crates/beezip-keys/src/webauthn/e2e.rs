@@ -32,11 +32,12 @@ use super::{
 const HONEY: &str = "honey";
 
 /// A context with nobody at it but the answers it was given, one per attempt, and a key
-/// source: the mock's, or for a real device webauthn.dll's. It keeps every request it was
-/// asked.
+/// source: the mock's, or for a real device webauthn.dll's. Out of answers, nobody is left to
+/// ask, or with `cancel` the Unlock prompt is cancelled. It keeps every request it was asked.
 struct DeviceCtx<S = Fido2Source<MockAuthenticator>> {
     source: S,
     answers: Vec<UnlockAnswer>,
+    cancel: bool,
     asked: Vec<UnlockRequest>,
 }
 
@@ -65,6 +66,7 @@ impl<S: KeySource> DeviceCtx<S> {
         Self {
             source,
             answers,
+            cancel: false,
             asked: Vec::new(),
         }
     }
@@ -95,12 +97,14 @@ impl<S: KeySource> Ctx for DeviceCtx<S> {
 
     fn unlock(&mut self, request: &UnlockRequest) -> Result<UnlockAnswer> {
         self.asked.push(request.clone());
-        self.answers
-            .get(request.attempt as usize)
-            .cloned()
-            .ok_or_else(|| {
-                beezip_core::Error::new(ErrorKind::PasswordRequired, "nothing left to answer")
-            })
+        match self.answers.get(request.attempt as usize) {
+            Some(answer) => Ok(answer.clone()),
+            None if self.cancel => Err(beezip_core::Error::cancelled()),
+            None => Err(beezip_core::Error::new(
+                ErrorKind::PasswordRequired,
+                "nothing left to answer",
+            )),
+        }
     }
 
     fn key_source(&mut self) -> Option<&mut dyn KeySource> {
@@ -329,34 +333,75 @@ fn a_security_key_seals_and_opens_an_archive() {
     assert_eq!(cx.asked.len(), 1);
 }
 
-/// Another key, a closed dialog and a slot for another way in each leave the archive closed,
-/// and nothing is extracted.
+/// Another key or a closed dialog doesn't end the open: the Unlock prompt is asked again, and
+/// the password, or the key chosen again, opens the archive. Cancelling the Unlock prompt
+/// itself ends it; with nobody left to ask, another key leaves the archive closed and says a
+/// key is needed. Nothing is extracted from an archive that stays closed.
 #[test]
-fn a_wrong_key_or_a_closed_dialog_leaves_it_closed() {
+fn after_a_wrong_key_or_a_closed_dialog_it_asks_again() {
     let root = tempfile::tempdir().unwrap();
     let input = tree(root.path());
-    let archive = root.path().join("key.bhive");
+    let want = read_tree(&input);
     let mut key = MockAuthenticator::new();
     let recipient = recipient_with(&mut key, false, None).unwrap();
+    let archive = root.path().join("key.bhive");
     create(
         &archive,
         &input,
-        Protection::New(vec![labelled(recipient, "Security key")]),
+        Protection::New(vec![labelled(recipient.clone(), "Security key")]),
     )
     .unwrap();
+    let both = root.path().join("both.bhive");
+    create(
+        &both,
+        &input,
+        Protection::New(vec![labelled(recipient, "Security key"), small(HONEY)]),
+    )
+    .unwrap();
+    let mut closing = key.clone();
+    closing.cancel_secrets = true;
+    let password_then = |auth: MockAuthenticator| {
+        DeviceCtx::new(
+            auth,
+            vec![UnlockAnswer::Way(0), UnlockAnswer::Password(HONEY.into())],
+        )
+    };
 
+    // Another key, then the password: asked again, as after a wrong password.
+    let mut cx = password_then(MockAuthenticator::new());
+    assert_eq!(
+        extract(&both, &root.path().join("a"), &mut cx).unwrap(),
+        want
+    );
+    assert_eq!(cx.secrets_asked().len(), 1);
+    let attempts: Vec<u32> = cx.asked.iter().map(|r| r.attempt).collect();
+    assert_eq!(attempts, [0, 1]);
+    assert_eq!(cx.asked[1].ways, cx.asked[0].ways, "the same ways in");
+
+    // Windows Security's dialog closed, then the password.
+    let mut cx = password_then(closing.clone());
+    assert_eq!(
+        extract(&both, &root.path().join("b"), &mut cx).unwrap(),
+        want
+    );
+    assert_eq!(cx.asked.len(), 2);
+
+    // The dialog closed, then the Unlock prompt cancelled: that ends it.
     let dest = root.path().join("x");
+    let mut cx = DeviceCtx::new(closing, vec![UnlockAnswer::Way(0)]);
+    cx.cancel = true;
+    let e = extract(&archive, &dest, &mut cx).err().unwrap();
+    assert_eq!(e.kind, ErrorKind::Cancelled, "{}", e.message);
+    assert_eq!(cx.asked.len(), 2);
+    assert!(!dest.join("in").exists());
+
+    // Another key with nothing else to try: asked again, since the right key may be plugged in
+    // now, and with nobody left to ask the archive stays closed for want of a key.
     let mut cx = DeviceCtx::new(MockAuthenticator::new(), vec![UnlockAnswer::Way(0)]);
     let e = extract(&archive, &dest, &mut cx).err().unwrap();
     assert_eq!(e.kind, ErrorKind::KeyRequired, "{}", e.message);
     assert_eq!(cx.secrets_asked().len(), 1);
-    assert!(!dest.join("in").exists());
-
-    let mut closing = key.clone();
-    closing.cancel_secrets = true;
-    let mut cx = DeviceCtx::new(closing, vec![UnlockAnswer::Way(0)]);
-    let e = extract(&archive, &dest, &mut cx).err().unwrap();
-    assert_eq!(e.kind, ErrorKind::Cancelled, "{}", e.message);
+    assert_eq!(cx.asked.len(), 2);
     assert!(!dest.join("in").exists());
 
     // A way the archive doesn't have, then a password it has no slot for: neither asks the key.
@@ -369,6 +414,59 @@ fn a_wrong_key_or_a_closed_dialog_leaves_it_closed() {
     assert_eq!(e.kind, ErrorKind::KeyRequired, "{}", e.message);
     assert!(cx.secrets_asked().is_empty());
     assert!(!dest.join("in").exists());
+
+    // The dialog closed by mistake, and the same way chosen again: the key opens it.
+    let key = cx.into_authenticator();
+    let mut cx = DeviceCtx::with(
+        Fido2Source::new(ClosedOnce {
+            inner: key,
+            closed: false,
+        }),
+        vec![UnlockAnswer::Way(0), UnlockAnswer::Way(0)],
+    );
+    assert_eq!(
+        extract(&archive, &root.path().join("c"), &mut cx).unwrap(),
+        want
+    );
+    assert_eq!(cx.asked.len(), 2);
+    assert!(cx.source.authenticator().closed);
+}
+
+/// The mock, whose first dialog for a secret is closed.
+struct ClosedOnce {
+    inner: MockAuthenticator,
+    closed: bool,
+}
+
+impl super::Authenticator for ClosedOnce {
+    fn support(&self) -> super::Support {
+        self.inner.support()
+    }
+
+    fn make_credential(
+        &mut self,
+        rp_id: &str,
+        user_id: &[u8],
+        attachment: Attachment,
+    ) -> Result<super::NewCredential> {
+        self.inner.make_credential(rp_id, user_id, attachment)
+    }
+
+    fn hmac_secret(&mut self, request: &super::SecretRequest<'_>) -> Result<Zeroizing<[u8; 32]>> {
+        if !self.closed {
+            self.closed = true;
+            return Err(beezip_core::Error::cancelled());
+        }
+        self.inner.hmac_secret(request)
+    }
+
+    fn is_platform_credential(&mut self, rp_id: &str, credential_id: &[u8]) -> bool {
+        self.inner.is_platform_credential(rp_id, credential_id)
+    }
+
+    fn delete_platform_credential(&mut self, credential_id: &[u8]) -> Result<()> {
+        self.inner.delete_platform_credential(credential_id)
+    }
 }
 
 /// Windows Hello is bound to this PC, so it needs another way in. Opened with it, Hello is
@@ -544,17 +642,18 @@ fn edits_and_new_ways_in_keep_the_key_working() {
     assert!(test.ok(), "{:?}", test.errors);
 }
 
-/// The machine's sources, as the commands layer gathers them, with webauthn.dll's among them.
+/// The machine's sources, as the commands layer gathers them, with webauthn.dll's among them:
+/// its dialogs over the terminal the test runs in, as the CLI's are.
 #[cfg(windows)]
 fn machine() -> crate::Sources {
     let mut sources = crate::Sources::default();
-    sources.push(super::source(None).unwrap());
+    sources.push(super::source(crate::console_window()).unwrap());
     sources
 }
 
 /// [`a_security_key_seals_and_opens_an_archive`] with a real security key through
 /// webauthn.dll: registered, asked for the salt, and asked again to open the archive. Shows
-/// Windows' dialog three times.
+/// Windows' dialog three times, over the terminal the test runs in.
 #[cfg(windows)]
 #[test]
 #[ignore = "needs a person: a FIDO2 security key, its PIN and three touches"]
@@ -562,7 +661,7 @@ fn a_real_security_key_seals_and_opens_an_archive() {
     let root = tempfile::tempdir().unwrap();
     let input = tree(root.path());
     let archive = root.path().join("key.bhive");
-    let recipient = super::recipient(false, None, None).unwrap();
+    let recipient = super::recipient(false, None, crate::console_window()).unwrap();
     create(
         &archive,
         &input,
@@ -594,7 +693,7 @@ fn windows_hello_really_opens_an_archive() {
     let root = tempfile::tempdir().unwrap();
     let input = tree(root.path());
     let archive = root.path().join("hello.bhive");
-    let recipient = super::recipient(true, None, None).unwrap();
+    let recipient = super::recipient(true, None, crate::console_window()).unwrap();
     let Recipient::Fido2 { credential_id, .. } = &recipient else {
         panic!("not a security-key recipient");
     };

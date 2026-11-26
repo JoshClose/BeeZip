@@ -23,7 +23,7 @@ pub mod mock;
 mod e2e;
 
 #[cfg(windows)]
-mod ffi;
+pub(crate) mod ffi;
 #[cfg(windows)]
 mod win;
 

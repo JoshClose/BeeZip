@@ -47,8 +47,16 @@ impl WinError {
         )
     }
 
+    /// A closed PIN dialog is `Cancelled`, as a closed Windows Security dialog is
+    /// (webauthn.rs), so an unlock asks for another way in; anything else is `Io`.
     pub fn into_error(self) -> Error {
-        Error::new(ErrorKind::Io, self.what)
+        // HRESULT_FROM_WIN32(ERROR_CANCELLED), NTE_USER_CANCELLED, SCARD_W_CANCELLED_BY_USER
+        let kind = if matches!(self.code, 0x8007_04C7 | 0x8009_0036 | 0x8010_006E) {
+            ErrorKind::Cancelled
+        } else {
+            ErrorKind::Io
+        };
+        Error::new(kind, self.what)
     }
 }
 
@@ -367,6 +375,36 @@ impl Key {
             unsafe { NCryptSetProperty(NCRYPT_HANDLE(self.h.0), name, value, NCRYPT_SILENT_FLAG) },
             "NCryptSetProperty",
         )
+    }
+
+    /// Makes `window` the parent of the dialogs its provider shows for this key (a smart card's
+    /// or TPM key's PIN), through `NCRYPT_WINDOW_HANDLE_PROPERTY`, set silently. Without one
+    /// they come up over the window in front.
+    pub fn parent(&self, window: Option<isize>) -> WinResult<()> {
+        let Some(window) = window else {
+            return Ok(());
+        };
+        let hwnd = window.to_ne_bytes();
+        let set = |flags| {
+            // SAFETY: the property's value is the HWND itself, read only.
+            check(
+                unsafe {
+                    NCryptSetProperty(
+                        NCRYPT_HANDLE(self.h.0),
+                        NCRYPT_WINDOW_HANDLE_PROPERTY,
+                        &hwnd,
+                        flags,
+                    )
+                },
+                "NCryptSetProperty (the window)",
+            )
+        };
+        // A provider that refuses the silent flag here is asked again without it: setting a
+        // property shows nothing.
+        match set(NCRYPT_SILENT_FLAG) {
+            Err(e) if e.code == NTE_BAD_FLAGS => set(NCRYPT_FLAGS(0)),
+            r => r,
+        }
     }
 
     pub fn finalize(&self) -> WinResult<()> {
@@ -867,6 +905,19 @@ impl Cert {
     /// The certificate's private key, through CNG only (keys in legacy CryptoAPI providers
     /// are refused here, cleanly).
     pub fn private_key(&self, silent: bool) -> WinResult<Key> {
+        self.private_key_with(silent, None)
+    }
+
+    /// [`Cert::private_key`] for a person to use: not silent, and the dialogs acquiring and
+    /// using it show (a smart card's, a TPM key's PIN) belong to `window` ([`Key::parent`]).
+    pub fn private_key_for(&self, window: Option<isize>) -> WinResult<Key> {
+        let key = self.private_key_with(false, window)?;
+        // Best effort: a dialog over the window in front is better than none.
+        let _ = key.parent(window);
+        Ok(key)
+    }
+
+    fn private_key_with(&self, silent: bool, window: Option<isize>) -> WinResult<Key> {
         // A key attached in memory (as a .pfx imported without persisting its keys has), which
         // CryptAcquireCertificatePrivateKey doesn't look at: the context keeps it.
         if let Some(h) = self
@@ -881,19 +932,27 @@ impl Cert {
             });
         }
         let mut flags = CRYPT_ACQUIRE_ONLY_NCRYPT_KEY_FLAG;
+        // The window a smart card's dialog belongs to while acquiring; never with the silent
+        // flag, which Windows refuses beside it.
+        let hwnd = window.filter(|_| !silent);
         if silent {
             flags |= CRYPT_ACQUIRE_SILENT_FLAG;
+        } else if hwnd.is_some() {
+            flags |= CRYPT_ACQUIRE_WINDOW_HANDLE_FLAG;
         }
+        let parameters = hwnd.as_ref().map(|h| (h as *const isize).cast::<c_void>());
         let mut h = HCRYPTPROV_OR_NCRYPT_KEY_HANDLE::default();
         let mut spec = CERT_KEY_SPEC::default();
         let mut free = BOOL::default();
-        // SAFETY: the out-pointers are ours; whether we free the key is what `free` says.
+        // SAFETY: the out-pointers are ours; whether we free the key is what `free` says. With
+        // CRYPT_ACQUIRE_WINDOW_HANDLE_FLAG the parameters are the address of an HWND, which
+        // `hwnd` holds for the call.
         check(
             unsafe {
                 CryptAcquireCertificatePrivateKey(
                     self.0,
                     flags,
-                    None,
+                    parameters,
                     &mut h,
                     Some(&mut spec),
                     Some(&mut free),
