@@ -9,7 +9,8 @@
 //! - [`trust`]: whom a signature is from (PR D, with PR H).
 //! - `cng` (Windows): certificate stores, smart cards, TPM keys and "This PC", chain checks
 //!   (PR D). `mac` (macOS): Keychain identities (PR D).
-//! - `webauthn` (Windows): security keys and Windows Hello through webauthn.dll (PR E).
+//! - [`webauthn`]: security keys and Windows Hello through webauthn.dll (PR E); on macOS and
+//!   Linux it reports none.
 //!
 //! `unsafe` is denied here as everywhere; a platform module that calls a system API opts out
 //! with `#![allow(unsafe_code)]` at its top, and wraps every handle in an RAII type.
@@ -27,7 +28,6 @@ pub mod trust;
 pub mod cng;
 #[cfg(target_os = "macos")]
 pub mod mac;
-#[cfg(windows)]
 pub mod webauthn;
 
 /// What M14's parts return until their PR builds them.
