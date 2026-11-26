@@ -148,7 +148,12 @@ fn ecdsa_keys_are_refused_for_encryption() {
     );
     let mut source = CngSource::new(&[&store], Vec::new());
     let slot = hex(&v["slots"]["p256"]["slot"]);
-    let err = source.secret(&view(&slot, &key_id), false).unwrap_err();
+    let view = view(&slot, &key_id);
+    // Not offered, and silently nothing here, so an archive's other ways in still open it.
+    assert!(!source.offers(&view));
+    assert!(source.secret(&view, false).unwrap().is_none());
+    // Chosen as the way in, the reason is given.
+    let err = source.secret(&view, true).unwrap_err();
     assert!(err.message.contains("ECDSA"), "{}", err.message);
 }
 
@@ -243,12 +248,16 @@ fn chains_report_a_self_signed_certificate_as_untrusted() {
         .der;
     let c = chain(&[der]).unwrap();
     assert!(!c.trusted());
+    assert!(!c.anchored());
     assert!(!c.revoked());
     assert!(!c.expired());
+    assert!(c.complete());
     let expired = cert::parse(&std::fs::read(data("rsa-expired.crt")).unwrap())
         .unwrap()
         .der;
-    assert!(chain(&[expired]).unwrap().expired());
+    let c = chain(&[expired]).unwrap();
+    assert!(c.expired());
+    assert!(!c.anchored());
     let pem = std::fs::read(data("chain.pem")).unwrap();
     let ders: Vec<_> = cert::parse_all(&pem)
         .unwrap()
@@ -324,10 +333,6 @@ fn tpm_key(
     algorithm: windows_core::PCWSTR,
     bits: Option<u32>,
 ) -> Option<(Key, Doomed)> {
-    let absent = |e: &WinError| {
-        matches!(e.code >> 16, 0x8028 | 0x8029)
-            || matches!(e.code, 0x8009_0029 | 0x8009_0030 | 0x8009_0035)
-    };
     let name = test_name("key");
     let made = tpm.create_key(algorithm, Some(&name)).and_then(|key| {
         if let Some(bits) = bits {
@@ -338,7 +343,7 @@ fn tpm_key(
     });
     match made {
         Ok(key) => Some((key, Doomed { name, pin: None })),
-        Err(e) if absent(&e) => {
+        Err(e) if tpm_absent(&e) => {
             eprintln!("no TPM here: {}", e.what);
             None
         }
@@ -412,12 +417,14 @@ fn a_this_pc_key_with_a_pin_is_never_tried_without_it() {
     let slot = slot_bytes(SlotKind::EcP256, &made);
     let key_id = [5; KEY_ID_LEN];
     let view = view(&slot, &key_id);
+    // Known to need its PIN before anything tries it: a TPM counts a failed try towards its
+    // lockout, which the user's other TPM uses share.
+    let key = tpm.open_key(&name).unwrap();
+    assert!(key.needs_pin());
     let mut source = source().unwrap();
     assert!(source.offers(&view));
     assert!(source.secret(&view, false).unwrap().is_none());
     // With its PIN, as Windows' dialog gives it when the user chooses this way in.
-    let key = tpm.open_key(&name).unwrap();
-    assert!(key.needs_pin());
     key.set_prop(NCRYPT_PIN_PROPERTY, &win::wz_bytes(PIN))
         .unwrap();
     let context = view.context(&made.recipient_key);

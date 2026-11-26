@@ -228,6 +228,30 @@ pub(crate) mod tests {
         }
     }
 
+    /// DER is read as DER, whatever text is inside it: a certificate that carries another's PEM
+    /// is still itself. Here the PEM is written over the signature, which nothing here checks.
+    #[test]
+    fn a_der_certificate_holding_pem_is_itself() {
+        let mut der = std::fs::read(data("rsa.der")).unwrap();
+        let p256 = std::fs::read(data("p256.crt")).unwrap();
+        let block = b"-----BEGIN CERTIFICATE-----\nAQID\n-----END CERTIFICATE-----\n";
+        let at = der.len() - 200;
+        der[at..at + block.len()].copy_from_slice(block);
+        for parsed in [
+            cert::parse(&der),
+            cert::parse_der(&der),
+            cert::parse_public(&der),
+        ] {
+            assert_eq!(parsed.unwrap().subject, "BeeZip test rsa");
+        }
+        assert_eq!(cert::parse_all(&der).unwrap().len(), 1);
+        // A DER certificate followed by PEM is neither: it is read as the PEM it holds.
+        let mut both = std::fs::read(data("rsa.der")).unwrap();
+        both.extend_from_slice(&p256);
+        assert!(cert::parse_der(&both).is_err());
+        assert_eq!(cert::parse(&both).unwrap().subject, "BeeZip test p256");
+    }
+
     #[test]
     fn certificates_parse_and_say_what_they_can_do() {
         let rsa = certificate(&data("rsa.crt")).unwrap();

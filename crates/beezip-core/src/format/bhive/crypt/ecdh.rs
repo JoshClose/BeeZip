@@ -49,10 +49,15 @@ macro_rules! curve {
         mod $m {
             use super::*;
 
-            /// The uncompressed point of a SubjectPublicKeyInfo.
+            /// The uncompressed point of a SubjectPublicKeyInfo, id-ecPublicKey or id-ecDH (whose
+            /// point is written the same way, RFC 5480).
             pub fn point_of_spki(spki: &[u8]) -> Result<Vec<u8>> {
-                let key = ::$c::PublicKey::from_public_key_der(spki)
-                    .map_err(|e| invalid(format!("an EC public key doesn't parse: {e}")))?;
+                let key = match cert::ec_point(spki) {
+                    Some((true, point)) => ::$c::PublicKey::from_sec1_bytes(&point)
+                        .map_err(|_| invalid("an EC public key that isn't on its curve")),
+                    _ => ::$c::PublicKey::from_public_key_der(spki)
+                        .map_err(|e| invalid(format!("an EC public key doesn't parse: {e}"))),
+                }?;
                 Ok(key.to_sec1_point(false).as_bytes().to_vec())
             }
 
@@ -279,6 +284,42 @@ mod tests {
         }
         let p384 = hex(&v["slots"]["p384"]["spki"]);
         assert!(make(Curve::P256, &p384).is_err());
+    }
+
+    /// An id-ecDH key (key agreement only, RFC 5480) can be encrypted to, but can't sign.
+    #[test]
+    fn id_ecdh_keys_make_slots_but_never_sign() {
+        let v = vectors();
+        let point = hex(&v["slots"]["p256"]["recipient_public"]);
+        // SEQUENCE { SEQUENCE { id-ecDH, secp256r1 }, BIT STRING point }
+        let mut spki = vec![0x30, 0x57, 0x30, 0x11];
+        spki.extend_from_slice(&[0x06, 0x05, 0x2B, 0x81, 0x04, 0x01, 0x0C]);
+        spki.extend_from_slice(&[0x06, 0x08, 0x2A, 0x86, 0x48, 0xCE, 0x3D, 0x03, 0x01, 0x07]);
+        spki.extend_from_slice(&[0x03, 0x42, 0x00]);
+        spki.extend_from_slice(&point);
+        assert_eq!(
+            cert::spki_algorithm(&spki).unwrap(),
+            cert::KeyAlgorithm::Ec(Curve::P256)
+        );
+        assert_eq!(point_of_spki(Curve::P256, &spki).unwrap(), point);
+        let made = make(Curve::P256, &spki).unwrap();
+        assert_eq!(made.recipient_key, point);
+        let mut slot = vec![SlotKind::EcP256.id(), 0];
+        slot.extend_from_slice(&((made.public.len() + SLOT_TAIL_LEN) as u16).to_le_bytes());
+        slot.extend_from_slice(&made.public);
+        slot.extend_from_slice(&[0; SLOT_TAIL_LEN]);
+        let key_id = [3; KEY_ID_LEN];
+        let view = view(&slot, &key_id);
+        let SlotSecret::Shared(z) = made.secret else {
+            panic!("a writer has S");
+        };
+        let want = extracted(extract(&view, &point, &z));
+        let got =
+            extracted(secret(&view, Curve::P256, &hex(&v["slots"]["p256"]["pkcs8"])).unwrap());
+        assert_eq!(got, want);
+        let bare = cert::Certificate::from_spki(&spki).unwrap();
+        assert_eq!(bare.slot_kind().unwrap(), SlotKind::EcP256);
+        assert!(bare.sign_algorithm().unwrap_err().contains("key agreement"));
     }
 
     #[test]

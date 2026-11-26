@@ -2,7 +2,9 @@
 
 These are **test keys**, published on purpose: never trust them for anything. `rsa.key`,
 `p256.key` and `p384.key` are the keys of `tests/fixtures/bhive-m14/vectors.json` (`slots`), so
-the vectors' slots open with them; the rest were made from them with OpenSSL 3.5:
+the vectors' slots open with them; the rest were made from them with OpenSSL 3.5. Each is valid
+from 2020 to 2126, so a machine whose clock is behind still finds it valid, except
+`rsa-expired.crt`:
 
 | File | What |
 |---|---|

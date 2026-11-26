@@ -999,4 +999,18 @@ impl Chain {
     pub fn trusted(&self) -> bool {
         self.errors & !(REVOCATION_UNKNOWN | CERT_TRUST_IS_NOT_TIME_VALID | 0x2) == 0
     }
+
+    /// Windows would trust it but for its dates or its revocation: it leads to a root Windows
+    /// trusts, with nothing else wrong. Only then do its dates and revocation mean anything.
+    pub fn anchored(&self) -> bool {
+        let ignored =
+            REVOCATION_UNKNOWN | CERT_TRUST_IS_REVOKED | CERT_TRUST_IS_NOT_TIME_VALID | 0x2;
+        self.errors & !ignored == 0
+    }
+
+    /// The chain reaches a root (trusted or not): its last certificate is a root, not an
+    /// intermediate whose issuer Windows didn't find.
+    pub fn complete(&self) -> bool {
+        self.errors & CERT_TRUST_IS_PARTIAL_CHAIN == 0
+    }
 }

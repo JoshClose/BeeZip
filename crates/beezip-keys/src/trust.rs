@@ -12,7 +12,7 @@ use beezip_core::{
     },
 };
 
-use crate::identity::{KeyKind, Store, signing};
+use crate::identity::{KeyEntry, KeyKind, Store, signing};
 
 /// Who signed, as BeeZip shows it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -25,7 +25,8 @@ pub enum Trust {
     Certificate {
         subject: String,
     },
-    /// A certificate, trusted or not, that has since expired or been revoked.
+    /// A certificate someone vouches for (a contact, or an issuer the system trusts) that has
+    /// since expired or been revoked. An untrusted certificate is `Unknown`, whatever its dates.
     Expired {
         subject: String,
     },
@@ -65,20 +66,26 @@ fn who(certificate: &cert::Certificate) -> String {
     }
 }
 
-/// Your own signing keys' and contacts' entries whose key bytes are `signer`. A part that
-/// isn't built yet (`identity`, PRs C and H) knows nobody.
+/// Your keys and contacts, or none while that part isn't built (`identity`, PRs C and H).
+fn not_built(e: &Error) -> bool {
+    e.kind == ErrorKind::UnsupportedOperation
+}
+
+fn entries(store: &Store) -> Result<Vec<KeyEntry>> {
+    match store.list() {
+        Err(e) if not_built(&e) => Ok(Vec::new()),
+        other => other,
+    }
+}
+
+/// Your own signing keys' and contacts' entries whose key bytes are `signer`.
 fn known(store: &Store, signer: &[u8]) -> Result<Option<Trust>> {
-    let not_built = |e: &Error| e.kind == ErrorKind::UnsupportedOperation;
     let own = match signing::own_signers(store) {
         Ok(own) => own,
         Err(e) if not_built(&e) => Vec::new(),
         Err(e) => return Err(e),
     };
-    let entries = match store.list() {
-        Ok(entries) => entries,
-        Err(e) if not_built(&e) => Vec::new(),
-        Err(e) => return Err(e),
-    };
+    let entries = entries(store)?;
     let print = fingerprint(signer);
     if own.iter().any(|k| k.as_slice() == signer) {
         // Matched on the whole key; the name is the entry with its fingerprint.
@@ -101,6 +108,17 @@ fn known(store: &Store, signer: &[u8]) -> Result<Option<Trust>> {
     Ok(None)
 }
 
+/// The contact whose certificate is the signer's own, matched on the whole certificate (never a
+/// fingerprint). A contact's certificate is kept as its PEM text; until contacts can hold
+/// certificates (`keys.import` of one is not built yet), nobody matches.
+fn certificate_contact(store: &Store, leaf: &[u8]) -> Result<Option<String>> {
+    Ok(entries(store)?
+        .into_iter()
+        .filter(|e| !e.own && e.public.contains("-----BEGIN"))
+        .find(|e| cert::parse(e.public.as_bytes()).is_ok_and(|c| c.der == leaf))
+        .map(|e| e.name))
+}
+
 /// The trust of one valid signature.
 pub fn trust(store: &Store, signature: &SignatureInfo) -> Result<Trust> {
     let unknown = || Trust::Unknown {
@@ -110,38 +128,51 @@ pub fn trust(store: &Store, signature: &SignatureInfo) -> Result<Trust> {
         Some(Algorithm::MlDsa65Ed25519) => {
             Ok(known(store, &signature.signer)?.unwrap_or_else(unknown))
         }
-        Some(_) => certificate_trust(&signature.signer),
+        Some(_) => certificate_trust(store, &signature.signer),
         None => Ok(unknown()),
     }
 }
 
-/// A certificate signer: revoked, expired, trusted by the system, or unknown. A certificate
-/// whose key usage forbids signatures is unknown, whatever its chain.
-fn certificate_trust(signer: &[u8]) -> Result<Trust> {
+/// A certificate signer: a contact, or revoked, expired or trusted by the system, or unknown. A
+/// certificate whose key usage forbids signatures is unknown, whatever its chain. Its dates and
+/// revocation are only reported for a certificate someone vouches for (a contact, or an issuer
+/// the system trusts): an archive's maker chooses everything else about a certificate it
+/// carries, its name and dates included, so an untrusted one is unknown whatever they say.
+fn certificate_trust(store: &Store, signer: &[u8]) -> Result<Trust> {
     let Ok(chain) = cert::chain(signer) else {
         return Ok(Trust::Unknown {
             who: fingerprint(signer),
         });
     };
-    let Some(Ok(first)) = chain.first().map(|der| cert::parse(der)) else {
+    // DER from the archive: never read as PEM.
+    let Some(Ok(first)) = chain.first().map(|der| cert::parse_der(der)) else {
         return Ok(Trust::Unknown {
             who: fingerprint(signer),
         });
     };
-    let subject = first.subject.clone();
     if first.digital_signature == Some(false) {
         return Ok(Trust::Unknown { who: who(&first) });
     }
-    let system = system_trust(&chain);
-    Ok(match system {
+    let subject = first.subject.clone();
+    let expired = first.expired(crate::files::now());
+    if let Some(name) = certificate_contact(store, &first.der)? {
+        return Ok(if expired {
+            Trust::Expired { subject }
+        } else {
+            Trust::Contact(name)
+        });
+    }
+    Ok(match system_trust(&chain) {
+        System::Untrusted => Trust::Unknown { who: who(&first) },
         System::Revoked => Trust::Revoked { subject },
         System::Expired => Trust::Expired { subject },
-        _ if first.expired(crate::files::now()) => Trust::Expired { subject },
+        System::Trusted if expired => Trust::Expired { subject },
         System::Trusted => Trust::Certificate { subject },
-        System::Untrusted => Trust::Unknown { who: who(&first) },
     })
 }
 
+/// What the system makes of a chain. `Expired` and `Revoked` are only for a chain the system
+/// otherwise trusts.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(
     not(any(windows, target_os = "macos")),
@@ -154,18 +185,20 @@ enum System {
     Untrusted,
 }
 
-/// Windows' chain engine, with revocation checked (it may ask the issuer online).
+/// Windows' chain engine: from what Windows has cached first, then, for a chain whose root
+/// Windows trusts, with revocation checked (which may ask the issuer online, decision 25).
 #[cfg(windows)]
 fn system_trust(chain: &[Vec<u8>]) -> System {
     match crate::cng::chain(chain) {
+        Ok(c) if !c.anchored() => System::Untrusted,
         Ok(c) if c.revoked() => System::Revoked,
         Ok(c) if c.expired() => System::Expired,
-        Ok(c) if c.trusted() => System::Trusted,
-        _ => System::Untrusted,
+        Ok(_) => System::Trusted,
+        Err(_) => System::Untrusted,
     }
 }
 
-/// macOS's trust evaluation.
+/// macOS's trust evaluation, offline first in the same way.
 #[cfg(target_os = "macos")]
 fn system_trust(chain: &[Vec<u8>]) -> System {
     use crate::mac::Evaluation;
@@ -223,9 +256,12 @@ mod tests {
         ));
     }
 
+    /// A certificate nobody vouches for is unknown, its subject and issuer shown as what they
+    /// claim: expired or not, since its maker chose its dates as they chose its name.
     #[test]
-    fn a_self_signed_certificate_is_untrusted_and_an_expired_one_expired() {
-        let store = Store::new(std::env::temp_dir());
+    fn untrusted_certificates_are_unknown_whatever_their_dates() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::new(dir.path().to_owned());
         let der = |f: &str| cert::parse(&std::fs::read(data(f)).unwrap()).unwrap().der;
         let rsa = cert::chain_bytes(&[der("rsa.crt")]).unwrap();
         assert_eq!(
@@ -237,8 +273,8 @@ mod tests {
         let expired = cert::chain_bytes(&[der("rsa-expired.crt")]).unwrap();
         assert_eq!(
             trust(&store, &signature(2, expired)).unwrap(),
-            Trust::Expired {
-                subject: "BeeZip test rsa-expired".into()
+            Trust::Unknown {
+                who: "BeeZip test rsa-expired (self-signed)".into()
             }
         );
         let pem = std::fs::read(data("chain.pem")).unwrap();

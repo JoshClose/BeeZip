@@ -113,6 +113,9 @@ impl Certificate {
                 check_rsa(&self.spki)?;
                 Ok(Algorithm::RsaPss)
             }
+            KeyAlgorithm::Ec(_) if ec_point(&self.spki).is_some_and(|(dh, _)| dh) => {
+                Err("its key is marked for key agreement only (id-ecDH)".into())
+            }
             KeyAlgorithm::Ec(Curve::P256) => Ok(Algorithm::EcdsaP256),
             KeyAlgorithm::Ec(Curve::P384) => Ok(Algorithm::EcdsaP384),
             KeyAlgorithm::Other => Err("its key is neither RSA nor EC on P-256 or P-384".into()),
@@ -214,7 +217,9 @@ fn is_pem(bytes: &[u8]) -> bool {
     memchr::memmem::find(bytes, b"-----BEGIN ").is_some()
 }
 
-/// A certificate from DER or PEM; from PEM, the first `CERTIFICATE` block.
+/// A certificate from a file, DER or PEM; from PEM, the first `CERTIFICATE` block. DER that
+/// comes from a store, the Keychain or a signature goes to [`parse_der`] instead, so PEM text
+/// hidden inside a certificate is never read as the certificate.
 pub fn parse(bytes: &[u8]) -> Result<Certificate> {
     parse_all(bytes)?
         .into_iter()
@@ -223,10 +228,12 @@ pub fn parse(bytes: &[u8]) -> Result<Certificate> {
 }
 
 /// Every certificate in a file: one DER certificate, or each `CERTIFICATE` block of a PEM file,
-/// in order (a signer's own first, as a chain is written).
+/// in order (a signer's own first, as a chain is written). Bytes that are a DER certificate are
+/// that certificate, whatever text it holds; only other bytes are read as PEM.
 pub fn parse_all(bytes: &[u8]) -> Result<Vec<Certificate>> {
-    if !is_pem(bytes) {
-        return Ok(vec![parse_der(bytes)?]);
+    let der = parse_der(bytes);
+    if der.is_ok() || !is_pem(bytes) {
+        return Ok(vec![der?]);
     }
     pem_blocks(bytes)?
         .iter()
@@ -238,20 +245,22 @@ pub fn parse_all(bytes: &[u8]) -> Result<Vec<Certificate>> {
 /// A public key from a file: a certificate, or a `PUBLIC KEY` (DER or PEM) as a certificate
 /// with no names ([`Certificate::from_spki`]).
 pub fn parse_public(bytes: &[u8]) -> Result<Certificate> {
-    if is_pem(bytes) {
-        for (label, der) in pem_blocks(bytes)? {
-            match label.as_str() {
-                "CERTIFICATE" => return parse_der(&der),
-                "PUBLIC KEY" => return Certificate::from_spki(&der),
-                _ => {}
-            }
-        }
-        return Err(invalid("the file has no certificate or public key"));
+    let der = parse_der(bytes).or_else(|e| Certificate::from_spki(bytes).map_err(|_| e));
+    if der.is_ok() || !is_pem(bytes) {
+        return der;
     }
-    parse_der(bytes).or_else(|e| Certificate::from_spki(bytes).map_err(|_| e))
+    for (label, der) in pem_blocks(bytes)? {
+        match label.as_str() {
+            "CERTIFICATE" => return parse_der(&der),
+            "PUBLIC KEY" => return Certificate::from_spki(&der),
+            _ => {}
+        }
+    }
+    Err(invalid("the file has no certificate or public key"))
 }
 
-fn parse_der(der: &[u8]) -> Result<Certificate> {
+/// One DER certificate, and nothing after it.
+pub fn parse_der(der: &[u8]) -> Result<Certificate> {
     let cert = x509_cert::Certificate::from_der(der)
         .map_err(|e| invalid(format!("not a certificate: {e}")))?;
     let tbs = cert.tbs_certificate();
@@ -280,6 +289,15 @@ fn parse_der(der: &[u8]) -> Result<Certificate> {
             .as_ref()
             .map(|u| u.digital_signature() || u.non_repudiation()),
         thumbprint: sha1(der),
+    })
+}
+
+/// Whether a DER certificate names itself as its issuer: a root, or a self-signed certificate.
+/// `false` for bytes that aren't a certificate.
+pub fn self_issued(der: &[u8]) -> bool {
+    x509_cert::Certificate::from_der(der).is_ok_and(|c| {
+        let tbs = c.tbs_certificate();
+        tbs.subject() == tbs.issuer()
     })
 }
 
@@ -315,6 +333,18 @@ fn named_curve(parameters: Option<der::asn1::AnyRef<'_>>) -> Option<Curve> {
         Some(c) if c == SECP384R1 => Some(Curve::P384),
         _ => None,
     }
+}
+
+/// An EC SubjectPublicKeyInfo's point as it is written, and whether its algorithm is id-ecDH
+/// (key agreement only) rather than id-ecPublicKey; `None` for any other key.
+pub(super) fn ec_point(spki: &[u8]) -> Option<(bool, Vec<u8>)> {
+    let info = spki::SubjectPublicKeyInfoRef::from_der(spki).ok()?;
+    let oid = info.algorithm.oid;
+    if oid != EC_PUBLIC_KEY && oid != EC_DH {
+        return None;
+    }
+    let point = info.subject_public_key.as_bytes()?;
+    Some((oid == EC_DH, point.to_vec()))
 }
 
 /// A key's algorithm from its SubjectPublicKeyInfo.

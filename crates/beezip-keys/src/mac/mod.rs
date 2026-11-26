@@ -16,14 +16,17 @@ use beezip_core::{
             cert::{self, Certificate, KeyAlgorithm},
             ecdh, rsa,
         },
-        sign::{Algorithm, MESSAGE_LEN, Signer},
+        sign::{Algorithm, MAX_CERTIFICATES, MESSAGE_LEN, Signer},
     },
 };
 use security_framework::{
+    certificate::SecCertificate,
     identity::SecIdentity,
     item::{ItemClass, ItemSearchOptions, Limit, Reference, SearchResult},
     key::{Algorithm as SecAlgorithm, SecKey},
     os::macos::import_export::{ImportOptions, SecItems},
+    policy::SecPolicy,
+    trust::{SecTrust, TrustOptions},
 };
 use zeroize::Zeroizing;
 
@@ -45,7 +48,7 @@ fn identities() -> Vec<(SecIdentity, Certificate)> {
         .filter_map(|r| match r {
             SearchResult::Ref(Reference::Identity(id)) => {
                 let der = id.certificate().ok()?.to_der();
-                let certificate = cert::parse(&der).ok()?;
+                let certificate = cert::parse_der(&der).ok()?;
                 Some((id, certificate))
             }
             _ => None,
@@ -161,8 +164,43 @@ pub fn signer(thumbprint: &[u8; 20]) -> Result<Arc<dyn Signer>> {
     Ok(Arc::new(KeychainSigner {
         key,
         algorithm,
-        signer: cert::chain_bytes(std::slice::from_ref(&certificate.der))?,
+        signer: cert::chain_bytes(&chain_of(&certificate.der))?,
     }))
+}
+
+/// The chain the Keychain has for a certificate, its own first, without its root (which a
+/// reader must have anyway), as the signature carries it (docs/M14.md §11). Built offline,
+/// from the keychains alone; a chain that stops short of a root keeps its last intermediate.
+fn chain_of(der: &[u8]) -> Vec<Vec<u8>> {
+    let built = || -> Option<Vec<Vec<u8>>> {
+        let leaf = SecCertificate::from_der(der).ok()?;
+        let mut trust =
+            SecTrust::create_with_certificates(&[leaf], &[SecPolicy::create_x509()]).ok()?;
+        trust.set_network_fetch_allowed(false).ok()?;
+        // Whether or not it is trusted, evaluating builds the chain.
+        let _ = trust.evaluate_with_error();
+        #[allow(
+            deprecated,
+            reason = "chain() needs security-framework's macos-12 feature"
+        )]
+        let count = trust.certificate_count();
+        #[allow(
+            deprecated,
+            reason = "chain() needs security-framework's macos-12 feature"
+        )]
+        let ders = (0..count)
+            .map(|i| trust.certificate_at_index(i).map(|c| c.to_der()))
+            .collect::<Option<Vec<_>>>()?;
+        Some(ders)
+    };
+    let mut ders = built()
+        .filter(|d| d.first().map(Vec::as_slice) == Some(der))
+        .unwrap_or_else(|| vec![der.to_vec()]);
+    if ders.len() > 1 && ders.last().is_some_and(|d| cert::self_issued(d)) {
+        ders.pop();
+    }
+    ders.truncate(MAX_CERTIFICATES);
+    ders
 }
 
 struct KeychainSigner {
@@ -215,22 +253,86 @@ pub enum Evaluation {
     Untrusted,
 }
 
-/// SecTrust with the basic X.509 policy over `certificates`.
+const ERR_SEC_CERTIFICATE_EXPIRED: isize = -67818;
+const ERR_SEC_CERTIFICATE_REVOKED: isize = -67820;
+
+/// SecTrust with the basic X.509 policy over `certificates`, the signer's first. `Expired` and
+/// `Revoked` only for a chain macOS otherwise trusts: the certificates came with the archive,
+/// and its maker chose their names and dates. Offline first, as on Windows: their URLs are the
+/// maker's too. Only a chain macOS trusts offline is evaluated again with the network allowed,
+/// for its revocation (decision 25).
 pub fn evaluate(certificates: &[Vec<u8>]) -> Result<Evaluation> {
-    use security_framework::{certificate::SecCertificate, policy::SecPolicy, trust::SecTrust};
     let certs = certificates
         .iter()
         .map(|der| SecCertificate::from_der(der).map_err(|e| keychain_error("a certificate", e)))
         .collect::<Result<Vec<_>>>()?;
-    let trust = SecTrust::create_with_certificates(&certs, &[SecPolicy::create_x509()])
-        .map_err(|e| keychain_error("SecTrust", e))?;
-    Ok(match trust.evaluate_with_error() {
-        Ok(()) => Evaluation::Trusted,
-        // errSecCertificateExpired, errSecCertificateRevoked.
-        Err(e) if e.code() == -67818 => Evaluation::Expired,
-        Err(e) if e.code() == -67820 => Evaluation::Revoked,
-        Err(_) => Evaluation::Untrusted,
+    let make = |network: bool, options: Option<TrustOptions>| -> Result<SecTrust> {
+        let mut trust = SecTrust::create_with_certificates(&certs, &[SecPolicy::create_x509()])
+            .map_err(|e| keychain_error("SecTrust", e))?;
+        trust
+            .set_network_fetch_allowed(network)
+            .map_err(|e| keychain_error("SecTrust", e))?;
+        if let Some(options) = options {
+            trust
+                .set_options(options)
+                .map_err(|e| keychain_error("SecTrust", e))?;
+        }
+        Ok(trust)
+    };
+    let offline = make(false, None)?;
+    match offline.evaluate_with_error() {
+        Ok(()) => {}
+        // Trusted but for its dates?
+        Err(e) if e.code() == ERR_SEC_CERTIFICATE_EXPIRED => {
+            let undated = make(
+                false,
+                Some(TrustOptions::ALLOW_EXPIRED | TrustOptions::ALLOW_EXPIRED_ROOT),
+            )?;
+            return Ok(if undated.evaluate_with_error().is_ok() {
+                Evaluation::Expired
+            } else {
+                Evaluation::Untrusted
+            });
+        }
+        // Revoked by an issuer whose root the system trusts?
+        Err(e) if e.code() == ERR_SEC_CERTIFICATE_REVOKED => {
+            return Ok(if ends_at_a_system_root(&offline) {
+                Evaluation::Revoked
+            } else {
+                Evaluation::Untrusted
+            });
+        }
+        Err(_) => return Ok(Evaluation::Untrusted),
+    }
+    // Trusted offline: now its revocation, which may ask the issuer. A check that can't be
+    // made leaves it trusted, as Windows' does.
+    Ok(match make(true, None)?.evaluate_with_error() {
+        Err(e) if e.code() == ERR_SEC_CERTIFICATE_REVOKED => Evaluation::Revoked,
+        _ => Evaluation::Trusted,
     })
+}
+
+/// Whether an evaluated chain's last certificate is one of the system's roots.
+fn ends_at_a_system_root(trust: &SecTrust) -> bool {
+    #[allow(
+        deprecated,
+        reason = "chain() needs security-framework's macos-12 feature"
+    )]
+    let count = trust.certificate_count();
+    #[allow(
+        deprecated,
+        reason = "chain() needs security-framework's macos-12 feature"
+    )]
+    let last = if count > 0 {
+        trust.certificate_at_index(count - 1)
+    } else {
+        None
+    };
+    let (Some(last), Ok(roots)) = (last, SecTrust::copy_anchor_certificates()) else {
+        return false;
+    };
+    let last = last.to_der();
+    roots.iter().any(|r| r.to_der() == last)
 }
 
 #[cfg(test)]
@@ -255,12 +357,26 @@ mod tests {
         );
     }
 
+    /// A self-signed certificate is untrusted, expired or not: its maker chose its dates.
     #[test]
-    fn a_self_signed_certificate_is_untrusted() {
-        let der = cert::parse(&std::fs::read(data("rsa.crt")).unwrap())
-            .unwrap()
-            .der;
-        assert_ne!(evaluate(&[der]).unwrap(), Evaluation::Trusted);
+    fn a_self_signed_certificate_is_untrusted_whatever_its_dates() {
+        for file in ["rsa.crt", "rsa-expired.crt"] {
+            let der = cert::parse(&std::fs::read(data(file)).unwrap())
+                .unwrap()
+                .der;
+            assert_eq!(evaluate(&[der]).unwrap(), Evaluation::Untrusted, "{file}");
+        }
+    }
+
+    /// A chain built for a certificate the Keychain has no issuer for is the certificate alone.
+    #[test]
+    fn a_signers_chain_is_its_certificate_without_a_root() {
+        let pem = std::fs::read(data("chain.pem")).unwrap();
+        let leaf = cert::parse(&pem).unwrap().der;
+        assert_eq!(chain_of(&leaf), vec![leaf.clone()]);
+        let root = cert::parse_all(&pem).unwrap()[1].der.clone();
+        assert!(cert::self_issued(&root));
+        assert!(!cert::self_issued(&leaf));
     }
 
     #[test]

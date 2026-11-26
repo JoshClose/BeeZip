@@ -78,7 +78,7 @@ fn key_home(cert: &Cert) -> Option<KeyHome> {
 }
 
 fn describe(cert: &Cert, store: &str) -> Option<StoreCertificate> {
-    let mut certificate = cert::parse(cert.der()).ok()?;
+    let mut certificate = cert::parse_der(cert.der()).ok()?;
     let key = key_home(cert);
     if key.is_some() && matches!(certificate.algorithm, KeyAlgorithm::Ec(_)) {
         // Opening a key reads it, silently; it doesn't use it.
@@ -121,6 +121,24 @@ pub fn certificates() -> Result<Vec<StoreCertificate>> {
 struct CertKey {
     cert: Cert,
     certificate: Certificate,
+    /// Whether its key is an ECDSA key, once looked at.
+    ecdsa: Option<bool>,
+}
+
+impl CertKey {
+    /// Whether its key may agree keys: not an ECDSA key behind an EC certificate. Opening a
+    /// key reads it, silently; a key that won't open silently isn't known to be ECDSA.
+    fn may_agree(&mut self) -> bool {
+        if !matches!(self.certificate.algorithm, KeyAlgorithm::Ec(_)) {
+            return true;
+        }
+        let cert = &self.cert;
+        let ecdsa = *self.ecdsa.get_or_insert_with(|| {
+            cert.private_key(true)
+                .is_ok_and(|k| k.algorithm().starts_with("ECDSA"))
+        });
+        !ecdsa
+    }
 }
 
 /// A "This PC" key: a TPM ECDH P-256 key with no certificate.
@@ -153,8 +171,12 @@ impl CngSource {
             .flat_map(|s| s.certificates())
             .filter(|c| key_home(c).is_some())
             .filter_map(|cert| {
-                let certificate = cert::parse(cert.der()).ok()?;
-                Some(CertKey { cert, certificate })
+                let certificate = cert::parse_der(cert.der()).ok()?;
+                Some(CertKey {
+                    cert,
+                    certificate,
+                    ecdsa: None,
+                })
             })
             .collect();
         Self { certs, this_pc }
@@ -171,7 +193,8 @@ impl CngSource {
 }
 
 /// The secret of `slot` with `key`, whose public key is `recipient` (an EC point; empty for
-/// RSA). `None` when it would need a person and `device` is false.
+/// RSA). `None` when it would need a person and `device` is false; any other failure is an
+/// error, which [`try_key`] reports only for a way in the user chose.
 fn open_with(
     key: &Key,
     recipient: &[u8],
@@ -217,37 +240,51 @@ fn open_with(
     }
 }
 
+/// One key's try at a slot. Silently (`device` false) a key that can't open it, for whatever
+/// reason (a PIN it needs, a key CNG can't open, an ECDSA key, a TPM in lockout), is nothing
+/// here, so the archive's other ways in are still tried; the reason is reported only for a way
+/// in the user chose.
+fn try_key(
+    key: impl FnOnce() -> Result<(Key, Vec<u8>)>,
+    slot: &SlotView<'_>,
+    device: bool,
+) -> Result<Option<SlotSecret>> {
+    match key().and_then(|(key, recipient)| open_with(&key, &recipient, slot, device)) {
+        Err(_) if !device => Ok(None),
+        other => other,
+    }
+}
+
 impl KeySource for CngSource {
     fn offers(&mut self, slot: &SlotView<'_>) -> bool {
-        self.certs.iter().any(|c| Self::cert_fits(c, slot))
+        // An ECDSA key behind an EC certificate can't open the slot: not offered.
+        self.certs
+            .iter_mut()
+            .any(|c| Self::cert_fits(c, slot) && c.may_agree())
             || self.this_pc.iter().any(|k| Self::this_pc_fits(k, slot))
     }
 
     fn secret(&mut self, slot: &SlotView<'_>, device: bool) -> Result<Option<SlotSecret>> {
         for c in self.certs.iter().filter(|c| Self::cert_fits(c, slot)) {
-            let key = match c.cert.private_key(!device) {
-                Ok(k) => k,
-                // Silently, a key that needs a person, or one CNG can't open, is skipped.
-                Err(_) if !device => continue,
-                Err(e) => return Err(e.into()),
+            let key = || {
+                let key = c.cert.private_key(!device)?;
+                let recipient = match c.certificate.algorithm {
+                    KeyAlgorithm::Ec(curve) => ecdh::point_of_spki(curve, &c.certificate.spki)?,
+                    _ => Vec::new(),
+                };
+                Ok((key, recipient))
             };
-            let recipient = match c.certificate.algorithm {
-                KeyAlgorithm::Ec(curve) => ecdh::point_of_spki(curve, &c.certificate.spki)?,
-                _ => Vec::new(),
-            };
-            if let Some(secret) = open_with(&key, &recipient, slot, device)? {
+            if let Some(secret) = try_key(key, slot, device)? {
                 return Ok(Some(secret));
             }
         }
         for k in self.this_pc.iter().filter(|k| Self::this_pc_fits(k, slot)) {
-            let key = match Provider::open(MS_PLATFORM_CRYPTO_PROVIDER)
-                .and_then(|p| p.open_key(&k.name))
-            {
-                Ok(key) => key,
-                Err(_) if !device => continue,
-                Err(e) => return Err(e.into()),
+            let key = || {
+                let key = Provider::open(MS_PLATFORM_CRYPTO_PROVIDER)
+                    .and_then(|p| p.open_key(&k.name))?;
+                Ok((key, k.point.clone()))
             };
-            if let Some(secret) = open_with(&key, &k.point, slot, device)? {
+            if let Some(secret) = try_key(key, slot, device)? {
                 return Ok(Some(secret));
             }
         }
@@ -286,6 +323,24 @@ fn no_tpm(e: WinError) -> Error {
     )
 }
 
+/// Codes that mean no TPM is behind the provider (TPM and TBS errors), or that it can't make
+/// this kind of key: the provider opens on a PC without one. A TPM in lockout is there.
+fn tpm_absent(e: &WinError) -> bool {
+    // TPM_E_DEFEND_LOCK_RUNNING, TPM_20_E_LOCKOUT
+    let lockout = matches!(e.code, 0x8028_0803 | 0x8028_0921);
+    (matches!(e.code >> 16, 0x8028 | 0x8029) && !lockout)
+        || matches!(
+            e.code,
+            // NTE_NOT_SUPPORTED, NTE_DEVICE_NOT_READY, NTE_DEVICE_NOT_FOUND
+            0x8009_0029 | 0x8009_0030 | 0x8009_0035
+        )
+}
+
+/// A failure making a This PC key: no TPM where none is there, else what went wrong.
+fn tpm_failure(e: WinError) -> Error {
+    if tpm_absent(&e) { no_tpm(e) } else { e.into() }
+}
+
 /// A new "This PC" key in the TPM (ECDH P-256), optionally with a PIN: its name and
 /// SubjectPublicKeyInfo. No Key Usage is set (the TPM refuses it); a PIN is set as a property,
 /// silently. With a PIN, opening asks for it in Windows' own dialog.
@@ -299,13 +354,19 @@ pub fn create_this_pc(pin: Option<&str>) -> Result<(String, Vec<u8>)> {
     );
     let key = provider
         .create_key(NCRYPT_ECDH_P256_ALGORITHM, Some(&name))
-        .map_err(no_tpm)?;
+        .map_err(tpm_failure)?;
     if let Some(pin) = pin {
-        // An unfinalized key isn't written: dropping it leaves nothing behind.
+        // An unfinalized key isn't written: dropping it leaves nothing behind. A PIN the TPM
+        // refuses is that, not a missing TPM.
         key.set_prop(NCRYPT_PIN_PROPERTY, &win::wz_bytes(pin))
-            .map_err(no_tpm)?;
+            .map_err(|e| {
+                Error::new(
+                    ErrorKind::InvalidArgs,
+                    format!("the TPM refused the PIN ({})", e.what),
+                )
+            })?;
     }
-    key.finalize().map_err(no_tpm)?;
+    key.finalize().map_err(tpm_failure)?;
     let spki = key
         .export(BCRYPT_ECCPUBLIC_BLOB)
         .ok()
@@ -349,8 +410,11 @@ pub fn delete_this_pc(name: &str) -> Result<()> {
     Ok(key.delete()?)
 }
 
-/// Windows' chain engine on a signer's certificates, the signer's first, with revocation
-/// checked (decision 25).
+/// Windows' chain engine on a signer's certificates, the signer's first. First from what
+/// Windows has cached alone: the certificates came with the archive, so their URLs are its
+/// maker's, and following them would tell the maker who opened it and when (or stall opening).
+/// Only a chain that leads to a root Windows trusts is built again with revocation checked,
+/// which may ask the issuer online (decision 25).
 pub fn chain(certificates: &[Vec<u8>]) -> Result<Chain> {
     let first = certificates
         .first()
@@ -360,6 +424,10 @@ pub fn chain(certificates: &[Vec<u8>]) -> Result<Chain> {
         store.add(c)?;
     }
     let leaf = store.add(first)?;
+    let cached = leaf.chain(Some(&store), false)?;
+    if !cached.anchored() {
+        return Ok(cached);
+    }
     Ok(leaf.chain(Some(&store), true)?)
 }
 
@@ -377,7 +445,7 @@ fn signer_in(store: &Store, thumbprint: &[u8; 20]) -> Result<Arc<dyn Signer>> {
             format!("no certificate {hex} in Personal"),
         )
     })?;
-    let certificate = cert::parse(cert.der())?;
+    let certificate = cert::parse_der(cert.der())?;
     let mut algorithm = crate::files::may_sign(&certificate)?;
     let no_key = |e: WinError| {
         Error::new(
@@ -408,15 +476,19 @@ fn signer_in(store: &Store, thumbprint: &[u8; 20]) -> Result<Arc<dyn Signer>> {
         // Not every card's driver does PSS; every one does PKCS #1 v1.5 (bhive.md §13.4).
         algorithm = Algorithm::RsaPkcs1;
     }
-    // The chain the machine has, without its root, which a reader must have anyway.
-    let mut ders = cert
+    // The chain the machine has, without its root, which a reader must have anyway. A chain
+    // that stops short of a root ends with an intermediate, which stays.
+    let (mut ders, complete) = cert
         .chain(None, false)
-        .map(|c| c.certificates)
+        .map(|c| {
+            let complete = c.complete();
+            (c.certificates, complete)
+        })
         .unwrap_or_default();
     if ders.first().map(Vec::as_slice) != Some(cert.der()) {
         ders = vec![cert.der().to_vec()];
     }
-    if ders.len() > 1 {
+    if ders.len() > 1 && complete && ders.last().is_some_and(|d| cert::self_issued(d)) {
         ders.pop();
     }
     ders.truncate(MAX_CERTIFICATES);
