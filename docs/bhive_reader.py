@@ -17,7 +17,12 @@ nanoseconds since 1970, or `-`), Unix mode and DOS attributes (octal and hex, or
 a link's target, separated by tabs. `test` reads every cell and checks the signatures. `verify`
 prints a line for each signature: `checked`, `failed` or `unchecked` (it couldn't be checked, and
 why), its algorithm, the signer's fingerprint, the time the signer claims, and the signer.
-`slots` prints an encrypted archive's ways in, and their labels once it is open.
+`slots` prints an encrypted archive's ways in, and their labels once it is open. What isn't
+printable in a path, a name or a label is escaped, as `\\n` for a newline.
+
+A signature is checked against the index, whose cell digests it signs; a signature says
+`checked` only once every cell matches its digest, so `verify`, `test` and `extract` read them
+all. `list` reads no cell, and says that its signatures were checked against the index alone.
 
 Options:
     --recover               rebuild what the records hold when the index is lost (§8)
@@ -66,6 +71,12 @@ class Locked(Exception):
 
 class Usage(Exception):
     """A command line, or a key file named on it, that this reader can't take."""
+
+
+def shown(text):
+    """Text from the archive with what isn't printable escaped (a newline as `\\n`, a tab as `\\t`,
+    U+202E as `\\u202e`), so that a name, a label or a path can't make a line or a field of its own."""
+    return "".join(c if c.isprintable() else c.encode("unicode_escape").decode("ascii") for c in text)
 
 
 # XXH3-64, seed 0, the default secret (xxHash's doc/xxhash_spec.md).
@@ -666,26 +677,36 @@ def argon2id(password, salt, t, m_kib, p, tag_len=32, secret=b"", ad=b"", proces
 
     import multiprocessing
     from multiprocessing import shared_memory
+    from multiprocessing.connection import wait
 
     shm = shared_memory.SharedMemory(create=True, size=1024 * m)
+    started = []
     try:
         mem = shm.buf
         first_blocks(mem)
         barrier = multiprocessing.Barrier(p)
-        workers = [
-            multiprocessing.Process(target=_argon2_lane, args=(shm.name, lane, p, t, m, q, seg, barrier))
-            for lane in range(p)
-        ]
-        for w in workers:
+        for lane in range(p):
+            w = multiprocessing.Process(target=_argon2_lane, args=(shm.name, lane, p, t, m, q, seg, barrier))
             w.start()
-        for w in workers:
-            w.join()
-        if any(w.exitcode for w in workers):
-            raise RuntimeError("an Argon2 lane's process failed")
+            started.append(w)
+        # Each lane waits for the others at every sync point: as soon as one ends without
+        # finishing (killed, or out of memory), the rest are stopped rather than left waiting. They
+        # are ended, not woken through the barrier, whose lock the lane that died may hold.
+        running = {w.sentinel: w for w in started}
+        while running:
+            for sentinel in wait(list(running)):
+                w = running.pop(sentinel)
+                w.join()
+                if w.exitcode:
+                    raise RuntimeError("an Argon2 lane's process failed")
         tag = final_tag(mem)
         del mem
         return tag
     finally:
+        for w in started:
+            if w.is_alive():
+                w.terminate()
+            w.join()
         shm.close()
         shm.unlink()
 
@@ -1435,7 +1456,7 @@ def der_name(contents):
     for _, rdn in der_items(contents):
         for _, atv in der_items(rdn):
             (_, oid), (tag, v) = der_items(atv)[:2]
-            text = v.decode("utf-16-be" if tag == 0x1E else "utf-8", "replace")
+            text = shown(v.decode("utf-16-be" if tag == 0x1E else "utf-8", "replace"))
             parts.append(f"{NAME_OIDS.get(der_oid(oid), der_oid(oid))}={text}")
     return ", ".join(parts)
 
@@ -1693,7 +1714,9 @@ class Cell:
         """Its bytes in the file: stored, or sealed (§12.6)."""
         return self.stored if self.cid is None else sealed_len(self.stored)
 
-    def decode(self, archive, number):
+    def stored_bytes(self, archive, number):
+        """Its stored bytes: opened when sealed (§12.6, §12.8), and checked against section 2's
+        digest when there is one (§13.2), before anything is decoded from them."""
         what = f"cell {number}"
         if self.offset + self.size() > archive.len:
             raise Bad(f"{what} runs past the end of the file")
@@ -1703,6 +1726,11 @@ class Cell:
             stored = open_segments(key, stored, b"", what)
         if archive.digests is not None and sha256(stored) != archive.digests[number]:
             raise Bad(f"{what} doesn't match its digest (§13.2)")
+        return stored
+
+    def decode(self, stored, number):
+        """Its raw bytes, from its stored bytes, checked against its checksum (§4)."""
+        what = f"cell {number}"
         if self.coder == 0:
             raw = stored
         elif self.coder == 1:
@@ -1769,7 +1797,7 @@ class Keys:
 
     def add_recovery_key(self, text):
         """A recovery key's 16 bytes from its 48 digits, whatever separates them (§12.5 kind 2)."""
-        digits = "".join(c for c in text if c.isdigit())
+        digits = "".join(c for c in text if c in "0123456789")
         if len(digits) != 48:
             raise Usage("a recovery key is 48 digits")
         key = bytearray()
@@ -1783,7 +1811,8 @@ class Keys:
     def add_file(self, path, password=None):
         """The private keys in an age identity file, or a PEM or DER key file."""
         try:
-            data = open(path, "rb").read()
+            with open(path, "rb") as f:
+                data = f.read()
         except OSError as e:
             raise Usage(f"{path}: {e.strerror}") from None
         found = len(self.x25519) + len(self.xwing) + len(self.rsa) + len(self.ec)
@@ -1889,7 +1918,8 @@ class Slot:
             return f"tag {p[:4].hex()}"
         if self.kind == 8:
             n = struct.unpack_from("<H", p, 2)[0]
-            return f"relying party {p[5 + n : 5 + n + p[4 + n]].decode('utf-8', 'replace')}, credential {p[4 : 4 + n].hex()}"
+            rp = shown(p[5 + n : 5 + n + p[4 + n]].decode("utf-8", "replace"))  # unchecked before it opens
+            return f"relying party {rp}, credential {p[4 : 4 + n].hex()}"
         return "" if self.kind in self.NAMES else "a kind this reader doesn't know"
 
     def secrets(self, keys):
@@ -2033,7 +2063,7 @@ class Signature:
         name = ALGORITHMS.get(self.algorithm, f"algorithm {self.algorithm}" if self.algorithm is not None else "-")
         fp = fingerprint(self.signer) if self.signer else "-"
         time = "-" if self.time is None else str(self.time)
-        return "\t".join((self.status, name, fp, time, self.who or "-", self.why or "-"))
+        return "\t".join((self.status, name, fp, time, shown(self.who or "-"), shown(self.why or "-")))
 
 
 def check_signature(record, manifest, digests_whole):
@@ -2124,6 +2154,8 @@ class Archive:
         self.digests = self.descriptions = None
         self.cells, self.entries, self.sections, self.entry_bytes, self.raw = [], [], [], b"", None
         self.cache = (None, None)
+        # The cells whose stored bytes were read, and the first that didn't open or match its digest.
+        self.read_cells, self.changed = set(), None
         # Where cells can start, and the least a cell's data lies after the end of the one before.
         self.start, self.gap = 16, 48
         if features & 1:
@@ -2139,6 +2171,11 @@ class Archive:
                 raise
             self.incomplete = str(e)
             self.recover()
+
+    def __del__(self):
+        # The file closes with the archive, also one that failed to open.
+        if hasattr(self, "f"):
+            self.f.close()
 
     def at(self, offset, n):
         self.f.seek(offset)
@@ -2298,10 +2335,35 @@ class Archive:
             self.cells, pos = cells, cell.offset + cell.size()
             self.entries += entries
 
+    def stored(self, n):
+        """Cell n's stored bytes, opened and checked against its digest (§13.2)."""
+        self.read_cells.add(n)
+        try:
+            return self.cells[n].stored_bytes(self, n)
+        except Bad as e:
+            self.changed = self.changed or str(e)
+            raise
+
     def cell(self, n):
         if self.cache[0] != n:
-            self.cache = (n, self.cells[n].decode(self, n))
+            self.cache = (n, self.cells[n].decode(self.stored(n), n))
         return self.cache[1]
+
+    def unchanged(self, signatures):
+        """Reads every cell not read yet against its digest, and fails the signatures that checked
+        when one doesn't match: they sign the digests, and the cells must be what the digests say
+        (§13.2; "changed after it was signed", docs/M14.md §11)."""
+        if not any(s.status == "checked" for s in signatures):
+            return
+        for n in range(len(self.cells)):
+            if n not in self.read_cells:
+                try:
+                    self.stored(n)
+                except Bad:
+                    pass
+        for s in signatures:
+            if self.changed and s.status == "checked":
+                s.status, s.why = "failed", f"the archive changed after it was signed: {self.changed}"
 
     def read(self, entry):
         """The file's bytes, piece by piece."""
@@ -2392,10 +2454,19 @@ def parse(argv):
     keys = Keys()
     keys.passwords += values["--password"]
     for name in values["--password-file"]:
+        # UTF-8 from a file and from standard input alike, whatever the console's code page, and
+        # without the byte order mark Notepad may put first.
         try:
-            text = sys.stdin.read() if name == "-" else open(name, encoding="utf-8").read()
+            if name == "-":
+                data = sys.stdin.buffer.read()
+            else:
+                with open(name, "rb") as f:
+                    data = f.read()
+            text = data.decode("utf-8-sig")
         except OSError as e:
             raise Usage(f"{name}: {e.strerror}") from None
+        except UnicodeDecodeError:
+            raise Usage(f"{name}: a password file that isn't UTF-8") from None
         keys.passwords.append(text.splitlines()[0] if text else "")
     for text in values["--recovery-key"]:
         keys.add_recovery_key(text)
@@ -2431,14 +2502,18 @@ def main(argv):
         for i, slot in enumerate(archive.keyblock.slots if archive.keyblock else []):
             label = ""
             if archive.descriptions and 1 in archive.descriptions[i]:
-                label = archive.descriptions[i][1].decode("utf-8", "replace")
+                label = shown(archive.descriptions[i][1].decode("utf-8", "replace"))
             name = Slot.NAMES.get(slot.kind, f"kind {slot.kind}")
             out.write("\t".join((str(i), name, slot.describe() or "-", label or "-")) + "\n")
         out.flush()
         return 1 if archive.incomplete else 0
 
+    # Signatures are checked against the index (§13.3), and the cells against its digests as they
+    # are read (§13.2): `verify`, `test` and `extract` read them all before they say a signature
+    # checked; `list` reads none, and says so.
     signatures = archive.signatures() if not archive.incomplete else []
     if command == "verify":
+        archive.unchanged(signatures)
         if archive.incomplete:
             out.write("unsigned\trecovered from its records, without an index to check against (§13)\n")
         elif not signatures:
@@ -2447,28 +2522,34 @@ def main(argv):
             out.write(sig.line() + "\n")
         out.flush()
         return 0 if signatures and all(s.status == "checked" for s in signatures) else 1
-    for i, sig in enumerate(signatures):
-        why = f" ({sig.why})" if sig.why else ""
-        who = f", {sig.who}, {fingerprint(sig.signer)}" if sig.signer else ""
-        print(f"bhive_reader: signature {i + 1}: {sig.status}{who}{why}", file=sys.stderr)
+
+    def warn(note=""):
+        for i, sig in enumerate(signatures):
+            why = sig.why or (note if sig.status == "checked" else "")
+            why = f" ({shown(why)})" if why else ""
+            who = f", {shown(sig.who)}, {fingerprint(sig.signer)}" if sig.signer else ""
+            print(f"bhive_reader: signature {i + 1}: {sig.status}{who}{why}", file=sys.stderr)
 
     if command == "list":
+        warn("against the index: the cells aren't read, and `test` or `verify` reads them")
         for e in archive.entries:
             mode = "-" if e.mode is None else f"{e.mode:o}"
             attributes = "-" if e.attributes is None else f"{e.attributes:x}"
-            fields_ = [e.kind, str(e.size), stamp(e.modified), stamp(e.created), mode, attributes, e.path]
+            fields_ = [e.kind, str(e.size), stamp(e.modified), stamp(e.created), mode, attributes, shown(e.path)]
             if e.target is not None:
-                fields_.append(e.target)
+                fields_.append(shown(e.target))
             out.write("\t".join(fields_) + "\n")
         out.flush()
     elif command == "test":
-        failed += sum(s.status == "failed" for s in signatures)
         for n in range(len(archive.cells)):
             try:
                 archive.cell(n)
             except Bad as e:
                 print(f"bhive_reader: {e}", file=sys.stderr)
                 failed += 1
+        archive.unchanged(signatures)
+        warn()
+        failed += sum(s.status == "failed" for s in signatures)
     else:
         folders = []
         os.makedirs(root, exist_ok=True)
@@ -2495,13 +2576,16 @@ def main(argv):
                     for piece in archive.read(e):
                         f.write(piece)
             except Bad as bad:
-                print(f"bhive_reader: {e.path}: {bad}", file=sys.stderr)
+                print(f"bhive_reader: {shown(e.path)}: {bad}", file=sys.stderr)
                 os.remove(target)
                 failed += 1
                 continue
             set_time(target, e.modified)
         for target, e in reversed(folders):
             set_time(target, e.modified)
+        # A signature that fails warns, it doesn't block (docs/M14.md decision 26).
+        archive.unchanged(signatures)
+        warn()
     return 1 if failed or archive.incomplete else 0
 
 

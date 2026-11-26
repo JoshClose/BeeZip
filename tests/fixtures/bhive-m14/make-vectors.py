@@ -340,7 +340,8 @@ HEADER_ENC = MAGIC + struct.pack("<HHI", 1, 0, 1)
 
 def spec_small():
     """spec-small.bhive's parts, read from the fixture."""
-    b = open(os.path.join(ROOT, "tests", "fixtures", "bhive", "spec-small.bhive"), "rb").read()
+    with open(os.path.join(ROOT, "tests", "fixtures", "bhive", "spec-small.bhive"), "rb") as f:
+        b = f.read()
     head = b[0x10:0x40]
     journal = b[0x40:0x9B]
     cell = b[0x9B:0xA5]
@@ -355,7 +356,7 @@ def spec_small():
 def sealed_archive(file_key, key_id, archive_id, slots, sections, cell_id, nonce, index_salt, items=None, inner_hook=None):
     """spec-small's contents encrypted under file_key with these slots and index sections.
 
-    Also the writer of tests/bhive_reader_test.py's variants: `items` replaces the entries, and
+    Also the writer of tests/bhive_reader/test_reader.py's variants: `items` replaces the entries, and
     `inner_hook` changes the inner index block before it is sealed. Returns the file and its parts.
     """
     _, head, journal, cell, row, small_items = spec_small()
@@ -763,7 +764,10 @@ def main():
     assert ed25519_sign(seed, b"")[:8].hex() == "e5564300c360ac72"
 
     path = os.path.join(HERE, "vectors.json")
-    previous = json.load(open(path)) if os.path.exists(path) else {}
+    previous = {}
+    if os.path.exists(path):
+        with open(path, encoding="utf-8") as fh:
+            previous = json.load(fh)
     out = {"note": "docs/bhive.md §12 and §13. Made by make-vectors.py; every random value is SHAKE-256 of a label."}
     key_vectors(out)
     slot_vectors(out)
@@ -779,8 +783,9 @@ def main():
     for e in edges["cases"]:
         got = r.ed25519_verify(bytes.fromhex(e["public"]), bytes.fromhex(e["message"]), bytes.fromhex(e["signature"]))
         assert got == e["valid"], e["name"]
-    open(os.path.join(HERE, "spec-sealed.bhive"), "wb").write(sealed)
-    open(os.path.join(HERE, "spec-signed.bhive"), "wb").write(signed)
+    for name, data in (("spec-sealed.bhive", sealed), ("spec-signed.bhive", signed)):
+        with open(os.path.join(HERE, name), "wb") as fh:
+            fh.write(data)
     for name, value in (("vectors.json", out), ("ed25519-edges.json", edges)):
         with open(os.path.join(HERE, name), "w", newline="\n") as fh:
             json.dump(value, fh, indent=2)

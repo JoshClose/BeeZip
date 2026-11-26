@@ -43,6 +43,11 @@ def load(path):
         return json.load(f)
 
 
+def whole(path):
+    with open(path, "rb") as f:
+        return f.read()
+
+
 V = load(os.path.join(M14, "vectors.json"))
 EDGES = load(os.path.join(M14, "ed25519-edges.json"))
 OPENSSL = load(os.path.join(HERE, "openssl.json"))
@@ -68,6 +73,14 @@ def write(data, suffix=".bhive", mode="wb"):
     return path
 
 
+def in_python(code):
+    """What this code prints, run with `r` as the reader in a Python of its own, which `-c` keeps
+    from loading this file again in the processes it starts."""
+    code = f"import sys\nsys.path.insert(0, {os.path.join(ROOT, 'docs')!r})\nimport bhive_reader as r\n{code}"
+    p = subprocess.run([sys.executable, "-I", "-c", code], capture_output=True, text=True, timeout=300)
+    return p.stdout.strip() or p.stderr
+
+
 def keys(passwords=(), recovery=(), files=(), key_password=None):
     k = r.Keys()
     k.passwords += passwords
@@ -86,9 +99,9 @@ def read(data, k=None, recover=False):
     return a
 
 
-SMALL = open(os.path.join(FIXTURES, "bhive", "spec-small.bhive"), "rb").read()
-SEALED = open(os.path.join(M14, "spec-sealed.bhive"), "rb").read()
-SIGNED = open(os.path.join(M14, "spec-signed.bhive"), "rb").read()
+SMALL = whole(os.path.join(FIXTURES, "bhive", "spec-small.bhive"))
+SEALED = whole(os.path.join(M14, "spec-sealed.bhive"))
+SIGNED = whole(os.path.join(M14, "spec-signed.bhive"))
 HONEY = keys(["honey"])
 
 
@@ -176,7 +189,34 @@ class Published(unittest.TestCase):
         kw = {"secret": bytes([3] * 8), "ad": bytes([4] * 12)}
         self.assertEqual(ARGON2(*args, **kw, processes=False), want)
         self.assertEqual(ARGON2(*args, **kw, readable=True), want)
-        self.assertEqual(ARGON2(*args, **kw, processes=True), want)  # a process per lane
+        # A process per lane, from a Python of its own: here, each lane would load this file again.
+        got = in_python(f"print(r.argon2id(*{args!r}, **{kw!r}, processes=True).hex())")
+        self.assertEqual(got, want.hex())
+
+    def test_argon2id_a_lane_that_dies(self):
+        # One lane's process killed: the others are stopped, and the parent says so, without
+        # waiting for them forever at the next sync point.
+        got = in_python(
+            "import multiprocessing, threading, time\n"
+            "result = []\n"
+            "def run():\n"
+            "    try:\n"
+            "        r.argon2id(b'password', b'somesalt' * 2, 16, 16384, 4, processes=True)\n"
+            "        result.append('finished')\n"
+            "    except RuntimeError as e:\n"
+            "        result.append(str(e))\n"
+            "t = threading.Thread(target=run, daemon=True)\n"
+            "t.start()\n"
+            "deadline = time.monotonic() + 60\n"
+            "while len(multiprocessing.active_children()) < 4 and time.monotonic() < deadline:\n"
+            "    time.sleep(0.05)\n"
+            "multiprocessing.active_children()[0].kill()\n"
+            "t.join(60)\n"
+            "for p in multiprocessing.active_children():\n"
+            "    p.kill()\n"
+            "print(result[0] if result else 'still waiting')\n"
+        )
+        self.assertEqual(got, "an Argon2 lane's process failed")
 
     def test_x25519_rfc_7748(self):
         k = h("a546e36bf0527c9d3b16154b82465edd62144c0ac1fc5a18506a2244ba449ac4")
@@ -368,7 +408,7 @@ class Fixtures(unittest.TestCase):
     def test_m13_fixtures_as_their_manifest_says(self):
         for fx in load(os.path.join(FIXTURES, "bhive", "manifest.json"))["fixtures"]:
             with self.subTest(fx["file"]):
-                a = read(open(os.path.join(FIXTURES, "bhive", fx["file"]), "rb").read(), recover=fx.get("recover", False))
+                a = read(whole(os.path.join(FIXTURES, "bhive", fx["file"])), recover=fx.get("recover", False))
                 self.assertEqual(bool(a.incomplete), fx.get("recover", False))
                 self.assertEqual(a.signatures(), [])
                 want = [(e["kind"], e["path"], e.get("size", 0)) for e in fx["entries"]]
@@ -404,7 +444,7 @@ class Fixtures(unittest.TestCase):
         self.assertTrue(refused <= set(names))
         for name in names:
             with self.subTest(name):
-                data = open(os.path.join(folder, name), "rb").read()
+                data = whole(os.path.join(folder, name))
                 if name in refused:
                     with self.assertRaises(r.Bad):
                         read(data)
@@ -693,6 +733,51 @@ class Signatures(unittest.TestCase):
         with self.assertRaises(r.Bad):
             read(plain(section(3, b"") + section(2, b"")))
 
+    def test_a_changed_cell_fails_the_signatures(self):
+        # The signature checks against the index; the cell, read, doesn't match the digest it signs.
+        a = r.Archive(write(changed_cell(SIGNED)))
+        sigs = a.signatures()
+        self.assertEqual([s.status for s in sigs], ["checked"])
+        a.unchanged(sigs)
+        a.f.close()
+        self.assertEqual([(s.status, s.why) for s in sigs], [("failed", "the archive changed after it was signed: cell 0 doesn't match its digest (§13.2)")])
+        # Sealed, the changed cell doesn't open.
+        pw = keys([V["slots"]["password"]["password_as_typed_nfd"]])
+        a = r.Archive(write(changed_cell(sealed([h(V["slots"]["password"]["slot"])], sections=DIGESTS + SECTION_3), pw)), keys=pw)
+        sigs = a.signatures()
+        a.unchanged(sigs)
+        a.f.close()
+        self.assertEqual(sigs[0].status, "failed")
+        self.assertIn("changed after it was signed: cell 0 doesn't open", sigs[0].why)
+        # Unchanged, every cell is read and the signature still checks.
+        a = r.Archive(write(SIGNED))
+        sigs = a.signatures()
+        a.unchanged(sigs)
+        a.f.close()
+        self.assertEqual([(s.status, s.why) for s in sigs], [("checked", "")])
+
+    def test_what_isnt_printable_is_escaped(self):
+        self.assertEqual(r.shown("a\nb\tc\x1b[0m‮\x85 é"), "a\\nb\\tc\\x1b[0m\\u202e\\x85 é")
+        cert = OPENSSL["signers"]["2 rsa"]
+        name = b"BeeZip test rsa"
+        forged = b"x\nchecked\tRSA\t-"
+        self.assertEqual(len(forged), len(name))
+        der = h(cert["certificate"])
+        self.assertIn(name, der)
+        (sig,) = r.Archive(write(plain(DIGESTS + signatures(record(2, uv(1) + lv(der.replace(name, forged)), h(cert["signature"])))))).signatures()
+        self.assertEqual(sig.status, "failed")
+        self.assertIn("CN=x\\nchecked\\tRSA\\t-", sig.who)
+        self.assertNotIn("\n", sig.line())
+        self.assertEqual(sig.line().count("\t"), 5)
+
+
+def changed_cell(data, k=None):
+    """The archive with the first byte of its first cell's data changed."""
+    a = r.Archive(write(data), keys=k)
+    at = a.cells[0].offset
+    a.f.close()
+    return data[:at] + bytes([data[at] ^ 1]) + data[at + 1 :]
+
 
 class CommandLine(unittest.TestCase):
     def run_reader(self, *args, stdin=None):
@@ -710,6 +795,7 @@ class CommandLine(unittest.TestCase):
         self.assertEqual(self.run_reader("list", sealed_path)[0], 3)
         self.assertEqual(self.run_reader("list", sealed_path, "--password", "bee")[0], 3)
         self.assertEqual(self.run_reader("list", sealed_path, "--recovery-key", "1-2-3")[0], 2)
+        self.assertEqual(self.run_reader("list", sealed_path, "--recovery-key", "²" * 48)[0], 2)  # digits, but not 0 to 9
         self.assertEqual(self.run_reader("list", sealed_path, "--identity", write(b"nothing", ".txt"))[0], 2)
         self.assertEqual(self.run_reader("list", sealed_path, "--colour")[0], 2)
         self.assertEqual(self.run_reader("extract", sealed_path)[0], 2)
@@ -718,10 +804,21 @@ class CommandLine(unittest.TestCase):
         code, out, _ = self.run_reader("slots", sealed_path, "--password", "honey")
         self.assertEqual((code, out), (0, "0\tpassword\tArgon2id, 256 KiB, 2 passes, 4 lanes\tPassword\n"))
         self.assertEqual(self.run_reader("slots", small_path)[1], "not encrypted\n")
+        # A password that isn't ASCII, as UTF-8 from standard input and from a file Notepad saved
+        # with a byte order mark; and a label whose control characters are escaped.
+        nfd = V["slots"]["password"]["password_as_typed_nfd"]
+        nfc = unicodedata.normalize("NFC", nfd)
+        label = section(5, uv(1) + lv(uv(1) + lv(b"a\nb\tc\x1b[31m")))
+        own_path = write(sealed([h(V["slots"]["password"]["slot"])], sections=label))
+        self.assertEqual(self.run_reader("list", own_path, "--password-file", "-", stdin=nfd + "\n")[:2], (0, small_out))
+        self.assertEqual(self.run_reader("list", own_path, "--password-file", write(b"\xef\xbb\xbf" + nfc.encode() + b"\r\n", ".txt"))[:2], (0, small_out))
+        self.assertEqual(self.run_reader("list", own_path, "--password-file", write(nfc.encode("cp1252"), ".txt"))[0], 2)
+        code, out, _ = self.run_reader("slots", own_path, "--password", nfc)
+        self.assertEqual((code, out), (0, "0\tpassword\tArgon2id, 256 KiB, 2 passes, 4 lanes\ta\\nb\\tc\\x1b[31m\n"))
         if os.name != "nt":  # the archive's link needs a privilege on Windows
             dest = os.path.join(TMP, "out")
             self.assertEqual(self.run_reader("extract", sealed_path, dest, "--password", "honey")[0], 0)
-            self.assertEqual(open(os.path.join(dest, "docs", "b.txt"), "rb").read(), b"honeycomb\n")
+            self.assertEqual(whole(os.path.join(dest, "docs", "b.txt")), b"honeycomb\n")
 
     def test_verify(self):
         code, out, _ = self.run_reader("verify", write(SIGNED))
@@ -739,6 +836,31 @@ class CommandLine(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertIn("CN=BeeZip test rsa", out)
         self.assertIn("its chain isn't checked", out)
+        # A name in the certificate can't make a line of its own.
+        forged = h(cert["certificate"]).replace(b"BeeZip test rsa", b"x\nchecked\tRSA\t-")
+        code, out, err = self.run_reader("test", write(plain(DIGESTS + signatures(record(2, uv(1) + lv(forged), h(cert["signature"]))))))
+        self.assertEqual(code, 1)
+        self.assertEqual([ln for ln in err.splitlines() if "signature" in ln and "x\\nchecked\\tRSA\\t-" in ln and ": failed" in ln], err.splitlines())
+
+    def test_a_changed_cell_under_a_signature(self):
+        # The index and its signature as they were signed, and a byte of the cell changed.
+        path = write(changed_cell(SIGNED))
+        code, out, _ = self.run_reader("verify", path)
+        self.assertEqual(code, 1)
+        self.assertEqual(out, "failed\tML-DSA-65 and Ed25519\tVCPC-QSVP-2XKC-VCIZ\t1767225600\ta BeeZip signing key\tthe archive changed after it was signed: cell 0 doesn't match its digest (§13.2)\n")
+        code, _, err = self.run_reader("test", path)
+        self.assertEqual(code, 1)
+        self.assertIn("bhive_reader: cell 0 doesn't match its digest", err)
+        self.assertIn("signature 1: failed", err)
+        self.assertIn("changed after it was signed", err)
+        code, _, err = self.run_reader("list", path)
+        self.assertEqual(code, 0)
+        self.assertIn("signature 1: checked", err)
+        self.assertIn("the cells aren't read", err)
+        if os.name != "nt":  # the archive's link needs a privilege on Windows
+            code, _, err = self.run_reader("extract", path, os.path.join(TMP, "changed"))
+            self.assertEqual(code, 1)
+            self.assertIn("signature 1: failed", err)
 
 
 if __name__ == "__main__":
