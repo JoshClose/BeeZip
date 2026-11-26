@@ -353,7 +353,7 @@ impl<'a> Bytes<'a> {
     }
 
     /// A `uvarint` length and that many bytes.
-    fn bytes(&mut self) -> Result<&'a [u8]> {
+    pub fn bytes(&mut self) -> Result<&'a [u8]> {
         let n = self.uvarint()?;
         let n = usize::try_from(n).map_err(|_| bad("a length too large"))?;
         self.take(n)
