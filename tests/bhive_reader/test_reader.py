@@ -4,6 +4,7 @@
 
 What it checks: every vector of tests/fixtures/bhive-m14 (vectors.json, ed25519-edges.json) and
 a few published ones; every .bhive under tests/fixtures (the M13 fixtures as their manifest says,
+BeeZip's encrypted fixtures as sealed.json says, cut and changed as BeeZip's tests change them,
 the M14 examples, the malicious files); encrypted archives with every kind of slot, written with
 make-vectors.py's writer and opened with every key file a slot can be opened with; signatures
 that OpenSSL made with certificates (openssl.json, from make-openssl.py); and malformed archives,
@@ -99,6 +100,8 @@ def read(data, k=None, recover=False):
     return a
 
 
+LEVELS = ["none", "fast", "balanced", "high", "max"]
+SEALED_FIXTURES = load(os.path.join(FIXTURES, "bhive", "sealed.json"))["fixtures"]
 SMALL = whole(os.path.join(FIXTURES, "bhive", "spec-small.bhive"))
 SEALED = whole(os.path.join(M14, "spec-sealed.bhive"))
 SIGNED = whole(os.path.join(M14, "spec-signed.bhive"))
@@ -405,22 +408,49 @@ class Vectors(unittest.TestCase):
 class Fixtures(unittest.TestCase):
     """Every .bhive under tests/fixtures."""
 
+    def as_recorded(self, a, fx):
+        """The archive holds what its record in manifest.json or sealed.json says."""
+        self.assertEqual(a.signatures(), [])
+        want = [(e["kind"], e["path"], e.get("size", 0)) for e in fx["entries"]]
+        self.assertEqual([(e.kind, e.path, e.size) for e in a.entries], want)
+        for e, w in zip(a.entries, fx["entries"]):
+            self.assertEqual(e.modified, tuple(w["modified"]) if w.get("modified") else None, e.path)
+            self.assertEqual(e.created, tuple(w["created"]) if w.get("created") else None, e.path)
+            self.assertEqual((e.mode, e.attributes, e.target), (w.get("mode"), w.get("attributes"), w.get("target")))
+            if "sha256" in w:
+                self.assertEqual(hashlib.sha256(b"".join(a.read(e))).hexdigest(), w["sha256"], e.path)
+        if "level" in fx and not a.incomplete:
+            self.assertEqual(a.level, LEVELS.index(fx["level"]))
+
     def test_m13_fixtures_as_their_manifest_says(self):
         for fx in load(os.path.join(FIXTURES, "bhive", "manifest.json"))["fixtures"]:
             with self.subTest(fx["file"]):
                 a = read(whole(os.path.join(FIXTURES, "bhive", fx["file"])), recover=fx.get("recover", False))
                 self.assertEqual(bool(a.incomplete), fx.get("recover", False))
-                self.assertEqual(a.signatures(), [])
-                want = [(e["kind"], e["path"], e.get("size", 0)) for e in fx["entries"]]
-                self.assertEqual([(e.kind, e.path, e.size) for e in a.entries], want)
-                for e, w in zip(a.entries, fx["entries"]):
-                    self.assertEqual(e.modified, tuple(w["modified"]) if w.get("modified") else None, e.path)
-                    self.assertEqual(e.created, tuple(w["created"]) if w.get("created") else None, e.path)
-                    self.assertEqual((e.mode, e.attributes, e.target), (w.get("mode"), w.get("attributes"), w.get("target")))
-                    if "sha256" in w:
-                        self.assertEqual(hashlib.sha256(b"".join(a.read(e))).hexdigest(), w["sha256"], e.path)
-                if "level" in fx and not a.incomplete:
-                    self.assertEqual(a.level, ["none", "fast", "balanced", "high", "max"].index(fx["level"]))
+                self.assertIsNone(a.keyblock)
+                self.as_recorded(a, fx)
+
+    def test_sealed_fixtures_as_their_record_says(self):
+        """BeeZip's encrypted fixtures (sealed.json): each opens with every password and the
+        recovery key its record lists, holds what it says, and opens with nothing else."""
+        self.assertEqual(len(SEALED_FIXTURES), 7)
+        for fx in SEALED_FIXTURES:
+            data = whole(os.path.join(FIXTURES, "bhive", fx["file"]))
+            ways = [keys([p]) for p in fx["passwords"]]
+            labels = [b"Password"] * len(ways)
+            if "recovery_key" in fx:
+                ways.append(keys(recovery=[fx["recovery_key"]]))
+                labels.append(b"Recovery key")
+            self.assertTrue(ways, fx["file"])
+            for i, k in enumerate(ways):
+                with self.subTest(fx["file"], way=i):
+                    a = read(data, k)
+                    self.assertIsNotNone(a.keyblock)
+                    self.assertEqual([d[1] for d in a.descriptions], labels)
+                    self.as_recorded(a, fx)
+            for k in (None, keys(["Honey"]), keys(recovery=["000000-" * 7 + "000000"])):
+                with self.subTest(fx["file"], way="a wrong one"), self.assertRaises(r.Locked):
+                    read(data, k)
 
     def test_m14_examples(self):
         self.assertEqual(listing(read(SEALED, HONEY)), SMALL_LIST)
@@ -535,6 +565,70 @@ class Encrypted(unittest.TestCase):
         self.assertEqual(contents(a), contents(read(SMALL)))
         a = r.Archive(write(SEALED[:0x1DC]), True, HONEY)
         self.assertEqual(a.entries, [])
+
+    def test_a_sealed_fixture_cut_or_changed(self):
+        """BeeZip's sealed-recovery.bhive, cut and changed as BeeZip's own tests change theirs:
+        refused, and what recovery still finds in its record (§12.7, §12.10)."""
+        fx = next(f for f in SEALED_FIXTURES if f["file"] == "sealed-recovery.bhive")
+        data = whole(os.path.join(FIXTURES, "bhive", fx["file"]))
+        k = keys(recovery=[fx["recovery_key"]])
+        good = read(data, k)
+        want, got = listing(good), contents(good)
+        (cell,) = good.cells
+        index_at = struct.unpack_from("<Q", data, len(data) - 16)[0]
+        self.assertEqual(index_at, cell.offset + cell.size())
+
+        def recovered(data):
+            a = r.Archive(write(data), True, k)
+            self.assertTrue(a.incomplete)
+            return listing(a), contents(a)
+
+        # Cut: refused; recovered, the cell once it is whole, and nothing before.
+        for n in [*range(0, len(data), 97), len(data) - 1]:
+            with self.subTest(cut=n):
+                with self.assertRaises((r.Bad, r.Locked)):
+                    read(data[:n], k)
+                if n < good.start:
+                    with self.assertRaises((r.Bad, r.Locked)):
+                        r.Archive(write(data[:n]), True, k)
+                else:
+                    self.assertEqual(recovered(data[:n]), (want, got) if n >= index_at else ([], []))
+        # The sealed index changed: refused, and recovered from the record.
+        index = bytearray(data)
+        index[index_at + 60] ^= 1
+        with self.assertRaises(r.Bad):
+            read(bytes(index), k)
+        self.assertEqual(recovered(bytes(index)), (want, got))
+        # The sealed index's length anything but its own, up to u64's largest: refused, and the
+        # block is skipped by it when recovering.
+        s = struct.unpack_from("<Q", data, index_at + 8)[0]
+        for wrong in (0, s - 1, s + 1, len(data), len(data) + 1, (1 << 64) - 1):
+            with self.subTest(length=wrong):
+                b = data[: index_at + 8] + struct.pack("<Q", wrong) + data[index_at + 16 :]
+                with self.assertRaises(r.Bad):
+                    read(b, k)
+                self.assertEqual(recovered(b), (want, got))
+        # The record changed: the index doesn't need it; without the index, nothing is found.
+        record = bytearray(data)
+        record[cell.offset - 40] ^= 1
+        a = read(bytes(record), k)
+        self.assertEqual((listing(a), contents(a)), (want, got))
+        record[index_at + 60] ^= 1
+        self.assertEqual(recovered(bytes(record)), ([], []))
+
+    def test_a_cell_from_another_archive_under_the_same_key(self):
+        """Two archives under one file key, each cell with its own id: a cell moved from one into
+        the other, in the same place and of the same length, doesn't open (§12.6)."""
+        pw = keys([V["slots"]["password"]["password_as_typed_nfd"]])
+        slots = [h(V["slots"]["password"]["slot"])]
+        one, two = sealed(slots, label="one"), sealed(slots, label="two")
+        (a,), (b,) = read(one, pw).cells, read(two, pw).cells
+        self.assertEqual((a.offset, a.size()), (b.offset, b.size()))
+        moved = one[: a.offset] + two[b.offset : b.offset + b.size()] + one[a.offset + a.size() :]
+        archive = r.Archive(write(moved), keys=pw)
+        self.assertEqual(listing(archive), SMALL_LIST)
+        with self.assertRaises(r.Bad):
+            archive.cell(0)
 
     def test_key_block_rules(self):
         kb = SEALED[16:0xF0]
