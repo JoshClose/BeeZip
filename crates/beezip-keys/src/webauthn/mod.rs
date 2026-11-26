@@ -557,6 +557,45 @@ pub(crate) mod tests {
         assert_eq!(opened.err().unwrap().kind, ErrorKind::KeyRequired);
     }
 
+    /// Among the machine's other sources, as the commands layer will gather them: the others
+    /// have nothing for a kind-8 slot, and this one answers once the way is chosen.
+    #[test]
+    fn it_answers_among_the_other_sources() {
+        let mut key = MockAuthenticator::new();
+        let recipient = recipient_with(&mut key, false, None).unwrap();
+        let Recipient::Fido2 { secret, .. } = &recipient else {
+            panic!("not a security-key recipient");
+        };
+        let made = slot_for(&recipient);
+        let (key_id, framed) = view_of(&made.public);
+        let view = SlotView {
+            index: 2,
+            kind: SlotKind::Fido2,
+            key_id: &key_id,
+            framed: &framed,
+            public: &framed[4..],
+        };
+        /// A source with keys of other kinds.
+        struct Others;
+        impl KeySource for Others {
+            fn offers(&mut self, _: &SlotView<'_>) -> bool {
+                false
+            }
+            fn secret(&mut self, _: &SlotView<'_>, _: bool) -> Result<Option<SlotSecret>> {
+                Ok(None)
+            }
+        }
+        let mut sources = crate::Sources::default();
+        sources.push(Box::new(Others));
+        sources.push(Box::new(Fido2Source::new(key)));
+        assert!(sources.offers(&view));
+        assert!(sources.secret(&view, false).unwrap().is_none());
+        assert_eq!(
+            shared(sources.secret(&view, true).unwrap()),
+            secret.as_slice()
+        );
+    }
+
     /// Slots made by other programs: the salt as it is or as PRF, with or without user
     /// verification. Each is asked for as the slot says, and gives what the key computes.
     #[test]
