@@ -906,7 +906,8 @@ the file: those signatures are reported as not checked.
   `uvarint` length and its DER, the signer's first and the ones that issued it after. The
   signature is checked with the first one's public key, which must be the algorithm's: RSA for
   2 and 3, with a modulus of 2,048 to 8,192 bits and an odd exponent from 3 to 2^32 − 1; a
-  P-256 key for 4, P-384 for 5. Any other key fails the signature.
+  P-256 key for 4, P-384 for 5 (as an uncompressed point). With any other key, the signature
+  is reported as one that couldn't be checked.
 - **Ed25519** is checked as `ring` 0.17 checks it: without the cofactor, `S` below the group
   order, and the encodings canonical as `ring` requires. A reader built on another library
   must accept and refuse the same signatures; the test vectors include the edge cases.

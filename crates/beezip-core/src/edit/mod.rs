@@ -5,6 +5,7 @@
 //! of an archive; [`convert`] writes its entries to another.
 
 pub mod generic;
+pub mod sign;
 pub mod swap;
 
 use std::{
