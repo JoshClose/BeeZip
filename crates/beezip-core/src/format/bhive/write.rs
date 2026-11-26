@@ -1115,14 +1115,24 @@ impl ArchiveWriter for BhiveWriter {
         let Some(r) = source.as_any_mut().downcast_mut::<BhiveReader>() else {
             return Ok(Copied::nothing(keep));
         };
-        // Sealed cells, and cells that need a digest, are copied by PRs A and H (docs/M14.md
-        // §10); until then their entries are decoded and stored again.
-        if r.unlocked().is_some() || self.finish.envelope.is_some() || self.finish.digests {
+        // Cells that need a digest are copied by PR H (docs/M14.md §10); until then their
+        // entries are decoded and stored again.
+        if self.finish.digests {
             return Ok(Copied::nothing(keep));
         }
         if !empty || r.recovered().is_some() || keep.iter().any(|k| k.id >= r.entries.len()) {
             return Ok(Copied::nothing(keep));
         }
+        // How a copied cell is sealed (docs/bhive.md §12.2): under the same file key it goes as
+        // it is, id and all; otherwise its stored bytes are opened from the old key, if any,
+        // and sealed under a new id with the new one. Protect and New key keep every cell that
+        // is still used, never storing one again, so its stored bytes and their signatures
+        // stand (docs/M14.md §3).
+        let as_is = match (r.unlocked(), &self.finish.envelope) {
+            (None, None) => true,
+            (Some(u), Some(env)) => env.same_key(u),
+            _ => false,
+        };
 
         // What is left of each cell: the bytes the kept entries have, as runs in order.
         let mut live: Vec<Vec<(u32, u32)>> = vec![Vec::new(); r.cells.len()];
@@ -1143,13 +1153,22 @@ impl ArchiveWriter for BhiveWriter {
             *runs = joined;
         }
         // A cell goes as it is, under a new number, while at least half of it is still used.
+        // Sealed under a new key (Protect, New key), every cell still used goes as it is. Taken
+        // out into the clear, only a cell that is all still used does: the rest of a cell may
+        // be files left out or removed before, which were sealed and mustn't come out readable.
+        let sealing = self.finish.envelope.is_some();
+        let whole = |left: u64, raw: u64| match (as_is, sealing) {
+            (true, _) => left * 2 >= raw,
+            (false, true) => true,
+            (false, false) => left >= raw,
+        };
         let mut fates = Vec::with_capacity(r.cells.len());
         let mut copies = 0u32;
         for (cell, runs) in r.cells.iter().zip(&live) {
             let left: u64 = runs.iter().map(|(a, b)| u64::from(b - a)).sum();
             fates.push(if left == 0 {
                 Fate::Gone
-            } else if left * 2 >= u64::from(cell.raw) {
+            } else if whole(left, u64::from(cell.raw)) {
                 copies += 1;
                 Fate::Copy(copies - 1)
             } else {
@@ -1191,7 +1210,15 @@ impl ArchiveWriter for BhiveWriter {
             };
             cx.check()?;
             let cell = r.cells[n];
-            let data = r.stored(n)?;
+            let (data, id) = match &self.finish.envelope {
+                Some(_) if as_is => (r.in_file(n)?, r.cell_ids().get(n).copied()),
+                Some(env) => {
+                    let id = env.new_cell_id()?;
+                    (env.seal_cell(&id, &r.stored(n)?)?, Some(id))
+                }
+                None if as_is => (r.in_file(n)?, None),
+                None => (r.stored(n)?, None),
+            };
             let (journal, journal_items) = std::mem::take(&mut journals[number as usize]);
             let journal_raw = journal.len();
             let (journal, journal_zstd) = pack_small(journal, self.level)?;
@@ -1214,7 +1241,7 @@ impl ArchiveWriter for BhiveWriter {
                 data,
                 cost: 0,
                 digest: None,
-                id: None,
+                id,
             })?;
         }
         self.sealed = copies;

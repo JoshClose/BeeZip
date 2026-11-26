@@ -53,8 +53,10 @@ impl ArchiveFormat for Bhive {
         }
     }
 
-    /// Everything but encryption, which version 1 leaves out (docs/M13.md decision 11). An
-    /// edit copies the cells it keeps as they are.
+    /// Everything but encryption, which the commands don't offer yet: the core reads and
+    /// writes encrypted archives (docs/bhive.md §12), and `encrypt` and `encrypt_headers` turn
+    /// on with the commands that take a `protection` (docs/M14.md §10, PR F). An edit copies the
+    /// cells it keeps as they are.
     fn caps(&self) -> FormatCaps {
         FormatCaps {
             list: true,
