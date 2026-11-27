@@ -148,7 +148,7 @@ checksum = "2af50177e190e07a26ab74f8b1efbfe2ef87da2116221318cb1c2e82baf7de06"
 
 [[package]]
 name = "beezip-core"
-version = "0.8.4"
+version = "0.9.0"
 dependencies = [
  "argon2",
  "backhand",
@@ -221,7 +221,7 @@ dependencies = [
 
 [[package]]
 name = "beezip-menu"
-version = "0.8.4"
+version = "0.9.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -229,7 +229,7 @@ dependencies = [
 
 [[package]]
 name = "beezip-unrar"
-version = "0.8.4"
+version = "0.9.0"
 dependencies = [
  "unrar_sys",
 ]
