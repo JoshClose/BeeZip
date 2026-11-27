@@ -73,7 +73,8 @@ describe("the name encoding (docs/M5.md §8.4)", () => {
     await user.selectOptions(select, "cp932");
     expect(tab().encoding).toBe("cp932");
     rerender(<InfoDialog tab={tab()} onClose={() => {}} />);
-    await waitFor(() => expect(fake.calls).toContainEqual({ name: "archive.info", args: { archive: "C:\\a.zip", name_encoding: "cp932" } }));
+    // The tab's own read: what unlocks it stays unlocked for the tab.
+    await waitFor(() => expect(fake.calls).toContainEqual({ name: "archive.info", args: { archive: "C:\\a.zip", name_encoding: "cp932" }, forTab: true }));
     expect(await screen.findByText("cp932")).toBeInTheDocument();
     expect(screen.getByLabelText("Name encoding")).toHaveValue("cp932");
   });

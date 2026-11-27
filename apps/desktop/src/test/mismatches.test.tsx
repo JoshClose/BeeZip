@@ -115,7 +115,9 @@ describe("the create dialog", () => {
     render(<CreateDialog inputs={[String.raw`C:\work\src`]} onClose={() => {}} />);
     const user = userEvent.setup();
     const level = () => screen.getByLabelText("Level") as HTMLInputElement;
-    // zip's deflate: 9 from the settings, not its own 6.
+    // zip's deflate: 9 from the settings, not its own 6. (New archive starts at .bhive.)
+    await waitFor(() => expect(screen.getByRole("option", { name: "zip" })).toBeInTheDocument());
+    await user.selectOptions(screen.getByLabelText("Format"), "zip");
     expect(await screen.findByText("Default 9, from the settings.")).toBeInTheDocument();
     expect(level().value).toBe("9");
     // A compressed tar takes its codec's.

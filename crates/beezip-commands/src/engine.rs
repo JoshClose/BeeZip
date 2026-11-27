@@ -269,7 +269,7 @@ impl Engine {
     }
 
     /// The encrypted archives kept unlocked for jobs whose policy says so
-    /// ([`Policy::keep_unlocked`]): the desktop forgets one when its tab closes.
+    /// ([`Policy::kept_unlocks`]): the desktop forgets one when its tab closes.
     pub fn unlocks(&self) -> &Unlocks {
         &self.inner.unlocks
     }

@@ -8,7 +8,8 @@ type Handler = (args: unknown, emit: (e: JobEvent) => void) => unknown | Promise
 
 export const fake = {
   handlers: new Map<string, Handler>(),
-  calls: [] as { name: string; args: unknown }[],
+  /** Every job run, with `forTab` when it belongs to a tab (`run`'s 4th argument). */
+  calls: [] as { name: string; args: unknown; forTab?: true }[],
   replies: [] as { job: number; prompt: number; reply: PromptReply }[],
   commands: [] as GuiCommand[],
   /** The archives locked again, in order (`lock`). */
@@ -24,8 +25,8 @@ export const fake = {
   },
 };
 
-export const run = vi.fn(async (name: string, args: unknown, onEvent?: (e: JobEvent) => void) => {
-  fake.calls.push({ name, args });
+export const run = vi.fn(async (name: string, args: unknown, onEvent?: (e: JobEvent) => void, forTab?: boolean) => {
+  fake.calls.push({ name, args, ...(forTab ? { forTab: true as const } : {}) });
   const job = fake.nextJob++;
   const emit = (e: JobEvent) => onEvent?.(e);
   emit({ type: "Started", job });

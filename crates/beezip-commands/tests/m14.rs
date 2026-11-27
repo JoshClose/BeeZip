@@ -12,8 +12,8 @@ use std::{
 
 use beezip_commands::{
     CmdError, Command, Effect, Engine, EngineOptions, ErrorCode, EventSink, Interactor, JobCtx,
-    JobEvent, JobId, KeyStub, LogLevel, NonInteractive, Policy, Prompt, PromptReply, Registry,
-    SystemKeys,
+    JobEvent, JobId, KeptUnlocks, KeyStub, LogLevel, NonInteractive, Policy, Prompt, PromptReply,
+    Registry, SystemKeys,
     crypt::{SlotKindName, UnlockReply},
     registry,
     wire::Secret,
@@ -1583,8 +1583,13 @@ fn a_conversion_that_drops_signatures_says_so_encrypted_or_not() {
 
 /// What the desktop's main window runs its tabs' jobs under: archives kept unlocked.
 fn keeping() -> Policy {
+    kept(KeptUnlocks::Keep)
+}
+
+/// The engine's policy, taking and keeping archives unlocked as `kept_unlocks` says.
+fn kept(kept_unlocks: KeptUnlocks) -> Policy {
     Policy {
-        keep_unlocked: true,
+        kept_unlocks,
         ..Policy::unrestricted()
     }
 }
@@ -1708,7 +1713,7 @@ fn the_cli_and_mcp_keep_nothing_unlocked() {
     let dir = tempfile::tempdir().unwrap();
     let archive = sealed_in(dir.path(), "a.bhive");
     for policy in [Policy::unrestricted(), unattended()] {
-        assert!(!policy.keep_unlocked);
+        assert_eq!(policy.kept_unlocks, KeptUnlocks::Off);
         let (engine, _cfg) = engine_in(registry(), policy.clone(), SystemKeys::Off);
         let (r, _) = run_on(
             &engine,
@@ -1737,6 +1742,105 @@ fn the_cli_and_mcp_keep_nothing_unlocked() {
         );
         assert_eq!(r.unwrap_err().code, ErrorCode::PasswordRequired);
     }
+}
+
+/// A main-window job that belongs to no tab (the palette's form on a file no tab shows) opens
+/// an archive from what a tab kept, and keeps nothing itself: not what it unlocked, nor its own
+/// path for a slot a tab kept. Explorer's job windows neither take nor keep (docs/M14.md §8).
+#[test]
+fn a_job_of_no_tab_takes_what_tabs_kept_and_keeps_nothing() {
+    let dir = tempfile::tempdir().unwrap();
+    let archive = sealed_in(dir.path(), "a.bhive");
+    let (engine, _cfg) = engine_in(registry(), Policy::unrestricted(), SystemKeys::Off);
+    let list = |at: &Path| json!({ "archive": at, "flat": true });
+    let refused = |policy: &Policy, at: &Path| {
+        let (r, _) = run_on(
+            &engine,
+            policy,
+            "archive.list",
+            list(at),
+            Arc::new(NonInteractive),
+        );
+        r.unwrap_err().code
+    };
+    let (using, window) = (kept(KeptUnlocks::Use), kept(KeptUnlocks::Off));
+
+    // Unlocked through the prompt, by no tab: nothing is kept, and the next job asks again.
+    let (r, _) = run_on(
+        &engine,
+        &using,
+        "archive.list",
+        list(&archive),
+        Scripted::new(vec![honey()]),
+    );
+    r.unwrap();
+    assert!(engine.unlocks().is_empty());
+    assert_eq!(refused(&using, &archive), ErrorCode::PasswordRequired);
+
+    // A tab unlocks it: the job of no tab opens it from that, asking nobody, and adds nothing.
+    let (r, _) = run_on(
+        &engine,
+        &keeping(),
+        "archive.list",
+        list(&archive),
+        Scripted::new(vec![honey()]),
+    );
+    r.unwrap();
+    assert_eq!(engine.unlocks().len(), 1);
+    let nobody = Scripted::new(vec![]);
+    for (name, args) in [
+        ("archive.list", list(&archive)),
+        ("archive.test", json!({ "archive": archive })),
+    ] {
+        let (r, events) = run_on(&engine, &using, name, args, nobody.clone());
+        r.unwrap_or_else(|e| panic!("{name}: {e:?}"));
+        assert!(
+            !events.iter().any(|e| matches!(e, JobEvent::Prompt { .. })),
+            "{name} asked"
+        );
+    }
+    assert!(nobody.asked.lock().unwrap().is_empty());
+    assert_eq!(engine.unlocks().len(), 1);
+
+    // A copy elsewhere, opened by no tab with its password, has the same slot: the copy's path
+    // isn't added to it, so the copy stays locked and the tab's closing wipes the slot.
+    let copy = dir.path().join("copy.bhive");
+    std::fs::copy(&archive, &copy).unwrap();
+    let (r, _) = run_on(
+        &engine,
+        &using,
+        "archive.list",
+        json!({ "archive": copy, "password": "honey" }),
+        Arc::new(NonInteractive),
+    );
+    r.unwrap();
+    assert_eq!(engine.unlocks().len(), 1);
+    assert_eq!(refused(&using, &copy), ErrorCode::PasswordRequired);
+
+    // A job window takes nothing a tab kept.
+    assert_eq!(refused(&window, &archive), ErrorCode::PasswordRequired);
+
+    // Opened the same way by a tab, the copy's path is kept too.
+    let (r, _) = run_on(
+        &engine,
+        &keeping(),
+        "archive.list",
+        json!({ "archive": copy, "password": "honey" }),
+        Arc::new(NonInteractive),
+    );
+    r.unwrap();
+    assert_eq!(engine.unlocks().len(), 1);
+    let (r, _) = run_on(
+        &engine,
+        &using,
+        "archive.list",
+        list(&copy),
+        Arc::new(NonInteractive),
+    );
+    r.unwrap();
+    assert_eq!(engine.unlocks().forget(&archive), 0);
+    assert_eq!(engine.unlocks().forget(&copy), 1);
+    assert!(engine.unlocks().is_empty());
 }
 
 /// An interactor that refuses every prompt at once (a drag-out's): no `Prompt` event goes out,

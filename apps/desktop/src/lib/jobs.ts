@@ -46,6 +46,9 @@ export type JobRecord = {
 export type JobMeta = {
   title: string;
   quiet?: boolean;
+  /** The tab whose archive the job acts on: a password typed for it is kept on the tab, and an
+   * encrypted archive it unlocks stays unlocked until the tab closes (`run`'s `forTab`). Every
+   * job on a tab's archive passes it; without it, the job only opens from what tabs kept. */
   tab?: string;
   /** Sees every event of the job as it comes, the `Partial` pieces of its output included. */
   onEvent?: (event: JobEvent) => void;
@@ -170,7 +173,7 @@ export const useJobs = create<JobsState>((set, get) => ({
   order: [],
 
   track(name, args, meta) {
-    return run(name, args, follow(name, args, meta));
+    return run(name, args, follow(name, args, meta), forTab(meta.tab));
   },
 
   async answer(job, prompt, reply) {
@@ -217,6 +220,13 @@ export function stepTab(step: number): string {
 /** Whether a job's `tab` is a job window's step, which keeps what's typed only for that step. */
 export function forOneStep(tab: string | undefined): boolean {
   return tab?.startsWith("step:") ?? false;
+}
+
+/** Whether a job with this `tab` belongs to a tab, and keeps what unlocks its archive until the
+ * tab closes (`run`'s `forTab`, docs/M14.md §8). A job window's step isn't one: its window
+ * keeps nothing. */
+export function forTab(tab: string | undefined): boolean {
+  return tab !== undefined && !forOneStep(tab);
 }
 
 /** What a tab's prompts say of the way in given: the archive stays unlocked for the tab,

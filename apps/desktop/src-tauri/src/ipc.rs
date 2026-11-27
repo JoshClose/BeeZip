@@ -7,7 +7,8 @@
 use std::{path::PathBuf, sync::Arc};
 
 use beezip_commands::{
-    CmdError, CommandInfo, Engine, EventSink, JobEvent, JobId, JsonObject, Policy, PromptReply,
+    CmdError, CommandInfo, Engine, EventSink, JobEvent, JobId, JsonObject, KeptUnlocks, Policy,
+    PromptReply,
 };
 use serde::Serialize;
 use serde_json::Value;
@@ -33,23 +34,41 @@ pub fn hwnd(window: &Window) -> Option<isize> {
 }
 
 /// What a job started from `window` runs under: the engine's policy, with Windows' PIN and
-/// security-key dialogs belonging to that window (docs/M14.md §6), not to whatever is in front.
-/// With `keep_unlocked` (the main window's tabs and their drags), an encrypted archive the job
-/// opens stays unlocked for the next job on it until its tab closes ([`cmd_lock`]); a job
-/// window's (Explorer's menu) keeps nothing.
-pub fn policy_for(engine: &Engine, window: Option<isize>, keep_unlocked: bool) -> Arc<Policy> {
+/// security-key dialogs belonging to that window (docs/M14.md §6), not to whatever is in front,
+/// and the archives kept unlocked as `kept_unlocks` says ([`kept_unlocks`]). At
+/// [`KeptUnlocks::Keep`] (a tab's jobs and its drags), an encrypted archive the job opens stays
+/// unlocked for the next job on it until its tab closes ([`cmd_lock`]).
+pub fn policy_for(
+    engine: &Engine,
+    window: Option<isize>,
+    kept_unlocks: KeptUnlocks,
+) -> Arc<Policy> {
     Arc::new(Policy {
         window,
-        keep_unlocked,
+        kept_unlocks,
         ..Policy::clone(&engine.policy())
     })
 }
 
+/// What a job started from the window labelled `label` does with the archives kept unlocked
+/// (docs/M14.md §8). The main window's jobs open from them; those that belong to a tab
+/// (`for_tab`) keep what they open too, since the tab's closing forgets it. Another's (a job
+/// window, from Explorer's menu) neither take nor keep.
+pub fn kept_unlocks(label: &str, for_tab: bool) -> KeptUnlocks {
+    match (label == MAIN, for_tab) {
+        (true, true) => KeptUnlocks::Keep,
+        (true, false) => KeptUnlocks::Use,
+        (false, _) => KeptUnlocks::Off,
+    }
+}
+
 /// Starts command `name` and streams its events to `on_event`. Returns the job id at once. The
 /// job's devices show their dialogs over the window that started it: the main window, or the
-/// job window of a request from Explorer. The main window's jobs keep the encrypted archives
-/// they open unlocked for its tabs.
+/// job window of a request from Explorer. The main window's jobs open encrypted archives from
+/// what its tabs kept unlocked, and those of a tab (`for_tab`, the page's `forTab`) keep what
+/// they open for it ([`kept_unlocks`]).
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub fn cmd_run(
     window: Window,
     engine: State<'_, Engine>,
@@ -58,6 +77,7 @@ pub fn cmd_run(
     name: String,
     args: Value,
     on_event: Channel<JobEvent>,
+    for_tab: Option<bool>,
 ) -> Result<JobId, CmdError> {
     // A send fails only if the webview has gone away, and then nobody is listening.
     let mut sink: EventSink = Arc::new(move |event| {
@@ -68,7 +88,8 @@ pub fn cmd_run(
         sink = opened.watch(&args, sink);
     }
     let interactor: Arc<GuiInteractor> = Arc::clone(&gui);
-    let policy = policy_for(&engine, hwnd(&window), window.label() == MAIN);
+    let kept = kept_unlocks(window.label(), for_tab.unwrap_or(false));
+    let policy = policy_for(&engine, hwnd(&window), kept);
     let job = engine.invoke_with_policy(&name, args, interactor, sink, policy)?;
     Ok(job.id())
 }
@@ -180,23 +201,36 @@ mod tests {
     }
 
     /// A job the page starts runs under the engine's policy, with its window's handle for
-    /// Windows' dialogs, keeping archives unlocked when it says.
+    /// Windows' dialogs, taking and keeping archives unlocked as it says.
     #[test]
     fn a_job_gets_the_engines_policy_and_its_window() {
         let engine = Engine::new(registry());
-        let policy = policy_for(&engine, Some(0x5e1f), true);
+        let policy = policy_for(&engine, Some(0x5e1f), KeptUnlocks::Keep);
         assert_eq!(policy.window, Some(0x5e1f));
         assert_eq!(policy.limits, engine.policy().limits);
         assert!(!policy.unattended);
-        assert!(policy.keep_unlocked);
+        assert_eq!(policy.kept_unlocks, KeptUnlocks::Keep);
         assert_eq!(
             engine.policy().window,
             None,
             "the engine's own is left alone"
         );
-        assert!(!engine.policy().keep_unlocked);
-        let job_window = policy_for(&engine, None, false);
+        assert_eq!(engine.policy().kept_unlocks, KeptUnlocks::Off);
+        let job_window = policy_for(&engine, None, KeptUnlocks::Off);
         assert_eq!(job_window.window, None);
-        assert!(!job_window.keep_unlocked);
+        assert_eq!(job_window.kept_unlocks, KeptUnlocks::Off);
+    }
+
+    /// Only a tab's jobs keep what unlocks an archive: the main window's other jobs only take
+    /// what tabs kept, and a job window's do neither, whatever its page says.
+    #[test]
+    fn only_a_tabs_jobs_keep_archives_unlocked() {
+        assert_eq!(kept_unlocks(MAIN, true), KeptUnlocks::Keep);
+        assert_eq!(kept_unlocks(MAIN, false), KeptUnlocks::Use);
+        assert_eq!(kept_unlocks("job-1", true), KeptUnlocks::Off);
+        assert_eq!(kept_unlocks("job-1", false), KeptUnlocks::Off);
+        assert!(KeptUnlocks::Use.uses() && !KeptUnlocks::Use.keeps());
+        assert!(KeptUnlocks::Keep.uses() && KeptUnlocks::Keep.keeps());
+        assert!(!KeptUnlocks::Off.uses() && !KeptUnlocks::Off.keeps());
     }
 }

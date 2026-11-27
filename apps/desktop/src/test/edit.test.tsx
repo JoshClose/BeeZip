@@ -319,6 +319,20 @@ describe("the browser", () => {
     unsub();
   });
 
+  it("lists, reads and edits for its tab, which keeps what unlocks the archive (docs/M14.md §8)", async () => {
+    fake.handlers.set("archive.remove", () => edited({ removed: 1 }));
+    const { unsub } = showBrowser({ info: undefined });
+    const name = await screen.findByText("b.txt");
+    // The first listing is the one an encrypted archive's Unlock prompt comes from.
+    const first = fake.calls.find((c) => c.name === "archive.list");
+    expect(first).toMatchObject({ args: { archive: ZIP, offset: 0 }, forTab: true });
+    await waitFor(() => expect(fake.calls.find((c) => c.name === "archive.info")?.forTab).toBe(true));
+    fireEvent.mouseDown(name.closest("[role=row]")!, { button: 0 });
+    fireEvent.keyDown(screen.getByTestId("entry-scroller"), { key: "Delete" });
+    await waitFor(() => expect(fake.calls.find((c) => c.name === "archive.remove")?.forTab).toBe(true));
+    unsub();
+  });
+
   it("disables the edit commands of an archive that can't be edited, saying why", async () => {
     const why = "a.rar is a RAR archive, which BeeZip reads but never writes";
     const { unsub } = showBrowser({ info: info({ format: "rar", not_editable: why }) });
