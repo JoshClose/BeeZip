@@ -33,6 +33,8 @@ struct Credential {
     with_uv: Zeroizing<[u8; 32]>,
     without_uv: Zeroizing<[u8; 32]>,
     platform: bool,
+    /// It answers hmac-secret at all.
+    hmac: bool,
 }
 
 /// One security key and one Windows Hello, in memory.
@@ -42,6 +44,11 @@ pub struct MockAuthenticator {
     pub support: Support,
     /// New credentials get hmac-secret.
     pub hmac_secret: bool,
+    /// Registration says so when they do. Windows Hello may say no and still answer.
+    pub reports_hmac_secret: bool,
+    /// A Windows Hello registration given a salt returns PRF's output for it, as Windows 11
+    /// does from make-credential options version 8.
+    pub prf_at_create: bool,
     /// Every hmac-secret request fails as a closed dialog.
     pub cancel_secrets: bool,
     /// What was asked.
@@ -64,6 +71,8 @@ impl MockAuthenticator {
                 api_version: 9,
             },
             hmac_secret: true,
+            reports_hmac_secret: true,
+            prf_at_create: true,
             cancel_secrets: false,
             calls: Vec::new(),
             credentials: Vec::new(),
@@ -96,6 +105,7 @@ impl Authenticator for MockAuthenticator {
         rp_id: &str,
         user_id: &[u8],
         attachment: Attachment,
+        eval: Option<&[u8; 32]>,
     ) -> Result<NewCredential> {
         self.calls.push(Call::Make { attachment });
         if user_id.is_empty() || user_id.len() > 64 {
@@ -106,16 +116,25 @@ impl Authenticator for MockAuthenticator {
         if attachment != Attachment::Platform {
             id.extend_from_slice(&fido2::new_salt()?[..16]);
         }
-        self.credentials.push(Credential {
+        let credential = Credential {
             id: id.clone(),
             rp_id: rp_id.to_string(),
             with_uv: Zeroizing::new(fido2::new_salt()?),
             without_uv: Zeroizing::new(fido2::new_salt()?),
             platform: attachment == Attachment::Platform,
-        });
+            hmac: self.hmac_secret,
+        };
+        let prf_output = match eval {
+            Some(salt) if credential.platform && credential.hmac && self.prf_at_create => {
+                Some(hmac_secret(&credential.with_uv, &prf_salt(salt)))
+            }
+            _ => None,
+        };
+        self.credentials.push(credential);
         Ok(NewCredential {
             id,
-            hmac_secret: self.hmac_secret,
+            hmac_secret: self.hmac_secret && self.reports_hmac_secret,
+            prf_output,
         })
     }
 
@@ -138,6 +157,12 @@ impl Authenticator for MockAuthenticator {
                 "no security key or Windows Hello here has this credential",
             ));
         };
+        if !c.hmac {
+            return Err(Error::unsupported(
+                "asking the security key: no hmac-secret came back; the authenticator may not \
+                 support it",
+            ));
+        }
         let salt = if request.prf {
             prf_salt(request.salt)
         } else {

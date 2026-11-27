@@ -11,8 +11,11 @@
 //! - **User verification is always required** for the slots BeeZip makes, so a stolen key
 //!   without its PIN opens nothing.
 //! - **Windows Hello** is the platform authenticator behind the same calls. Whether it can do
-//!   hmac-secret depends on the Windows build, so BeeZip tries: a registration that comes back
-//!   without it is deleted and refused, and BeeZip offers "This PC" instead (docs/M14.md §4).
+//!   hmac-secret (as PRF) depends on the Windows build, so BeeZip tries: the registration hands
+//!   Hello the slot's salt, and where Windows gives the PRF output with the credential, that is
+//!   the secret and one dialog does. Otherwise Hello is asked once more, since Windows may say
+//!   a credential has no PRF and still answer; a credential that gives nothing is deleted and
+//!   refused, and BeeZip offers "This PC" instead (docs/M14.md §4).
 //! - **The authenticator is a trait** ([`Authenticator`]), so the slot logic is tested with
 //!   [`mock::MockAuthenticator`] and no device; tests of the real one need a person and are
 //!   ignored.
@@ -28,7 +31,7 @@ pub(crate) mod ffi;
 mod win;
 
 use beezip_core::{
-    Error, Result,
+    Error, ErrorKind, Result,
     format::bhive::crypt::{KeySource, Recipient, SlotKind, SlotSecret, SlotView, fido2},
 };
 use zeroize::Zeroizing;
@@ -76,7 +79,8 @@ pub fn support() -> Support {
 
 /// Registers a credential (or uses `credential`), asks it for the hmac-secret of a fresh
 /// salt, and returns the recipient core makes the slot from. Shows Windows' dialog, parented to
-/// `window` when there is one: twice for a new credential, once for one given.
+/// `window` when there is one: once for one given, or for a new Windows Hello credential whose
+/// registration gives the output; twice for a new security key's.
 pub fn recipient(
     hello: bool,
     credential: Option<&[u8]>,
@@ -119,11 +123,25 @@ pub enum Attachment {
 }
 
 /// A credential just registered.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct NewCredential {
     pub id: Vec<u8>,
-    /// It was made with hmac-secret (or PRF), which BeeZip needs.
+    /// Registration said it was made with hmac-secret (or PRF), which BeeZip needs. Windows
+    /// Hello may say no and still answer (see [`recipient_with`]).
     pub hmac_secret: bool,
+    /// The PRF output for the salt given at registration, when the authenticator returned it
+    /// with the credential (Windows Hello, make-credential options version 8 or later).
+    pub prf_output: Option<Zeroizing<[u8; 32]>>,
+}
+
+impl std::fmt::Debug for NewCredential {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("NewCredential")
+            .field("id", &self.id)
+            .field("hmac_secret", &self.hmac_secret)
+            .field("prf_output", &self.prf_output.as_ref().map(|_| "(hidden)"))
+            .finish()
+    }
 }
 
 /// An hmac-secret to ask a credential for.
@@ -145,12 +163,15 @@ pub trait Authenticator {
     /// What it can do. Shows nothing.
     fn support(&self) -> Support;
 
-    /// Registers a credential for `rp_id`, with user verification. Shows a dialog.
+    /// Registers a credential for `rp_id`, with user verification. Shows a dialog. With
+    /// `prf_salt` (Windows Hello), PRF is asked for, and its output for that salt, which comes
+    /// back with the credential where Windows can give it.
     fn make_credential(
         &mut self,
         rp_id: &str,
         user_id: &[u8],
         attachment: Attachment,
+        prf_salt: Option<&[u8; 32]>,
     ) -> Result<NewCredential>;
 
     /// The credential's hmac-secret output for a salt. Shows a dialog.
@@ -173,8 +194,9 @@ impl<A: Authenticator + ?Sized> Authenticator for &mut A {
         rp_id: &str,
         user_id: &[u8],
         attachment: Attachment,
+        prf_salt: Option<&[u8; 32]>,
     ) -> Result<NewCredential> {
-        (**self).make_credential(rp_id, user_id, attachment)
+        (**self).make_credential(rp_id, user_id, attachment, prf_salt)
     }
 
     fn hmac_secret(&mut self, request: &SecretRequest<'_>) -> Result<Zeroizing<[u8; 32]>> {
@@ -214,14 +236,17 @@ pub fn recipient_with<A: Authenticator + ?Sized>(
         Attachment::CrossPlatform
     };
     let rp_id = fido2::RP_ID;
-    let (id, registered) = match credential {
-        Some(id) => (id.to_vec(), None),
+    let salt = fido2::new_salt()?;
+    let prf = hello;
+    let (id, registered, created) = match credential {
+        Some(id) => (id.to_vec(), None, None),
         None => {
             // A random user id: one shared by two credentials would make a device keep only
             // the newer one, and the older archive would no longer open.
             let user_id = fido2::new_salt()?;
-            let c = auth.make_credential(rp_id, &user_id[..16], attachment)?;
-            (c.id, Some(c.hmac_secret))
+            let c =
+                auth.make_credential(rp_id, &user_id[..16], attachment, prf.then_some(&salt))?;
+            (c.id, Some(c.hmac_secret), c.prf_output)
         }
     };
     let undo = |auth: &mut A, e: Error| -> Error {
@@ -230,16 +255,19 @@ pub fn recipient_with<A: Authenticator + ?Sized>(
         }
         e
     };
-    if registered == Some(false) {
-        return Err(undo(
-            auth,
-            Error::unsupported(if hello {
-                "Windows Hello on this PC can't give the hmac-secret BeeZip opens archives \
-                 with; \"This PC\" works instead"
-            } else {
-                "this security key can't give the hmac-secret BeeZip opens archives with"
-            }),
-        ));
+    let no_hmac_secret = || {
+        Error::unsupported(if hello {
+            "Windows Hello on this PC can't give the hmac-secret BeeZip opens archives with; \
+             \"This PC\" works instead"
+        } else {
+            "this security key can't give the hmac-secret BeeZip opens archives with"
+        })
+    };
+    // A security key that says it has no hmac-secret has none. Windows Hello may say so and
+    // still answer (Windows 11 sets "PRF enabled" only when PRF is evaluated at registration,
+    // and not on every build), so for Hello its answer decides.
+    if registered == Some(false) && !hello {
+        return Err(undo(auth, no_hmac_secret()));
     }
     if id.is_empty() || id.len() > fido2::MAX_CREDENTIAL_ID {
         return Err(undo(
@@ -251,21 +279,24 @@ pub fn recipient_with<A: Authenticator + ?Sized>(
             )),
         ));
     }
-    let salt = match fido2::new_salt() {
-        Ok(s) => s,
-        Err(e) => return Err(undo(auth, e)),
-    };
-    let prf = hello;
-    let secret = match auth.hmac_secret(&SecretRequest {
-        rp_id,
-        credential_id: &id,
-        salt: &salt,
-        prf,
-        uv: true,
-        attachment,
-    }) {
-        Ok(s) => s,
-        Err(e) => return Err(undo(auth, e)),
+    // The output Windows Hello gave with the credential is the one a later unlock gets (the
+    // same salt, as PRF, with user verification), so it needs no second dialog.
+    let secret = match created {
+        Some(secret) => secret,
+        None => match auth.hmac_secret(&SecretRequest {
+            rp_id,
+            credential_id: &id,
+            salt: &salt,
+            prf,
+            uv: true,
+            attachment,
+        }) {
+            Ok(s) => s,
+            Err(e) if registered == Some(false) && e.kind == ErrorKind::UnsupportedOperation => {
+                return Err(undo(auth, no_hmac_secret()));
+            }
+            Err(e) => return Err(undo(auth, e)),
+        },
     };
     Ok(Recipient::Fido2 {
         credential_id: id,
@@ -520,6 +551,55 @@ pub(crate) mod tests {
         );
     }
 
+    /// Windows Hello gives PRF's output for the slot's salt with the credential: one dialog
+    /// makes the slot, and unlocking gets the same secret.
+    #[test]
+    fn windows_hello_gives_the_secret_with_the_credential() {
+        let mut hello = MockAuthenticator::new();
+        let recipient = recipient_with(&mut hello, true, None).unwrap();
+        assert_eq!(
+            hello.calls,
+            [Call::Make {
+                attachment: Attachment::Platform
+            }]
+        );
+        let Recipient::Fido2 { secret, .. } = &recipient else {
+            panic!("not a security-key recipient");
+        };
+        let (opened, _) = open(hello, &slot_for(&recipient).public);
+        assert_eq!(shared(opened.unwrap()), secret.as_slice());
+    }
+
+    /// A Windows that says Hello's credential has no PRF and gives no output with it, but
+    /// answers when asked (as Windows 11 says without PRF evaluated at registration): asked once
+    /// more, it works.
+    #[test]
+    fn windows_hello_that_says_no_prf_is_asked_anyway() {
+        let mut hello = MockAuthenticator::new();
+        hello.reports_hmac_secret = false;
+        hello.prf_at_create = false;
+        let recipient = recipient_with(&mut hello, true, None).unwrap();
+        assert_eq!(
+            hello.calls,
+            [
+                Call::Make {
+                    attachment: Attachment::Platform
+                },
+                Call::Secret {
+                    attachment: Attachment::Platform,
+                    prf: true,
+                    uv: true
+                },
+            ]
+        );
+        assert_eq!(hello.credentials(), 1);
+        let Recipient::Fido2 { secret, .. } = &recipient else {
+            panic!("not a security-key recipient");
+        };
+        let (opened, _) = open(hello, &slot_for(&recipient).public);
+        assert_eq!(shared(opened.unwrap()), secret.as_slice());
+    }
+
     /// A credential given (for "New key", docs/M14.md §3): one dialog, a new salt, a new secret.
     #[test]
     fn a_known_credential_needs_no_registration() {
@@ -611,7 +691,7 @@ pub(crate) mod tests {
     fn slots_are_asked_for_as_their_flags_say() {
         let mut key = MockAuthenticator::new();
         let c = key
-            .make_credential(fido2::RP_ID, &[1; 16], Attachment::CrossPlatform)
+            .make_credential(fido2::RP_ID, &[1; 16], Attachment::CrossPlatform, None)
             .unwrap();
         let salt = [0x33; 32];
         let mut answers = Vec::new();
@@ -759,6 +839,7 @@ pub(crate) mod tests {
         assert_eq!(hello.calls.last(), Some(&Call::Delete));
 
         let mut hello = MockAuthenticator::new();
+        hello.prf_at_create = false;
         hello.cancel_secrets = true;
         let e = recipient_with(&mut hello, true, None).err().unwrap();
         assert_eq!(e.kind, ErrorKind::Cancelled);

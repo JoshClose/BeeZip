@@ -220,6 +220,12 @@ impl Provider {
 
     /// Opens the persisted key `name`, silently.
     pub fn open_key(self: &Arc<Self>, name: &str) -> WinResult<Key> {
+        self.open_key_with(name, true)
+    }
+
+    /// Opens the persisted key `name`. A key opened silently stays silent: the TPM's provider
+    /// then refuses what needs its PIN rather than asking for it (wave 2).
+    pub fn open_key_with(self: &Arc<Self>, name: &str, silent: bool) -> WinResult<Key> {
         let w = wz(name);
         let mut h = NCRYPT_KEY_HANDLE::default();
         // SAFETY: `h` receives a handle the returned key owns.
@@ -230,7 +236,7 @@ impl Provider {
                     &mut h,
                     PCWSTR(w.as_ptr()),
                     CERT_KEY_SPEC(0),
-                    NCRYPT_SILENT_FLAG,
+                    flags(silent),
                 )
             },
             "NCryptOpenKey",

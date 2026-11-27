@@ -297,8 +297,11 @@ impl KeySource for CngSource {
         }
         for k in self.this_pc.iter().filter(|k| Self::this_pc_fits(k, slot)) {
             let key = || {
+                // Opened silently only when nobody chose it: a key opened silently stays
+                // silent, and the TPM's provider then refuses what needs its PIN
+                // (NTE_SILENT_CONTEXT) instead of asking for it.
                 let key = Provider::open(MS_PLATFORM_CRYPTO_PROVIDER)
-                    .and_then(|p| p.open_key(&k.name))?;
+                    .and_then(|p| p.open_key_with(&k.name, !device))?;
                 if device {
                     // Best effort: the TPM's PIN dialog over the window in front otherwise.
                     let _ = key.parent(window);

@@ -448,8 +448,10 @@ impl super::Authenticator for ClosedOnce {
         rp_id: &str,
         user_id: &[u8],
         attachment: Attachment,
+        prf_salt: Option<&[u8; 32]>,
     ) -> Result<super::NewCredential> {
-        self.inner.make_credential(rp_id, user_id, attachment)
+        self.inner
+            .make_credential(rp_id, user_id, attachment, prf_salt)
     }
 
     fn hmac_secret(&mut self, request: &super::SecretRequest<'_>) -> Result<Zeroizing<[u8; 32]>> {
