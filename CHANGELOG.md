@@ -30,9 +30,9 @@ using BeeZip will notice. Leave the date out: the Releases page dates each versi
   macOS Keychain or a file. BeeZip says why it can't use one, such as an EC certificate whose key
   can only sign.
 - **This PC** keeps a key in the PC's TPM, behind an optional PIN that BeeZip asks for itself,
-  and **Windows Hello** uses your face, a fingerprint or its PIN. Both open the archive on that PC alone, so BeeZip always
-  asks for another way in beside them. **Security keys** (FIDO2) need a touch. Security keys and
-  smart cards haven't been tried on a physical device yet.
+  and **Windows Hello** uses your face, a fingerprint or its PIN. Both open the archive on that
+  PC alone, so BeeZip always asks for another way in beside them. **Security keys** (FIDO2) need
+  a touch. Security keys and smart cards haven't been tried on a physical device yet.
 - **Safe from quantum computers, or not:** BeeZip says which. Passwords, recovery keys,
   post-quantum keys and security keys are; classic keys, certificates and This PC aren't.
 - **Changing who can open it doesn't recompress it:** add a way in, remove one, or make a new
