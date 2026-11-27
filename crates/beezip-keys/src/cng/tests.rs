@@ -215,6 +215,122 @@ fn a_closed_pin_dialog_is_a_cancel() {
     assert_eq!(Error::from(e).kind, ErrorKind::Io);
 }
 
+/// Windows blocking the TPM and a wrong PIN are said plainly, and an unlock asks again for a
+/// way in (neither is `Corrupt` or `Cancelled`). These codes can't be met here on purpose:
+/// they come from wrong PINs, which count towards the TPM's lockout.
+#[test]
+fn a_blocked_tpm_and_a_wrong_pin_are_said_plainly() {
+    let err = |code: u32| WinError {
+        code,
+        what: format!("NCryptSecretAgreement: Windows' own words (0x{code:08X})"),
+    };
+    // NTE_AUTHENTICATION_IGNORED (what wave 2 met), TPM_E_PCP_AUTHENTICATION_IGNORED,
+    // TPM_E_DEFEND_LOCK_RUNNING, TPM_20_E_LOCKOUT.
+    for code in [0x8009_0031, 0x8029_0409, 0x8028_0803, 0x8028_0921] {
+        let e = opening(err(code));
+        assert_eq!(e.kind, ErrorKind::Io, "{code:08X}");
+        assert_eq!(
+            e.message,
+            format!(
+                "Windows is blocking the TPM after too many wrong PINs; it lifts by itself after \
+                 a few hours. Open the archive another way meanwhile (0x{code:08X})"
+            )
+        );
+        let e = signing(err(code));
+        assert!(
+            e.message.contains("Sign with another key meanwhile"),
+            "{}",
+            e.message
+        );
+        let e = Error::from(err(code));
+        assert!(
+            e.message.starts_with("Windows is blocking the TPM"),
+            "{}",
+            e.message
+        );
+        assert!(!e.message.contains("meanwhile"), "{}", e.message);
+        assert!(!tpm_absent(&err(code)), "{code:08X}");
+    }
+    // NTE_INCORRECT_PASSWORD, TPM_E_PCP_AUTHENTICATION_FAILED, TPM_E_AUTHFAIL; TPM 2.0's
+    // TPM_RC_AUTH_FAIL and TPM_RC_BAD_AUTH as winerror.h has them, for session 1, and for
+    // parameter 1.
+    for code in [
+        0x8009_0033,
+        0x8029_0408,
+        0x8028_0001,
+        0x8028_008E,
+        0x8028_098E,
+        0x8028_01CE,
+        0x8028_00A2,
+        0x8028_09A2,
+    ] {
+        let e = opening(err(code));
+        assert_eq!(e.kind, ErrorKind::WrongPassword, "{code:08X}");
+        assert_eq!(e.message, format!("the PIN is wrong (0x{code:08X})"));
+        assert_eq!(signing(err(code)).kind, ErrorKind::WrongPassword);
+        assert!(!tpm_absent(&err(code)), "{code:08X}");
+    }
+    // Another TPM 2.0 error of the same form (TPM_RC_ASYMMETRIC for session 1), and a TPM
+    // that isn't ready, keep Windows' words.
+    for code in [0x8028_0981, 0x8029_0401] {
+        let e = opening(err(code));
+        assert_eq!(e.kind, ErrorKind::Io, "{code:08X}");
+        assert!(e.message.contains("Windows' own words"), "{}", e.message);
+        assert!(tpm_absent(&err(code)), "{code:08X}");
+    }
+}
+
+/// The PIN BeeZip asks for is set on a This PC key as making the key set it: NUL-terminated
+/// UTF-16LE.
+#[test]
+fn a_pin_is_given_as_the_key_was_made_with_it() {
+    assert_eq!(
+        win::pin_bytes("12ab").as_slice(),
+        [0x31, 0, 0x32, 0, 0x61, 0, 0x62, 0, 0, 0]
+    );
+    for pin in ["", "4821", "Bienenkönigin", "\u{1F41D} honey"] {
+        let bytes = win::pin_bytes(pin);
+        assert_eq!(bytes.as_slice(), win::wz_bytes(pin), "{pin}");
+        // Made at its full size: no copy was left behind unwiped.
+        assert_eq!(bytes.capacity(), 2 * (pin.len() + 1), "{pin}");
+    }
+}
+
+/// A This PC key with a PIN says so before anything touches it, from what was read when the
+/// source was made; one without, and a certificate's key, needs no PIN from BeeZip (a smart
+/// card asks for its own). Nothing here reaches the TPM: the key is one that isn't there.
+#[test]
+fn beezip_asks_for_a_this_pc_keys_pin_and_no_other() {
+    let v = vectors();
+    let key_id: [u8; KEY_ID_LEN] = hex(&v["slots"]["key_id"]).try_into().unwrap();
+    let certificate = cert::parse(&std::fs::read(data("p256.crt")).unwrap()).unwrap();
+    let spki = certificate.spki.clone();
+    let point = ecdh::point_of_spki(Curve::P256, &spki).unwrap();
+    let slot = hex(&v["slots"]["p256"]["slot"]);
+    let view = view(&slot, &key_id);
+    for pin in [true, false] {
+        let key = ThisPc {
+            name: test_name("absent"),
+            spki: spki.clone(),
+            point: point.clone(),
+            pin,
+        };
+        let mut source = CngSource::new(&[], vec![key]);
+        assert!(source.offers(&view));
+        assert_eq!(source.needs_pin(&view), pin);
+        let password = hex(&v["slots"]["password"]["slot"]);
+        assert!(!source.needs_pin(&crate::files::tests::view(&password, &key_id)));
+    }
+    let key = import_ec(&hex(&v["slots"]["p256"]["pkcs8"]), Curve::P256, true);
+    let (store, _cert) = store_with("p256.crt", key);
+    let mut source = CngSource::new(&[&store], Vec::new());
+    assert!(source.offers(&view));
+    assert!(!source.needs_pin(&view));
+    // A PIN given for it anyway is ignored: the certificate's key opens it as it would.
+    let secret = source.secret_with_pin(&view, "4821").unwrap().unwrap();
+    assert_eq!(secret_bytes(secret), hex(&v["slots"]["p256"]["prk"]));
+}
+
 #[test]
 fn certificates_sign_through_cng_and_windows_checks_them() {
     let message = [7; MESSAGE_LEN];
@@ -358,7 +474,7 @@ impl Drop for Doomed {
         let Some(tpm) = tpm() else { return };
         if let Ok(key) = tpm.open_key(&self.name) {
             if let Some(pin) = self.pin {
-                let _ = key.set_prop(NCRYPT_PIN_PROPERTY, &win::wz_bytes(pin));
+                let _ = key.set_prop(NCRYPT_PIN_PROPERTY, &win::pin_bytes(pin));
             }
             if let Err(e) = key.delete() {
                 eprintln!("couldn't delete the test key {}: {}", self.name, e.what);
@@ -464,7 +580,11 @@ fn this_pc_keys_open_their_slots() {
     let want = secret_bytes(ecdh::extract(&view, &made.recipient_key, shared(&made)));
     let mut source = source(None).unwrap();
     assert!(source.offers(&view));
+    assert!(!source.needs_pin(&view));
     let secret = source.secret(&view, false).unwrap().unwrap();
+    assert_eq!(secret_bytes(secret), want);
+    // Chosen, it opens silently too: no PIN, no dialog.
+    let secret = source.secret(&view, true).unwrap().unwrap();
     assert_eq!(secret_bytes(secret), want);
     delete_this_pc(&name).unwrap();
     assert!(!this_pc().iter().any(|(n, _)| *n == name));
@@ -485,20 +605,18 @@ fn a_this_pc_key_with_a_pin_is_never_tried_without_it() {
     let view = view(&slot, &key_id);
     // Known to need its PIN before anything tries it: a TPM counts a failed try towards its
     // lockout, which the user's other TPM uses share.
-    let key = tpm.open_key(&name).unwrap();
-    assert!(key.needs_pin());
+    assert!(tpm.open_key(&name).unwrap().needs_pin());
     let mut source = source(None).unwrap();
     assert!(source.offers(&view));
+    assert!(source.needs_pin(&view));
     assert!(source.secret(&view, false).unwrap().is_none());
-    // With its PIN, as Windows' dialog gives it when the user chooses this way in.
-    key.set_prop(NCRYPT_PIN_PROPERTY, &win::wz_bytes(PIN))
-        .unwrap();
-    let context = view.context(&made.recipient_key);
-    let prk = key
-        .ecdh_prk(ecdh::ephemeral(&view).unwrap(), &context, true)
-        .unwrap();
+    // Chosen without its PIN: refused before the TPM sees anything, and no dialog.
+    let e = source.secret(&view, true).unwrap_err();
+    assert_eq!(e.kind, ErrorKind::PasswordRequired, "{}", e.message);
+    // With the PIN BeeZip asked for, set silently on the key as it was when the key was made.
+    let secret = source.secret_with_pin(&view, PIN).unwrap().unwrap();
     let want = secret_bytes(ecdh::extract(&view, &made.recipient_key, shared(&made)));
-    assert_eq!(prk.to_vec(), want);
+    assert_eq!(secret_bytes(secret), want);
 }
 
 #[test]
@@ -513,7 +631,7 @@ fn tpm_keys_unwrap_and_sign_silently() {
     let made = rsa::make(&cert::rsa_spki(&n, &e).unwrap()).unwrap();
     let slot = slot_bytes(SlotKind::Rsa, &made);
     let key_id = [7; KEY_ID_LEN];
-    let opened = open_with(&key, &[], &view(&slot, &key_id), false)
+    let opened = open_with(&key, &[], &view(&slot, &key_id), Use::Unasked)
         .unwrap()
         .unwrap();
     assert_eq!(secret_bytes(opened), shared(&made));

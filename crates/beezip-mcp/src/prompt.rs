@@ -266,6 +266,7 @@ mod unlock_tests {
             slot,
             kind,
             here: false,
+            needs_pin: false,
         }
     }
 
@@ -284,6 +285,7 @@ mod unlock_tests {
         let unlock = Prompt::Unlock {
             ways: vec![way(0, SlotKindName::Password)],
             attempt: 0,
+            failed: None,
         };
         assert_eq!(unanswerable(&unlock).code, ErrorCode::PasswordRequired);
         assert!(form(&unlock).is_none());

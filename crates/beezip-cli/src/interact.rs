@@ -8,6 +8,7 @@ use std::sync::Arc;
 use beezip_commands::{
     CmdError, ErrorCode, Interactor, JobId, OverwriteChoice, Prompt, PromptReply,
     crypt::{SlotKindName, UnlockReply, UnlockWay},
+    wire::Secret,
 };
 use dialoguer::{Confirm, Password, Select, theme::ColorfulTheme};
 
@@ -65,7 +66,7 @@ impl Interactor for TtyInteractor {
                     Ok(None) | Err(_) => Ok(PromptReply::Cancel),
                 }
             }
-            Prompt::Unlock { ways, attempt } => unlock(&theme, ways, *attempt),
+            Prompt::Unlock { ways, attempt, .. } => unlock(&theme, ways, *attempt),
         })
     }
 
@@ -90,7 +91,13 @@ enum Way {
     Password,
     RecoveryKey,
     Slot(u32),
+    /// A This PC key whose PIN BeeZip asks for, in a hidden prompt of its own.
+    SlotWithPin(u32),
 }
+
+/// What BeeZip says before asking for a This PC key's PIN.
+const PIN_WARNING: &str = "Windows blocks the TPM for a few hours after several wrong PINs. If \
+                           you're not sure, open it another way.";
 
 /// What the Unlock menu offers for `ways`: a password, a recovery key, and each way in a key
 /// or device here fits (docs/M14.md §8). A device is only used when it is chosen.
@@ -104,6 +111,13 @@ fn unlock_choices(ways: &[UnlockWay]) -> Vec<(String, Way)> {
         items.push(("Type the recovery key".to_owned(), Way::RecoveryKey));
     }
     for w in ways.iter().filter(|w| w.here) {
+        if w.needs_pin {
+            items.push((
+                format!("Use This PC, with its PIN (slot {})", w.slot),
+                Way::SlotWithPin(w.slot),
+            ));
+            continue;
+        }
         let what = match w.kind {
             SlotKindName::Password | SlotKindName::RecoveryKey => continue,
             SlotKindName::PublicKey | SlotKindName::PostQuantumKey => "your key",
@@ -134,14 +148,15 @@ fn unlock(
             ));
         }
         // The one way in, a key or device that just didn't open it (another security key, a
-        // closed dialog): tried again only if asked to, so the dialog doesn't keep coming back.
-        [(label, Way::Slot(slot))] if attempt > 0 => {
+        // closed dialog, a wrong PIN): tried again only if asked to, so the dialog doesn't keep
+        // coming back, and nobody guesses a PIN against the TPM's lockout by pressing Enter.
+        [(label, way @ (Way::Slot(_) | Way::SlotWithPin(_)))] if attempt > 0 => {
             match Confirm::with_theme(theme)
                 .with_prompt(format!("{label} again?"))
                 .default(true)
                 .interact_opt()
             {
-                Ok(Some(true)) => Way::Slot(*slot),
+                Ok(Some(true)) => *way,
                 Ok(_) | Err(_) => return Ok(PromptReply::Cancel),
             }
         }
@@ -169,7 +184,18 @@ fn unlock(
             Ok(key) => UnlockReply::RecoveryKey { key },
             Err(_) => return Ok(PromptReply::Cancel),
         },
-        Way::Slot(slot) => UnlockReply::Slot { slot },
+        Way::Slot(slot) => UnlockReply::Slot { slot, pin: None },
+        // BeeZip's own prompt, never Windows' dialog: a PIN it sets on the key as it was made.
+        Way::SlotWithPin(slot) => {
+            eprintln!("{PIN_WARNING}");
+            match secret("PIN for This PC") {
+                Ok(pin) => UnlockReply::Slot {
+                    slot,
+                    pin: Some(Secret::new(pin)),
+                },
+                Err(_) => return Ok(PromptReply::Cancel),
+            }
+        }
     };
     Ok(PromptReply::Unlock { answer })
 }
@@ -223,7 +249,12 @@ mod tests {
     use super::*;
 
     fn way(slot: u32, kind: SlotKindName, here: bool) -> UnlockWay {
-        UnlockWay { slot, kind, here }
+        UnlockWay {
+            slot,
+            kind,
+            here,
+            needs_pin: false,
+        }
     }
 
     #[test]
@@ -242,13 +273,41 @@ mod tests {
             [Way::Password, Way::RecoveryKey, Way::Slot(2), Way::Slot(3)]
         );
         assert!(unlock_choices(&[way(0, SlotKindName::EcP256, false)]).is_empty());
+
+        // A This PC key with a PIN: BeeZip asks for the PIN after it is chosen.
+        let this_pc = UnlockWay {
+            needs_pin: true,
+            ..way(1, SlotKindName::EcP256, true)
+        };
+        let items = unlock_choices(&[way(0, SlotKindName::EcP256, true), this_pc]);
+        assert_eq!(
+            items,
+            [
+                (
+                    "Use your certificate, or This PC (slot 0)".to_owned(),
+                    Way::Slot(0)
+                ),
+                (
+                    "Use This PC, with its PIN (slot 1)".to_owned(),
+                    Way::SlotWithPin(1)
+                ),
+            ]
+        );
     }
 
     #[test]
     fn nobody_at_the_terminal() {
         let unlock = |ways| {
             CliNonInteractive
-                .prompt(1, 1, &Prompt::Unlock { ways, attempt: 0 })
+                .prompt(
+                    1,
+                    1,
+                    &Prompt::Unlock {
+                        ways,
+                        attempt: 0,
+                        failed: None,
+                    },
+                )
                 .unwrap_err()
         };
         // A password or a recovery key opens it: a password is required, as for a zip.

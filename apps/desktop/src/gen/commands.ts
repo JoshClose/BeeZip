@@ -1917,7 +1917,7 @@ current: string | null, };
 /**
  * A question a job needs answered before it can continue.
  */
-export type Prompt = { "kind": "Password", entry: string | null, } | { "kind": "Overwrite", path: string, archive?: string, } | { "kind": "Unlock", ways: Array<UnlockWay>, attempt: number, };
+export type Prompt = { "kind": "Password", entry: string | null, } | { "kind": "Overwrite", path: string, archive?: string, } | { "kind": "Unlock", ways: Array<UnlockWay>, attempt: number, failed?: string, };
 
 /**
  * A front end's answer to a `Prompt`.
@@ -2398,7 +2398,7 @@ export type TrustName = "yours" | "contact" | "trusted" | "expired" | "revoked" 
 /**
  * An answer to the Unlock prompt.
  */
-export type UnlockReply = { "way": "password", password: string, } | { "way": "recovery-key", key: string, } | { "way": "slot", slot: number, };
+export type UnlockReply = { "way": "password", password: string, } | { "way": "recovery-key", key: string, } | { "way": "slot", slot: number, pin?: Secret, };
 
 /**
  * A way in, as the Unlock prompt lists it, before the archive is open.
@@ -2407,7 +2407,13 @@ export type UnlockWay = { slot: number, kind: SlotKindName,
 /**
  * A key or device on this machine fits it.
  */
-here: boolean, };
+here: boolean,
+/**
+ * Choosing it needs a PIN that the front end asks for and sends with the reply
+ * (`UnlockReply::Slot`'s `pin`): a This PC key's. Windows' own dialog never asks for it.
+ * A smart card's PIN is still Windows' to ask for.
+ */
+needs_pin?: boolean, };
 
 /**
  * The desktop app's updates (docs/M6.md §8.2). The CLI and MCP never check.

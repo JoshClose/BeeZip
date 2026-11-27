@@ -6,11 +6,13 @@
 //! ECDSA keys can't do ECDH; TPM RSA-OAEP needs an empty label; the TPM provider refuses
 //! `NCRYPT_SILENT_FLAG` on delete; its provider-handle property is borrowed, not owned; TPM
 //! keys get no Key Usage property. Every call is silent unless the user chose the way in (a
-//! slot's `device`) or is signing: then a smart card's or TPM key's PIN dialog, Windows' own,
-//! may show, parented to the window the caller gives (`NCRYPT_WINDOW_HANDLE_PROPERTY`). The
-//! user's stores are opened read only and never changed; certificates whose keys are in legacy
-//! CryptoAPI providers (which CNG-only acquisition can't open) are listed without a key and
-//! skipped as ways in.
+//! slot's `device`) or is signing: then a smart card's or a certificate's TPM key's PIN
+//! dialog, Windows' own, may show, parented to the window the caller gives
+//! (`NCRYPT_WINDOW_HANDLE_PROPERTY`). A This PC key is always used silently: BeeZip asks for
+//! its PIN itself and sets it on the key (docs/M14.md §4, decided in wave 2), so Windows' dialog
+//! never shows for one. The user's stores are opened read only and never changed; certificates
+//! whose keys are in legacy CryptoAPI providers (which CNG-only acquisition can't open) are
+//! listed without a key and skipped as ways in.
 
 #![allow(unsafe_code)]
 
@@ -152,6 +154,8 @@ struct ThisPc {
     name: String,
     spki: Vec<u8>,
     point: Vec<u8>,
+    /// It has a PIN, which BeeZip asks for ([`Key::needs_pin`], read silently).
+    pin: bool,
 }
 
 /// Windows' certificate keys and "This PC" keys, as a key source.
@@ -203,25 +207,47 @@ impl CngSource {
     }
 }
 
+/// How a key is used for a slot.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Use {
+    /// Nobody chose the way in: silently, and a key that would need a PIN or a person is
+    /// nothing here.
+    Unasked,
+    /// The user chose it, and Windows may ask in its own dialog: a smart card's PIN, a
+    /// certificate's TPM key's.
+    Dialog,
+    /// The user chose it, and nothing shows: a This PC key, with the PIN BeeZip asked for set
+    /// on it when it has one.
+    Quiet,
+}
+
+/// Opening, when Windows is blocking the TPM.
+const OPEN_MEANWHILE: &str = "Open the archive another way meanwhile";
+
+/// A failure opening a slot, said plainly where it can be.
+fn opening(e: WinError) -> Error {
+    e.explained(Some(OPEN_MEANWHILE))
+}
+
 /// The secret of `slot` with `key`, whose public key is `recipient` (an EC point; empty for
-/// RSA). `None` when it would need a person and `device` is false; any other failure is an
+/// RSA). `None` when it would need a person and nobody chose it; any other failure is an
 /// error, which [`try_key`] reports only for a way in the user chose.
 fn open_with(
     key: &Key,
     recipient: &[u8],
     slot: &SlotView<'_>,
-    device: bool,
+    how: Use,
 ) -> Result<Option<SlotSecret>> {
-    let silent = !device;
-    if silent && key.needs_pin() {
+    let silent = how != Use::Dialog;
+    if how == Use::Unasked && key.needs_pin() {
         // Never tried without its PIN: a TPM counts failed tries towards its lockout.
         return Ok(None);
     }
     let quiet = |e: WinError| -> Result<Option<SlotSecret>> {
-        if silent && e.needs_person() {
+        if how == Use::Unasked && e.needs_person() {
             Ok(None)
         } else {
-            Err(e.into())
+            Err(opening(e))
         }
     };
     match slot.kind {
@@ -251,18 +277,84 @@ fn open_with(
     }
 }
 
-/// One key's try at a slot. Silently (`device` false) a key that can't open it, for whatever
-/// reason (a PIN it needs, a key CNG can't open, an ECDSA key, a TPM in lockout), is nothing
-/// here, so the archive's other ways in are still tried; the reason is reported only for a way
-/// in the user chose.
+/// One key's try at a slot. Unasked, a key that can't open it, for whatever reason (a PIN it
+/// needs, a key CNG can't open, an ECDSA key, a TPM in lockout), is nothing here, so the
+/// archive's other ways in are still tried; the reason is reported only for a way in the user
+/// chose.
 fn try_key(
     key: impl FnOnce() -> Result<(Key, Vec<u8>)>,
     slot: &SlotView<'_>,
-    device: bool,
+    how: Use,
 ) -> Result<Option<SlotSecret>> {
-    match key().and_then(|(key, recipient)| open_with(&key, &recipient, slot, device)) {
-        Err(_) if !device => Ok(None),
+    match key().and_then(|(key, recipient)| open_with(&key, &recipient, slot, how)) {
+        Err(_) if how == Use::Unasked => Ok(None),
         other => other,
+    }
+}
+
+impl CngSource {
+    /// The certificates' keys' try at `slot`. With `device`, a PIN dialog Windows shows
+    /// belongs to the source's window.
+    fn cert_secret(&self, slot: &SlotView<'_>, device: bool) -> Result<Option<SlotSecret>> {
+        let window = self.window;
+        let how = if device { Use::Dialog } else { Use::Unasked };
+        for c in self.certs.iter().filter(|c| Self::cert_fits(c, slot)) {
+            let key = || {
+                let key = if device {
+                    c.cert.private_key_for(window)
+                } else {
+                    c.cert.private_key(true)
+                }
+                .map_err(opening)?;
+                let recipient = match c.certificate.algorithm {
+                    KeyAlgorithm::Ec(curve) => ecdh::point_of_spki(curve, &c.certificate.spki)?,
+                    _ => Vec::new(),
+                };
+                Ok((key, recipient))
+            };
+            if let Some(secret) = try_key(key, slot, how)? {
+                return Ok(Some(secret));
+            }
+        }
+        Ok(None)
+    }
+
+    /// The This PC keys' try at `slot`, with the PIN BeeZip asked for when the user chose it.
+    /// Always silent: Windows' own PIN dialog never shows for a This PC key, and a key opened
+    /// silently stays silent (its provider refuses what needs the PIN with NTE_SILENT_CONTEXT
+    /// rather than ask), so the PIN is set on the key, exactly as it was when the key was made.
+    /// Chosen without the PIN it has, it fails: it isn't tried, which would count towards the
+    /// TPM's lockout.
+    fn this_pc_secret(
+        &self,
+        slot: &SlotView<'_>,
+        device: bool,
+        pin: Option<&str>,
+    ) -> Result<Option<SlotSecret>> {
+        let how = if device { Use::Quiet } else { Use::Unasked };
+        for k in self.this_pc.iter().filter(|k| Self::this_pc_fits(k, slot)) {
+            let key = || {
+                let key = Provider::open(MS_PLATFORM_CRYPTO_PROVIDER)
+                    .and_then(|p| p.open_key(&k.name))
+                    .map_err(opening)?;
+                if device && key.needs_pin() {
+                    let pin = pin.ok_or_else(|| {
+                        Error::new(
+                            ErrorKind::PasswordRequired,
+                            "the This PC key has a PIN, and none was given: choose it again \
+                             and type its PIN",
+                        )
+                    })?;
+                    key.set_prop(NCRYPT_PIN_PROPERTY, &win::pin_bytes(pin))
+                        .map_err(opening)?;
+                }
+                Ok((key, k.point.clone()))
+            };
+            if let Some(secret) = try_key(key, slot, how)? {
+                return Ok(Some(secret));
+            }
+        }
+        Ok(None)
     }
 }
 
@@ -275,44 +367,28 @@ impl KeySource for CngSource {
             || self.this_pc.iter().any(|k| Self::this_pc_fits(k, slot))
     }
 
-    /// With `device`, a PIN dialog Windows shows belongs to the source's window.
+    /// A This PC key with a PIN: BeeZip asks for it. A smart card's or a certificate's TPM
+    /// key's PIN is Windows' to ask for, in its own dialog.
+    fn needs_pin(&mut self, slot: &SlotView<'_>) -> bool {
+        self.this_pc
+            .iter()
+            .any(|k| k.pin && Self::this_pc_fits(k, slot))
+    }
+
+    /// With `device`, a PIN dialog Windows shows for a certificate belongs to the source's
+    /// window.
     fn secret(&mut self, slot: &SlotView<'_>, device: bool) -> Result<Option<SlotSecret>> {
-        let window = self.window;
-        for c in self.certs.iter().filter(|c| Self::cert_fits(c, slot)) {
-            let key = || {
-                let key = if device {
-                    c.cert.private_key_for(window)?
-                } else {
-                    c.cert.private_key(true)?
-                };
-                let recipient = match c.certificate.algorithm {
-                    KeyAlgorithm::Ec(curve) => ecdh::point_of_spki(curve, &c.certificate.spki)?,
-                    _ => Vec::new(),
-                };
-                Ok((key, recipient))
-            };
-            if let Some(secret) = try_key(key, slot, device)? {
-                return Ok(Some(secret));
-            }
+        if let Some(secret) = self.cert_secret(slot, device)? {
+            return Ok(Some(secret));
         }
-        for k in self.this_pc.iter().filter(|k| Self::this_pc_fits(k, slot)) {
-            let key = || {
-                // Opened silently only when nobody chose it: a key opened silently stays
-                // silent, and the TPM's provider then refuses what needs its PIN
-                // (NTE_SILENT_CONTEXT) instead of asking for it.
-                let key = Provider::open(MS_PLATFORM_CRYPTO_PROVIDER)
-                    .and_then(|p| p.open_key_with(&k.name, !device))?;
-                if device {
-                    // Best effort: the TPM's PIN dialog over the window in front otherwise.
-                    let _ = key.parent(window);
-                }
-                Ok((key, k.point.clone()))
-            };
-            if let Some(secret) = try_key(key, slot, device)? {
-                return Ok(Some(secret));
-            }
+        self.this_pc_secret(slot, device, None)
+    }
+
+    fn secret_with_pin(&mut self, slot: &SlotView<'_>, pin: &str) -> Result<Option<SlotSecret>> {
+        if let Some(secret) = self.cert_secret(slot, true)? {
+            return Ok(Some(secret));
         }
-        Ok(None)
+        self.this_pc_secret(slot, true, Some(pin))
     }
 }
 
@@ -328,7 +404,13 @@ fn this_pc_keys() -> Vec<ThisPc> {
             let key = provider.open_key(&name).ok()?;
             let point = win::point_of_blob(&key.export(BCRYPT_ECCPUBLIC_BLOB).ok()?)?;
             let spki = ecdh::spki_of_point(Curve::P256, &point).ok()?;
-            Some(ThisPc { name, spki, point })
+            let pin = key.needs_pin();
+            Some(ThisPc {
+                name,
+                spki,
+                point,
+                pin,
+            })
         })
         .collect()
 }
@@ -352,11 +434,10 @@ fn no_tpm(e: WinError) -> Error {
 }
 
 /// Codes that mean no TPM is behind the provider (TPM and TBS errors), or that it can't make
-/// this kind of key: the provider opens on a PC without one. A TPM in lockout is there.
+/// this kind of key: the provider opens on a PC without one. A TPM in lockout, or one that
+/// refused a PIN, is there.
 fn tpm_absent(e: &WinError) -> bool {
-    // TPM_E_DEFEND_LOCK_RUNNING, TPM_20_E_LOCKOUT
-    let lockout = matches!(e.code, 0x8028_0803 | 0x8028_0921);
-    (matches!(e.code >> 16, 0x8028 | 0x8029) && !lockout)
+    (matches!(e.code >> 16, 0x8028 | 0x8029) && !e.tpm_blocked() && !e.wrong_pin())
         || matches!(
             e.code,
             // NTE_NOT_SUPPORTED, NTE_DEVICE_NOT_READY, NTE_DEVICE_NOT_FOUND
@@ -371,7 +452,8 @@ fn tpm_failure(e: WinError) -> Error {
 
 /// A new "This PC" key in the TPM (ECDH P-256), optionally with a PIN: its name and
 /// SubjectPublicKeyInfo. No Key Usage is set (the TPM refuses it); a PIN is set as a property,
-/// silently. With a PIN, opening asks for it in Windows' own dialog.
+/// silently, as [`win::pin_bytes`] gives it. With a PIN, opening asks for it in BeeZip's own
+/// Unlock prompt, and sets those same bytes on the key ([`CngSource`]).
 pub fn create_this_pc(pin: Option<&str>) -> Result<(String, Vec<u8>)> {
     let provider = Provider::open(MS_PLATFORM_CRYPTO_PROVIDER).map_err(no_tpm)?;
     let mut id = [0u8; 8];
@@ -386,8 +468,11 @@ pub fn create_this_pc(pin: Option<&str>) -> Result<(String, Vec<u8>)> {
     if let Some(pin) = pin {
         // An unfinalized key isn't written: dropping it leaves nothing behind. A PIN the TPM
         // refuses is that, not a missing TPM.
-        key.set_prop(NCRYPT_PIN_PROPERTY, &win::wz_bytes(pin))
+        key.set_prop(NCRYPT_PIN_PROPERTY, &win::pin_bytes(pin))
             .map_err(|e| {
+                if e.tpm_blocked() {
+                    return e.into();
+                }
                 Error::new(
                     ErrorKind::InvalidArgs,
                     format!("the TPM refused the PIN ({})", e.what),
@@ -492,6 +577,9 @@ fn signer_with(
     let certificate = cert::parse_der(cert.der())?;
     let mut algorithm = crate::files::may_sign(&certificate)?;
     let no_key = |e: WinError| {
+        if e.tpm_blocked() || e.wrong_pin() {
+            return signing(e);
+        }
         Error::new(
             ErrorKind::NotFound,
             format!(
@@ -574,8 +662,16 @@ impl Signer for CngSigner {
             .lock()
             .map_err(|_| Error::new(ErrorKind::Io, "a signer's key was poisoned"))?;
         // Not silent: a smart card's or TPM key's PIN dialog is Windows' (docs/M14.md §11).
-        Ok(key.sign_hash(self.algorithm, &hash, false)?)
+        key.sign_hash(self.algorithm, &hash, false).map_err(signing)
     }
+}
+
+/// Signing, when Windows is blocking the TPM.
+const SIGN_MEANWHILE: &str = "Sign with another key meanwhile, or later";
+
+/// A failure signing, said plainly where it can be.
+fn signing(e: WinError) -> Error {
+    e.explained(Some(SIGN_MEANWHILE))
 }
 
 #[cfg(test)]
