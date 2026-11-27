@@ -52,13 +52,17 @@ read_only = false</code></pre>
   <tbody>
     <tr><td><code>formats_list</code></td><td></td><td>The formats and compressors BeeZip reads and writes.</td></tr>
     <tr><td><code>file_detect</code></td><td></td><td>What a file is: <code>zstd → tar</code>, a self-extracting archive, a split set, or not an archive.</td></tr>
-    <tr><td><code>archive_info</code></td><td></td><td>Counts, sizes, ratio, methods, encryption, volumes, and why it can't be changed, if it can't.</td></tr>
+    <tr><td><code>archive_info</code></td><td></td><td>Counts, sizes, ratio, methods, encryption, volumes, and why it can't be changed, if it can't. For an encrypted .bhive, its ways in; for a signed one, its signatures.</td></tr>
     <tr><td><code>archive_list</code></td><td></td><td>Entries, one folder level at a time or all of them, filtered and sorted.</td></tr>
-    <tr><td><code>archive_test</code></td><td></td><td>Reads everything back and checks it.</td></tr>
+    <tr><td><code>archive_test</code></td><td></td><td>Reads everything back and checks it, a signed .bhive against what was signed.</td></tr>
+    <tr><td><code>archive_verify</code></td><td></td><td>A .bhive's signatures: fails unless one is valid, from a signer named or from someone you trust, and none failed.</td></tr>
+    <tr><td><code>archive_protection</code></td><td></td><td>An encrypted .bhive's ways in, and whether it resists quantum computers.</td></tr>
+    <tr><td><code>keys_list</code></td><td></td><td>The names and public keys of your keys and contacts, never a private key.</td></tr>
+    <tr><td><code>certificates_list</code></td><td></td><td>The certificates in your stores that archives can be encrypted to or signed with.</td></tr>
     <tr><td><code>entry_read</code></td><td></td><td>Part of one entry, as text, hex or base64.</td></tr>
-    <tr><td><code>archive_extract</code></td><td>Yes</td><td>All entries, or some, into a folder.</td></tr>
+    <tr><td><code>archive_extract</code></td><td>Yes</td><td>All entries, or some, into a folder; <code>require_signer</code> refuses a .bhive the signer named didn't sign.</td></tr>
     <tr><td><code>archive_create</code></td><td>Yes</td><td>A new archive from files and folders, encrypted and split if asked.</td></tr>
-    <tr><td><code>archive_add</code></td><td>Yes, replacing</td><td>Files added to a zip, 7z, tar, cpio or ar.</td></tr>
+    <tr><td><code>archive_add</code></td><td>Yes, replacing</td><td>Files added to a zip, .bhive, 7z, tar, cpio or ar.</td></tr>
     <tr><td><code>archive_remove</code></td><td>Yes, replacing</td><td>Entries removed.</td></tr>
     <tr><td><code>archive_rename</code></td><td>Yes, replacing</td><td>An entry or folder renamed or moved.</td></tr>
     <tr><td><code>archive_convert</code></td><td>Yes</td><td>Any archive BeeZip reads, written as one it writes. The source stays.</td></tr>
@@ -85,6 +89,16 @@ read_only = false</code></pre>
   <li><strong>Passwords are never asked for over MCP.</strong> An encrypted archive fails with <code>PasswordRequired</code>; the assistant asks you and calls again with the password. That means the password passes through the assistant, so only give it one you're willing to share there.</li>
 </ul>
 
+<h2 id="encrypted-bhive">Encrypted and signed .bhive</h2>
+<ul>
+  <li><strong>Making one:</strong> the assistant can encrypt a .bhive with a password, public keys (<code>age1…</code>, <code>age1pq1…</code>, or a contact's name, which <code>keys_list</code> gives it) and certificates.</li>
+  <li><strong>Opening one:</strong> your own stored keys are tried first, silently. Otherwise an archive with a password or a recovery key fails with <code>PasswordRequired</code>, and the assistant asks you and calls again with <code>password</code>, which takes either. One that only a key file, a certificate's private key or a device opens fails with <code>KeyRequired</code>: open it in the app or on the command line.</li>
+  <li><strong>No devices:</strong> nobody is there to touch a security key, use Windows Hello or type a PIN, so the server never uses This PC, a security key or Windows Hello, to open an archive or to make one, nor a smart card, a key file or a certificate's private key in your stores to open one.</li>
+  <li><strong>No recovery keys:</strong> one made over MCP would pass through the assistant, so the assistant can't make one.</li>
+  <li><strong>No signing:</strong> a signature says that you made the archive, so the server never signs, and doesn't change who can open an archive. It shows and checks signatures, and <code>require_signer</code> refuses an archive the signer named didn't sign.</li>
+  <li><strong>Memory:</strong> a password that would take more than half the machine's memory to try isn't tried, since nobody is there to agree to it.</li>
+</ul>
+
 <h2 id="limits">Limits</h2>
 <ul>
   <li><strong><code>archive_list</code></strong> returns at most 500 entries per call; the assistant pages through the rest.</li>
@@ -96,5 +110,5 @@ read_only = false</code></pre>
 <ul>
   <li><strong>Progress</strong> reaches clients that ask for it.</li>
   <li><strong>Cancelling a call</strong> cancels its job and removes its partly written file; so does the client disconnecting.</li>
-  <li><strong>Errors</strong> come back with a stable code the assistant can act on: <code>NotFound</code>, <code>InvalidArgs</code>, <code>UnsupportedFormat</code>, <code>UnsupportedOperation</code>, <code>PasswordRequired</code>, <code>WrongPassword</code>, <code>Corrupt</code>, <code>OutsideSandbox</code>, <code>Conflict</code>, <code>LimitExceeded</code>, <code>Unsafe</code>, <code>BackendUnavailable</code> (only from a build without RAR), <code>Cancelled</code>, <code>Io</code> or <code>Internal</code>.</li>
+  <li><strong>Errors</strong> come back with a stable code the assistant can act on: <code>NotFound</code>, <code>InvalidArgs</code>, <code>UnsupportedFormat</code>, <code>UnsupportedOperation</code>, <code>PasswordRequired</code>, <code>WrongPassword</code>, <code>KeyRequired</code> (an encrypted .bhive nothing given opens), <code>SignatureRequired</code>, <code>Corrupt</code>, <code>OutsideSandbox</code>, <code>Conflict</code>, <code>LimitExceeded</code>, <code>Unsafe</code>, <code>BackendUnavailable</code> (only from a build without RAR), <code>Cancelled</code>, <code>Io</code> or <code>Internal</code>.</li>
 </ul>

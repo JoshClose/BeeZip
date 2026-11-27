@@ -145,9 +145,13 @@ fn a_password_and_a_recovery_key() {
     assert_eq!(recovery.chars().filter(char::is_ascii_digit).count(), 48);
 
     h.ok(&["list", "a.bhive", "--password", "pw"]);
-    // Nobody to ask: the CLI says what to pass, with the ways in.
-    let e = h.fails(&["list", "a.bhive"], 15);
-    assert!(e.contains("password"), "{e}");
+    // Nobody to ask: a password is required, as for a zip (exit 6), and the CLI says what to
+    // pass.
+    let e = h.fails(&["list", "a.bhive"], 6);
+    assert!(
+        e.contains("PasswordRequired") && e.contains("--password"),
+        "{e}"
+    );
     h.fails(&["list", "a.bhive", "--password", "wrong"], 7);
 
     // The recovery key opens it, through --password or --password-stdin, any separators.
@@ -411,4 +415,76 @@ fn a_certificate_contact_through_the_cli() {
     let out = h.ok(&["info", "s.bhive"]);
     assert!(out.contains("signed by Bob"), "{out}");
     h.ok(&["verify", "s.bhive", "--require-signer", "Bob"]);
+}
+
+#[test]
+fn convert_shows_the_recovery_key_it_makes() {
+    let _argon2 = ARGON2.lock().unwrap_or_else(|e| e.into_inner());
+    let h = Here::new();
+    h.ok(&["create", "a.zip", "src", "--password", "old"]);
+    let out = h.ok(&[
+        "convert",
+        "a.zip",
+        "a.bhive",
+        "--password",
+        "old",
+        "--new-password",
+        "pw",
+        "--recovery-key",
+    ]);
+    // As create and protect show it: once, with what to do with it.
+    let line = out
+        .lines()
+        .find_map(|l| l.strip_prefix("Recovery key: "))
+        .unwrap_or_else(|| panic!("{out}"));
+    assert_eq!(
+        line.chars().filter(char::is_ascii_digit).count(),
+        48,
+        "{out}"
+    );
+    assert!(out.contains("shown only this once"), "{out}");
+    h.ok(&["test", "a.bhive", "--password", line]);
+
+    // An archive only a recovery key opens needs a password too, with nobody to ask (exit 6).
+    let made = h.json(&["create", "r.bhive", "src", "--recovery-key"]);
+    let e = h.fails(&["list", "r.bhive"], 6);
+    assert!(e.contains("PasswordRequired"), "{e}");
+    h.ok(&[
+        "list",
+        "r.bhive",
+        "-p",
+        made["recovery_key"].as_str().unwrap(),
+    ]);
+}
+
+/// Decision 12 (docs/M14.md §5): a password beside someone else's key or certificate is warned
+/// of, since anyone it opens for could make an archive the password opens; beside one of your
+/// own keys it isn't: you hold both.
+#[test]
+fn a_password_beside_someone_elses_key_is_warned_of() {
+    let _argon2 = ARGON2.lock().unwrap_or_else(|e| e.into_inner());
+    let keys = age_examples();
+    let h = Here::new();
+    h.ok(&["keys", "create", "Mine"]);
+    h.ok(&["keys", "import", "Bob", "--text", &keys[3]]);
+    let warns = |args: &[&str]| {
+        let out = h.cmd().args(args).assert().success().get_output().clone();
+        let stderr = String::from_utf8(out.stderr).unwrap();
+        stderr.contains("your password opens")
+    };
+    let create = |name: &str, more: &[&str]| {
+        let args = [&["create", name, "src", "--password", "pw"][..], more].concat();
+        warns(&args)
+    };
+    assert!(!create("mine.bhive", &["--to", "Mine"]));
+    assert!(create("bob.bhive", &["--to", "Bob"]));
+    assert!(create("text.bhive", &["--to", &keys[1]]));
+    assert!(create("both.bhive", &["--to", "Mine", "--to", "Bob"]));
+    assert!(create("cert.bhive", &["--to-cert", &testdata("rsa.crt")]));
+
+    // Adding a password to an archive only your key opens says nothing; adding Bob beside the
+    // password then does.
+    h.ok(&["create", "only.bhive", "src", "--to", "Mine"]);
+    assert!(!warns(&["protect", "only.bhive", "--add-password", "pw"]));
+    assert!(warns(&["protect", "only.bhive", "--to", "Bob"]));
 }

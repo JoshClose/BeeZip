@@ -151,9 +151,19 @@ impl Interactor for NonInteractive {
                 ErrorCode::Conflict,
                 format!("`{path}` is already in {archive}; pass an `overwrite` policy"),
             ),
+            // A password or recovery key would open it: the caller can pass one.
+            Prompt::Unlock { ways, .. } if ways.iter().any(crate::crypt::UnlockWay::is_typed) => {
+                CmdError::new(
+                    ErrorCode::PasswordRequired,
+                    "the archive is encrypted; pass its password or recovery key as the \
+                     `password` argument, or a key to open it",
+                )
+                .with_details(serde_json::json!({ "param": "password" }))
+            }
             Prompt::Unlock { .. } => CmdError::new(
                 ErrorCode::KeyRequired,
-                "the archive is encrypted; pass a password, a recovery key or a key to open it",
+                "the archive opens only with a key, a certificate or a device, and none given \
+                 fits; pass a key to open it",
             ),
         })
     }
@@ -778,9 +788,9 @@ impl beezip_core::Ctx for JobCtx {
 
     /// The input's password first, as a recovery key or a password (or both, in turn); then
     /// up to [`PASSWORD_PROMPTS`] Unlock prompts, which list the ways in. With nobody to ask,
-    /// a first ask fails as the front end says (`KeyRequired`, or `PasswordRequired` over
-    /// MCP) with `details.ways`, and a later one is `WrongPassword`. An encrypted archive never
-    /// goes back to the archive cache.
+    /// a first ask fails as the front end says, with `details.ways`: `PasswordRequired` when a
+    /// password or recovery key would open it, otherwise `KeyRequired`. A later one is
+    /// `WrongPassword`. An encrypted archive never goes back to the archive cache.
     fn unlock(&mut self, request: &UnlockRequest) -> beezip_core::Result<UnlockAnswer> {
         use beezip_core::{Error, ErrorKind};
 

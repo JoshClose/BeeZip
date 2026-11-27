@@ -7,6 +7,104 @@ Write a new section as `## X.Y.Z`, with `###` groups and `- ` items, describing 
 using BeeZip will notice. Leave the date out: the Releases page dates each version by its
 `vX.Y.Z` tag.
 
+## 0.9.0
+
+### Encrypted .bhive archives
+
+- **A `.bhive` can be encrypted, names and all.** Without a way in, nobody can list it, learn
+  its files' names, dates or folders, or change a byte without BeeZip noticing. It's part of
+  `.bhive` version 1, so every later BeeZip reads it. BeeZip 0.8 refuses an encrypted `.bhive`
+  rather than misread it.
+- **Any number of ways in, any one enough:** a password, a recovery key, someone's public key, a
+  certificate, This PC, a security key or Windows Hello.
+- **Passwords are slow to guess:** each guess takes a gigabyte of memory, and opening takes about
+  0.3 s on a fast desktop; Strong takes 2 GiB. BeeZip warns about a weak password, though it
+  lets you keep it, and **Suggest one** gives six random words. A password beside someone
+  else's key gets a warning too: they could make an archive your password opens.
+- **A recovery key,** 48 digits as BitLocker's, opens the archive when every other way in is
+  lost. BeeZip shows it once and never keeps it: copy it, save it or print it.
+- **Public keys in age's format:** post-quantum `age1pq1…` keys by default, and classic `age1…`
+  keys. A key made by `age-keygen` works in BeeZip, and BeeZip's work in age (1.3 or later for
+  post-quantum keys). The archives are BeeZip's own, not age files.
+- **Certificates:** RSA (2,048 bits or more) and EC (P-256, P-384), from Windows' stores, the
+  macOS Keychain or a file. BeeZip says why it can't use one, such as an EC certificate whose key
+  can only sign.
+- **This PC** keeps a key in the PC's TPM, behind an optional PIN, and **Windows Hello** uses
+  your face, a fingerprint or its PIN. Both open the archive on that PC alone, so BeeZip always
+  asks for another way in beside them. **Security keys** (FIDO2) need a touch. Security keys and
+  smart cards haven't been tried on a physical device yet.
+- **Safe from quantum computers, or not:** BeeZip says which. Passwords, recovery keys,
+  post-quantum keys and security keys are; classic keys, certificates and This PC aren't.
+- **Changing who can open it doesn't recompress it:** add a way in, remove one, or make a new
+  key, which seals everything again so that someone who kept the old key can't open later
+  versions.
+- **Edits keep the encryption:** adding, removing and renaming need one way in, and new files
+  are sealed with the rest. Converting an encrypted `.bhive` into a `.bhive` keeps who can open
+  it, unless you give it new ways in.
+- **Zip and 7z keep their own encryption,** as 0.8.4 left it. With a password on one, BeeZip
+  says what a `.bhive` hides that they don't.
+
+### Signatures
+
+- **Sign a `.bhive`,** encrypted or not, with your own signing key or a certificate, to show who
+  made what's in it and that nothing has changed since. Several people can sign one archive.
+- **What's signed is the contents:** changing who can open it, a new key, or encrypting it keeps
+  the signatures. Adding, removing or renaming files drops them, and so does converting with
+  other entries, another level or into another format; BeeZip says so first. The app offers to
+  sign again with your keys that signed it; on the command line, `add --sign` does, or
+  `beezip sign` afterwards.
+- **Checked as it opens:** "Signed by" you, a contact or a certificate the system trusts; "an
+  unknown signer", with a fingerprint to compare by phone; or, in red, "Changed after it was
+  signed", and BeeZip asks before extracting. The time a signature gives is the signer's claim.
+- **Your signing key is post-quantum,** ML-DSA-65 with Ed25519, both checked.
+- **BeeZip 0.8 still reads a signed `.bhive`** that isn't encrypted, and ignores the signature.
+
+### Keys and certificates
+
+- **Your own keys:** make one in Settings or with `beezip keys create`, for opening archives
+  (post-quantum by default) or for signing them. Its private key stays on this machine, sealed
+  by the system: by Windows for your account, in the login Keychain on macOS, in a file only you
+  can read on Linux. Back it up as text, after a warning.
+- **Your keys open archives without asking.** Key files open them too: age identities, PEM and
+  PKCS #8 keys, and `.pfx` and `.p12` files on Windows and macOS. On Linux a `.pfx` is refused,
+  with the `openssl pkcs12` command that turns it into a PEM file.
+- **Contacts:** other people's public keys and certificates, by name, to encrypt to and to know
+  their signatures by.
+- **Windows asks** for a smart card's or the TPM's PIN, or a touch, in its own dialog, and only
+  for the way in you chose. After a wrong key or a closed dialog, BeeZip asks again.
+
+### The desktop app
+
+- **New archive and Convert** have a Protection section for `.bhive`: the password with its
+  strength, a recovery key, people and keys, This PC, a security key and Windows Hello, and
+  **Sign with**.
+- **Unlock** asks for a way into an encrypted `.bhive` none of your keys opens: the password, the
+  recovery key, or a button for each key or device this PC has.
+- **Who can open this** lists an archive's ways in, adds and removes them, and makes a new key.
+- **A signature line** at the top of the archive, with its details and **Add to contacts**; and
+  **Sign**, to add or remove signatures.
+- **Settings** has Your keys, Contacts and Certificates.
+
+### The command line
+
+- **New options:** `--recovery-key`, `--to`, `--to-cert`, `--this-pc`, `--security-key`,
+  `--windows-hello` and `--strength` on create and convert, `--sign` on create, add and
+  convert; `-i`/`--identity` and `--password-stdin` everywhere; `--require-signer` on extract
+  and test.
+- **New commands:** `beezip protection`, `protect`, `sign`, `verify`, `keys` and
+  `certificates list`.
+- **Exit codes:** an encrypted `.bhive` with a password or recovery key, and none given, is 6,
+  as a zip is. New: 15 when only keys, certificates or devices open it and none given does, and
+  16 when it isn't signed as `verify` or `--require-signer` asks.
+
+### AI assistants (MCP)
+
+- **Encrypted `.bhive` over MCP:** an assistant can make one with a password, public keys or
+  certificates, open one with a password or a recovery key (your stored keys are tried
+  silently), and check signatures. It never uses This PC, a security key or Windows Hello, never
+  makes a recovery key, never signs, and doesn't change who can open an archive. New tools:
+  `archive_protection`, `archive_verify`, `keys_list` and `certificates_list`.
+
 ## 0.8.4
 
 ### Fixes

@@ -6,7 +6,7 @@ use ts_rs::TS;
 
 use beezip_core::format::bhive::{
     BhiveWriteOptions,
-    crypt::{Labelled, Protection, Recipient, SlotKind, envelope::Unlocked},
+    crypt::{Labelled, Protection, SlotKind, envelope::Unlocked},
 };
 
 use crate::{
@@ -304,16 +304,26 @@ fn changed(
         protect::leaves_the_machine(&ways.recipients, &ways.devices)?;
     }
     // Decision 12: a password beside other people's keys, when this change puts them together.
+    // Your own stored keys don't count; a key slot that doesn't say whose it is does.
     let key = |s: &protect::Slot| match s.kind {
         SlotKind::X25519 | SlotKind::XWing | SlotKind::Rsa | SlotKind::EcP384 => true,
         SlotKind::EcP256 => !s.description.machine_bound,
         _ => false,
     };
+    let someone_elses = |s: &protect::Slot| {
+        key(s)
+            && protect::described_recipient(s)
+                .ok()
+                .flatten()
+                .is_none_or(|r| protect::someone_elses(&r, cx))
+    };
     let has_password = known_left.iter().any(|s| s.kind == SlotKind::Password);
-    let has_key = known_left.iter().any(|s| key(s));
+    let has_key = known_left.iter().any(|s| someone_elses(s));
     let adds_password = input.add_password.is_some();
-    let adds_key = input.to.as_ref().is_some_and(|t| !t.is_empty())
-        || input.to_cert.as_ref().is_some_and(|t| !t.is_empty());
+    let adds_key = ways
+        .recipients
+        .iter()
+        .any(|l| protect::someone_elses(&l.recipient, cx));
     if (adds_password && (has_key || adds_key)) || (adds_key && has_password) {
         protect::warn_password_beside_keys(cx);
     }
@@ -439,18 +449,10 @@ fn rebuilt(
         .recipients
         .iter()
         .any(|l| l.recipient.kind() == SlotKind::Password);
-    let others = ways.recipients.iter().any(|l| {
-        matches!(
-            l.recipient,
-            Recipient::X25519(_)
-                | Recipient::XWing(_)
-                | Recipient::Rsa { .. }
-                | Recipient::Ec {
-                    machine_bound: false,
-                    ..
-                }
-        )
-    });
+    let others = ways
+        .recipients
+        .iter()
+        .any(|l| protect::someone_elses(&l.recipient, cx));
     if password && others {
         protect::warn_password_beside_keys(cx);
     }

@@ -1,4 +1,4 @@
-<!-- {"title": "Safety", "description": "What BeeZip checks before it writes a file: paths and links that climb out, zip bombs, the Mark of the Web, and changes that never rewrite an archive in place.", "layout": "docs"} -->
+<!-- {"title": "Safety", "description": "What BeeZip checks before it writes a file: paths and links that climb out, zip bombs, the Mark of the Web, changes that never rewrite an archive in place, and what .bhive encryption protects.", "layout": "docs"} -->
 <h1>Safety</h1>
 <p class="lede">An archive is someone else's idea of what should land on your disk. BeeZip checks every entry before it writes it, and tells you what it skipped. The same rules hold in the app, Explorer's menu, the command line and the MCP server.</p>
 
@@ -45,7 +45,23 @@
   <li><strong>Adding to an encrypted archive</strong> needs a password for the new files; adding them unencrypted takes a deliberate choice (<code>--unencrypted</code>).</li>
   <li><strong>Converting an encrypted archive</strong> needs a new password, or your explicit choice to decrypt it.</li>
   <li><strong>Passwords aren't saved.</strong> In the app, a password stays in memory for its tab, until you close it. Copy as CLI leaves it out.</li>
+  <li><strong>An encrypted .bhive stays encrypted</strong> through every edit: adding, removing and renaming keep its key and its ways in, and seal the new files with the rest.</li>
+</ul>
+
+<h2 id="bhive-encryption">What .bhive encryption protects, and what it doesn't</h2>
+<p>An encrypted <a href="formats.html#bhive-encryption">.bhive</a> is made for an archive on a lost laptop or USB stick, in cloud storage, in an email or on a shared drive. Without a way in, nobody learns the names, dates, folders or contents of its files, and nobody can change a byte without BeeZip noticing.</p>
+<ul>
+  <li><strong>What anyone can see:</strong> that it's an encrypted .bhive, and its size; how many ways in it has, and of which kinds; and how big each of its cells is, so roughly how much it holds and how well it compressed. At level None, or for one file that doesn't compress, that gives a file's size. Someone who chooses part of what goes into an archive, and sees how big it comes out, can learn about the rest, as with any compressed and encrypted file.</li>
+  <li><strong>A weak password</strong> is still weak. Each guess takes a gigabyte of memory, which makes guessing slow, but no setting saves <code>summer2026</code>. BeeZip warns under about 50 bits, and suggests six random words.</li>
+  <li><strong>There's no way in but the ones you give it.</strong> Lose every one and the archive is lost: nobody, BeeZip included, can open it. That's what the recovery key is for. BeeZip shows it once and never keeps it, so copy, save or print it then, and keep it apart from the archive.</li>
+  <li><strong>This PC can't be the only way in.</strong> Its key is in this PC's TPM and never leaves it, and Windows Hello works only on this PC too, so an archive they alone opened would be lost with the PC. BeeZip asks for another way in beside them: a password, a recovery key, a security key or someone's key.</li>
+  <li><strong>A PC that's compromised</strong> while the archive is open, by malware or a keylogger, can take what you type and what you extract.</li>
+  <li><strong>Removing a way in isn't taking it back:</strong> someone who opened the archive before could have kept its key. A new key shuts them out of later versions, not of copies they already have.</li>
+  <li><strong>Anyone who can open an archive could make another that opens the same ways.</strong> With only your own password and recovery key, that doesn't matter. With other people's keys, it means anyone with your public key can make an archive you can open, so BeeZip warns when a password sits beside someone else's key. A <a href="formats.html#bhive-signatures">signature</a> is the answer: someone who can only open an archive can't pass it off as yours.</li>
+  <li><strong>Quantum computers:</strong> an archive resists them only when every way in does. Passwords, recovery keys, post-quantum keys (<code>age1pq1…</code>, which BeeZip makes by default) and security keys do; classic <code>age1…</code> keys, certificates and This PC don't. BeeZip says which.</li>
+  <li><strong>An archive cut back</strong> to an earlier version of itself, where one was added to in place, is still a valid archive, signatures included, and BeeZip can't tell. BeeZip doesn't write archives that way yet.</li>
+  <li><strong>Zip and 7z encryption stays as it is.</strong> A zip's AES leaves names, sizes and dates readable, and a 7z doesn't notice changed bytes; both passwords are far quicker to guess at. BeeZip keeps them for the tools that read them, and the app points to .bhive when you give one a password.</li>
 </ul>
 
 <h2 id="assistants">For AI assistants</h2>
-<p>The MCP server adds rules of its own: an assistant may write only under the folders you name, never learns a password unless you give it one, and asks you, not itself, whether to overwrite a file. See <a href="mcp.html#where-it-writes">AI assistants</a>.</p>
+<p>The MCP server adds rules of its own: an assistant may write only under the folders you name, never learns a password unless you give it one, and asks you, not itself, whether to overwrite a file. It never signs, never makes a recovery key, and never uses a device or a certificate's private key. See <a href="mcp.html#where-it-writes">AI assistants</a> and <a href="mcp.html#encrypted-bhive">encrypted .bhive over MCP</a>.</p>

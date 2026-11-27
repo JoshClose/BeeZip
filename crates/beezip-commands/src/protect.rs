@@ -301,9 +301,12 @@ pub fn ways(args: &WaysArgs<'_>, cx: &mut JobCtx) -> Result<Ways, CmdError> {
             label: Some("Recovery key".into()),
         });
     }
-    let others = !args.to.is_empty() || !args.to_cert.is_empty();
+    // Someone else's key or certificate: your own stored keys don't count (decision 12).
+    let mut others = !args.to_cert.is_empty();
     for text in args.to {
-        out.recipients.push(public_key(text, cx)?);
+        let key = public_key(text, cx)?;
+        others |= someone_elses(&key.recipient, cx);
+        out.recipients.push(key);
     }
     for text in args.to_cert {
         let c = certificate(text)?;
@@ -340,6 +343,26 @@ pub fn ways(args: &WaysArgs<'_>, cx: &mut JobCtx) -> Result<Ways, CmdError> {
         });
     }
     Ok(out)
+}
+
+/// Whether `r` is someone else's key or certificate, which a password beside it is warned of
+/// (decision 12, docs/M14.md §5): anyone it opens for could make an archive the password
+/// opens. One of your own stored keys isn't: you hold both. Every certificate counts, as do
+/// keys when your keys can't be read.
+pub fn someone_elses(r: &Recipient, cx: &JobCtx) -> bool {
+    let own = |public: &[u8]| {
+        cx.key_store()
+            .ok()
+            .and_then(|store| store.find_public(public).ok().flatten())
+            .is_some_and(|k| k.own)
+    };
+    match r {
+        Recipient::X25519(k) => !own(k),
+        Recipient::XWing(k) => !own(&k[..]),
+        Recipient::Rsa { .. } => true,
+        Recipient::Ec { machine_bound, .. } => !machine_bound,
+        _ => false,
+    }
 }
 
 /// Decision 12: a password beside other people's keys.
@@ -913,43 +936,6 @@ pub fn signatures_of(reader: &mut dyn ArchiveReader) -> Option<&sign::Report> {
         .as_any_mut()
         .downcast_mut::<BhiveReader>()
         .map(|r| r.signatures())
-}
-
-/// How many signatures the `.bhive` file at `path` has, read before a change that drops them
-/// (an edit of its contents, a conversion), so BeeZip can say so first (docs/M14.md §11).
-/// `None` when it isn't a `.bhive`, or is encrypted: its index can't be read without opening
-/// it, which would ask for its key a second time.
-pub fn signatures_before_change(path: &Path, cx: &mut JobCtx) -> Option<usize> {
-    let mut header = [0u8; 16];
-    std::fs::File::open(path)
-        .and_then(|mut f| f.read_exact(&mut header))
-        .ok()?;
-    let features = layout::check_header(&header).ok()?;
-    if features & layout::FEATURE_ENCRYPTED != 0 {
-        return None;
-    }
-    let opts = open_options(None, cx);
-    let mut opened = open(path, &opts, cx).ok()?;
-    signatures_of(&mut *opened.reader).map(|r| r.signatures.len())
-}
-
-/// Warns, before a change, that the archive's signatures won't survive it.
-pub fn warn_signatures_dropped(path: &Path, why: &str, cx: &mut JobCtx) {
-    if let Some(n) = signatures_before_change(path, cx).filter(|&n| n > 0) {
-        let name = path.file_name().map_or_else(
-            || path.display().to_string(),
-            |n| n.to_string_lossy().into_owned(),
-        );
-        let them = if n == 1 {
-            "its signature".to_owned()
-        } else {
-            format!("its {n} signatures")
-        };
-        cx.log(
-            LogLevel::Warn,
-            format!("{name} is signed, and {them} {why}"),
-        );
-    }
 }
 
 /// How BeeZip shows each signature: checked by core, its signer named through your keys,

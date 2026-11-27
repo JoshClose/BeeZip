@@ -1,4 +1,4 @@
-<!-- {"title": "Features", "description": "Everything BeeZip does: Explorer's right-click menu, the desktop app, the formats it reads and writes, safe extraction, editing archives, the command line and the MCP server.", "layout": "page"} -->
+<!-- {"title": "Features", "description": "Everything BeeZip does: Explorer's right-click menu, the desktop app, the formats it reads and writes, encryption and signatures, safe extraction, editing archives, the command line and the MCP server.", "layout": "page"} -->
 <h1>Everything BeeZip does</h1>
 <p class="lede">An archive manager for Windows, also built for Linux and macOS. The desktop app, Explorer's menu, the command line and the MCP server share one engine, so each does what the others do, with the same settings and the same care.</p>
 
@@ -27,6 +27,9 @@
   <li><strong>Test, Info, Convert and Benchmark,</strong> and a name encoding for archives made on another system.</li>
   <li><strong>The jobs list:</strong> each job's progress, Cancel, its log in full, and Copy for its result and log. Cancelling removes partly written files.</li>
   <li><strong>Passwords and overwrites</strong> are asked as they come up. A password stays in memory for its tab only, and is never saved.</li>
+  <li><strong>Encrypted .bhive archives:</strong> a Protection section in New archive and Convert, Unlock when one opens, and Who can open this to add, remove and renew its ways in.</li>
+  <li><strong>Signatures:</strong> a line at the top of a signed .bhive says who signed it, or that it changed since, and Sign adds or removes them.</li>
+  <li><strong>Your keys and contacts</strong> in Settings, with the certificates the system has.</li>
   <li><strong>The command palette,</strong> Ctrl+K, lists every action and every BeeZip command.</li>
   <li><strong>Copy as CLI,</strong> on every dialog, copies the <code>beezip</code> command that does the same.</li>
   <li><strong>Settings</strong> save as you change them, and a value BeeZip can't take shows its error beside the field.</li>
@@ -37,7 +40,7 @@
 
 <h2 id="formats">Formats</h2>
 <ul>
-  <li><strong>Its own format, <code>.bhive</code>:</strong> every core at work in both directions, content that repeats stored once, one file read without the rest, and what a cut-off archive still holds recovered. Open by a <a href="docs/formats.html#bhive">specification</a> and a second reader.</li>
+  <li><strong>Its own format, <code>.bhive</code>:</strong> every core at work in both directions, content that repeats stored once, one file read without the rest, and what a cut-off archive still holds recovered; <a href="#encryption">encrypted and signed</a> if you like. Open by a <a href="docs/formats.html#bhive">specification</a> and a second reader.</li>
   <li><strong>Reads and writes</strong> zip, 7z, tar, cpio, ar, CAB, ISO 9660 (with Joliet and Rock Ridge), squashfs and DMG, and tar and cpio under any compressor.</li>
   <li><strong>Reads</strong> RAR 1.5 to 7, Debian packages, RPMs, LHA, UDF, XAR and macOS packages, and ARJ, ACE, ZOO and ARC from the DOS days.</li>
   <li><strong>Reads disks and installers:</strong> the virtual disks VHD, VHDX, VMDK, QCOW2 and VDI with their snapshots, GPT and MBR disks, FAT, NTFS, ext2/3/4, HFS+ and APFS volumes, and MSI installers, whose files are listed where they install, with their patches, transforms and merge modules.</li>
@@ -58,7 +61,7 @@
 <ul>
   <li><strong>Zip</strong> with store, deflate, bzip2, Zstandard, xz or PPMd, and AES-256 encryption, or ZipCrypto for old tools.</li>
   <li><strong>7z</strong> with LZMA2, LZMA, PPMd, bzip2 or deflate, solid or not, and AES-256 that hides the file names too.</li>
-  <li><strong>.bhive</strong> at five levels, None, Fast, Balanced, High and Max: zstd for the quick ones, LZMA2 for the small ones.</li>
+  <li><strong>.bhive</strong> at five levels, None, Fast, Balanced, High and Max: zstd for the quick ones, LZMA2 for the small ones. Encrypted names and all, and signed, if you like.</li>
   <li><strong>tar and cpio</strong> under any compressor, ar, CAB, ISO, squashfs and DMG.</li>
   <li><strong>Split into volumes</strong> of any size, in every format.</li>
   <li><strong>Leave out</strong> files by pattern, such as <code>*.tmp</code> or <code>node_modules</code>.</li>
@@ -72,8 +75,21 @@
   <li><strong>What stays is copied as it is:</strong> zip entries byte for byte, whole 7z blocks, .bhive cells, tar, cpio and ar members. Only a 7z solid block that loses an entry, a .bhive cell that lost more than half its bytes, or a compressed tar's stream, is encoded again.</li>
   <li><strong>Never in place:</strong> a new archive is written beside the old one and swapped in, keeping its Mark of the Web, hidden attribute and creation time.</li>
   <li><strong>Convert</strong> any archive BeeZip reads (RAR, packages, disk images, split and self-extracting archives) into one it writes. The original stays.</li>
-  <li><strong>Encryption stays:</strong> adding to an encrypted archive needs a password for the new files, and converting one needs a new password or your say-so to decrypt.</li>
+  <li><strong>Encryption stays:</strong> adding to an encrypted archive needs a password for the new files, and converting one needs a new password or your say-so to decrypt. An encrypted .bhive keeps its ways in through every edit, and seals the new files with the rest.</li>
 </ul>
+
+<h2 id="encryption">Encryption and signatures</h2>
+<ul>
+  <li><strong>A .bhive hides everything:</strong> names, dates, folders and contents, sealed with AES-256-GCM, and no byte can change without BeeZip noticing.</li>
+  <li><strong>Any number of ways in, any one enough:</strong> a password, a 48-digit recovery key, someone's public key (age's format, post-quantum or classic), an RSA or EC certificate, and on Windows This PC (a key in the TPM), a security key or Windows Hello.</li>
+  <li><strong>Passwords are slow to guess:</strong> each guess takes a gigabyte of memory. BeeZip warns about a weak one, and suggests six random words.</li>
+  <li><strong>Post-quantum by default:</strong> BeeZip's own keys resist quantum computers, and it says whether every way into an archive does.</li>
+  <li><strong>Change who can open it</strong> without recompressing: add a way in, remove one, or make a new key.</li>
+  <li><strong>Signatures</strong> by your own signing key or a certificate show who made an archive's contents and that they haven't changed. Changing who can open it keeps them.</li>
+  <li><strong>Your keys</strong> are made and kept by BeeZip, sealed by the system, and open your archives without asking. Contacts hold other people's keys and certificates.</li>
+  <li><strong>Zip and 7z</strong> keep their own encryption, which hides less.</li>
+</ul>
+<p><a href="docs/formats.html#bhive-encryption">How .bhive encryption works, and what it protects</a></p>
 
 <h2 id="safety">Safety</h2>
 <ul>
@@ -96,7 +112,8 @@
 <h2 id="cli">The command line</h2>
 <ul>
   <li><strong>Short commands</strong> with aliases: <code>beezip x</code> extracts, <code>beezip c</code> creates, <code>beezip l</code> lists, <code>beezip t</code> tests.</li>
-  <li><strong>Asks in a terminal,</strong> for passwords and files already there, and otherwise fails saying which option to pass.</li>
+  <li><strong>Asks in a terminal,</strong> for passwords, a .bhive's way in and files already there, and otherwise fails saying which option to pass.</li>
+  <li><strong>Keys and signatures for scripts:</strong> <code>beezip keys</code>, <code>beezip protect</code> and <code>beezip sign</code>, and <code>beezip verify</code> or <code>--require-signer</code> to refuse an archive the right person didn't sign.</li>
   <li><strong>For scripts:</strong> <code>--output json</code> prints one JSON document, <code>--output ndjson</code> streams every event, and exit codes say what went wrong.</li>
   <li><strong>Every command by name,</strong> with JSON arguments and schemas, as the app and the MCP server call them.</li>
   <li><strong>Ctrl+C cancels</strong> and removes the partly written file.</li>
@@ -108,6 +125,7 @@
   <li><strong><code>beezip mcp</code></strong> serves BeeZip's commands to Claude and other MCP clients: list, test, read, extract, create, change and convert.</li>
   <li><strong>Writes stay in your folders:</strong> commands write only under the roots you give, and reads aren't confined.</li>
   <li><strong>Asks you, not the assistant,</strong> about overwriting files, where the client supports it. Passwords are never asked for over MCP.</li>
+  <li><strong>Encrypted .bhive, within limits:</strong> an assistant can encrypt to a password, keys or certificates, open with a password or your stored keys, and check signatures, but never signs, touches a device or makes a recovery key.</li>
 </ul>
 <p><a href="docs/mcp.html">Setting up the MCP server</a></p>
 

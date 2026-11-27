@@ -28,9 +28,45 @@
 <p>Measured while the format was designed, on a 193 MiB folder of JavaScript packages: a zip came to 29 % of the original and a <code>.tar.zst</code> to 21 %; a <code>.bhive</code> came to 20 % at Fast, 18 % at Balanced, 14 % at High and 13 % at Max. Your files will differ, and files that are already compressed gain little at any level.</p>
 <ul>
   <li><strong>It stores</strong> files, folders, symbolic links, modification and creation times, Unix modes and DOS attributes. It doesn't store extended attributes, alternate data streams or ACLs.</li>
-  <li><strong>No encryption yet.</strong> Version 1 has none, so <code>-p</code> is refused; use zip or 7z for a password.</li>
-  <li><strong>Only BeeZip reads one today,</strong> which is why zip stays the default. The format is open all the same: its <a href="https://github.com/JoshClose/BeeZip/blob/master/docs/bhive.md">specification</a> is complete, every compressed part is a standard zstd or LZMA2 stream, and a <a href="https://github.com/JoshClose/BeeZip/blob/master/docs/bhive_reader.py">second reader</a>, a short Python script using only Python's standard library, is checked against BeeZip's archives on every change.</li>
-  <li><strong>Version 1 is frozen:</strong> every later BeeZip reads the archives this one writes.</li>
+  <li><strong>It can be <a href="#bhive-encryption">encrypted</a> and <a href="#bhive-signatures">signed</a>,</strong> as below.</li>
+  <li><strong>Only BeeZip reads one today,</strong> which is why zip stays the default. The format is open all the same: its <a href="https://github.com/JoshClose/BeeZip/blob/master/docs/bhive.md">specification</a> is complete, every compressed part is a standard zstd or LZMA2 stream, and a <a href="https://github.com/JoshClose/BeeZip/blob/master/docs/bhive_reader.py">second reader</a>, a short Python script using only Python's standard library, is checked against BeeZip's archives on every change. It opens encrypted ones with a password, a recovery key or a key file, and checks signatures.</li>
+  <li><strong>Version 1 is frozen,</strong> encryption and signatures included: every later BeeZip reads the archives this one writes.</li>
+</ul>
+
+<h3 id="bhive-encryption">Encryption</h3>
+<p>A .bhive can be encrypted, from New archive and Convert in the app, or with <code>-p</code>, <code>--to</code> and the rest on the <a href="cli.html#bhive-encryption">command line</a>. Everything about its files is sealed with AES-256-GCM: their names, dates, attributes and folders, what repeats, and the bytes themselves. Without a way in, nobody can list it, and nobody can change a byte of it without BeeZip noticing. It has as many ways in as you give it, and any one of them opens it:</p>
+<div class="table-wrap"><table>
+  <thead><tr><th scope="col">Way in</th><th scope="col">Who it's for</th><th scope="col">Safe from quantum computers</th></tr></thead>
+  <tbody>
+    <tr><td><strong>Password</strong></td><td>You, or the people you tell. Each guess takes Argon2id with 1 GiB of memory and 2 passes (Standard: about 0.3 s on a fast desktop, 0.6 s on a laptop), or 2 GiB and 3 passes (Strong). BeeZip estimates a typed password's strength and warns under about 50 bits, the same as four random words; <strong>Suggest one</strong> gives six.</td><td>Yes</td></tr>
+    <tr><td><strong>Recovery key</strong></td><td>You, for when everything else is lost: 48 digits in 8 groups, as BitLocker's. BeeZip shows it once and never keeps it.</td><td>Yes</td></tr>
+    <tr><td><strong>Public key</strong></td><td>Someone who gave you their key: <code>age1pq1…</code> (post-quantum, what BeeZip makes) or <code>age1…</code> (classic). These are age's keys, so a key from <code>age-keygen</code> works in BeeZip, and BeeZip's in age (1.3 or later for post-quantum ones); the archives aren't age files.</td><td><code>age1pq1…</code>: yes. <code>age1…</code>: no</td></tr>
+    <tr><td><strong>Certificate</strong></td><td>The holder of an RSA certificate (2,048 bits or more) or an EC one (P-256 or P-384) whose key can agree keys. The private key can be in Windows' stores, on a smart card or in the TPM, in a <code>.pfx</code>, <code>.p12</code> or PEM file, or in the macOS Keychain. BeeZip says why it can't use a certificate: most EC certificates have keys that can only sign.</td><td>No</td></tr>
+    <tr><td><strong>This PC</strong></td><td>This PC, with a key BeeZip makes in its TPM, which never leaves it; a PIN, if you give one, is guarded by the TPM against guessing. Windows only.</td><td>No</td></tr>
+    <tr><td><strong>Security key</strong></td><td>The holder of a FIDO2 security key that supports hmac-secret. Windows asks for a touch. Windows only.</td><td>Yes</td></tr>
+    <tr><td><strong>Windows Hello</strong></td><td>You on this PC: your face, a fingerprint or Hello's PIN, where Windows gives Hello hmac-secret. When it doesn't, BeeZip says so and points to This PC.</td><td>Yes</td></tr>
+  </tbody>
+</table></div>
+<ul>
+  <li><strong>This PC and Windows Hello never leave the machine,</strong> so BeeZip won't make an archive that only they open: add a password, a recovery key, a security key or someone's key too.</li>
+  <li><strong>Security keys and smart cards</strong> are reached through Windows' own dialogs, which come up only when you choose that way in. Neither has been tried on a physical device yet. On macOS and Linux, passwords, recovery keys, public keys and certificates work (from the Keychain on macOS, from files on Linux, where a <code>.pfx</code> must be converted with <code>openssl pkcs12</code> first).</li>
+  <li><strong>Your own keys open archives without asking.</strong> BeeZip makes them, post-quantum by default, and keeps each private key sealed by the system: see <a href="app.html#keys">Keys</a>.</li>
+  <li><strong>A password beside someone else's key</strong> gets a warning: anyone who can open the archive could make another one that your password opens. Signing it shows which one you made.</li>
+  <li><strong>Edits need one way in:</strong> adding, removing and renaming keep the archive's key and its ways in, and seal the new files with the rest, and so does converting it into a .bhive unless it's given new ways in. Changing who can open it recompresses nothing; a new key seals every cell again and rebuilds every way in.</li>
+  <li><strong>What stays in the clear:</strong> that it's an encrypted .bhive, and its size; how many ways in it has, and of which kinds; and each cell's stored size, so roughly how big its files are and how well they compressed. At level None, or for one file that doesn't compress, a file's size can be read from that.</li>
+  <li><strong>BeeZip 0.8</strong> refuses an encrypted .bhive rather than misread it.</li>
+</ul>
+<p><a href="safety.html#bhive-encryption">What it protects against, and what it doesn't</a>.</p>
+
+<h3 id="bhive-signatures">Signatures</h3>
+<p>A .bhive, encrypted or not, can carry signatures: proof of who made its contents, and that nothing in them has changed since. Several people can sign one archive.</p>
+<ul>
+  <li><strong>Who signs:</strong> your own BeeZip signing key, ML-DSA-65 with Ed25519, both checked, so it resists quantum computers. It's shared as a <code>bzsig1…</code> key, and shown with a 16-character fingerprint to read out over the phone. Or a certificate, with RSA-PSS or ECDSA, its key wherever the system keeps it.</li>
+  <li><strong>What's signed is the contents,</strong> not how they're stored: every entry, and the bytes of every cell. Changing who can open the archive, a new key, and encrypting or decrypting it keep its signatures; adding, removing or renaming files drops them.</li>
+  <li><strong>Checked as it opens,</strong> and each cell as it's read, so extracting one file doesn't read the rest. A signer is known when it's you, one of your contacts, or a certificate the system trusts (Windows' chain engine with its revocation check, or macOS's; on Linux, contacts only). Any other signer shows as unknown, with its fingerprint.</li>
+  <li><strong>A signature that fails warns, it doesn't block:</strong> the archive opens marked "Changed after it was signed", the app asks before extracting, and the command line warns. <code>beezip verify</code> and <code>--require-signer</code> refuse it, for scripts.</li>
+  <li><strong>The signing time</strong> is what the signer claims; it isn't proved.</li>
+  <li><strong>In an encrypted archive</strong> the signatures are sealed with the rest, so only someone who can open it sees who signed it. BeeZip 0.8 reads a signed .bhive that isn't encrypted, and ignores the signature.</li>
 </ul>
 
 <h2 id="recognising">How BeeZip recognises a file</h2>
@@ -43,7 +79,7 @@
 <ul>
   <li><strong>RAR</strong> (1.5 to 7) is read through UnRAR, whose license allows extracting RAR archives but not making them. A RAR whose entries have different passwords asks for each.</li>
   <li><strong>7z and RAR 1.5 to 4</strong> have no way to tell a wrong password from damage, so a wrong one shows as damaged data, and BeeZip asks again.</li>
-  <li><strong>Zip</strong> encrypts with AES-256, or with ZipCrypto for old tools, which is weak. <strong>7z</strong> encrypts with AES-256, and hides the file names too.</li>
+  <li><strong>Zip</strong> encrypts with AES-256, or with ZipCrypto for old tools, which is weak. <strong>7z</strong> encrypts with AES-256, and hides the file names too. Neither does what a <a href="#bhive-encryption">.bhive</a> does: a zip leaves its names, sizes and dates readable, a 7z doesn't notice changed bytes, and both passwords are far quicker to guess at. BeeZip keeps them as they are, for the tools that read them.</li>
   <li><strong>Debian packages</strong> list as <code>dpkg-deb -R</code> unpacks them: the files, and the control files under <code>DEBIAN/</code>. <strong>macOS packages</strong> list as <code>pkgutil --expand-full</code> unpacks them, with their <code>Payload</code> and <code>Scripts</code> as folders.</li>
   <li><strong>ISO images</strong> list their Rock Ridge, Joliet or plain names, or their UDF tree when it holds more (as Windows' own ISOs do). BeeZip writes ISO 9660 level 3, with Joliet and Rock Ridge. zisofs files are listed but not extracted, and El Torito boot images aren't listed.</li>
   <li><strong>DMG images</strong> (zlib, bzip2, LZFSE, LZMA, ADC or raw) list the HFS+, HFSX or APFS volume inside, or their partitions when there's no volume. Encrypted and sparse images aren't read. BeeZip writes an HFS+ volume in a zlib-compressed image.</li>
