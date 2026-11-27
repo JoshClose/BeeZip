@@ -7,7 +7,7 @@ import { Dialog } from "../../components/ui/dialog";
 import { Input } from "../../components/ui/input";
 import type { OverwriteChoice, PromptReply } from "../../gen/commands";
 import { baseName } from "../../lib/format";
-import { forOneStep, nextPrompt, orderedJobs, useJobs } from "../../lib/jobs";
+import { forOneStep, KEPT_UNLOCKED, nextPrompt, orderedJobs, useJobs } from "../../lib/jobs";
 import { UnlockPrompt } from "../protection/UnlockPrompt";
 
 export function PasswordPrompt({
@@ -19,7 +19,7 @@ export function PasswordPrompt({
   entry: string | null;
   title: string;
   onReply: (reply: PromptReply) => void;
-  /** The password is kept for the archive's tab. A job window has no tab, so it isn't. */
+  /** The archive stays unlocked for its tab. A job window has no tab, so it doesn't. */
   kept?: boolean;
 }) {
   const [password, setPassword] = useState("");
@@ -61,7 +61,7 @@ export function PasswordPrompt({
         </Button>
       </form>
       <p className="pb-1 text-[12px] text-muted">
-        {kept ? "BeeZip keeps it in memory for this archive until you close it, and never saves it." : "BeeZip uses it for this job only, and never saves it."}
+        {kept ? KEPT_UNLOCKED : "BeeZip uses it for this job only, and never saves it."}
       </p>
     </Dialog>
   );

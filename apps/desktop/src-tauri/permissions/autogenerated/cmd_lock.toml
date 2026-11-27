@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-cmd-lock"
+description = "Enables the cmd_lock command without any pre-configured scope."
+commands.allow = ["cmd_lock"]
+
+[[permission]]
+identifier = "deny-cmd-lock"
+description = "Denies the cmd_lock command without any pre-configured scope."
+commands.deny = ["cmd_lock"]

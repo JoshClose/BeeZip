@@ -28,6 +28,7 @@
     "allow-cmd-respond",
     "allow-cmd-list",
     "allow-cmd-launched",
+    "allow-cmd-lock",
     "allow-cmd-ready",
     "allow-cmd-save-text",
     "allow-cmd-drag-out",

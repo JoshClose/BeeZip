@@ -1,8 +1,11 @@
 // The open archives, one tab each (docs/M3.md §5.2). A password typed for an archive is kept
 // here, in memory only, and passed to later calls on it, as is the name encoding chosen for it
-// (docs/M5.md §8.4).
+// (docs/M5.md §8.4). Rust keeps an encrypted .bhive unlocked for the main window's jobs, however
+// it was opened (a password, a recovery key, a key or device); closing its tab locks it again
+// (docs/M14.md §8).
 import { create } from "zustand";
 import type { ArchiveInfoOutput, EntryInfo, NameEncoding, SortKey } from "../gen/commands";
+import { lock } from "./engine";
 import { baseName } from "./format";
 
 export type Tab = {
@@ -88,12 +91,16 @@ export const useArchives = create<ArchivesState>((set, get) => ({
   },
 
   close(id) {
+    const closing = get().tabs.find((t) => t.id === id);
     set((s) => {
       const i = s.tabs.findIndex((t) => t.id === id);
       const tabs = s.tabs.filter((t) => t.id !== id);
       const active = s.active === id ? (tabs[Math.min(i, tabs.length - 1)]?.id ?? undefined) : s.active;
       return { tabs, active };
     });
+    // Locked again, unless another tab shows the same file. A failure leaves nothing to do:
+    // the app is closing, which forgets it anyway.
+    if (closing && !get().tabs.some((t) => sameFile(t.path, closing.path))) lock(closing.path).catch(() => {});
   },
 
   activate(id) {

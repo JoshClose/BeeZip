@@ -2,8 +2,8 @@
 //! thread.
 //!
 //! `DoDragDrop` runs a modal loop until the drop is over, and the extraction a drop starts
-//! pumps messages too, so the page keeps getting its job's progress and prompts. Neither may
-//! run where Tauri would start them by itself:
+//! pumps messages too, so the page keeps getting its job's progress. Neither may run where
+//! Tauri would start them by itself:
 //! - inside a WebView2 event handler, which a sync command's body is: WebView2 doesn't
 //!   support a nested message loop there;
 //! - inside tao's event handler, where `run_on_main_thread` runs closures: while it runs,
@@ -11,6 +11,10 @@
 //!
 //! So the async command posts the drag to this window, and tao's own message loop dispatches
 //! it from the top, outside both.
+//!
+//! The extraction never prompts ([`NoPrompts`]): Explorer's drop waits on it, so a question
+//! would hang Explorer until it was answered. A tab's encrypted archive opens with what
+//! unlocked it for the tab, which the main window's jobs keep (docs/M14.md §8).
 
 #![allow(unsafe_code)] // Win32 windows and messages
 
@@ -26,7 +30,10 @@ use std::{
     },
 };
 
-use beezip_commands::{CmdError, Engine, ErrorCode, EventSink, Interactor};
+use beezip_commands::{
+    CmdError, Engine, ErrorCode, EventSink, Interactor, JobId, Prompt, PromptReply,
+    crypt::UnlockWay,
+};
 use serde_json::Value;
 use tauri::{AppHandle, Manager};
 use windows::{
@@ -45,7 +52,6 @@ use windows::{
 };
 
 use super::{DragOutcome, drag_dir, dropped_items, extract_args, ole, trace};
-use crate::prompts::GuiInteractor;
 
 /// The message that carries a [`Request`]; `lParam` is its `Box`.
 const WM_DRAG_OUT: u32 = WM_APP + 0x42;
@@ -102,7 +108,6 @@ pub fn init() -> windows::core::Result<()> {
 /// A drag the page asked for, on its way to the UI thread.
 struct Request {
     engine: Engine,
-    gui: Arc<GuiInteractor>,
     args: Value,
     sink: EventSink,
     /// The page's window, which a device's dialog belongs to.
@@ -118,13 +123,7 @@ pub async fn drag_out(
     sink: EventSink,
     page: Option<isize>,
 ) -> Result<DragOutcome, CmdError> {
-    let outcome = post(
-        app.state::<Engine>().inner().clone(),
-        Arc::clone(app.state::<Arc<GuiInteractor>>().inner()),
-        args,
-        sink,
-        page,
-    )?;
+    let outcome = post(app.state::<Engine>().inner().clone(), args, sink, page)?;
     tauri::async_runtime::spawn_blocking(move || outcome.recv())
         .await
         .map_err(|e| CmdError::internal(format!("waiting for the drag: {e}")))?
@@ -134,7 +133,6 @@ pub async fn drag_out(
 /// Posts the drag to the window; the outcome comes on the receiver.
 fn post(
     engine: Engine,
-    gui: Arc<GuiInteractor>,
     args: Value,
     sink: EventSink,
     page: Option<isize>,
@@ -148,7 +146,6 @@ fn post(
     let (reply, outcome) = mpsc::channel();
     let request = Box::into_raw(Box::new(Request {
         engine,
-        gui,
         args,
         sink,
         page,
@@ -201,7 +198,6 @@ unsafe extern "system" fn procedure(
 fn run(request: Request) -> Result<DragOutcome, CmdError> {
     let Request {
         engine,
-        gui,
         args,
         sink,
         page,
@@ -226,7 +222,7 @@ fn run(request: Request) -> Result<DragOutcome, CmdError> {
     let args = extract_args(args, &temp)?;
     let materialize: ole::Materialize = {
         let temp = temp.clone();
-        Box::new(move || extract(&engine, gui, args, sink, &temp, page))
+        Box::new(move || extract(&engine, args, sink, &temp, page))
     };
     let result = ole::drag(temp.clone(), materialize, Rc::new(ole::over_own_window));
     // Moved items have gone already; copied ones, and anything left, go now.
@@ -254,20 +250,52 @@ fn primary_button_down() -> bool {
     }
 }
 
-/// Runs `archive.extract` into `temp` as an ordinary job, pumping this thread's messages until
-/// it ends, and returns the items to drop. A device's dialog belongs to `page`, the page's
-/// window.
+/// What a drag can't do: stop to ask how to open the archive.
+const NO_UNLOCK: &str = "a drag can't stop to ask how to unlock the archive; use Extract instead";
+
+/// The drop's interactor, which asks nothing. Explorer calls the data object's `GetData` and
+/// waits, frozen, until the extraction is over, so a prompt would hang it until someone
+/// answered, while the page might not even show it. Every prompt fails at once, without a
+/// `Prompt` event: an archive that needs unlocking (nothing kept for its tab) fails the drop,
+/// whose toast says to use Extract, and an overwrite can't come up in the drag's new folder.
+/// The memory question is refused too, as it is with nobody to ask.
+pub struct NoPrompts;
+
+impl Interactor for NoPrompts {
+    fn prompt(&self, _job: JobId, _id: u64, prompt: &Prompt) -> Result<PromptReply, CmdError> {
+        Err(match prompt {
+            Prompt::Unlock { ways, .. } if !ways.iter().any(UnlockWay::is_typed) => {
+                CmdError::new(ErrorCode::KeyRequired, NO_UNLOCK)
+            }
+            Prompt::Unlock { .. } | Prompt::Password { .. } => {
+                CmdError::new(ErrorCode::PasswordRequired, NO_UNLOCK)
+            }
+            Prompt::Overwrite { path, .. } => CmdError::new(
+                ErrorCode::Conflict,
+                format!("`{path}` is in the drop's way; use Extract instead"),
+            ),
+        })
+    }
+
+    fn shows_prompts(&self) -> bool {
+        false
+    }
+}
+
+/// Runs `archive.extract` into `temp` as an ordinary job that asks nothing ([`NoPrompts`]),
+/// pumping this thread's messages until it ends, and returns the items to drop. It keeps the
+/// archive unlocked as the main window's jobs do, so the tab's archive opens with what
+/// unlocked it there. A device's dialog would belong to `page`, the page's window.
 pub fn extract(
     engine: &Engine,
-    gui: Arc<dyn Interactor>,
     args: Value,
     sink: EventSink,
     temp: &Path,
     page: Option<isize>,
 ) -> Result<Vec<PathBuf>, String> {
-    let policy = crate::ipc::policy_for(engine, page);
+    let policy = crate::ipc::policy_for(engine, page, true);
     let job = engine
-        .invoke_with_policy("archive.extract", args, gui, sink, policy)
+        .invoke_with_policy("archive.extract", args, Arc::new(NoPrompts), sink, policy)
         .map_err(|e| e.message)?;
     let id = job.id();
     let done: Arc<Mutex<Option<Result<Value, CmdError>>>> = Arc::default();
@@ -401,7 +429,7 @@ mod tests {
             &temp,
         )
         .unwrap();
-        let items = extract(&engine, Arc::new(NonInteractive), args, sink, &temp, None).unwrap();
+        let items = extract(&engine, args, sink, &temp, None).unwrap();
         assert_eq!(items, [temp.join("a.md"), temp.join("deep")]);
         assert_eq!(
             std::fs::read_to_string(temp.join("deep").join("b.md")).unwrap(),
@@ -433,7 +461,6 @@ mod tests {
         let (sink, seen) = events();
         let outcome = post(
             Engine::new(registry()),
-            Arc::new(GuiInteractor::new(|_| false)),
             json!({ "archive": zip }),
             sink,
             None,
@@ -465,7 +492,6 @@ mod tests {
         let (sink, _) = events();
         let outcome = post(
             Engine::new(registry()),
-            Arc::new(GuiInteractor::new(|_| false)),
             json!({ "archive": zip, "dest": "C:/elsewhere" }),
             sink,
             None,
@@ -496,11 +522,122 @@ mod tests {
         let (sink, seen) = events();
         let args =
             extract_args(json!({ "archive": dir.path().join("missing.zip") }), &temp).unwrap();
-        let why = extract(&engine, Arc::new(NonInteractive), args, sink, &temp, None).unwrap_err();
+        let why = extract(&engine, args, sink, &temp, None).unwrap_err();
         assert!(why.starts_with("NotFound"), "{why}");
         assert_eq!(
             seen.lock().unwrap().last().map(String::as_str),
             Some("Failed")
         );
+    }
+
+    /// The sealed example of bhive.md §11 (password "honey"), copied into `dir`.
+    fn sealed(dir: &Path) -> PathBuf {
+        let fixture = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../../tests/fixtures/bhive-m14/spec-sealed.bhive");
+        let archive = dir.join("sealed.bhive");
+        std::fs::copy(fixture, &archive).unwrap();
+        archive
+    }
+
+    /// `extract` on another thread, so that one that waits fails the test instead of hanging
+    /// it: what it returned, the events it sent, and how long it took.
+    fn extract_soon(
+        engine: &Engine,
+        args: Value,
+        temp: &Path,
+    ) -> (Result<Vec<PathBuf>, String>, Vec<String>) {
+        let (sink, seen) = events();
+        let (engine, temp) = (engine.clone(), temp.to_path_buf());
+        let (tx, rx) = mpsc::channel();
+        std::thread::spawn(move || {
+            let _ = tx.send(extract(&engine, args, sink, &temp, None));
+        });
+        let got = rx
+            .recv_timeout(std::time::Duration::from_secs(30))
+            .expect("the drop's extraction waited");
+        let seen = seen.lock().unwrap().clone();
+        (got, seen)
+    }
+
+    /// An archive the tab hasn't unlocked (nothing kept for it) fails the drop at once, with no
+    /// prompt for the page and nothing for Explorer to wait on. Once the tab has unlocked it, a
+    /// drop opens it with what was kept, and asks nothing.
+    #[test]
+    fn a_drop_never_waits_to_unlock_the_archive() {
+        let dir = tempfile::tempdir().unwrap();
+        let archive = sealed(dir.path());
+        let engine = Engine::new(registry());
+        let temp = dir.path().join("drag-3");
+        std::fs::create_dir(&temp).unwrap();
+        let args = extract_args(json!({ "archive": archive }), &temp).unwrap();
+        let (got, seen) = extract_soon(&engine, args.clone(), &temp);
+        let why = got.unwrap_err();
+        assert!(why.starts_with("PasswordRequired"), "{why}");
+        assert!(why.contains("use Extract"), "{why}");
+        assert!(!seen.iter().any(|e| e == "Prompt"), "{seen:?}");
+        assert_eq!(seen.last().map(String::as_str), Some("Failed"));
+
+        // The tab lists it with its password, as the main window's jobs run.
+        let policy = crate::ipc::policy_for(&engine, None, true);
+        engine
+            .invoke_with_policy(
+                "archive.list",
+                json!({ "archive": archive, "password": "honey" }),
+                Arc::new(NonInteractive),
+                beezip_commands::discard_events(),
+                policy,
+            )
+            .unwrap()
+            .join()
+            .unwrap();
+        assert_eq!(engine.unlocks().len(), 1);
+        let (got, seen) = extract_soon(&engine, args, &temp);
+        let items = got.unwrap();
+        // Its link is refused, as Extract refuses it, and the rest dropped.
+        assert_eq!(items, [temp.join("docs")]);
+        assert!(!seen.iter().any(|e| e == "Prompt"), "{seen:?}");
+    }
+
+    /// Every prompt fails at once, and none goes out as an event.
+    #[test]
+    fn the_drops_interactor_refuses_every_prompt() {
+        use beezip_commands::crypt::SlotKindName;
+        assert!(!NoPrompts.shows_prompts());
+        let way = |kind| UnlockWay {
+            slot: 0,
+            kind,
+            here: true,
+        };
+        let cases = [
+            (
+                Prompt::Unlock {
+                    ways: vec![way(SlotKindName::SecurityKey)],
+                    attempt: 0,
+                },
+                ErrorCode::KeyRequired,
+            ),
+            (
+                Prompt::Unlock {
+                    ways: vec![way(SlotKindName::SecurityKey), way(SlotKindName::Password)],
+                    attempt: 0,
+                },
+                ErrorCode::PasswordRequired,
+            ),
+            (
+                Prompt::Password { entry: None },
+                ErrorCode::PasswordRequired,
+            ),
+            (
+                Prompt::Overwrite {
+                    path: "a".into(),
+                    archive: None,
+                },
+                ErrorCode::Conflict,
+            ),
+        ];
+        for (prompt, code) in cases {
+            let e = NoPrompts.prompt(1, 1, &prompt).unwrap_err();
+            assert_eq!(e.code, code, "{prompt:?}");
+        }
     }
 }

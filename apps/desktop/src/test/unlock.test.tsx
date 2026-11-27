@@ -1,9 +1,10 @@
 import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { Prompts } from "../features/prompts/Prompts";
+import { PasswordPrompt, Prompts } from "../features/prompts/Prompts";
 import { UnlockPrompt } from "../features/protection/UnlockPrompt";
 import type { JobEvent, UnlockWay } from "../gen/commands";
+import { useArchives } from "../lib/archives";
 import { keptSecret, useJobs } from "../lib/jobs";
 import { fake } from "./fakeEngine";
 
@@ -20,9 +21,12 @@ const ways: UnlockWay[] = [
   { slot: 5, kind: "post-quantum-key", here: false },
 ];
 
+const KEPT = "BeeZip keeps this archive unlocked until you close its tab, and never saves what you type.";
+
 beforeEach(() => {
   fake.reset();
   useJobs.setState({ jobs: {}, order: [] });
+  useArchives.setState({ tabs: [], active: undefined });
 });
 
 describe("the Unlock panel (docs/M14.md §8)", () => {
@@ -110,5 +114,41 @@ describe("an Unlock prompt from a job", () => {
     expect(keptSecret({ kind: "Unlock", answer: { way: "recovery-key", key: KEY } })).toBe(KEY);
     expect(keptSecret({ kind: "Unlock", answer: { way: "slot", slot: 2 } })).toBeUndefined();
     expect(keptSecret({ kind: "Cancel" })).toBeUndefined();
+  });
+});
+
+describe("an archive kept unlocked for its tab (docs/M14.md §8)", () => {
+  it("says so, whichever way in opens it, and a job window says it doesn't", () => {
+    const { unmount } = render(<UnlockPrompt ways={ways} attempt={0} title="t" onReply={() => {}} />);
+    expect(screen.getByText(KEPT)).toBeInTheDocument();
+    unmount();
+    // A device alone: nothing is typed, and the archive still stays unlocked.
+    const devices = render(<UnlockPrompt ways={[{ slot: 0, kind: "security-key", here: true }]} attempt={0} title="t" onReply={() => {}} />);
+    expect(screen.getByText(KEPT)).toBeInTheDocument();
+    devices.unmount();
+    const password = render(<PasswordPrompt entry={null} title="t" onReply={() => {}} />);
+    expect(screen.getByText(KEPT)).toBeInTheDocument();
+    password.unmount();
+    render(<PasswordPrompt entry={null} title="t" onReply={() => {}} kept={false} />);
+    expect(screen.queryByText(KEPT)).toBeNull();
+    expect(screen.getByText(/for this job only/)).toBeInTheDocument();
+  });
+
+  it("locks the archive again when its tab closes", async () => {
+    const a = String.raw`C:\work\a.bhive`;
+    const b = String.raw`C:\work\b.bhive`;
+    const ta = useArchives.getState().open(a);
+    const tb = useArchives.getState().open(b);
+    // The same file again is the same tab.
+    expect(useArchives.getState().open("c:/work/A.bhive")).toBe(ta);
+    useArchives.getState().close(ta);
+    await waitFor(() => expect(fake.locked).toEqual([a]));
+    expect(useArchives.getState().tabs.map((t) => t.id)).toEqual([tb]);
+    // A tab that isn't there locks nothing.
+    useArchives.getState().close(ta);
+    useArchives.getState().close("tab-none");
+    useArchives.getState().close(tb);
+    await waitFor(() => expect(fake.locked).toEqual([a, b]));
+    expect(useArchives.getState().tabs).toEqual([]);
   });
 });
