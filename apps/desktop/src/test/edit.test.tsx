@@ -7,7 +7,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vites
 import { dropPaths, dropZone } from "../lib/drop";
 import { Browser } from "../features/browser/Browser";
 import { convertArgs, convertOutput, CreateDialog, type CreateForm } from "../features/create/CreateDialog";
-import { AddDialog, addArgs, editFormat, initialAdd } from "../features/edit/AddDialog";
+import { AddDialog, addArgs, addNotReady, editFormat, initialAdd } from "../features/edit/AddDialog";
 import { deleteSelection } from "../features/edit/confirmDelete";
 import type { ArchiveInfoOutput, EditOutput, EntryInfo, FormatsListOutput } from "../gen/commands";
 import { archiveArgs, type Tab, useArchives } from "../lib/archives";
@@ -167,10 +167,12 @@ describe("the add dialog", () => {
 
     const box = screen.getByRole("checkbox", { name: "Encrypt the new files" });
     expect(box).toBeChecked();
-    // It needs the password before it can add.
+    // It needs the password before it can add, and says so beside the button.
     expect(screen.getByRole("button", { name: "Add" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Add" })).toHaveAccessibleDescription("Type a password for the new files, or don't encrypt them.");
     await user.type(screen.getByLabelText("Password"), "pw");
     expect(screen.getByRole("button", { name: "Add" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Add" })).not.toHaveAccessibleDescription();
 
     await user.click(box);
     expect(screen.getByText("The new files go in unencrypted, beside encrypted ones.")).toBeInTheDocument();
@@ -193,6 +195,10 @@ describe("the add dialog", () => {
     expect(form).toMatchObject({ encrypt: true, password: "secret" });
     // Turning it off can't apply: the names stay encrypted with the archive's password.
     expect(addArgs(t, { ...form, encrypt: false }, formats)).toEqual({ archive: "C:\\work\\b.7z", inputs: ["C:\\x"], password: "secret" });
+    // Why Add is disabled: no files, then no password for names that are encrypted.
+    expect(addNotReady(t, form, formats)).toBeUndefined();
+    expect(addNotReady(t, { ...form, inputs: [] }, formats)).toBe("Add files or folders to put in it.");
+    expect(addNotReady(t, { ...form, encrypt: false, password: "" }, formats)).toBe("Type the archive's password: its names are encrypted.");
 
     const tar = openTab("C:\\work\\c.tar.zst");
     useArchives.getState().update(tar.id, { info: info({ format: "tar", codecs: ["zstd"] }) });
