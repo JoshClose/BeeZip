@@ -80,6 +80,10 @@ using BeeZip will notice. Leave the date out: the Releases page dates each versi
   **Sign with**.
 - **Unlock** asks for a way into an encrypted `.bhive` none of your keys opens: the password, the
   recovery key, or a button for each key or device this PC has.
+- **It stays unlocked until you close its tab,** whichever way opened it: opening folders,
+  previews and dragging files out don't ask again or bring Windows Hello back. What unlocked it
+  is kept in memory only, never saved. A drag never stops to ask: if the archive needs
+  unlocking again, BeeZip says to use Extract, and Explorer doesn't wait.
 - **Who can open this** lists an archive's ways in, adds and removes them, and makes a new key.
 - **A signature line** at the top of the archive, with its details and **Add to contacts**; and
   **Sign**, to add or remove signatures.
