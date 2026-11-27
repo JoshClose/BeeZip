@@ -1,7 +1,8 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { open as pickFiles } from "@tauri-apps/plugin-dialog";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { apartFrom, applies, type CreateForm, CreateDialog, createArgs, defaultLevel, defaultOutput, levelHint, levelLabel, levelNote, withFormat } from "../features/create/CreateDialog";
+import { apartFrom, applies, type CreateForm, CreateDialog, createArgs, defaultLevel, defaultOutput, levelHint, levelLabel, levelNote, notReady, withFormat } from "../features/create/CreateDialog";
 import { ownLevel } from "../features/edit/AddDialog";
 import { levelTargets } from "../features/settings/Settings";
 import type { FormatsListOutput } from "../gen/commands";
@@ -169,6 +170,25 @@ describe("the create dialog's arguments", () => {
     expect(codecOfTar(all, "cpio")).toBeUndefined();
     expect(codecOfTar(all, "cab")).toBeUndefined();
   });
+
+  it("says why it can't create yet, first things first", () => {
+    const ok = { inputs: [String.raw`C:\work\src`], output: String.raw`C:\work\src.zip`, format: "zip" };
+    expect(notReady(ok)).toBeUndefined();
+    expect(notReady({ ...ok, inputs: [], output: "" })).toBe("Add files or folders to pack.");
+    expect(notReady({ ...ok, output: "  " })).toBe("Choose where to save it.");
+    // Converting needs no inputs.
+    expect(notReady({ ...ok, inputs: undefined })).toBeUndefined();
+    expect(notReady({ ...ok, inputs: undefined, dropsEncryption: "a.zip", wayIn: "password" })).toBe(
+      "a.zip is encrypted: give the new archive a password, or write its entries without one.",
+    );
+    expect(notReady({ ...ok, inputs: undefined, dropsEncryption: "a.zip", wayIn: "way in", format: "bhive" })).toBe(
+      "a.zip is encrypted: give the new archive a way in, or write its entries without one.",
+    );
+    expect(notReady({ ...ok, inputs: undefined, dropsEncryption: "a.zip", format: "tar" })).toBe(
+      "a.zip is encrypted and tar can't be: write its entries without a password, or choose another format.",
+    );
+    expect(notReady({ ...ok, format: "bhive", problem: "This PC opens it only on this computer." })).toBe("This PC opens it only on this computer.");
+  });
 });
 
 describe("the create dialog", () => {
@@ -219,5 +239,34 @@ describe("the create dialog", () => {
     expect(level).toHaveAttribute("aria-valuetext", "Balanced");
     expect(screen.getByText("Default Balanced.")).toBeInTheDocument();
     expect(screen.getByText("zstd 6: quick and small")).toBeInTheDocument();
+  });
+
+  it("says why Create is disabled, and warns of a weak password without refusing it", async () => {
+    const user = userEvent.setup();
+    render(<CreateDialog inputs={[]} onClose={() => {}} />);
+    await waitFor(() => expect(screen.getByRole("option", { name: "bhive" })).toBeInTheDocument());
+    const create = screen.getByRole("button", { name: "Create" });
+    expect(create).toBeDisabled();
+    expect(create).toHaveAccessibleDescription("Add files or folders to pack.");
+
+    // A weak password is a warning in amber, not an error: it isn't why Create is disabled.
+    await user.selectOptions(screen.getByLabelText("Format"), "bhive");
+    await user.type(screen.getByLabelText("Password"), "summer2026");
+    const strength = screen.getByRole("status");
+    expect(strength).toHaveTextContent(/very weak/);
+    expect(strength).toHaveClass("text-amber");
+    expect(strength).not.toHaveClass("text-danger");
+    expect(create).toHaveAccessibleDescription("Add files or folders to pack.");
+
+    vi.mocked(pickFiles).mockResolvedValueOnce([String.raw`C:\work\src`]);
+    await user.click(screen.getByRole("button", { name: /Add files/ }));
+    await waitFor(() => expect(create).toBeEnabled());
+    expect(create).not.toHaveAccessibleDescription();
+    expect(screen.queryByText("Add files or folders to pack.")).toBeNull();
+    expect(screen.getByLabelText("Save as")).toHaveValue(String.raw`C:\work\src.bhive`);
+
+    await user.clear(screen.getByLabelText("Save as"));
+    expect(create).toBeDisabled();
+    expect(create).toHaveAccessibleDescription("Choose where to save it.");
   });
 });

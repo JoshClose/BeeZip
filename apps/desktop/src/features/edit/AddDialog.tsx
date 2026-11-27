@@ -27,7 +27,7 @@ import { ownSigners, signaturesOf } from "../../lib/signatures";
 import { toastError } from "../../lib/toasts";
 import { CopyAsCli } from "../cli/CopyAsCli";
 import { SignWithField } from "../protection/ProtectionFields";
-import { applies, defaultLevel, defaultMethod, InputsField, levelArg, levelHint, levelLabel, levelNote, useConfiguredLevels } from "../create/CreateDialog";
+import { applies, defaultLevel, defaultMethod, InputsField, levelArg, levelHint, levelLabel, levelNote, useConfiguredLevels, WhyDisabled } from "../create/CreateDialog";
 
 export type AddForm = {
   inputs: string[];
@@ -123,12 +123,15 @@ export function addArgs(tab: Tab, f: AddForm, formats?: FormatsListOutput): Arch
   };
 }
 
-/** Whether the dialog can add: files, and a password when the new files are encrypted. */
-export function addReady(tab: Tab, f: AddForm, formats?: FormatsListOutput): boolean {
+/** Why the dialog can't add yet, said beside its button, or undefined when it can: it needs
+ * files, and a password when the new files are encrypted. */
+export function addNotReady(tab: Tab, f: AddForm, formats?: FormatsListOutput): string | undefined {
   const a = applies({ format: editFormat(tab.info, formats), method: f.method }, formats);
   const { headers } = encryptionOf(tab.info);
-  const needsPassword = a.password && (f.encrypt || headers);
-  return f.inputs.length > 0 && (!needsPassword || f.password.length > 0);
+  if (f.inputs.length === 0) return "Add files or folders to put in it.";
+  if (a.password && (f.encrypt || headers) && f.password.length === 0)
+    return headers ? "Type the archive's password: its names are encrypted." : "Type a password for the new files, or don't encrypt them.";
+  return undefined;
 }
 
 export function AddDialog({ tab, inputs: given, dir, onClose }: { tab: Tab; inputs: string[]; dir: string; onClose: () => void }) {
@@ -162,7 +165,8 @@ export function AddDialog({ tab, inputs: given, dir, onClose }: { tab: Tab; inpu
   const shownLevel = kept === undefined ? defaultLevel(a, levels) : { value: kept, configured: false };
   const { encrypted, headers } = encryptionOf(tab.info);
   const args = useMemo(() => addArgs(tab, form, formats), [tab, form, formats]);
-  const ready = addReady(tab, form, formats);
+  const why = addNotReady(tab, form, formats);
+  const ready = why === undefined;
   const methodDefault = defaultMethod(format);
   const configuredLabel = EDIT_OVERWRITE.find((o) => o.id === configured)?.label;
   const signed = signaturesOf(tab.info).length;
@@ -182,8 +186,9 @@ export function AddDialog({ tab, inputs: given, dir, onClose }: { tab: Tab; inpu
       footer={
         <>
           <CopyAsCli command="archive.add" args={args} disabled={!ready} />
+          <WhyDisabled id="add-why" why={why} />
           <Button onClick={onClose}>Cancel</Button>
-          <Button variant="primary" onClick={add} disabled={!ready}>
+          <Button variant="primary" onClick={add} disabled={!ready} aria-describedby={why ? "add-why" : undefined}>
             <FilePlus2 /> Add
           </Button>
         </>

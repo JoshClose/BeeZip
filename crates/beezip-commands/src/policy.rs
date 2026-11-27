@@ -40,9 +40,10 @@ pub struct Policy {
     pub window: Option<isize>,
 }
 
-/// The console window this process runs in, for [`Policy::window`]: what the CLI passes, so
-/// that Windows' PIN and security-key dialogs come up over the terminal. `None` without a
-/// console, and on macOS and Linux.
+/// The window of the terminal this process runs in, for [`Policy::window`]: what the CLI passes,
+/// so that Windows' PIN and security-key dialogs come up over the terminal. conhost's console
+/// window, the Windows Terminal window that owns ConPTY's hidden one, else the window in front
+/// ([`beezip_keys::console_window`]). `None` without a console, and on macOS and Linux.
 pub fn console_window() -> Option<isize> {
     beezip_keys::console_window()
 }

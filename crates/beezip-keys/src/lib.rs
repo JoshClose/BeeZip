@@ -31,15 +31,18 @@ pub mod cng;
 #[cfg(target_os = "macos")]
 pub mod mac;
 pub mod webauthn;
+#[cfg(any(windows, test))]
+mod window;
 
-/// The console window this process runs in: the window Windows' own dialogs (a smart card's or
-/// TPM key's PIN, Windows Security's for a security key or Windows Hello) belong to when a
-/// command runs in a terminal, as the CLI's do. `None` without a console, and on macOS and
-/// Linux.
+/// The window of the terminal this process runs in: the window Windows' own dialogs (a smart
+/// card's or TPM key's PIN, Windows Security's for a security key or Windows Hello) belong to
+/// when a command runs in a terminal, as the CLI's do. conhost's console window; the Windows
+/// Terminal window that owns ConPTY's hidden one; else the window in front, where the command
+/// was typed (`window::dialog_window`). `None` without a console, and on macOS and Linux.
 pub fn console_window() -> Option<isize> {
     #[cfg(windows)]
     {
-        webauthn::ffi::console_window()
+        window::dialog_window(&webauthn::ffi::Desktop)
     }
     #[cfg(not(windows))]
     {
@@ -87,5 +90,18 @@ impl KeySource for Sources {
             }
         }
         Ok(None)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    /// It asks the real desktop, whatever the tests run in: a console, a terminal's hidden one,
+    /// or none.
+    #[test]
+    fn console_window_answers() {
+        let window = super::console_window();
+        if cfg!(not(windows)) {
+            assert_eq!(window, None);
+        }
     }
 }

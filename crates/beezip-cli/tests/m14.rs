@@ -398,7 +398,7 @@ fn a_certificate_contact_through_the_cli() {
     let h = Here::new();
     let out = h.ok(&["keys", "import", "Bob", "--file", &testdata("rsa.der")]);
     assert!(
-        out.contains("Added `Bob`, a contact's certificate: BeeZip test rsa (self-signed)"),
+        out.contains("Added \"Bob\", a contact's certificate: BeeZip test rsa (self-signed)"),
         "{out}"
     );
     let table = h.ok(&["keys", "list"]);

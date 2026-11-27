@@ -221,6 +221,29 @@ export function keepLabel(source: Tab): string {
   return n === undefined ? "Keep who can open it" : `Keep who can open it: its ${n} ${n === 1 ? "way" : "ways"} in`;
 }
 
+/** Why Create (or Convert) can't run yet, said beside the button, or undefined when it can: no
+ * files to pack, nowhere to save it, a source's encryption about to be dropped, or what the
+ * Protection section refuses. */
+export function notReady(b: {
+  /** The files and folders to pack; none when converting. */
+  inputs?: string[];
+  output: string;
+  /** The encrypted source whose encryption nothing keeps yet. */
+  dropsEncryption?: string;
+  /** What the new archive's format takes to stay encrypted. */
+  wayIn?: "password" | "way in";
+  format: string;
+  problem?: string;
+}): string | undefined {
+  if (b.inputs && b.inputs.length === 0) return "Add files or folders to pack.";
+  if (!b.output.trim()) return "Choose where to save it.";
+  if (b.dropsEncryption)
+    return b.wayIn
+      ? `${b.dropsEncryption} is encrypted: give the new archive a ${b.wayIn}, or write its entries without one.`
+      : `${b.dropsEncryption} is encrypted and ${b.format} can't be: write its entries without a password, or choose another format.`;
+  return b.problem;
+}
+
 /** A first guess at the output: next to the first input, named after it or its folder. */
 export function defaultOutput(inputs: string[], format: string): string {
   if (inputs.length === 0) return "";
@@ -272,6 +295,17 @@ export function WeakerThanBhive({ format, onBhive }: { format: string; onBhive: 
         <ShieldCheck /> Use .bhive
       </Button>
     </div>
+  );
+}
+
+/** Why a dialog's button is disabled, in the footer beside it, so a greyed-out button never
+ * leaves the person guessing. The button points to it with `aria-describedby`. */
+export function WhyDisabled({ id, why }: { id: string; why?: string }) {
+  if (!why) return null;
+  return (
+    <p id={id} className="min-w-0 flex-1 text-right text-[12px] text-muted">
+      {why}
+    </p>
   );
 }
 
@@ -367,7 +401,15 @@ export function CreateDialog({
   // .bhive), or needs a new password (or, for a .bhive, any way in), or the person's word that
   // its entries may go without one.
   const keepsEncryption = !encryptedSource || keeping || (a.password && form.password.length > 0) || (check !== undefined && check.ways > 0) || decrypt;
-  const ready = (convert || form.inputs.length > 0) && form.output.trim().length > 0 && keepsEncryption && !check?.problem;
+  const why = notReady({
+    inputs: convert ? undefined : form.inputs,
+    output: form.output,
+    dropsEncryption: keepsEncryption ? undefined : source?.name,
+    wayIn: a.password ? "password" : a.protection ? "way in" : undefined,
+    format: form.format,
+    problem: check?.problem,
+  });
+  const ready = why === undefined;
 
   const setInputs = (inputs: string[]) => setForm((f) => ({ ...f, inputs, output: f.output || defaultOutput(inputs, f.format) }));
 
@@ -415,8 +457,9 @@ export function CreateDialog({
       footer={
         <>
           <CopyAsCli command={source ? "archive.convert" : "archive.create"} args={args} disabled={!ready} />
+          <WhyDisabled id="create-why" why={why} />
           <Button onClick={onClose}>Cancel</Button>
-          <Button variant="primary" onClick={create} disabled={!ready}>
+          <Button variant="primary" onClick={create} disabled={!ready} aria-describedby={why ? "create-why" : undefined}>
             <PackagePlus /> {source ? "Convert" : "Create"}
           </Button>
         </>
