@@ -38,12 +38,42 @@ pub struct Policy {
     /// console ([`console_window`]). `None` puts them over the window in front; MCP, which
     /// uses no devices, and other systems leave it so.
     pub window: Option<isize>,
-    /// Keep an encrypted `.bhive` unlocked for later jobs: what opened it is kept in memory,
-    /// for the archive's path, and the engine's next job on it takes that first, asking nobody
-    /// (docs/M14.md §8, [`crate::unlocks`]). The desktop sets it for its main window's tabs
-    /// and their drags, and forgets an archive when its tab closes. The CLI, MCP and Explorer's
-    /// job windows leave it off, and keep nothing.
-    pub keep_unlocked: bool,
+    /// What the job does with the encrypted `.bhive` archives the engine keeps unlocked
+    /// (docs/M14.md §8, [`crate::unlocks`]): nothing, open from them, or open from them and
+    /// keep what opens one. Off unless a front end says.
+    pub kept_unlocks: KeptUnlocks,
+}
+
+/// What a job does with the archives its engine keeps unlocked ([`Policy::kept_unlocks`]):
+/// what opened an encrypted `.bhive` is kept in memory, for the archive's path, and a later
+/// job on it that may take it tries it first, asking nobody.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum KeptUnlocks {
+    /// Neither takes nor keeps: the CLI, MCP and Explorer's job windows.
+    #[default]
+    Off,
+    /// Opens an archive from what was kept for its path, and keeps nothing new: no slot, and
+    /// no path for a slot kept already. Taking a slot makes it the most recently used. The
+    /// desktop's main window runs its jobs that belong to no tab so (the palette's form on a
+    /// file no tab shows): what they opened would stay in memory, since no tab's closing
+    /// forgets it.
+    Use,
+    /// Takes, and keeps what opens the archive for its path until it is forgotten
+    /// ([`crate::unlocks::Unlocks::forget`]): the jobs of the desktop's tabs and their drags,
+    /// whose archive is forgotten when the tab closes.
+    Keep,
+}
+
+impl KeptUnlocks {
+    /// Whether the job opens archives from what was kept.
+    pub fn uses(self) -> bool {
+        self != Self::Off
+    }
+
+    /// Whether the job keeps what opens an archive.
+    pub fn keeps(self) -> bool {
+        self == Self::Keep
+    }
 }
 
 /// The window of the terminal this process runs in, for [`Policy::window`]: what the CLI passes,
@@ -66,7 +96,7 @@ impl Policy {
             unattended: false,
             identities: Vec::new(),
             window: None,
-            keep_unlocked: false,
+            kept_unlocks: KeptUnlocks::Off,
         }
     }
 

@@ -186,6 +186,13 @@ describe("starting a drag", () => {
     expect(screen.getByLabelText(/Selected entries \(1\)/)).toBeChecked();
   });
 
+  it("extracts for its tab, which keeps what unlocks the archive (docs/M14.md §8)", async () => {
+    fake.handlers.set("archive.extract", () => ({}));
+    render(<ExtractDialog tab={openTab()} entries={[]} onClose={() => {}} />);
+    fireEvent.click(screen.getByRole("button", { name: "Extract" }));
+    await waitFor(() => expect(fake.calls.find((c) => c.name === "archive.extract")?.forTab).toBe(true));
+  });
+
   it("drags nothing when nothing is selected", async () => {
     expect(await startDrag(openTab(), { all: false, rows: [] })).toBeUndefined();
     expect(tauri.drags).toHaveLength(0);

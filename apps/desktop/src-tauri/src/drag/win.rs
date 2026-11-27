@@ -31,7 +31,7 @@ use std::{
 };
 
 use beezip_commands::{
-    CmdError, Engine, ErrorCode, EventSink, Interactor, JobId, Prompt, PromptReply,
+    CmdError, Engine, ErrorCode, EventSink, Interactor, JobId, KeptUnlocks, Prompt, PromptReply,
     crypt::UnlockWay,
 };
 use serde_json::Value;
@@ -283,9 +283,10 @@ impl Interactor for NoPrompts {
 }
 
 /// Runs `archive.extract` into `temp` as an ordinary job that asks nothing ([`NoPrompts`]),
-/// pumping this thread's messages until it ends, and returns the items to drop. It keeps the
-/// archive unlocked as the main window's jobs do, so the tab's archive opens with what
-/// unlocked it there. A device's dialog would belong to `page`, the page's window.
+/// pumping this thread's messages until it ends, and returns the items to drop. A drag always
+/// belongs to a tab, so it takes and keeps archives unlocked as the tab's jobs do
+/// ([`KeptUnlocks::Keep`]): the tab's archive opens with what unlocked it there. A device's
+/// dialog would belong to `page`, the page's window.
 pub fn extract(
     engine: &Engine,
     args: Value,
@@ -293,7 +294,7 @@ pub fn extract(
     temp: &Path,
     page: Option<isize>,
 ) -> Result<Vec<PathBuf>, String> {
-    let policy = crate::ipc::policy_for(engine, page, true);
+    let policy = crate::ipc::policy_for(engine, page, KeptUnlocks::Keep);
     let job = engine
         .invoke_with_policy("archive.extract", args, Arc::new(NoPrompts), sink, policy)
         .map_err(|e| e.message)?;
@@ -577,8 +578,8 @@ mod tests {
         assert!(!seen.iter().any(|e| e == "Prompt"), "{seen:?}");
         assert_eq!(seen.last().map(String::as_str), Some("Failed"));
 
-        // The tab lists it with its password, as the main window's jobs run.
-        let policy = crate::ipc::policy_for(&engine, None, true);
+        // The tab lists it with its password, as its jobs run.
+        let policy = crate::ipc::policy_for(&engine, None, KeptUnlocks::Keep);
         engine
             .invoke_with_policy(
                 "archive.list",

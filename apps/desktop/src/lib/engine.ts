@@ -22,11 +22,15 @@ export type GuiCommand = CommandInfo & { input_schema: JsonSchema };
 /**
  * Runs a command and resolves with its output, or rejects with a `CmdError`.
  * `onEvent` sees every job event as it happens; `Started`, with the job id, comes first.
+ * `forTab`: the job belongs to a tab of the main window, so an encrypted archive it unlocks
+ * stays unlocked until the tab closes (docs/M14.md §8). Without it, the job opens archives
+ * from what tabs kept unlocked, and keeps nothing.
  */
 export function run<K extends CommandName>(
   name: K,
   args: CommandMap[K]["input"],
   onEvent?: (event: JobEvent) => void,
+  forTab?: boolean,
 ): Promise<CommandMap[K]["output"]> {
   return new Promise((resolve, reject) => {
     const channel = new Channel<JobEvent>();
@@ -44,8 +48,8 @@ export function run<K extends CommandName>(
           break;
       }
     };
-    // Tauri camelCases Rust argument names: `on_event` is `onEvent` here.
-    invoke<JobId>("cmd_run", { name, args, onEvent: channel }).catch(reject);
+    // Tauri camelCases Rust argument names: `on_event` is `onEvent` here, `for_tab` `forTab`.
+    invoke<JobId>("cmd_run", { name, args, onEvent: channel, ...(forTab ? { forTab: true } : {}) }).catch(reject);
   });
 }
 

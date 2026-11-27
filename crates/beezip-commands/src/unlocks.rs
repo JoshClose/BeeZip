@@ -2,9 +2,11 @@
 //! that the desktop's next job on the same archive opens it again without a prompt, a device or
 //! another Argon2 run.
 //!
-//! - **Only for jobs that ask:** a job keeps and takes these when its policy says
-//!   ([`crate::Policy::keep_unlocked`]): the desktop sets it for the main window's tabs and
-//!   their drags. The CLI, MCP and Explorer's job windows never do, and nothing is kept for them.
+//! - **Only for jobs that ask:** a job takes these, and keeps new ones, as its policy says
+//!   ([`crate::Policy::kept_unlocks`]). On the desktop, the jobs of the main window's tabs and
+//!   their drags take and keep; its other jobs (the palette's form on a file no tab shows)
+//!   only take, since no tab's closing would forget what they kept. The CLI, MCP and
+//!   Explorer's job windows do neither, and nothing is kept for them.
 //! - **What is kept** is the secret that opened a slot (core's `SlotSecret`: a password's
 //!   Argon2 output, a key's or device's secret), filed under the slot's `kept_id`: its key id
 //!   and its bytes, so a slot rebuilt for a new key never matches. With it, the archive's

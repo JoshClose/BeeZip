@@ -277,10 +277,11 @@ pub struct JobCtx {
     unlock_ways: Option<serde_json::Value>,
     /// The This PC keys this job made, deleted again if it fails.
     made_this_pc: Vec<String>,
-    /// The engine's archives kept unlocked ([`Policy::keep_unlocked`]).
+    /// The engine's archives kept unlocked ([`Policy::kept_unlocks`]).
     unlocks: Arc<Unlocks>,
-    /// Where the archive the job is opening is, when its policy keeps archives unlocked: what
-    /// unlocks it is kept for that place ([`JobCtx::set_archive`]).
+    /// Where the archive the job is opening is, when its policy takes what was kept: what was
+    /// kept for that place opens it, and what unlocks it is kept there when the policy keeps
+    /// ([`JobCtx::set_archive`]).
     archive: Option<Place>,
 }
 
@@ -683,11 +684,12 @@ impl JobCtx {
         self.password = password.map(|p| p.expose().to_owned());
     }
 
-    /// The archive the job opens next, at `path`: what unlocks it is kept for that path, and
-    /// what was kept for it there is tried first, when the policy keeps archives unlocked
-    /// ([`Policy::keep_unlocked`]). Every command that opens an archive says which, before.
+    /// The archive the job opens next, at `path`: what was kept for it there is tried first,
+    /// when the policy takes what was kept, and what unlocks it is kept for that path, when the
+    /// policy keeps too ([`Policy::kept_unlocks`]). Every command that opens an archive says
+    /// which, before.
     pub fn set_archive(&mut self, path: &Path) {
-        self.archive = self.policy.keep_unlocked.then(|| Place::new(path));
+        self.archive = self.policy.kept_unlocks.uses().then(|| Place::new(path));
     }
 
     pub fn is_cancelled(&self) -> bool {
@@ -913,18 +915,22 @@ impl beezip_core::Ctx for JobCtx {
         self.keys.as_mut().map(|s| s as &mut dyn KeySource)
     }
 
-    /// What opened this slot of the archive at the job's path before, when the policy keeps
-    /// archives unlocked (the desktop's tabs). An encrypted archive never goes back to the
-    /// archive cache, opened this way or not.
+    /// What opened this slot of the archive at the job's path before, when the policy takes
+    /// what was kept (every job of the desktop's main window). An encrypted archive never goes
+    /// back to the archive cache, opened this way or not.
     fn kept_secret(&mut self, slot: &SlotView<'_>) -> Option<SlotSecret> {
         self.password_used = true;
         let at = self.archive.as_ref()?;
         self.unlocks.get(&slot.kept_id(), at)
     }
 
-    /// Keeps what opened the archive for its path, when the policy keeps archives unlocked.
+    /// Keeps what opened the archive for its path, when the policy keeps (the jobs of the
+    /// desktop's tabs and their drags). A job that only takes keeps nothing: no slot, and no
+    /// path for a slot kept elsewhere.
     fn keep_secret(&mut self, slot: &SlotView<'_>, secret: &SlotSecret) {
-        if let Some(at) = &self.archive {
+        if self.policy.kept_unlocks.keeps()
+            && let Some(at) = &self.archive
+        {
             self.unlocks.keep(slot.kept_id(), secret, at.clone());
         }
     }

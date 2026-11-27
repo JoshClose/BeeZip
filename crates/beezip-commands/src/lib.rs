@@ -33,7 +33,7 @@ pub use job::{
     CancelToken, EventSink, Interactor, JobCtx, JobEvent, JobId, KeyStub, LogLevel, NonInteractive,
     OverwriteChoice, PASSWORD_PROMPTS, Progress, Prompt, PromptReply, SystemKeys, discard_events,
 };
-pub use policy::{Access, Policy};
+pub use policy::{Access, KeptUnlocks, Policy};
 pub use registry::{CommandInfo, Entry, JsonObject, Registry, TsDecls, collect_ts};
 
 /// The registry of every BeeZip command. An explicit list, built on first use.

@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { JobEvent } from "../gen/commands";
-import { applyEvent, newJob, nextPrompt, orderedJobs, useJobs } from "../lib/jobs";
+import { run } from "../lib/engine";
+import { applyEvent, newJob, nextPrompt, orderedJobs, stepTab, useJobs } from "../lib/jobs";
 import { fake } from "./fakeEngine";
 
 vi.mock("../lib/engine", () => import("./fakeEngine"));
@@ -74,6 +75,18 @@ describe("the jobs store", () => {
     release();
     await done;
     expect(useJobs.getState().order).toEqual([]);
+  });
+
+  it("says a job belongs to a tab only when it has one", async () => {
+    fake.handlers.set("archive.test", () => ({ archive: "a.zip", entries: 3, bytes: 10 }));
+    vi.mocked(run).mockClear();
+    const { track } = useJobs.getState();
+    await track("archive.test", { archive: "a.zip" }, { title: "Testing a.zip", tab: "tab-1" });
+    // The palette's form on a file no tab shows, and a job window's step, keep nothing.
+    await track("archive.test", { archive: "b.zip" }, { title: "Testing b.zip" });
+    await track("archive.test", { archive: "c.zip" }, { title: "Testing c.zip", tab: stepTab(0) });
+    expect(fake.calls.map((c) => c.forTab)).toEqual([true, undefined, undefined]);
+    expect(vi.mocked(run).mock.calls.map((c) => c[3])).toEqual([true, false, false]);
   });
 
   it("keeps finished jobs until they are cleared", async () => {
