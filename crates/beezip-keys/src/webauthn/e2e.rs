@@ -262,7 +262,7 @@ fn a_security_key_seals_and_opens_an_archive() {
     // Extracted: the Unlock prompt lists the way in as one this machine has, and the key is
     // asked once, after it was chosen.
     key.calls.clear();
-    let mut cx = DeviceCtx::new(key, vec![UnlockAnswer::Way(0)]);
+    let mut cx = DeviceCtx::new(key, vec![UnlockAnswer::way(0)]);
     let got = extract(&archive, &root.path().join("x"), &mut cx).unwrap();
     assert_eq!(got, want);
     assert_eq!(cx.asked.len(), 1);
@@ -284,7 +284,7 @@ fn a_security_key_seals_and_opens_an_archive() {
     // Tested, and read through the reader: the same one ask each.
     let mut key = cx.into_authenticator();
     key.calls.clear();
-    let mut cx = DeviceCtx::new(key, vec![UnlockAnswer::Way(0)]);
+    let mut cx = DeviceCtx::new(key, vec![UnlockAnswer::way(0)]);
     let test = ops::test(
         &archive,
         &Selection::all(),
@@ -363,7 +363,7 @@ fn after_a_wrong_key_or_a_closed_dialog_it_asks_again() {
     let password_then = |auth: MockAuthenticator| {
         DeviceCtx::new(
             auth,
-            vec![UnlockAnswer::Way(0), UnlockAnswer::Password(HONEY.into())],
+            vec![UnlockAnswer::way(0), UnlockAnswer::Password(HONEY.into())],
         )
     };
 
@@ -388,7 +388,7 @@ fn after_a_wrong_key_or_a_closed_dialog_it_asks_again() {
 
     // The dialog closed, then the Unlock prompt cancelled: that ends it.
     let dest = root.path().join("x");
-    let mut cx = DeviceCtx::new(closing, vec![UnlockAnswer::Way(0)]);
+    let mut cx = DeviceCtx::new(closing, vec![UnlockAnswer::way(0)]);
     cx.cancel = true;
     let e = extract(&archive, &dest, &mut cx).err().unwrap();
     assert_eq!(e.kind, ErrorKind::Cancelled, "{}", e.message);
@@ -397,7 +397,7 @@ fn after_a_wrong_key_or_a_closed_dialog_it_asks_again() {
 
     // Another key with nothing else to try: asked again, since the right key may be plugged in
     // now, and with nobody left to ask the archive stays closed for want of a key.
-    let mut cx = DeviceCtx::new(MockAuthenticator::new(), vec![UnlockAnswer::Way(0)]);
+    let mut cx = DeviceCtx::new(MockAuthenticator::new(), vec![UnlockAnswer::way(0)]);
     let e = extract(&archive, &dest, &mut cx).err().unwrap();
     assert_eq!(e.kind, ErrorKind::KeyRequired, "{}", e.message);
     assert_eq!(cx.secrets_asked().len(), 1);
@@ -408,7 +408,7 @@ fn after_a_wrong_key_or_a_closed_dialog_it_asks_again() {
     key.calls.clear();
     let mut cx = DeviceCtx::new(
         key,
-        vec![UnlockAnswer::Way(5), UnlockAnswer::Password(HONEY.into())],
+        vec![UnlockAnswer::way(5), UnlockAnswer::Password(HONEY.into())],
     );
     let e = extract(&archive, &dest, &mut cx).err().unwrap();
     assert_eq!(e.kind, ErrorKind::KeyRequired, "{}", e.message);
@@ -422,7 +422,7 @@ fn after_a_wrong_key_or_a_closed_dialog_it_asks_again() {
             inner: key,
             closed: false,
         }),
-        vec![UnlockAnswer::Way(0), UnlockAnswer::Way(0)],
+        vec![UnlockAnswer::way(0), UnlockAnswer::way(0)],
     );
     assert_eq!(
         extract(&archive, &root.path().join("c"), &mut cx).unwrap(),
@@ -448,8 +448,10 @@ impl super::Authenticator for ClosedOnce {
         rp_id: &str,
         user_id: &[u8],
         attachment: Attachment,
+        prf_salt: Option<&[u8; 32]>,
     ) -> Result<super::NewCredential> {
-        self.inner.make_credential(rp_id, user_id, attachment)
+        self.inner
+            .make_credential(rp_id, user_id, attachment, prf_salt)
     }
 
     fn hmac_secret(&mut self, request: &super::SecretRequest<'_>) -> Result<Zeroizing<[u8; 32]>> {
@@ -502,7 +504,7 @@ fn windows_hello_opens_beside_a_password() {
     assert_eq!(kinds, [Some(SlotKind::Fido2), Some(SlotKind::Password)]);
 
     hello.calls.clear();
-    let mut cx = DeviceCtx::new(hello, vec![UnlockAnswer::Way(0)]);
+    let mut cx = DeviceCtx::new(hello, vec![UnlockAnswer::way(0)]);
     let got = extract(&archive, &root.path().join("x"), &mut cx).unwrap();
     assert_eq!(got, want);
     assert_eq!(
@@ -563,7 +565,7 @@ fn edits_and_new_ways_in_keep_the_key_working() {
         ..beezip_core::AddOptions::default()
     });
     key.calls.clear();
-    let mut cx = DeviceCtx::new(key, vec![UnlockAnswer::Way(0)]);
+    let mut cx = DeviceCtx::new(key, vec![UnlockAnswer::way(0)]);
     ops::edit(
         &archive,
         &add,
@@ -579,7 +581,7 @@ fn edits_and_new_ways_in_keep_the_key_working() {
     .unwrap();
     assert_eq!(cx.secrets_asked().len(), 1);
     assert_eq!(slots(&archive), before);
-    let mut cx = DeviceCtx::new(cx.into_authenticator(), vec![UnlockAnswer::Way(0)]);
+    let mut cx = DeviceCtx::new(cx.into_authenticator(), vec![UnlockAnswer::way(0)]);
     let dest = root.path().join("edited");
     ops::extract(
         &archive,
@@ -626,7 +628,7 @@ fn edits_and_new_ways_in_keep_the_key_working() {
     assert_eq!(key_block(&changed).key_id, key_block(&plain).key_id);
     assert_eq!(key_block(&changed).slots[1].0, Some(SlotKind::Fido2));
     key.calls.clear();
-    let mut cx = DeviceCtx::new(key, vec![UnlockAnswer::Way(1)]);
+    let mut cx = DeviceCtx::new(key, vec![UnlockAnswer::way(1)]);
     assert_eq!(
         extract(&changed, &root.path().join("y"), &mut cx).unwrap(),
         want
@@ -668,7 +670,7 @@ fn a_real_security_key_seals_and_opens_an_archive() {
         Protection::New(vec![labelled(recipient, "Security key")]),
     )
     .unwrap();
-    let mut cx = DeviceCtx::with(machine(), vec![UnlockAnswer::Way(0)]);
+    let mut cx = DeviceCtx::with(machine(), vec![UnlockAnswer::way(0)]);
     let got = extract(&archive, &root.path().join("x"), &mut cx).unwrap();
     assert_eq!(got, read_tree(&input));
 }
@@ -704,7 +706,7 @@ fn windows_hello_really_opens_an_archive() {
         Protection::New(vec![labelled(recipient, "Windows Hello"), small(HONEY)]),
     )
     .unwrap();
-    let mut cx = DeviceCtx::with(machine(), vec![UnlockAnswer::Way(0)]);
+    let mut cx = DeviceCtx::with(machine(), vec![UnlockAnswer::way(0)]);
     let got = extract(&archive, &root.path().join("x"), &mut cx).unwrap();
     assert_eq!(got, read_tree(&input));
 }

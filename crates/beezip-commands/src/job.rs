@@ -7,7 +7,9 @@ use std::{
     time::{Duration, Instant},
 };
 
-use beezip_core::format::bhive::crypt::{KeySource, SlotKind, UnlockAnswer, UnlockRequest};
+use beezip_core::format::bhive::crypt::{
+    KeySource, SlotKind, SlotSecret, SlotView, UnlockAnswer, UnlockRequest,
+};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
@@ -18,6 +20,7 @@ use crate::{
     config::Config,
     engine::{EditGuard, EditLocks, Live},
     policy::Policy,
+    unlocks::{Place, Unlocks},
     wire::Secret,
 };
 
@@ -56,10 +59,14 @@ pub enum Prompt {
     },
     /// An encrypted `.bhive` and how it can be opened (docs/M14.md §8): a password, a recovery
     /// key, or one of its ways in that this machine has. `attempt` counts the answers that
-    /// failed.
+    /// failed; `failed` says why the way in the last one chose didn't open it, when its key or
+    /// device failed (a wrong PIN, a TPM that Windows is blocking).
     Unlock {
         ways: Vec<crate::crypt::UnlockWay>,
         attempt: u32,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        failed: Option<String>,
     },
 }
 
@@ -116,6 +123,13 @@ pub trait Interactor: Send + Sync {
     /// Called just before the `Prompt` event goes out, so a reply can't arrive before the
     /// interactor is ready for it. A GUI makes its reply slot here.
     fn expect(&self, _job: JobId, _id: u64) {}
+
+    /// Whether a job's prompts go out as `Prompt` events before [`Interactor::prompt`] is
+    /// asked. One that refuses every prompt at once says no, so that a front end never shows a
+    /// question nobody waits for: the desktop's drag-out, whose drop Explorer waits on.
+    fn shows_prompts(&self) -> bool {
+        true
+    }
 
     /// Whether to let a password slot's Argon2 use `need_mib` of this machine's `total_mib`,
     /// more than half of it (docs/M14.md §5). With nobody to ask it says no, and the slot is
@@ -263,6 +277,11 @@ pub struct JobCtx {
     unlock_ways: Option<serde_json::Value>,
     /// The This PC keys this job made, deleted again if it fails.
     made_this_pc: Vec<String>,
+    /// The engine's archives kept unlocked ([`Policy::keep_unlocked`]).
+    unlocks: Arc<Unlocks>,
+    /// Where the archive the job is opening is, when its policy keeps archives unlocked: what
+    /// unlocks it is kept for that place ([`JobCtx::set_archive`]).
+    archive: Option<Place>,
 }
 
 impl JobCtx {
@@ -276,6 +295,7 @@ impl JobCtx {
         live: Arc<Live>,
         cache: Option<Arc<ArchiveCache>>,
         locks: Option<Arc<EditLocks>>,
+        unlocks: Arc<Unlocks>,
     ) -> Self {
         Self {
             id,
@@ -299,6 +319,8 @@ impl JobCtx {
             key_error: None,
             unlock_ways: None,
             made_this_pc: Vec::new(),
+            unlocks,
+            archive: None,
         }
     }
 
@@ -661,6 +683,13 @@ impl JobCtx {
         self.password = password.map(|p| p.expose().to_owned());
     }
 
+    /// The archive the job opens next, at `path`: what unlocks it is kept for that path, and
+    /// what was kept for it there is tried first, when the policy keeps archives unlocked
+    /// ([`Policy::keep_unlocked`]). Every command that opens an archive says which, before.
+    pub fn set_archive(&mut self, path: &Path) {
+        self.archive = self.policy.keep_unlocked.then(|| Place::new(path));
+    }
+
     pub fn is_cancelled(&self) -> bool {
         self.cancel.is_cancelled()
     }
@@ -710,10 +739,14 @@ impl JobCtx {
         (self.sink)(JobEvent::Partial { output });
     }
 
-    /// Emits a `Prompt` event, then blocks until the front end answers.
+    /// Emits a `Prompt` event, then blocks until the front end answers. An interactor that
+    /// shows no prompts ([`Interactor::shows_prompts`]) answers at once, with no event.
     pub fn prompt(&mut self, prompt: Prompt) -> Result<PromptReply, CmdError> {
         self.next_prompt += 1;
         let id = self.next_prompt;
+        if !self.interactor.shows_prompts() {
+            return self.interactor.prompt(self.id, id, &prompt);
+        }
         self.interactor.expect(self.id, id);
         (self.sink)(JobEvent::Prompt {
             id,
@@ -819,11 +852,13 @@ impl beezip_core::Ctx for JobCtx {
                 slot: w.slot,
                 kind: w.kind.into(),
                 here: w.here,
+                needs_pin: w.needs_pin,
             })
             .collect();
         let reply = self.prompt(Prompt::Unlock {
             ways,
             attempt: request.attempt,
+            failed: request.failed.clone(),
         });
         match reply {
             Ok(PromptReply::Unlock { answer }) => {
@@ -834,7 +869,10 @@ impl beezip_core::Ctx for JobCtx {
                         UnlockAnswer::Password(password)
                     }
                     UnlockReply::RecoveryKey { key } => UnlockAnswer::RecoveryKey(key),
-                    UnlockReply::Slot { slot } => UnlockAnswer::Way(slot),
+                    UnlockReply::Slot { slot, pin } => UnlockAnswer::Way {
+                        slot,
+                        pin: pin.map(|p| zeroize::Zeroizing::new(p.expose().to_owned())),
+                    },
                 })
             }
             // A front end that knows only passwords.
@@ -873,6 +911,22 @@ impl beezip_core::Ctx for JobCtx {
             self.keys = Some(sources);
         }
         self.keys.as_mut().map(|s| s as &mut dyn KeySource)
+    }
+
+    /// What opened this slot of the archive at the job's path before, when the policy keeps
+    /// archives unlocked (the desktop's tabs). An encrypted archive never goes back to the
+    /// archive cache, opened this way or not.
+    fn kept_secret(&mut self, slot: &SlotView<'_>) -> Option<SlotSecret> {
+        self.password_used = true;
+        let at = self.archive.as_ref()?;
+        self.unlocks.get(&slot.kept_id(), at)
+    }
+
+    /// Keeps what opened the archive for its path, when the policy keeps archives unlocked.
+    fn keep_secret(&mut self, slot: &SlotView<'_>, secret: &SlotSecret) {
+        if let Some(at) = &self.archive {
+            self.unlocks.keep(slot.kept_id(), secret, at.clone());
+        }
     }
 
     /// Asks the front end before a password slot's Argon2 takes more than half this machine's

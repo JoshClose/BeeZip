@@ -31,15 +31,18 @@ pub mod cng;
 #[cfg(target_os = "macos")]
 pub mod mac;
 pub mod webauthn;
+#[cfg(any(windows, test))]
+mod window;
 
-/// The console window this process runs in: the window Windows' own dialogs (a smart card's or
-/// TPM key's PIN, Windows Security's for a security key or Windows Hello) belong to when a
-/// command runs in a terminal, as the CLI's do. `None` without a console, and on macOS and
-/// Linux.
+/// The window of the terminal this process runs in: the window Windows' own dialogs (a smart
+/// card's or TPM key's PIN, Windows Security's for a security key or Windows Hello) belong to
+/// when a command runs in a terminal, as the CLI's do. conhost's console window; the Windows
+/// Terminal window that owns ConPTY's hidden one; else the window in front, where the command
+/// was typed (`window::dialog_window`). `None` without a console, and on macOS and Linux.
 pub fn console_window() -> Option<isize> {
     #[cfg(windows)]
     {
-        webauthn::ffi::console_window()
+        window::dialog_window(&webauthn::ffi::Desktop)
     }
     #[cfg(not(windows))]
     {
@@ -80,6 +83,10 @@ impl KeySource for Sources {
         self.sources.iter_mut().any(|s| s.offers(slot))
     }
 
+    fn needs_pin(&mut self, slot: &SlotView<'_>) -> bool {
+        self.sources.iter_mut().any(|s| s.needs_pin(slot))
+    }
+
     fn secret(&mut self, slot: &SlotView<'_>, device: bool) -> Result<Option<SlotSecret>> {
         for s in &mut self.sources {
             if let Some(secret) = s.secret(slot, device)? {
@@ -87,5 +94,79 @@ impl KeySource for Sources {
             }
         }
         Ok(None)
+    }
+
+    fn secret_with_pin(&mut self, slot: &SlotView<'_>, pin: &str) -> Result<Option<SlotSecret>> {
+        for s in &mut self.sources {
+            if let Some(secret) = s.secret_with_pin(slot, pin)? {
+                return Ok(Some(secret));
+            }
+        }
+        Ok(None)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use beezip_core::format::bhive::crypt::{KEY_ID_LEN, SlotKind};
+    use zeroize::Zeroizing;
+
+    use super::*;
+
+    /// Has every slot's key: with a PIN, which BeeZip asks for, it opens only with that PIN and
+    /// gives the PIN as the secret.
+    struct Pinned(Option<&'static str>);
+
+    impl KeySource for Pinned {
+        fn offers(&mut self, _: &SlotView<'_>) -> bool {
+            true
+        }
+
+        fn needs_pin(&mut self, _: &SlotView<'_>) -> bool {
+            self.0.is_some()
+        }
+
+        fn secret(&mut self, _: &SlotView<'_>, _: bool) -> Result<Option<SlotSecret>> {
+            Ok(None)
+        }
+
+        fn secret_with_pin(&mut self, _: &SlotView<'_>, pin: &str) -> Result<Option<SlotSecret>> {
+            Ok((self.0 == Some(pin))
+                .then(|| SlotSecret::Shared(Zeroizing::new(pin.as_bytes().to_vec()))))
+        }
+    }
+
+    /// The sources together need a PIN when one of them does, and the PIN reaches each.
+    #[test]
+    fn a_pin_reaches_the_source_that_asked_for_it() {
+        let key_id = [0; KEY_ID_LEN];
+        let view = SlotView {
+            index: 0,
+            kind: SlotKind::EcP256,
+            key_id: &key_id,
+            framed: &[],
+            public: &[],
+            commitment: &[0; 32],
+        };
+        let mut sources = Sources::default();
+        sources.push(Box::new(Pinned(None)));
+        assert!(!sources.needs_pin(&view));
+        sources.push(Box::new(Pinned(Some("4821"))));
+        assert!(sources.needs_pin(&view));
+        assert!(sources.secret_with_pin(&view, "0000").unwrap().is_none());
+        match sources.secret_with_pin(&view, "4821").unwrap() {
+            Some(SlotSecret::Shared(s)) => assert_eq!(s.as_slice(), b"4821"),
+            other => panic!("{other:?}"),
+        }
+    }
+
+    /// It asks the real desktop, whatever the tests run in: a console, a terminal's hidden one,
+    /// or none.
+    #[test]
+    fn console_window_answers() {
+        let window = super::console_window();
+        if cfg!(not(windows)) {
+            assert_eq!(window, None);
+        }
     }
 }

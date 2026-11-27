@@ -38,11 +38,18 @@ pub struct Policy {
     /// console ([`console_window`]). `None` puts them over the window in front; MCP, which
     /// uses no devices, and other systems leave it so.
     pub window: Option<isize>,
+    /// Keep an encrypted `.bhive` unlocked for later jobs: what opened it is kept in memory,
+    /// for the archive's path, and the engine's next job on it takes that first, asking nobody
+    /// (docs/M14.md §8, [`crate::unlocks`]). The desktop sets it for its main window's tabs
+    /// and their drags, and forgets an archive when its tab closes. The CLI, MCP and Explorer's
+    /// job windows leave it off, and keep nothing.
+    pub keep_unlocked: bool,
 }
 
-/// The console window this process runs in, for [`Policy::window`]: what the CLI passes, so
-/// that Windows' PIN and security-key dialogs come up over the terminal. `None` without a
-/// console, and on macOS and Linux.
+/// The window of the terminal this process runs in, for [`Policy::window`]: what the CLI passes,
+/// so that Windows' PIN and security-key dialogs come up over the terminal. conhost's console
+/// window, the Windows Terminal window that owns ConPTY's hidden one, else the window in front
+/// ([`beezip_keys::console_window`]). `None` without a console, and on macOS and Linux.
 pub fn console_window() -> Option<isize> {
     beezip_keys::console_window()
 }
@@ -59,6 +66,7 @@ impl Policy {
             unattended: false,
             identities: Vec::new(),
             window: None,
+            keep_unlocked: false,
         }
     }
 

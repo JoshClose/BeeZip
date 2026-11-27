@@ -424,6 +424,21 @@ pub type GetPlatformCredentialList =
 pub type FreePlatformCredentialList = unsafe extern "system" fn(*mut CredentialDetailsList);
 pub type DeletePlatformCredential = unsafe extern "system" fn(u32, *const u8) -> i32;
 type GetWindow = unsafe extern "system" fn() -> *mut c_void;
+type IsWindowVisible = unsafe extern "system" fn(*mut c_void) -> Bool;
+type GetAncestor = unsafe extern "system" fn(*mut c_void, u32) -> *mut c_void;
+type GetWindowRect = unsafe extern "system" fn(*mut c_void, *mut Rect) -> Bool;
+
+/// winuser.h's `RECT`.
+#[repr(C)]
+#[derive(Default)]
+struct Rect {
+    left: i32,
+    top: i32,
+    right: i32,
+    bottom: i32,
+}
+/// `GetAncestor`'s `GA_ROOTOWNER`: up the chain of parents and owners.
+const GA_ROOTOWNER: u32 = 3;
 
 /// webauthn.dll's functions, once loaded.
 pub struct Api {
@@ -521,45 +536,100 @@ fn load() -> Option<Api> {
     }
 }
 
-/// The window Windows' dialog belongs to when the caller has none: the one in front (the
-/// terminal a command runs in), else the desktop, as libfido2 does. user32.dll is loaded only
-/// when a dialog is about to show.
-pub fn foreground_window() -> *mut c_void {
-    static USER32: OnceLock<Option<(GetWindow, GetWindow)>> = OnceLock::new();
-    let functions = USER32.get_or_init(|| {
-        // SAFETY: as in `load`, for user32.dll and its two functions, which take nothing and
-        // return an HWND.
-        unsafe {
+/// The user32.dll functions that find a dialog's window. user32.dll is loaded the first time
+/// one is looked for: when a dialog is about to show, or when the CLI picks its terminal's
+/// window.
+struct User32 {
+    foreground: GetWindow,
+    desktop: GetWindow,
+    visible: IsWindowVisible,
+    ancestor: GetAncestor,
+    rect: GetWindowRect,
+}
+
+fn user32() -> Option<&'static User32> {
+    static USER32: OnceLock<Option<User32>> = OnceLock::new();
+    USER32
+        .get_or_init(|| {
+            // SAFETY: as in `load`, for user32.dll, which stays loaded.
             let module =
-                LoadLibraryExW(w!("user32.dll"), None, LOAD_LIBRARY_SEARCH_SYSTEM32).ok()?;
-            let foreground = GetProcAddress(module, s!("GetForegroundWindow"))?;
-            let desktop = GetProcAddress(module, s!("GetDesktopWindow"))?;
-            Some((
-                std::mem::transmute::<Proc, GetWindow>(foreground),
-                std::mem::transmute::<Proc, GetWindow>(desktop),
-            ))
-        }
-    });
-    let Some((foreground, desktop)) = functions else {
+                unsafe { LoadLibraryExW(w!("user32.dll"), None, LOAD_LIBRARY_SEARCH_SYSTEM32) }
+                    .ok()?;
+            // SAFETY: the module is loaded; the names are NUL-terminated.
+            let get = |name: PCSTR| -> Option<Proc> { unsafe { GetProcAddress(module, name) } };
+            // SAFETY: each function as winuser.h declares it.
+            unsafe {
+                Some(User32 {
+                    foreground: std::mem::transmute::<Proc, GetWindow>(get(s!(
+                        "GetForegroundWindow"
+                    ))?),
+                    desktop: std::mem::transmute::<Proc, GetWindow>(get(s!("GetDesktopWindow"))?),
+                    visible: std::mem::transmute::<Proc, IsWindowVisible>(get(s!(
+                        "IsWindowVisible"
+                    ))?),
+                    ancestor: std::mem::transmute::<Proc, GetAncestor>(get(s!("GetAncestor"))?),
+                    rect: std::mem::transmute::<Proc, GetWindowRect>(get(s!("GetWindowRect"))?),
+                })
+            }
+        })
+        .as_ref()
+}
+
+/// The window Windows' dialog belongs to when the caller has none: the one in front (the
+/// terminal a command runs in), else the desktop, as libfido2 does.
+pub fn foreground_window() -> *mut c_void {
+    let Some(user32) = user32() else {
         return std::ptr::null_mut();
     };
     // SAFETY: both take nothing and return a window handle, or null.
-    let window = unsafe { foreground() };
+    let window = unsafe { (user32.foreground)() };
     if window.is_null() {
         // SAFETY: as above.
-        unsafe { desktop() }
+        unsafe { (user32.desktop)() }
     } else {
         window
     }
 }
 
-/// The console window this process runs in (`GetConsoleWindow`), or `None` without a console.
-/// In Windows Terminal it is the hidden window ConPTY makes, which the terminal's window owns,
-/// so a dialog that belongs to it comes up over the terminal.
-pub fn console_window() -> Option<isize> {
-    // SAFETY: takes nothing and returns a window handle, or null.
-    let window = unsafe { windows::Win32::System::Console::GetConsoleWindow() };
-    (!window.0.is_null()).then_some(window.0 as isize)
+/// Windows' answers about its windows, for [`crate::window::dialog_window`].
+pub struct Desktop;
+
+impl crate::window::Desktop for Desktop {
+    fn console(&self) -> Option<isize> {
+        // SAFETY: takes nothing and returns a window handle, or null.
+        let window = unsafe { windows::Win32::System::Console::GetConsoleWindow() };
+        (!window.0.is_null()).then_some(window.0 as isize)
+    }
+
+    fn visible(&self, window: isize) -> bool {
+        let Some(user32) = user32() else {
+            return false;
+        };
+        let hwnd = window as *mut c_void;
+        let mut rect = Rect::default();
+        // SAFETY: any handle may be asked about; one that isn't a window is neither visible
+        // nor has a rectangle. `rect` is a valid out pointer.
+        unsafe {
+            (user32.visible)(hwnd) != 0
+                && (user32.rect)(hwnd, &mut rect) != 0
+                && rect.right > rect.left
+                && rect.bottom > rect.top
+        }
+    }
+
+    fn root_owner(&self, window: isize) -> Option<isize> {
+        let user32 = user32()?;
+        // SAFETY: as above; null for a handle that isn't a window.
+        let top = unsafe { (user32.ancestor)(window as *mut c_void, GA_ROOTOWNER) };
+        (!top.is_null()).then_some(top as isize)
+    }
+
+    fn foreground(&self) -> Option<isize> {
+        let user32 = user32()?;
+        // SAFETY: takes nothing and returns a window handle, or null.
+        let window = unsafe { (user32.foreground)() };
+        (!window.is_null()).then_some(window as isize)
+    }
 }
 
 /// A NUL-terminated UTF-16 copy of `s`.

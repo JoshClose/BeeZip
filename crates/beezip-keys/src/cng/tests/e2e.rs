@@ -141,7 +141,7 @@ fn an_ecdsa_key_never_opens_an_archive_and_its_other_ways_in_still_do() {
     assert!(!cx.asked[0].ways[0].here, "an ECDSA key isn't offered");
 
     let store = ecdsa();
-    let mut cx = KeyCtx::answering(cng(&store), vec![UnlockAnswer::Way(0)]);
+    let mut cx = KeyCtx::answering(cng(&store), vec![UnlockAnswer::way(0)]);
     let e = extract(&archive, &root.path().join("y"), &mut cx)
         .err()
         .unwrap();
@@ -151,7 +151,7 @@ fn an_ecdsa_key_never_opens_an_archive_and_its_other_ways_in_still_do() {
     let store = ecdsa();
     let mut cx = KeyCtx::answering(
         cng(&store),
-        vec![UnlockAnswer::Way(0), UnlockAnswer::Password(HONEY.into())],
+        vec![UnlockAnswer::way(0), UnlockAnswer::Password(HONEY.into())],
     );
     let got = extract(&archive, &root.path().join("z"), &mut cx).unwrap();
     assert_eq!(got, want);

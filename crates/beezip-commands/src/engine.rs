@@ -21,6 +21,7 @@ use crate::{
     config::{Config, LoadedConfig},
     policy::Policy,
     registry::RunFn,
+    unlocks::Unlocks,
 };
 
 /// Runs commands as jobs. Cheap to clone; clones share the job table.
@@ -39,6 +40,7 @@ struct Inner {
     live: Arc<Live>,
     cache: Arc<ArchiveCache>,
     locks: Arc<EditLocks>,
+    unlocks: Arc<Unlocks>,
 }
 
 /// One edit per archive at a time in this process (docs/M5.md §7.7): a second edit of the same
@@ -252,6 +254,7 @@ impl Engine {
                 }),
                 cache: Arc::new(ArchiveCache::new()),
                 locks: Arc::new(EditLocks::default()),
+                unlocks: Arc::new(Unlocks::new()),
             }),
         }
     }
@@ -263,6 +266,12 @@ impl Engine {
     /// The archives `archive.list`, `archive.info` and `entry.read` keep open between jobs.
     pub fn cache(&self) -> &ArchiveCache {
         &self.inner.cache
+    }
+
+    /// The encrypted archives kept unlocked for jobs whose policy says so
+    /// ([`Policy::keep_unlocked`]): the desktop forgets one when its tab closes.
+    pub fn unlocks(&self) -> &Unlocks {
+        &self.inner.unlocks
     }
 
     /// The policy jobs run under unless [`Engine::invoke_with_policy`] names another. Its
@@ -404,6 +413,7 @@ fn execute(inner: &Inner, job: JobSetup, args: Value) -> Result<Value, CmdError>
         Arc::clone(&inner.live),
         Some(Arc::clone(&inner.cache)),
         Some(Arc::clone(&inner.locks)),
+        Arc::clone(&inner.unlocks),
     );
     let result = if cancel.is_cancelled() {
         Err(CmdError::cancelled())

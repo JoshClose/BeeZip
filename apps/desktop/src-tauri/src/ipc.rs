@@ -1,9 +1,10 @@
 //! The app's Tauri commands (PLAN §1, Desktop). Every BeeZip command goes through `cmd_run`, so
 //! adding a command never touches this file; the others cancel, answer prompts, list commands,
-//! and hand the main window the launches that arrived before it listened. The updater's two
-//! are in update.rs, and the page's "I have rendered" in reveal.rs.
+//! lock an archive again when its tab closes, and hand the main window the launches that
+//! arrived before it listened. The updater's two are in update.rs, and the page's "I have
+//! rendered" in reveal.rs.
 
-use std::sync::Arc;
+use std::{path::PathBuf, sync::Arc};
 
 use beezip_commands::{
     CmdError, CommandInfo, Engine, EventSink, JobEvent, JobId, JsonObject, Policy, PromptReply,
@@ -33,16 +34,21 @@ pub fn hwnd(window: &Window) -> Option<isize> {
 
 /// What a job started from `window` runs under: the engine's policy, with Windows' PIN and
 /// security-key dialogs belonging to that window (docs/M14.md §6), not to whatever is in front.
-pub fn policy_for(engine: &Engine, window: Option<isize>) -> Arc<Policy> {
+/// With `keep_unlocked` (the main window's tabs and their drags), an encrypted archive the job
+/// opens stays unlocked for the next job on it until its tab closes ([`cmd_lock`]); a job
+/// window's (Explorer's menu) keeps nothing.
+pub fn policy_for(engine: &Engine, window: Option<isize>, keep_unlocked: bool) -> Arc<Policy> {
     Arc::new(Policy {
         window,
+        keep_unlocked,
         ..Policy::clone(&engine.policy())
     })
 }
 
 /// Starts command `name` and streams its events to `on_event`. Returns the job id at once. The
 /// job's devices show their dialogs over the window that started it: the main window, or the
-/// job window of a request from Explorer.
+/// job window of a request from Explorer. The main window's jobs keep the encrypted archives
+/// they open unlocked for its tabs.
 #[tauri::command]
 pub fn cmd_run(
     window: Window,
@@ -62,9 +68,17 @@ pub fn cmd_run(
         sink = opened.watch(&args, sink);
     }
     let interactor: Arc<GuiInteractor> = Arc::clone(&gui);
-    let policy = policy_for(&engine, hwnd(&window));
+    let policy = policy_for(&engine, hwnd(&window), window.label() == MAIN);
     let job = engine.invoke_with_policy(&name, args, interactor, sink, policy)?;
     Ok(job.id())
+}
+
+/// Locks the archive at `path` again: what unlocked it for the main window's jobs is wiped from
+/// memory, so the next job on it asks again (docs/M14.md §8). The page calls it when the
+/// archive's tab closes. Returns how many ways in were forgotten.
+#[tauri::command]
+pub fn cmd_lock(engine: State<'_, Engine>, path: PathBuf) -> usize {
+    engine.unlocks().forget(&path)
 }
 
 /// Requests cancellation of a running job, and answers its pending prompt with `Cancel`.
@@ -166,19 +180,23 @@ mod tests {
     }
 
     /// A job the page starts runs under the engine's policy, with its window's handle for
-    /// Windows' dialogs.
+    /// Windows' dialogs, keeping archives unlocked when it says.
     #[test]
     fn a_job_gets_the_engines_policy_and_its_window() {
         let engine = Engine::new(registry());
-        let policy = policy_for(&engine, Some(0x5e1f));
+        let policy = policy_for(&engine, Some(0x5e1f), true);
         assert_eq!(policy.window, Some(0x5e1f));
         assert_eq!(policy.limits, engine.policy().limits);
         assert!(!policy.unattended);
+        assert!(policy.keep_unlocked);
         assert_eq!(
             engine.policy().window,
             None,
             "the engine's own is left alone"
         );
-        assert_eq!(policy_for(&engine, None).window, None);
+        assert!(!engine.policy().keep_unlocked);
+        let job_window = policy_for(&engine, None, false);
+        assert_eq!(job_window.window, None);
+        assert!(!job_window.keep_unlocked);
     }
 }

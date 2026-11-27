@@ -131,6 +131,9 @@ impl SlotKind {
     }
 }
 
+/// The label of [`SlotView::kept_id`]: BeeZip's own, in memory only, not one of bhive.md's.
+const KEPT: &[u8] = b"beezip kept slot";
+
 /// A slot as the key block holds it (bhive.md §12.4).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SlotView<'a> {
@@ -186,6 +189,22 @@ impl SlotView<'_> {
         Some(tag)
     }
 
+    /// What a secret kept for this slot is filed under ([`crate::Ctx::keep_secret`]): SHA-256
+    /// over a label, the key id, and the slot's head, public part and commitment. A rebuilt slot
+    /// (a new key makes every slot again, with a new key id) never matches what was kept for the
+    /// old one; an edit, which keeps the key id and the slots byte for byte under a new archive
+    /// id, still does. Never written anywhere.
+    pub fn kept_id(&self) -> [u8; 32] {
+        let mut h = ring::digest::Context::new(&ring::digest::SHA256);
+        h.update(KEPT);
+        h.update(self.key_id);
+        h.update(self.framed);
+        h.update(self.commitment);
+        let mut out = [0; 32];
+        out.copy_from_slice(h.finish().as_ref());
+        out
+    }
+
     /// The tag the slot carries (kinds 5 to 7).
     pub fn tag(&self) -> Option<[u8; 4]> {
         match self.kind {
@@ -200,7 +219,9 @@ impl SlotView<'_> {
 /// What opens a slot: its secret `S`, or, where `S` never leaves a device, the HMAC already
 /// computed from it (`PRK`, bhive.md §12.4 step 2). For kinds 3, 6 and 7 a reader gives the
 /// PRK: their context holds the recipient's public key, which only the key's holder knows
-/// ([`SlotView::context`]). A writer always gives `S` ([`MadeSlot`]).
+/// ([`SlotView::context`]). A writer always gives `S` ([`MadeSlot`]). Wiped when dropped, a
+/// clone too.
+#[derive(Clone)]
 pub enum SlotSecret {
     Shared(Zeroizing<Vec<u8>>),
     Extracted(Zeroizing<[u8; 32]>),
@@ -223,11 +244,28 @@ pub trait KeySource {
     /// tries its keys, for tagged ones it compares tags. Never prompts, never touches a device.
     fn offers(&mut self, slot: &SlotView<'_>) -> bool;
 
+    /// Whether the way in `slot` needs a PIN that BeeZip asks for itself, in its own prompt, and
+    /// hands to [`KeySource::secret_with_pin`]: a This PC key's (docs/M14.md §4). Never
+    /// prompts, never touches a device. Smart cards and other devices ask in their own
+    /// dialogs, so the default says no.
+    fn needs_pin(&mut self, _slot: &SlotView<'_>) -> bool {
+        false
+    }
+
     /// The secret for `slot`, or `None` when this source has nothing for it. `device` says the
     /// user chose this way in, so the source may show a PIN dialog or ask for a touch; then an
     /// error says why it didn't open (`KeyRequired` for another device, `Cancelled` for a
-    /// closed dialog), and the unlock asks for a way in again. Only `Corrupt` ends it.
+    /// closed dialog, `WrongPassword` for a wrong PIN), and the unlock asks for a way in again.
+    /// Only `Corrupt` ends it.
     fn secret(&mut self, slot: &SlotView<'_>, device: bool) -> Result<Option<SlotSecret>>;
+
+    /// [`KeySource::secret`] for the way in the user chose (`device`), with the PIN BeeZip asked
+    /// for because [`KeySource::needs_pin`] said so. A source that asks for no PIN itself
+    /// ignores it.
+    fn secret_with_pin(&mut self, slot: &SlotView<'_>, pin: &str) -> Result<Option<SlotSecret>> {
+        let _ = pin;
+        self.secret(slot, true)
+    }
 }
 
 /// A way in, as the Unlock prompt lists it (docs/M14.md §8).
@@ -237,6 +275,9 @@ pub struct WayInfo {
     pub kind: SlotKind,
     /// A key or device on this machine fits it ([`KeySource::offers`]).
     pub here: bool,
+    /// Choosing it needs a PIN that BeeZip asks for itself ([`KeySource::needs_pin`]): a This
+    /// PC key's. The answer carries it ([`UnlockAnswer::Way`]).
+    pub needs_pin: bool,
 }
 
 /// What an encrypted archive asks [`crate::Ctx::unlock`] for.
@@ -245,6 +286,10 @@ pub struct UnlockRequest {
     pub ways: Vec<WayInfo>,
     /// The answers that already failed: `0` is the first ask.
     pub attempt: u32,
+    /// Why the way in the last answer chose didn't open the archive, when its key or device
+    /// failed (a wrong PIN, a TPM that Windows is blocking); `None` after a wrong password or
+    /// a closed dialog.
+    pub failed: Option<String>,
 }
 
 /// An answer to an [`UnlockRequest`].
@@ -253,8 +298,19 @@ pub enum UnlockAnswer {
     Password(String),
     /// The 48 digits, with any separators (bhive.md §12.5, kind 2).
     RecoveryKey(String),
-    /// Use this slot's key or device, through the [`KeySource`].
-    Way(u32),
+    /// Use this slot's key or device, through the [`KeySource`]; with the PIN BeeZip asked for
+    /// when the way in needs one ([`WayInfo::needs_pin`]).
+    Way {
+        slot: u32,
+        pin: Option<Zeroizing<String>>,
+    },
+}
+
+impl UnlockAnswer {
+    /// Use this slot's key or device, with no PIN.
+    pub fn way(slot: u32) -> Self {
+        Self::Way { slot, pin: None }
+    }
 }
 
 impl fmt::Debug for UnlockAnswer {
@@ -262,7 +318,8 @@ impl fmt::Debug for UnlockAnswer {
         match self {
             Self::Password(_) => f.write_str("Password(***)"),
             Self::RecoveryKey(_) => f.write_str("RecoveryKey(***)"),
-            Self::Way(slot) => write!(f, "Way({slot})"),
+            Self::Way { slot, pin: None } => write!(f, "Way({slot})"),
+            Self::Way { slot, pin: Some(_) } => write!(f, "Way({slot}, PIN ***)"),
         }
     }
 }

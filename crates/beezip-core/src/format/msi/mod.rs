@@ -1169,6 +1169,21 @@ impl Ctx for PassCtx<'_> {
         self.inner.key_source()
     }
 
+    fn kept_secret(
+        &mut self,
+        slot: &crate::format::bhive::crypt::SlotView<'_>,
+    ) -> Option<crate::format::bhive::crypt::SlotSecret> {
+        self.inner.kept_secret(slot)
+    }
+
+    fn keep_secret(
+        &mut self,
+        slot: &crate::format::bhive::crypt::SlotView<'_>,
+        secret: &crate::format::bhive::crypt::SlotSecret,
+    ) {
+        self.inner.keep_secret(slot, secret);
+    }
+
     fn spend_memory(&mut self, need: u64, total: u64) -> Result<bool> {
         self.inner.spend_memory(need, total)
     }

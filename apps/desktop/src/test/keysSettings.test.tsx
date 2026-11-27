@@ -99,7 +99,7 @@ describe("Settings → Keys (docs/M14.md §6)", () => {
     });
     render(<KeysSettings />);
     await screen.findByRole("list", { name: "Contacts" });
-    await user.type(screen.getByLabelText("Add a key"), "Bob");
+    await user.type(screen.getByLabelText("Add a key or certificate"), "Bob");
     await user.type(screen.getByLabelText("Key"), "  age1bob  ");
     await user.click(screen.getByRole("button", { name: "Add" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("not a key BeeZip knows");
@@ -164,7 +164,7 @@ describe("Settings → Keys (docs/M14.md §6)", () => {
 
     // "From a file" offers certificates, and the file is sent as it is.
     vi.mocked(open).mockResolvedValueOnce(String.raw`C:\keys\carol.crt`);
-    await user.type(screen.getByLabelText("Add a key"), "Carol");
+    await user.type(screen.getByLabelText("Add a key or certificate"), "Carol");
     await user.click(screen.getByRole("button", { name: /From a file/ }));
     const picker = vi.mocked(open).mock.calls[0][0];
     expect(picker?.filters?.[0].extensions).toEqual(expect.arrayContaining(["cer", "crt", "der", "pem"]));

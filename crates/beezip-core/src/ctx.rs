@@ -10,7 +10,7 @@ use std::{
 
 use crate::{
     Error, ErrorKind, Result,
-    format::bhive::crypt::{KeySource, UnlockAnswer, UnlockRequest},
+    format::bhive::crypt::{KeySource, SlotSecret, SlotView, UnlockAnswer, UnlockRequest},
     io::Counter,
 };
 
@@ -72,6 +72,24 @@ pub trait Ctx {
     /// default: there are none.
     fn key_source(&mut self) -> Option<&mut dyn KeySource> {
         None
+    }
+
+    /// A secret kept for `slot` when an earlier open of this archive went through it
+    /// ([`Ctx::keep_secret`]). An unlock tries these first, before your keys, asking nobody and
+    /// touching no device. `None`, the default: nothing is kept. `JobCtx` keeps them for the
+    /// desktop's tabs, so an archive unlocked once stays unlocked until its tab closes
+    /// (docs/M14.md §8).
+    fn kept_secret(&mut self, slot: &SlotView<'_>) -> Option<SlotSecret> {
+        let _ = slot;
+        None
+    }
+
+    /// `secret` opened the archive through `slot`, whatever gave it: a kept secret, one of your
+    /// keys, a password, a recovery key, a key or device chosen. Called once the header MAC has
+    /// passed. A context that keeps archives unlocked keeps it, under [`SlotView::kept_id`],
+    /// for [`Ctx::kept_secret`]; the default keeps nothing.
+    fn keep_secret(&mut self, slot: &SlotView<'_>, secret: &SlotSecret) {
+        let _ = (slot, secret);
     }
 
     /// Whether to spend `need` bytes of memory on a password slot of an encrypted `.bhive`,
@@ -270,6 +288,14 @@ impl Ctx for MeteredCtx<'_> {
 
     fn key_source(&mut self) -> Option<&mut dyn KeySource> {
         self.inner.key_source()
+    }
+
+    fn kept_secret(&mut self, slot: &SlotView<'_>) -> Option<SlotSecret> {
+        self.inner.kept_secret(slot)
+    }
+
+    fn keep_secret(&mut self, slot: &SlotView<'_>, secret: &SlotSecret) {
+        self.inner.keep_secret(slot, secret);
     }
 
     fn spend_memory(&mut self, need: u64, total: u64) -> Result<bool> {

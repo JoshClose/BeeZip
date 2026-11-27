@@ -219,8 +219,14 @@ export function forOneStep(tab: string | undefined): boolean {
   return tab?.startsWith("step:") ?? false;
 }
 
+/** What a tab's prompts say of the way in given: the archive stays unlocked for the tab,
+ * whether a password, a recovery key or a device opened it, and nothing is written down
+ * (docs/M14.md §8). */
+export const KEPT_UNLOCKED = "BeeZip keeps this archive unlocked until you close its tab, and never saves what you type.";
+
 /** What a reply typed that later calls on the archive pass as `password`: a password, or an
- * encrypted .bhive's recovery key (docs/M14.md §8). A key or device chosen isn't kept. */
+ * encrypted .bhive's recovery key (docs/M14.md §8). A key or device chosen isn't passed: Rust
+ * keeps what it opened for the tab, as it does for these. */
 export function keptSecret(reply: PromptReply): string | undefined {
   if (reply.kind === "Password") return reply.password;
   if (reply.kind === "Unlock" && reply.answer.way === "password") return reply.answer.password;

@@ -7,7 +7,10 @@
 //!   user verification required, no attestation. A security key's credential isn't resident
 //!   (it lives in its id, so the key's storage isn't used) and asks for the `hmac-secret`
 //!   extension; Windows Hello's asks for PRF (`bEnablePrf`, options version 6), which is how
-//!   Windows offers hmac-secret there. Either answer says whether it took.
+//!   Windows offers hmac-secret there, and from options version 8 for PRF's output for the
+//!   slot's salt (`pPRFGlobalEval`). Windows 11 then sets `bPrfEnabled` and returns the output
+//!   in the attestation's `pHmacSecret` (version 7 or later), wiped in Windows' copy before it is
+//!   freed; given `bEnablePrf` alone, it says PRF is off (wave 2, Windows 11 build 26300).
 //! - **Asking for hmac-secret** (`WebAuthNAuthenticatorGetAssertion`): the slot's credential as
 //!   the only one allowed, `pHmacSecretSaltValues.pGlobalHmacSalt` the slot's salt (options
 //!   version 6 or later), with `WEBAUTHN_AUTHENTICATOR_HMAC_SECRET_VALUES_FLAG` when the salt
@@ -140,13 +143,35 @@ fn base64url(bytes: &[u8]) -> String {
     out
 }
 
-/// An attestation Windows allocated, freed when dropped.
+/// An attestation Windows allocated, freed when dropped. A PRF output in it is wiped first, as
+/// an assertion's is.
 struct AttestationGuard<'a>(&'a Api, *mut ffi::CredentialAttestation);
 
 impl Drop for AttestationGuard<'_> {
     fn drop(&mut self) {
-        // SAFETY: Windows allocated it, and it is freed once.
-        unsafe { (self.0.free_credential_attestation)(self.1) };
+        // SAFETY: Windows allocated it, and it is freed once. `pHmacSecret` is read only when
+        // the attestation's version says it is there (7 or later), and its buffers are wiped
+        // within their lengths.
+        unsafe {
+            let a = &*self.1;
+            if a.dw_version >= 7 && !a.p_hmac_secret.is_null() {
+                wipe(&*a.p_hmac_secret);
+            }
+            (self.0.free_credential_attestation)(self.1)
+        }
+    }
+}
+
+/// Wipes an hmac-secret output in Windows' memory.
+///
+/// # Safety
+/// Its pointers are null or point to buffers of their lengths, writable until freed.
+unsafe fn wipe(h: &ffi::HmacSecretSalt) {
+    for (p, n) in [(h.pb_first, h.cb_first), (h.pb_second, h.cb_second)] {
+        if !p.is_null() && n > 0 {
+            // SAFETY: as the caller promises.
+            unsafe { std::slice::from_raw_parts_mut(p, n as usize) }.zeroize();
+        }
     }
 }
 
@@ -162,12 +187,7 @@ impl Drop for AssertionGuard<'_> {
         unsafe {
             let a = &*self.1;
             if a.dw_version >= 3 && !a.p_hmac_secret.is_null() {
-                let h = &*a.p_hmac_secret;
-                for (p, n) in [(h.pb_first, h.cb_first), (h.pb_second, h.cb_second)] {
-                    if !p.is_null() && n > 0 {
-                        std::slice::from_raw_parts_mut(p, n as usize).zeroize();
-                    }
-                }
+                wipe(&*a.p_hmac_secret);
             }
             (self.0.free_assertion)(self.1)
         }
@@ -184,6 +204,7 @@ impl Authenticator for WebAuthn {
         rp_id: &str,
         user_id: &[u8],
         attachment: Attachment,
+        prf_salt: Option<&[u8; 32]>,
     ) -> Result<NewCredential> {
         let api = self.api()?;
         let rp_id_w = ffi::wide(rp_id);
@@ -242,10 +263,22 @@ impl Authenticator for WebAuthn {
             dw_attestation_conveyance_preference: ffi::ATTESTATION_CONVEYANCE_PREFERENCE_NONE,
             ..Default::default()
         };
+        let mut eval = prf_salt.copied().unwrap_or_default();
+        let mut eval_salt = ffi::HmacSecretSalt {
+            cb_first: ffi::CTAP_ONE_HMAC_SECRET_LENGTH,
+            pb_first: eval.as_mut_ptr(),
+            cb_second: 0,
+            pb_second: std::ptr::null_mut(),
+        };
         if hello {
             // The field is in options version 6 (API version 6), which `support` requires
             // for Windows Hello.
             options.b_enable_prf = 1;
+            // PRF's output for the salt, with the credential: version 8 (API version 8). The
+            // salt goes as a PRF input (no HMAC_SECRET_VALUES_FLAG), as unlocking sends it.
+            if prf_salt.is_some() && options.dw_version >= 8 {
+                options.p_prf_global_eval = &raw mut eval_salt;
+            }
         } else {
             options.extensions = ffi::Extensions {
                 c_extensions: extensions.len() as u32,
@@ -301,7 +334,20 @@ impl Authenticator for WebAuthn {
             if a.dw_version >= 5 && a.b_prf_enabled != 0 {
                 hmac_secret = true;
             }
-            Ok(NewCredential { id, hmac_secret })
+            let mut prf_output = None;
+            if prf_salt.is_some() && a.dw_version >= 7 && !a.p_hmac_secret.is_null() {
+                let h = &*a.p_hmac_secret;
+                if !h.pb_first.is_null() && h.cb_first == ffi::CTAP_ONE_HMAC_SECRET_LENGTH {
+                    let mut out = Zeroizing::new([0; 32]);
+                    out.copy_from_slice(ffi::bytes(h.pb_first, h.cb_first));
+                    prf_output = Some(out);
+                }
+            }
+            Ok(NewCredential {
+                id,
+                hmac_secret,
+                prf_output,
+            })
         }
     }
 
@@ -575,9 +621,9 @@ mod tests {
     }
 
     /// The same with Windows Hello, deleting the credential it registers. Shows Windows Hello's
-    /// prompt four times.
+    /// prompt three times: registering (which gives the secret too), unlocking, and a raw salt.
     #[test]
-    #[ignore = "needs a person: Windows Hello's face, fingerprint or PIN, four times"]
+    #[ignore = "needs a person: Windows Hello's face, fingerprint or PIN, three times"]
     fn windows_hello_opens_its_slot() {
         struct Delete(Vec<u8>);
         impl Drop for Delete {

@@ -268,9 +268,10 @@
 <ul>
   <li><strong>Password</strong> and <strong>Recovery key</strong>, to type. The recovery key goes in its 8 groups of 6 digits, and a group that can't be right shows as a typo before anything is tried.</li>
   <li><strong>On this machine:</strong> a button for each key or device here that fits a way in, such as <strong>Use your certificate</strong> or <strong>Use a security key or Windows Hello</strong>. Windows then asks for a PIN, a touch or your face in its own dialog. BeeZip never uses a device unless you choose it here.</li>
+  <li><strong>This PC with a PIN:</strong> a field for the PIN, with its own <strong>Unlock with This PC</strong>. BeeZip asks for this PIN itself, not Windows. Windows blocks the TPM for a few hours after several wrong PINs, for every TPM key you have, so if you're not sure of the PIN, open the archive another way. A This PC key without a PIN opens the archive without asking.</li>
   <li><strong>Other ways in:</strong> the ones this machine doesn't have.</li>
 </ul>
-<p>After a way in that didn't open it, such as a wrong password or another security key, Unlock says so and asks again. A password or recovery key you type is kept for the tab, as passwords are; the choice of a device isn't. In a job window from Explorer's menu, what you type is used for that job only.</p>
+<p>After a way in that didn't open it, such as a wrong password, a wrong PIN or another security key, Unlock says so, with the reason when it has one, and asks again. A password or recovery key you type is kept for the tab, as passwords are; the choice of a device, and This PC's PIN, aren't. In a job window from Explorer's menu, what you type is used for that job only.</p>
 
 <h3 id="overwrite-prompt">Files that are already there</h3>
 <p>When extracting would write over a file and <strong>Existing files</strong> is <strong>Ask each time</strong>, BeeZip shows the file's path and asks:</p>
@@ -305,7 +306,7 @@
 <p>Three sections of Settings hold the keys .bhive archives are encrypted to and signed with. They aren't in <code>config.toml</code>, but in a <code>keys</code> folder beside it.</p>
 <ul>
   <li><strong>Your keys:</strong> <strong>Make a key</strong> names a new one, for opening archives (post-quantum, the default, or classic, for older age tools) or for signing them. Its private key stays on this machine, sealed by the system: by Windows for your account, in your login Keychain on macOS, in a file only you can read on Linux. Archives encrypted to your keys open without asking. Each key has <strong>Copy</strong>, for its public key to share; <strong>Back up</strong>, which shows the private key after a warning, since anyone who has it can open what it opens or sign as you; and <strong>Delete</strong>, which asks first: an archive only that key opens can't be opened afterwards.</li>
-  <li><strong>Contacts:</strong> other people's public keys and certificates, by name, to encrypt to and to know their signatures by. <strong>Add a key</strong> takes a pasted key (<code>age1…</code>, <code>age1pq1…</code>, <code>bzsig1…</code>) or a file, a certificate file among them. A private key added there becomes one of yours.</li>
+  <li><strong>Contacts:</strong> other people's public keys and certificates, by name, to encrypt to and to know their signatures by. <strong>Add a key or certificate</strong> takes a pasted key (<code>age1…</code>, <code>age1pq1…</code>, <code>bzsig1…</code>) or certificate, or a file: a key file, or a certificate (<code>.cer</code>, <code>.crt</code>, <code>.der</code>, <code>.pem</code>). A private key added there becomes one of yours.</li>
   <li><strong>Certificates:</strong> the ones the system has that can encrypt archives or sign them (Personal and Other People on Windows, your Keychain on macOS), with their issuer, their expiry, where the private key is (here, on a smart card, in the TPM), whether the system trusts them, and why one can't encrypt. On Linux, certificates come from files.</li>
 </ul>
 

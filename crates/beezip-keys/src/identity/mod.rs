@@ -273,7 +273,7 @@ impl Store {
             .ok_or_else(|| {
                 Error::new(
                     ErrorKind::NotFound,
-                    format!("no key or contact is called `{name}`"),
+                    format!("no key or contact is called \"{name}\""),
                 )
             })
     }
@@ -408,7 +408,7 @@ impl Store {
         if let Some(r) = index.keys.iter().find(|r| same_name(&r.name, name)) {
             return Err(Error::new(
                 ErrorKind::Conflict,
-                format!("a key or contact is already called `{}`", r.name),
+                format!("a key or contact is already called \"{}\"", r.name),
             ));
         }
         if let Some(r) = index.keys.iter().find(|r| r.public == public) {
@@ -424,7 +424,7 @@ impl Store {
             };
             return Err(Error::new(
                 ErrorKind::Conflict,
-                format!("this {what} is already here, as {whose}: `{}`", r.name),
+                format!("this {what} is already here, as {whose}: \"{}\"", r.name),
             ));
         }
         let own = secret.is_some();
@@ -473,24 +473,24 @@ impl Store {
     fn secret_of(&self, record: &Record) -> Result<KeyText> {
         if record.kind == KeyKind::Certificate {
             return Err(invalid(format!(
-                "`{}` is a contact's certificate: only the certificate is here",
+                "\"{}\" is a contact's certificate: only the certificate is here",
                 record.name
             )));
         }
         if !record.own {
             return Err(invalid(format!(
-                "`{}` is a contact's key: only its public key is here",
+                "\"{}\" is a contact's key: only its public key is here",
                 record.name
             )));
         }
         let bytes = seal::get(&self.keys_dir(), &record.id)?;
         let text = std::str::from_utf8(&bytes)
-            .map_err(|_| Error::corrupt(format!("the key `{}` is damaged", record.name)))?;
+            .map_err(|_| Error::corrupt(format!("the key \"{}\" is damaged", record.name)))?;
         let key = bech32::parse_key(text)
-            .map_err(|e| Error::corrupt(format!("the key `{}` is damaged: {e}", record.name)))?;
+            .map_err(|e| Error::corrupt(format!("the key \"{}\" is damaged: {e}", record.name)))?;
         if !key.is_secret() || KeyKind::of(&key) != record.kind {
             return Err(Error::corrupt(format!(
-                "the key `{}` is damaged",
+                "the key \"{}\" is damaged",
                 record.name
             )));
         }
@@ -571,7 +571,7 @@ impl Store {
                 Ok(key) => identities.extend(Identity::of(key)),
                 Err(e) => problems.push(Error::new(
                     e.kind,
-                    format!("your key `{}` can't be used: {}", r.name, e.message),
+                    format!("your key \"{}\" can't be used: {}", r.name, e.message),
                 )),
             }
         }

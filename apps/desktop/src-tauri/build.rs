@@ -10,6 +10,7 @@ fn main() {
                 "cmd_respond",
                 "cmd_list",
                 "cmd_launched",
+                "cmd_lock",
                 "cmd_ready",
                 "cmd_save_text",
                 "cmd_drag_out",

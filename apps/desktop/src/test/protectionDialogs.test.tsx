@@ -161,6 +161,8 @@ describe("the create dialog's Protection section (docs/M14.md §8)", () => {
     await user.click(screen.getByText(/Let this PC open it/));
     expect(screen.getByRole("alert")).toHaveTextContent(/only on this computer/);
     expect(screen.getByRole("button", { name: "Create" })).toBeDisabled();
+    // Said again beside the button, which may be scrolled far below it.
+    expect(screen.getByRole("button", { name: "Create" })).toHaveAccessibleDescription(/only on this computer/);
     await user.click(screen.getByText(/Make a recovery key/));
     expect(screen.queryByRole("alert")).toBeNull();
     expect(screen.getByRole("button", { name: "Create" })).toBeEnabled();
@@ -194,11 +196,15 @@ describe("the create dialog's Protection section (docs/M14.md §8)", () => {
     await waitFor(() => expect(screen.getByRole("option", { name: "bhive" })).toBeInTheDocument());
     await user.selectOptions(screen.getByLabelText("Format"), "bhive");
     await user.clear(screen.getByLabelText("Password"));
-    // An encrypted source needs a way in, or the person's word.
+    // An encrypted source needs a way in, or the person's word, and the footer says so.
     expect(screen.getByRole("button", { name: "Convert" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Convert" })).toHaveAccessibleDescription(
+      "a.zip is encrypted: give the new archive a way in, or write its entries without one.",
+    );
     expect(screen.getByText(/Or give the new archive a way in above/)).toBeInTheDocument();
     await user.click(screen.getByText(/Make a recovery key/));
     expect(screen.getByRole("button", { name: "Convert" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Convert" })).not.toHaveAccessibleDescription();
     await user.type(screen.getByLabelText("Password"), "new one");
     await user.click(screen.getByRole("button", { name: "Convert" }));
     await waitFor(() => expect(fake.calls.some((c) => c.name === "archive.convert")).toBe(true));

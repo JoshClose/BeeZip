@@ -16,6 +16,7 @@ use beezip_commands::{
     SystemKeys,
     crypt::{SlotKindName, UnlockReply},
     registry,
+    wire::Secret,
 };
 use beezip_core::format::bhive::crypt::{
     KEY_ID_LEN, KeySource, SlotKind, SlotSecret, SlotView, UnlockAnswer, UnlockRequest, WayInfo,
@@ -70,6 +71,14 @@ struct UnlockInput {
     kinds: Vec<u8>,
     #[arg(long)]
     here: Vec<u32>,
+    /// The ways in that need a PIN BeeZip asks for.
+    #[arg(long)]
+    #[serde(default)]
+    pins: Vec<u32>,
+    /// Why the way in the last answer chose didn't open it, from the second ask on.
+    #[arg(long)]
+    #[serde(default)]
+    failed: Option<String>,
     #[arg(long)]
     asks: u32,
 }
@@ -92,6 +101,7 @@ impl Command for TestUnlock {
                 slot: i as u32,
                 kind: SlotKind::from_id(k).unwrap(),
                 here: input.here.contains(&(i as u32)),
+                needs_pin: input.pins.contains(&(i as u32)),
             })
             .collect();
         let mut out = Vec::new();
@@ -99,12 +109,17 @@ impl Command for TestUnlock {
             let request = UnlockRequest {
                 ways: ways.clone(),
                 attempt,
+                failed: input.failed.clone().filter(|_| attempt > 0),
             };
             let answer = beezip_core::Ctx::unlock(cx, &request)?;
             out.push(match answer {
                 UnlockAnswer::Password(p) => format!("password {p}"),
                 UnlockAnswer::RecoveryKey(k) => format!("recovery {k}"),
-                UnlockAnswer::Way(s) => format!("slot {s}"),
+                UnlockAnswer::Way { slot, pin: None } => format!("slot {slot}"),
+                UnlockAnswer::Way {
+                    slot,
+                    pin: Some(pin),
+                } => format!("slot {slot} with PIN {}", pin.as_str()),
             });
         }
         Ok(out)
@@ -178,7 +193,7 @@ fn the_unlock_prompt_lists_the_ways_in_and_takes_each_answer() {
             },
         },
         PromptReply::Unlock {
-            answer: UnlockReply::Slot { slot: 2 },
+            answer: UnlockReply::Slot { slot: 2, pin: None },
         },
         // A front end that knows only passwords.
         PromptReply::Password {
@@ -197,7 +212,7 @@ fn the_unlock_prompt_lists_the_ways_in_and_takes_each_answer() {
     );
     let asked = s.asked.lock().unwrap();
     assert_eq!(asked.len(), 3);
-    let Prompt::Unlock { ways, attempt } = &asked[1] else {
+    let Prompt::Unlock { ways, attempt, .. } = &asked[1] else {
         panic!("{:?}", asked[1]);
     };
     assert_eq!(*attempt, 1);
@@ -210,6 +225,61 @@ fn the_unlock_prompt_lists_the_ways_in_and_takes_each_answer() {
             (1, SlotKindName::RecoveryKey, false),
             (2, SlotKindName::PostQuantumKey, true),
         ]
+    );
+}
+
+/// A This PC key whose PIN BeeZip asks for: the prompt says which way in needs it, and why the
+/// way in last chosen failed; the reply's PIN reaches core. A reply without one, an older front
+/// end's, still parses.
+#[test]
+fn a_pin_goes_with_the_reply() {
+    let old: UnlockReply = serde_json::from_value(json!({ "way": "slot", "slot": 1 })).unwrap();
+    assert_eq!(old, UnlockReply::Slot { slot: 1, pin: None });
+    let with = UnlockReply::Slot {
+        slot: 1,
+        pin: Some(Secret::new("4821")),
+    };
+    assert_eq!(format!("{with:?}"), "Slot(1, PIN ***)");
+    assert_eq!(
+        serde_json::to_value(&with).unwrap(),
+        json!({ "way": "slot", "slot": 1, "pin": "4821" })
+    );
+    let s = Scripted::new(vec![
+        PromptReply::Unlock { answer: with },
+        PromptReply::Unlock { answer: old },
+    ]);
+    let r = unlock(
+        json!({ "kinds": [1, 6], "here": [1], "pins": [1], "failed": "the PIN is wrong", "asks": 2 }),
+        s.clone(),
+    )
+    .unwrap();
+    assert_eq!(r, json!(["slot 1 with PIN 4821", "slot 1"]));
+    let asked = s.asked.lock().unwrap();
+    let Prompt::Unlock { ways, failed, .. } = &asked[0] else {
+        panic!("{:?}", asked[0]);
+    };
+    assert_eq!(*failed, None);
+    let pins: Vec<bool> = ways.iter().map(|w| w.needs_pin).collect();
+    assert_eq!(pins, [false, true]);
+    // On the wire, only a way in that needs a PIN says so, and only a failure is sent.
+    let wire = serde_json::to_value(&asked[1]).unwrap();
+    assert_eq!(
+        wire,
+        json!({
+            "kind": "Unlock",
+            "ways": [
+                { "slot": 0, "kind": "password", "here": false },
+                { "slot": 1, "kind": "ec-p256", "here": true, "needs_pin": true },
+            ],
+            "attempt": 1,
+            "failed": "the PIN is wrong",
+        })
+    );
+    assert!(
+        serde_json::to_value(&asked[0])
+            .unwrap()
+            .get("failed")
+            .is_none()
     );
 }
 
@@ -565,8 +635,10 @@ impl Command for TestKeys {
                     slot: 0,
                     kind: SlotKind::Password,
                     here: false,
+                    needs_pin: false,
                 }],
                 attempt: 0,
+                failed: None,
             };
             Some(format!("{:?}", beezip_core::Ctx::unlock(cx, &request)?))
         } else {
@@ -1507,4 +1579,216 @@ fn a_conversion_that_drops_signatures_says_so_encrypted_or_not() {
         );
         assert_eq!(info["signatures"][0]["status"], "valid", "{info}");
     }
+}
+
+/// What the desktop's main window runs its tabs' jobs under: archives kept unlocked.
+fn keeping() -> Policy {
+    Policy {
+        keep_unlocked: true,
+        ..Policy::unrestricted()
+    }
+}
+
+/// Runs `name` on `engine` under `policy`, with what it sent as events.
+fn run_on(
+    engine: &Engine,
+    policy: &Policy,
+    name: &str,
+    args: Value,
+    interactor: Arc<dyn Interactor>,
+) -> (Result<Value, CmdError>, Vec<JobEvent>) {
+    let events = Arc::new(Mutex::new(Vec::new()));
+    let seen = Arc::clone(&events);
+    let sink: EventSink = Arc::new(move |e| seen.lock().unwrap().push(e));
+    let r = engine
+        .invoke_with_policy(name, args, interactor, sink, Arc::new(policy.clone()))
+        .unwrap()
+        .join();
+    let events = events.lock().unwrap().clone();
+    (r, events)
+}
+
+/// The sealed example of bhive.md §11, under the password "honey", copied into `dir`.
+fn sealed_in(dir: &Path, name: &str) -> PathBuf {
+    let archive = dir.join(name);
+    std::fs::copy(fixtures().join("bhive-m14/spec-sealed.bhive"), &archive).unwrap();
+    archive
+}
+
+fn honey() -> PromptReply {
+    PromptReply::Unlock {
+        answer: UnlockReply::Password {
+            password: "honey".into(),
+        },
+    }
+}
+
+/// A tab's archive, unlocked once through the Unlock prompt, opens for every later job on it
+/// without asking: a listing, a test, an extraction, an edit (which keeps its slots), and a
+/// listing after the edit. A copy elsewhere isn't unlocked, and closing the tab locks it again
+/// (docs/M14.md §8).
+#[test]
+fn a_tab_keeps_its_archive_unlocked_until_it_closes() {
+    let dir = tempfile::tempdir().unwrap();
+    let archive = sealed_in(dir.path(), "a.bhive");
+    let (engine, _cfg) = engine_in(registry(), Policy::unrestricted(), SystemKeys::Off);
+    let tab = keeping();
+    let list = || json!({ "archive": archive, "flat": true });
+    let asked = Scripted::new(vec![honey()]);
+    let (r, _) = run_on(&engine, &tab, "archive.list", list(), asked.clone());
+    r.unwrap();
+    assert_eq!(asked.asked.lock().unwrap().len(), 1);
+    assert_eq!(engine.unlocks().len(), 1);
+
+    let nobody = Scripted::new(vec![]);
+    let new = dir.path().join("new.txt");
+    std::fs::write(&new, "new").unwrap();
+    let out = dir.path().join("out");
+    for (name, args) in [
+        ("archive.list", list()),
+        ("archive.test", json!({ "archive": archive })),
+        (
+            "archive.extract",
+            json!({ "archive": archive, "dest": out }),
+        ),
+        (
+            "archive.add",
+            json!({ "archive": archive, "inputs": [new] }),
+        ),
+        ("archive.list", list()),
+    ] {
+        let (r, events) = run_on(&engine, &tab, name, args, nobody.clone());
+        // The example's link is refused, and the rest extracted.
+        let out = match r {
+            Err(e) if e.code == ErrorCode::Unsafe => e.details.unwrap(),
+            r => r.unwrap_or_else(|e| panic!("{name}: {e:?}")),
+        };
+        assert!(
+            !events.iter().any(|e| matches!(e, JobEvent::Prompt { .. })),
+            "{name} asked"
+        );
+        if name == "archive.list" {
+            assert!(out["entries"].is_array(), "{out}");
+        }
+    }
+    assert!(nobody.asked.lock().unwrap().is_empty());
+    assert!(encrypted(&archive));
+    let (listed, _) = run_on(&engine, &tab, "archive.list", list(), nobody.clone());
+    assert!(listed.unwrap()["entries"].to_string().contains("new.txt"));
+
+    // A copy of it elsewhere asks, as any archive does.
+    let copy = dir.path().join("copy.bhive");
+    std::fs::copy(&archive, &copy).unwrap();
+    let (r, _) = run_on(
+        &engine,
+        &tab,
+        "archive.list",
+        json!({ "archive": copy }),
+        Arc::new(NonInteractive),
+    );
+    assert_eq!(r.unwrap_err().code, ErrorCode::PasswordRequired);
+
+    // The tab closes: what unlocked it is wiped, and the next job asks again.
+    assert_eq!(engine.unlocks().forget(&archive), 1);
+    assert!(engine.unlocks().is_empty());
+    let (r, _) = run_on(
+        &engine,
+        &tab,
+        "archive.list",
+        list(),
+        Arc::new(NonInteractive),
+    );
+    assert_eq!(r.unwrap_err().code, ErrorCode::PasswordRequired);
+}
+
+/// The CLI and MCP keep nothing: a job given the password opens the archive, and the next one
+/// without it is asked for it, as before.
+#[test]
+fn the_cli_and_mcp_keep_nothing_unlocked() {
+    let dir = tempfile::tempdir().unwrap();
+    let archive = sealed_in(dir.path(), "a.bhive");
+    for policy in [Policy::unrestricted(), unattended()] {
+        assert!(!policy.keep_unlocked);
+        let (engine, _cfg) = engine_in(registry(), policy.clone(), SystemKeys::Off);
+        let (r, _) = run_on(
+            &engine,
+            &policy,
+            "archive.list",
+            json!({ "archive": archive, "password": "honey" }),
+            Arc::new(NonInteractive),
+        );
+        r.unwrap();
+        // Through the Unlock prompt too.
+        let (r, _) = run_on(
+            &engine,
+            &policy,
+            "archive.list",
+            json!({ "archive": archive }),
+            Scripted::new(vec![honey()]),
+        );
+        r.unwrap();
+        assert!(engine.unlocks().is_empty());
+        let (r, _) = run_on(
+            &engine,
+            &policy,
+            "archive.list",
+            json!({ "archive": archive }),
+            Arc::new(NonInteractive),
+        );
+        assert_eq!(r.unwrap_err().code, ErrorCode::PasswordRequired);
+    }
+}
+
+/// An interactor that refuses every prompt at once (a drag-out's): no `Prompt` event goes out,
+/// and the job fails as with nobody to ask; it waits on nothing.
+struct Refusing;
+
+impl Interactor for Refusing {
+    fn prompt(&self, job: JobId, id: u64, prompt: &Prompt) -> Result<PromptReply, CmdError> {
+        NonInteractive.prompt(job, id, prompt)
+    }
+
+    fn shows_prompts(&self) -> bool {
+        false
+    }
+}
+
+#[test]
+fn an_interactor_that_shows_no_prompts_fails_without_one() {
+    let dir = tempfile::tempdir().unwrap();
+    let archive = sealed_in(dir.path(), "a.bhive");
+    let (engine, _cfg) = engine_in(registry(), Policy::unrestricted(), SystemKeys::Off);
+    let args = json!({ "archive": archive, "dest": dir.path().join("out") });
+    let (r, events) = run_on(
+        &engine,
+        &keeping(),
+        "archive.extract",
+        args.clone(),
+        Arc::new(Refusing),
+    );
+    let e = r.unwrap_err();
+    assert_eq!(e.code, ErrorCode::PasswordRequired, "{e:?}");
+    assert!(e.details.unwrap()["ways"].is_array());
+    assert!(
+        !events.iter().any(|e| matches!(e, JobEvent::Prompt { .. })),
+        "{events:?}"
+    );
+    // Unlocked by the tab first, it opens.
+    let (r, _) = run_on(
+        &engine,
+        &keeping(),
+        "archive.list",
+        json!({ "archive": archive }),
+        Scripted::new(vec![honey()]),
+    );
+    r.unwrap();
+    let (r, _) = run_on(
+        &engine,
+        &keeping(),
+        "archive.extract",
+        args,
+        Arc::new(Refusing),
+    );
+    // The example's link is refused, and the rest extracted.
+    assert_eq!(r.unwrap_err().details.unwrap()["files"], 2);
 }

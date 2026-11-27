@@ -1,6 +1,7 @@
 //! CNG and CryptoAPI handles as RAII types, and the calls BeeZip makes with them. Every
-//! function here is silent unless its `silent` argument is false: then a smart card's or TPM
-//! key's PIN dialog may show, which only happens for a way in the user chose.
+//! function here is silent unless its `silent` argument is false: then a smart card's or a
+//! certificate's TPM key's PIN dialog may show, which only happens for a way in the user chose
+//! or for signing. A This PC key is always used silently, with the PIN BeeZip asked for.
 
 use std::{ffi::c_void, sync::Arc};
 
@@ -15,6 +16,31 @@ use zeroize::Zeroizing;
 pub const NTE_BAD_FLAGS: u32 = 0x8009_0009;
 pub const NTE_SILENT_CONTEXT: u32 = 0x8009_0022;
 pub const NTE_NO_MORE_ITEMS: u32 = 0x8009_002A;
+
+/// Windows' protection against PIN guessing is on: the TPM ignores the authorization of every
+/// key it protects, for every TPM key of this account, until it lifts by itself (wave 2 met
+/// NTE_AUTHENTICATION_IGNORED for hours, even signing with a key that has no PIN).
+/// NTE_AUTHENTICATION_IGNORED, TPM_E_PCP_AUTHENTICATION_IGNORED, TPM_E_DEFEND_LOCK_RUNNING
+/// (TPM 1.2), TPM_20_E_LOCKOUT (winerror.h).
+const TPM_BLOCKED: [u32; 4] = [0x8009_0031, 0x8029_0409, 0x8028_0803, 0x8028_0921];
+
+/// A wrong PIN: NTE_INCORRECT_PASSWORD, TPM_E_PCP_AUTHENTICATION_FAILED, TPM_E_AUTHFAIL
+/// (TPM 1.2) (winerror.h); TPM 2.0's are [`tpm_auth_failed`].
+const WRONG_PIN: [u32; 3] = [0x8009_0033, 0x8029_0408, 0x8028_0001];
+
+/// A TPM 2.0 response code (`0x8028_0000` plus `TPM_RC`) of format 1 whose error is
+/// TPM_RC_AUTH_FAIL (`0x08E`, a wrong authorization that counts towards the lockout) or
+/// TPM_RC_BAD_AUTH (`0x0A2`, one that doesn't), whichever handle, session or parameter it names
+/// in bits 6 to 11 (TPM 2.0 Part 2, `TPM_RC`). winerror.h's TPM_20_E_AUTH_FAIL and
+/// TPM_20_E_BAD_AUTH are the codes without one; a TPM names the session, as 0x8028_098E does.
+fn tpm_auth_failed(code: u32) -> bool {
+    code & 0xFFFF_F000 == 0x8028_0000 && code & 0x80 != 0 && matches!(code & 0x3F, 0x0E | 0x22)
+}
+
+/// A blocked TPM, said plainly: Windows' own words ("the dictionary attack mitigation is
+/// triggered…") tell a person nothing they can act on.
+const TPM_BLOCKED_TEXT: &str =
+    "Windows is blocking the TPM after too many wrong PINs; it lifts by itself after a few hours";
 
 /// A CNG or CryptoAPI failure, with its HRESULT.
 #[derive(Debug, Clone)]
@@ -47,11 +73,43 @@ impl WinError {
         )
     }
 
+    /// Windows is blocking the TPM after too many wrong PINs ([`TPM_BLOCKED`]).
+    pub fn tpm_blocked(&self) -> bool {
+        TPM_BLOCKED.contains(&self.code)
+    }
+
+    /// The PIN given was wrong.
+    pub fn wrong_pin(&self) -> bool {
+        WRONG_PIN.contains(&self.code) || tpm_auth_failed(self.code)
+    }
+
     /// A closed PIN dialog is `Cancelled`, as a closed Windows Security dialog is
-    /// (webauthn.rs), so an unlock asks for another way in; anything else is `Io`.
+    /// (webauthn.rs), so an unlock asks for another way in; a wrong PIN is `WrongPassword` and a
+    /// blocked TPM `Io`, both said plainly, and an unlock asks again too; anything else is
+    /// `Io`, with Windows' own words.
     pub fn into_error(self) -> Error {
+        self.explained(None)
+    }
+
+    /// [`WinError::into_error`], with what to do meanwhile (`"Open the archive another way
+    /// meanwhile"`) when Windows is blocking the TPM.
+    pub fn explained(self, meanwhile: Option<&str>) -> Error {
+        let code = self.code;
+        if self.tpm_blocked() {
+            let then = meanwhile.map(|m| format!(". {m}")).unwrap_or_default();
+            return Error::new(
+                ErrorKind::Io,
+                format!("{TPM_BLOCKED_TEXT}{then} (0x{code:08X})"),
+            );
+        }
+        if self.wrong_pin() {
+            return Error::new(
+                ErrorKind::WrongPassword,
+                format!("the PIN is wrong (0x{code:08X})"),
+            );
+        }
         // HRESULT_FROM_WIN32(ERROR_CANCELLED), NTE_USER_CANCELLED, SCARD_W_CANCELLED_BY_USER
-        let kind = if matches!(self.code, 0x8007_04C7 | 0x8009_0036 | 0x8010_006E) {
+        let kind = if matches!(code, 0x8007_04C7 | 0x8009_0036 | 0x8010_006E) {
             ErrorKind::Cancelled
         } else {
             ErrorKind::Io
@@ -91,6 +149,18 @@ pub fn wz(s: &str) -> Vec<u16> {
 /// NUL-terminated UTF-16 as bytes, for properties and parameter buffers.
 pub fn wz_bytes(s: &str) -> Vec<u8> {
     wz(s).iter().flat_map(|u| u.to_le_bytes()).collect()
+}
+
+/// A PIN as `NCRYPT_PIN_PROPERTY` is given it: NUL-terminated UTF-16LE (as [`wz_bytes`]), in
+/// memory that is wiped. Making a This PC key and opening it set exactly these bytes, so the
+/// PIN the TPM checks is the one it was made with.
+pub fn pin_bytes(pin: &str) -> Zeroizing<Vec<u8>> {
+    // A UTF-16 unit for each byte of UTF-8 at most: the buffer never grows, so no copy is left.
+    let mut out = Zeroizing::new(Vec::with_capacity(2 * (pin.len() + 1)));
+    for unit in pin.encode_utf16().chain(std::iter::once(0)) {
+        out.extend_from_slice(&unit.to_le_bytes());
+    }
+    out
 }
 
 fn utf16_to_string(b: &[u8]) -> String {
@@ -218,7 +288,9 @@ impl Provider {
         result
     }
 
-    /// Opens the persisted key `name`, silently.
+    /// Opens the persisted key `name`, silently. A key opened silently stays silent: the TPM's
+    /// provider then refuses what needs its PIN (NTE_SILENT_CONTEXT) rather than ask for it
+    /// (wave 2), so a This PC key's PIN is set on it as a property.
     pub fn open_key(self: &Arc<Self>, name: &str) -> WinResult<Key> {
         let w = wz(name);
         let mut h = NCRYPT_KEY_HANDLE::default();
@@ -370,11 +442,19 @@ impl Key {
     }
 
     pub fn set_prop(&self, name: PCWSTR, value: &[u8]) -> WinResult<()> {
-        // SAFETY: `value` is read only.
-        check(
-            unsafe { NCryptSetProperty(NCRYPT_HANDLE(self.h.0), name, value, NCRYPT_SILENT_FLAG) },
-            "NCryptSetProperty",
-        )
+        let set = |flags| {
+            // SAFETY: `value` is read only.
+            check(
+                unsafe { NCryptSetProperty(NCRYPT_HANDLE(self.h.0), name, value, flags) },
+                "NCryptSetProperty",
+            )
+        };
+        // A provider that refuses the silent flag here is asked again without it: setting a
+        // property shows nothing.
+        match set(NCRYPT_SILENT_FLAG) {
+            Err(e) if e.code == NTE_BAD_FLAGS => set(NCRYPT_FLAGS(0)),
+            r => r,
+        }
     }
 
     /// Makes `window` the parent of the dialogs its provider shows for this key (a smart card's
@@ -447,8 +527,10 @@ impl Key {
         self.provider_name() == "Microsoft Platform Crypto Provider"
     }
 
-    /// A TPM key with a PIN: using it silently would count a failed try against the TPM's
-    /// lockout, so it is only used when the user chose it and Windows asks for the PIN.
+    /// A TPM key with a PIN: using it without would count a failed try against the TPM's
+    /// lockout, so it is only used when the user chose it: a This PC key with the PIN BeeZip
+    /// asked for set on it, a certificate's TPM key with Windows' own dialog. Read silently,
+    /// from the key's properties: nothing reaches the TPM.
     pub fn needs_pin(&self) -> bool {
         self.is_tpm()
             && self

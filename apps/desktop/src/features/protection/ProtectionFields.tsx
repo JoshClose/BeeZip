@@ -65,8 +65,10 @@ export function NewPasswordField({
           <Sparkles /> Suggest one
         </Button>
       </div>
+      {/* A weak password is warned of in amber, as the jobs panel's warnings are, not refused:
+          red is for what stops the dialog. */}
       {rating && (
-        <p role="status" className={`text-[12px] ${rating.weak ? "text-danger" : "text-muted"}`}>
+        <p role="status" className={`text-[12px] ${rating.weak ? "text-amber" : "text-muted"}`}>
           {rating.line}
         </p>
       )}
