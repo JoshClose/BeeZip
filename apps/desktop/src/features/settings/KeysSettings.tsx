@@ -230,7 +230,7 @@ function ImportKey({ onChanged }: { onChanged: () => void }) {
     }
   };
   return (
-    <Field label="Add a key" htmlFor="import-name" hint="A public key (age1…, age1pq1…, bzsig1…) or someone's certificate becomes a contact; a private key becomes yours.">
+    <Field label="Add a key or certificate" htmlFor="import-name" hint="A public key (age1…, age1pq1…, bzsig1…) or someone's certificate (.cer, .crt, .der, .pem) becomes a contact; a private key becomes yours.">
       <Input id="import-name" className="w-48" placeholder="Whose it is" value={name} onChange={(e) => setName(e.target.value)} />
       {file ? (
         <p className="selectable flex items-center gap-2 text-[12px]">
