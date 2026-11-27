@@ -473,29 +473,31 @@ export function CreateDialog({
             The files go into a new archive instead.
           </p>
         )}
-        {source ? (
+        {/* The format first, then what goes in and where it's saved: Save as takes the format's
+            extension, so a format chosen after it would rename what was just chosen. A
+            conversion's source comes before it, as what's being converted. */}
+        {source && (
           <Field label="Source">
             <p className="selectable truncate pt-1.5" title={source.path}>
               {source.path}
             </p>
           </Field>
-        ) : (
-          <InputsField inputs={form.inputs} onChange={setInputs} />
         )}
-        <Field label="Save as" htmlFor="output">
-          <div className="flex gap-2">
-            <Input id="output" className="flex-1" value={form.output} onChange={(e) => set({ output: e.target.value })} />
-            <Button onClick={browseOutput}>Browse…</Button>
-          </div>
-        </Field>
         <Field label="Format" htmlFor="format">
-          <Select id="format" value={form.format} onChange={(e) => setFormat(e.target.value as ArchiveFormatName)} className="w-40">
+          <Select id="format" value={form.format} onChange={(e) => setFormat(e.target.value as ArchiveFormatName)} className="w-full">
             {formatNames.map((f) => (
               <option key={f} value={f}>
                 {f}
               </option>
             ))}
           </Select>
+        </Field>
+        {!source && <InputsField inputs={form.inputs} onChange={setInputs} />}
+        <Field label="Save as" htmlFor="output">
+          <div className="flex gap-2">
+            <Input id="output" className="flex-1" value={form.output} onChange={(e) => set({ output: e.target.value })} />
+            <Button onClick={browseOutput}>Browse…</Button>
+          </div>
         </Field>
         {a.methods.length > 0 && (
           <Field label="Method" htmlFor="method">

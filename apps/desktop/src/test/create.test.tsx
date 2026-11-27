@@ -241,6 +241,16 @@ describe("the create dialog", () => {
     expect(screen.getByText("zstd 6: quick and small")).toBeInTheDocument();
   });
 
+  it("asks for the format first, across the dialog, before what goes in and where it's saved", async () => {
+    render(<CreateDialog inputs={[String.raw`C:\work\src`]} onClose={() => {}} />);
+    await waitFor(() => expect(screen.getByRole("option", { name: "tar.zst" })).toBeInTheDocument());
+    const format = screen.getByLabelText("Format");
+    const after = (a: Element, b: Element) => (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
+    expect(after(format, screen.getByRole("list", { name: "Inputs" }))).toBe(true);
+    expect(after(format, screen.getByLabelText("Save as"))).toBe(true);
+    expect(format).toHaveClass("w-full");
+  });
+
   it("says why Create is disabled, and warns of a weak password without refusing it", async () => {
     const user = userEvent.setup();
     render(<CreateDialog inputs={[]} onClose={() => {}} />);
