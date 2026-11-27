@@ -404,7 +404,7 @@ pub fn public_key(text: &str, cx: &JobCtx) -> Result<Labelled, CmdError> {
             CmdError::new(
                 ErrorCode::NotFound,
                 format!(
-                    "`{text}` is neither an `age1…` key nor the name of a key or contact \
+                    "\"{text}\" is neither an `age1…` key nor the name of a key or contact \
                      (`keys.list` shows them)"
                 ),
             )
@@ -413,7 +413,10 @@ pub fn public_key(text: &str, cx: &JobCtx) -> Result<Labelled, CmdError> {
         let c = entry.certificate.ok_or_else(|| {
             CmdError::new(
                 ErrorCode::Corrupt,
-                format!("the contact `{}`'s certificate is damaged", entry.name),
+                format!(
+                    "the certificate of the contact \"{}\" is damaged",
+                    entry.name
+                ),
             )
         })?;
         let recipient = c.recipient(false).map_err(|why| {
@@ -453,7 +456,7 @@ fn key_recipient(key: KeyText, text: &str) -> Result<Recipient, CmdError> {
             ))
         }
         KeyText::SigningPublic(_) => Err(CmdError::invalid_args(format!(
-            "`{}…` is a signing key: it signs archives, it can't open them",
+            "\"{}…\" is a signing key: it signs archives, it can't open them",
             text.get(..12).unwrap_or(text)
         ))),
     }
@@ -787,7 +790,7 @@ fn wanted_one(text: &str, cx: &JobCtx) -> Result<Wanted, CmdError> {
     let signing_key = |key: KeyText| match key {
         KeyText::SigningPublic(k) => Ok(Wanted::Key(sha256(&k[..]))),
         _ => Err(CmdError::invalid_args(format!(
-            "`{text}` isn't a signing key (`bzsig1…`)"
+            "\"{text}\" isn't a signing key (`bzsig1…`)"
         ))),
     };
     if text.to_ascii_lowercase().starts_with("bzsig1") {
@@ -806,7 +809,7 @@ fn wanted_one(text: &str, cx: &JobCtx) -> Result<Wanted, CmdError> {
             CmdError::new(
                 ErrorCode::NotFound,
                 format!(
-                    "`{text}` is neither a `bzsig1…` key, a certificate file, nor the name of a \
+                    "\"{text}\" is neither a `bzsig1…` key, a certificate file, nor the name of a \
                      signing key or contact (`keys.list` shows them)"
                 ),
             )
@@ -858,7 +861,7 @@ pub fn require(
         };
         return Err(CmdError::new(
             ErrorCode::SignatureRequired,
-            format!("not signed by `{name}`: {why}"),
+            format!("not signed by \"{name}\": {why}"),
         )
         .with_details(serde_json::json!({ "signer": name })));
     }

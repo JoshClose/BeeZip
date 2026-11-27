@@ -75,13 +75,13 @@ pub(crate) fn made(out: &KeyInfo, verb: &str) -> String {
             |i| format!(" issued by {i}"),
         );
         return format!(
-            "{verb} `{}`, a contact's certificate: {subject}{issuer}{until}, fingerprint {}.",
+            "{verb} \"{}\", a contact's certificate: {subject}{issuer}{until}, fingerprint {}.",
             out.name, out.fingerprint
         );
     }
     let whose = if out.own { "your" } else { "a contact's" };
     format!(
-        "{verb} `{}`, {whose} {} key, fingerprint {}.\nIts public key, to share:\n{}",
+        "{verb} \"{}\", {whose} {} key, fingerprint {}.\nIts public key, to share:\n{}",
         out.name,
         kind_label(out.kind),
         out.fingerprint,

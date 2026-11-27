@@ -149,7 +149,7 @@ fn refusals() {
     );
     let e = s.store.import("Bob", &ex[1]).unwrap_err();
     assert_eq!(e.kind, ErrorKind::Conflict);
-    assert!(e.message.contains("`Alice`"), "{}", e.message);
+    assert!(e.message.contains("\"Alice\""), "{}", e.message);
     // No name, a name too long or with a line break in it.
     for name in ["", "  ", &"x".repeat(101), "a\nb"] {
         assert_eq!(
@@ -385,7 +385,7 @@ fn a_key_that_cant_be_unsealed_says_why() {
     assert!(
         problems[0]
             .message
-            .starts_with("your key `Lost` can't be used: "),
+            .starts_with("your key \"Lost\" can't be used: "),
         "{}",
         problems[0].message
     );
@@ -407,13 +407,13 @@ fn a_key_that_cant_be_unsealed_says_why() {
         std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o644)).unwrap();
         let e = s.store.source().err().unwrap();
         assert_eq!(e.kind, ErrorKind::Unsafe);
-        assert!(e.message.contains("`Good`") && e.message.contains("chmod 600"));
+        assert!(e.message.contains("\"Good\"") && e.message.contains("chmod 600"));
         std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o600)).unwrap();
     }
     // When it is your only key, the source is the error, for the commands layer to show.
     s.store.delete("Good").unwrap();
     let e = s.store.source().err().unwrap();
-    assert!(e.message.contains("`Lost`"), "{}", e.message);
+    assert!(e.message.contains("\"Lost\""), "{}", e.message);
     // So is a list that can't be read.
     s.store.delete("Lost").unwrap();
     std::fs::write(s.store.index_path(), "not json").unwrap();
@@ -609,10 +609,10 @@ fn certificates_are_contacts() {
     // The same certificate in DER is the same contact, so it is refused as already here.
     let e = s.store.import_file("Again", &read("rsa.der")).unwrap_err();
     assert_eq!(e.kind, ErrorKind::Conflict, "{}", e.message);
-    assert!(
-        e.message.contains("certificate is already here"),
-        "{}",
-        e.message
+    // The name in plain quotes: the app shows messages as they are, with no Markdown.
+    assert_eq!(
+        e.message,
+        "this certificate is already here, as a contact: \"Rsa\""
     );
 
     // DER, and pasted PEM with text around it; a chain is its first certificate.

@@ -125,5 +125,5 @@ fn keys_from_the_command_line() {
         .args(["keys", "delete", "mine"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("Deleted `Mine`."));
+        .stdout(predicate::str::contains("Deleted \"Mine\"."));
 }

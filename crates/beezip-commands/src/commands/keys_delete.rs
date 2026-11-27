@@ -39,7 +39,7 @@ impl Command for KeysDelete {
     }
 
     fn human(out: &KeysDeleteOutput) -> Option<String> {
-        Some(format!("Deleted `{}`.", out.deleted))
+        Some(format!("Deleted \"{}\".", out.deleted))
     }
 
     fn access(_: &KeysDeleteInput) -> Vec<Access> {
