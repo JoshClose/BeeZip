@@ -78,6 +78,22 @@ impl WebAuthn {
 }
 
 impl Attachment {
+    /// The transports an allowed credential may be reached by, for Windows' dialog. A slot
+    /// doesn't say how its security key was reached; without a hint Windows assumes USB and
+    /// asks for a key to be plugged in, even for a phone's passkey (wave 2, an iPhone). So a
+    /// security key may be any of them, a phone included; Windows Hello is this PC's own.
+    fn transports(self) -> u32 {
+        let roaming = ffi::CTAP_TRANSPORT_USB
+            | ffi::CTAP_TRANSPORT_NFC
+            | ffi::CTAP_TRANSPORT_BLE
+            | ffi::CTAP_TRANSPORT_HYBRID;
+        match self {
+            Self::Platform => ffi::CTAP_TRANSPORT_INTERNAL,
+            Self::CrossPlatform => roaming,
+            Self::Any => roaming | ffi::CTAP_TRANSPORT_INTERNAL,
+        }
+    }
+
     fn code(self) -> u32 {
         match self {
             Self::Any => ffi::AUTHENTICATOR_ATTACHMENT_ANY,
@@ -366,11 +382,26 @@ impl Authenticator for WebAuthn {
             pwsz_hash_alg_id: ffi::HASH_ALGORITHM_SHA_256,
         };
         let mut id = request.credential_id.to_vec();
+        let id_ptr = id.as_mut_ptr();
         let mut credential = ffi::Credential {
             dw_version: ffi::CREDENTIAL_VERSION,
             cb_id: id.len() as u32,
-            pb_id: id.as_mut_ptr(),
+            pb_id: id_ptr,
             pwsz_credential_type: ffi::CREDENTIAL_TYPE_PUBLIC_KEY,
+        };
+        // The same credential with the transports it may be reached by (options version 4 and
+        // later, which `MIN_API` guarantees); Windows then ignores `credential_list`.
+        let mut allowed = ffi::CredentialEx {
+            dw_version: ffi::CREDENTIAL_EX_VERSION,
+            cb_id: id.len() as u32,
+            pb_id: id_ptr,
+            pwsz_credential_type: ffi::CREDENTIAL_TYPE_PUBLIC_KEY,
+            dw_transports: request.attachment.transports(),
+        };
+        let mut allowed_ptr = &raw mut allowed;
+        let mut allow_list = ffi::CredentialList {
+            c_credentials: 1,
+            pp_credentials: &raw mut allowed_ptr,
         };
         let mut salt = *request.salt;
         let mut salt_values = ffi::HmacSecretSalt {
@@ -403,6 +434,7 @@ impl Authenticator for WebAuthn {
                 ffi::AUTHENTICATOR_HMAC_SECRET_VALUES_FLAG
             },
             p_hmac_secret_salt_values: &raw mut salts,
+            p_allow_credential_list: &raw mut allow_list,
             ..Default::default()
         };
         let mut out = std::ptr::null_mut();
