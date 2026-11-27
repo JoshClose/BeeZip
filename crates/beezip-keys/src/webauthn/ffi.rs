@@ -426,6 +426,17 @@ pub type DeletePlatformCredential = unsafe extern "system" fn(u32, *const u8) ->
 type GetWindow = unsafe extern "system" fn() -> *mut c_void;
 type IsWindowVisible = unsafe extern "system" fn(*mut c_void) -> Bool;
 type GetAncestor = unsafe extern "system" fn(*mut c_void, u32) -> *mut c_void;
+type GetWindowRect = unsafe extern "system" fn(*mut c_void, *mut Rect) -> Bool;
+
+/// winuser.h's `RECT`.
+#[repr(C)]
+#[derive(Default)]
+struct Rect {
+    left: i32,
+    top: i32,
+    right: i32,
+    bottom: i32,
+}
 /// `GetAncestor`'s `GA_ROOTOWNER`: up the chain of parents and owners.
 const GA_ROOTOWNER: u32 = 3;
 
@@ -533,6 +544,7 @@ struct User32 {
     desktop: GetWindow,
     visible: IsWindowVisible,
     ancestor: GetAncestor,
+    rect: GetWindowRect,
 }
 
 fn user32() -> Option<&'static User32> {
@@ -556,6 +568,7 @@ fn user32() -> Option<&'static User32> {
                         "IsWindowVisible"
                     ))?),
                     ancestor: std::mem::transmute::<Proc, GetAncestor>(get(s!("GetAncestor"))?),
+                    rect: std::mem::transmute::<Proc, GetWindowRect>(get(s!("GetWindowRect"))?),
                 })
             }
         })
@@ -589,8 +602,19 @@ impl crate::window::Desktop for Desktop {
     }
 
     fn visible(&self, window: isize) -> bool {
-        // SAFETY: any handle may be asked about; one that isn't a window is not visible.
-        user32().is_some_and(|u| unsafe { (u.visible)(window as *mut c_void) } != 0)
+        let Some(user32) = user32() else {
+            return false;
+        };
+        let hwnd = window as *mut c_void;
+        let mut rect = Rect::default();
+        // SAFETY: any handle may be asked about; one that isn't a window is neither visible
+        // nor has a rectangle. `rect` is a valid out pointer.
+        unsafe {
+            (user32.visible)(hwnd) != 0
+                && (user32.rect)(hwnd, &mut rect) != 0
+                && rect.right > rect.left
+                && rect.bottom > rect.top
+        }
     }
 
     fn root_owner(&self, window: isize) -> Option<isize> {

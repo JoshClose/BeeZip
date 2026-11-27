@@ -6,7 +6,8 @@
 pub(crate) trait Desktop {
     /// `GetConsoleWindow`: the window of this process's console, or `None` without one.
     fn console(&self) -> Option<isize>;
-    /// `IsWindowVisible`.
+    /// On the screen: `IsWindowVisible`, and a rectangle with some size. Windows Terminal's
+    /// pseudo console window is "visible" at 0,0 with no size (wave 2), which doesn't count.
     fn visible(&self, window: isize) -> bool;
     /// `GetAncestor(GA_ROOTOWNER)`: the top of the window's chain of parents and owners, which
     /// is the window itself when it has neither.
@@ -17,8 +18,9 @@ pub(crate) trait Desktop {
 
 /// The window a dialog should come up over for a process in a console:
 /// - **conhost:** the console window, the terminal's own visible window;
-/// - **Windows Terminal:** the console window is ConPTY's invisible one, at 0,0, so a dialog it
-///   owns comes up in the screen's corner. The terminal's window owns it: that one;
+/// - **Windows Terminal:** the console window is ConPTY's pseudo console window: marked visible,
+///   but with no size, at 0,0, so a dialog it owns comes up in the screen's corner. The
+///   terminal's window owns it: that one;
 /// - **VS Code's terminal and others:** an invisible console window with no visible owner. The
 ///   window in front, where the command was just typed.
 ///
