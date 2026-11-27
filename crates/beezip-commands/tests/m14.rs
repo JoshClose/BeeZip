@@ -16,6 +16,7 @@ use beezip_commands::{
     SystemKeys,
     crypt::{SlotKindName, UnlockReply},
     registry,
+    wire::Secret,
 };
 use beezip_core::format::bhive::crypt::{
     KEY_ID_LEN, KeySource, SlotKind, SlotSecret, SlotView, UnlockAnswer, UnlockRequest, WayInfo,
@@ -70,6 +71,14 @@ struct UnlockInput {
     kinds: Vec<u8>,
     #[arg(long)]
     here: Vec<u32>,
+    /// The ways in that need a PIN BeeZip asks for.
+    #[arg(long)]
+    #[serde(default)]
+    pins: Vec<u32>,
+    /// Why the way in the last answer chose didn't open it, from the second ask on.
+    #[arg(long)]
+    #[serde(default)]
+    failed: Option<String>,
     #[arg(long)]
     asks: u32,
 }
@@ -92,6 +101,7 @@ impl Command for TestUnlock {
                 slot: i as u32,
                 kind: SlotKind::from_id(k).unwrap(),
                 here: input.here.contains(&(i as u32)),
+                needs_pin: input.pins.contains(&(i as u32)),
             })
             .collect();
         let mut out = Vec::new();
@@ -99,12 +109,17 @@ impl Command for TestUnlock {
             let request = UnlockRequest {
                 ways: ways.clone(),
                 attempt,
+                failed: input.failed.clone().filter(|_| attempt > 0),
             };
             let answer = beezip_core::Ctx::unlock(cx, &request)?;
             out.push(match answer {
                 UnlockAnswer::Password(p) => format!("password {p}"),
                 UnlockAnswer::RecoveryKey(k) => format!("recovery {k}"),
-                UnlockAnswer::Way(s) => format!("slot {s}"),
+                UnlockAnswer::Way { slot, pin: None } => format!("slot {slot}"),
+                UnlockAnswer::Way {
+                    slot,
+                    pin: Some(pin),
+                } => format!("slot {slot} with PIN {}", pin.as_str()),
             });
         }
         Ok(out)
@@ -178,7 +193,7 @@ fn the_unlock_prompt_lists_the_ways_in_and_takes_each_answer() {
             },
         },
         PromptReply::Unlock {
-            answer: UnlockReply::Slot { slot: 2 },
+            answer: UnlockReply::Slot { slot: 2, pin: None },
         },
         // A front end that knows only passwords.
         PromptReply::Password {
@@ -197,7 +212,7 @@ fn the_unlock_prompt_lists_the_ways_in_and_takes_each_answer() {
     );
     let asked = s.asked.lock().unwrap();
     assert_eq!(asked.len(), 3);
-    let Prompt::Unlock { ways, attempt } = &asked[1] else {
+    let Prompt::Unlock { ways, attempt, .. } = &asked[1] else {
         panic!("{:?}", asked[1]);
     };
     assert_eq!(*attempt, 1);
@@ -210,6 +225,61 @@ fn the_unlock_prompt_lists_the_ways_in_and_takes_each_answer() {
             (1, SlotKindName::RecoveryKey, false),
             (2, SlotKindName::PostQuantumKey, true),
         ]
+    );
+}
+
+/// A This PC key whose PIN BeeZip asks for: the prompt says which way in needs it, and why the
+/// way in last chosen failed; the reply's PIN reaches core. A reply without one, an older front
+/// end's, still parses.
+#[test]
+fn a_pin_goes_with_the_reply() {
+    let old: UnlockReply = serde_json::from_value(json!({ "way": "slot", "slot": 1 })).unwrap();
+    assert_eq!(old, UnlockReply::Slot { slot: 1, pin: None });
+    let with = UnlockReply::Slot {
+        slot: 1,
+        pin: Some(Secret::new("4821")),
+    };
+    assert_eq!(format!("{with:?}"), "Slot(1, PIN ***)");
+    assert_eq!(
+        serde_json::to_value(&with).unwrap(),
+        json!({ "way": "slot", "slot": 1, "pin": "4821" })
+    );
+    let s = Scripted::new(vec![
+        PromptReply::Unlock { answer: with },
+        PromptReply::Unlock { answer: old },
+    ]);
+    let r = unlock(
+        json!({ "kinds": [1, 6], "here": [1], "pins": [1], "failed": "the PIN is wrong", "asks": 2 }),
+        s.clone(),
+    )
+    .unwrap();
+    assert_eq!(r, json!(["slot 1 with PIN 4821", "slot 1"]));
+    let asked = s.asked.lock().unwrap();
+    let Prompt::Unlock { ways, failed, .. } = &asked[0] else {
+        panic!("{:?}", asked[0]);
+    };
+    assert_eq!(*failed, None);
+    let pins: Vec<bool> = ways.iter().map(|w| w.needs_pin).collect();
+    assert_eq!(pins, [false, true]);
+    // On the wire, only a way in that needs a PIN says so, and only a failure is sent.
+    let wire = serde_json::to_value(&asked[1]).unwrap();
+    assert_eq!(
+        wire,
+        json!({
+            "kind": "Unlock",
+            "ways": [
+                { "slot": 0, "kind": "password", "here": false },
+                { "slot": 1, "kind": "ec-p256", "here": true, "needs_pin": true },
+            ],
+            "attempt": 1,
+            "failed": "the PIN is wrong",
+        })
+    );
+    assert!(
+        serde_json::to_value(&asked[0])
+            .unwrap()
+            .get("failed")
+            .is_none()
     );
 }
 
@@ -565,8 +635,10 @@ impl Command for TestKeys {
                     slot: 0,
                     kind: SlotKind::Password,
                     here: false,
+                    needs_pin: false,
                 }],
                 attempt: 0,
+                failed: None,
             };
             Some(format!("{:?}", beezip_core::Ctx::unlock(cx, &request)?))
         } else {

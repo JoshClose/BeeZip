@@ -268,9 +268,10 @@
 <ul>
   <li><strong>Password</strong> and <strong>Recovery key</strong>, to type. The recovery key goes in its 8 groups of 6 digits, and a group that can't be right shows as a typo before anything is tried.</li>
   <li><strong>On this machine:</strong> a button for each key or device here that fits a way in, such as <strong>Use your certificate</strong> or <strong>Use a security key or Windows Hello</strong>. Windows then asks for a PIN, a touch or your face in its own dialog. BeeZip never uses a device unless you choose it here.</li>
+  <li><strong>This PC with a PIN:</strong> a field for the PIN, with its own <strong>Unlock with This PC</strong>. BeeZip asks for this PIN itself, not Windows. Windows blocks the TPM for a few hours after several wrong PINs, for every TPM key you have, so if you're not sure of the PIN, open the archive another way. A This PC key without a PIN opens the archive without asking.</li>
   <li><strong>Other ways in:</strong> the ones this machine doesn't have.</li>
 </ul>
-<p>After a way in that didn't open it, such as a wrong password or another security key, Unlock says so and asks again. A password or recovery key you type is kept for the tab, as passwords are; the choice of a device isn't. In a job window from Explorer's menu, what you type is used for that job only.</p>
+<p>After a way in that didn't open it, such as a wrong password, a wrong PIN or another security key, Unlock says so, with the reason when it has one, and asks again. A password or recovery key you type is kept for the tab, as passwords are; the choice of a device, and This PC's PIN, aren't. In a job window from Explorer's menu, what you type is used for that job only.</p>
 
 <h3 id="overwrite-prompt">Files that are already there</h3>
 <p>When extracting would write over a file and <strong>Existing files</strong> is <strong>Ask each time</strong>, BeeZip shows the file's path and asks:</p>

@@ -29,8 +29,8 @@ using BeeZip will notice. Leave the date out: the Releases page dates each versi
 - **Certificates:** RSA (2,048 bits or more) and EC (P-256, P-384), from Windows' stores, the
   macOS Keychain or a file. BeeZip says why it can't use one, such as an EC certificate whose key
   can only sign.
-- **This PC** keeps a key in the PC's TPM, behind an optional PIN, and **Windows Hello** uses
-  your face, a fingerprint or its PIN. Both open the archive on that PC alone, so BeeZip always
+- **This PC** keeps a key in the PC's TPM, behind an optional PIN that BeeZip asks for itself,
+  and **Windows Hello** uses your face, a fingerprint or its PIN. Both open the archive on that PC alone, so BeeZip always
   asks for another way in beside them. **Security keys** (FIDO2) need a touch. Security keys and
   smart cards haven't been tried on a physical device yet.
 - **Safe from quantum computers, or not:** BeeZip says which. Passwords, recovery keys,
@@ -79,7 +79,9 @@ using BeeZip will notice. Leave the date out: the Releases page dates each versi
   strength, a recovery key, people and keys, This PC, a security key and Windows Hello, and
   **Sign with**.
 - **Unlock** asks for a way into an encrypted `.bhive` none of your keys opens: the password, the
-  recovery key, or a button for each key or device this PC has.
+  recovery key, or a button for each key or device this PC has, and a PIN field for This PC.
+  It warns that Windows blocks the TPM for a few hours after several wrong PINs, and says
+  plainly when that happens.
 - **Who can open this** lists an archive's ways in, adds and removes them, and makes a new key.
 - **A signature line** at the top of the archive, with its details and **Add to contacts**; and
   **Sign**, to add or remove signatures.

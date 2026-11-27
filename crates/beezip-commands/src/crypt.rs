@@ -80,6 +80,12 @@ pub struct UnlockWay {
     pub kind: SlotKindName,
     /// A key or device on this machine fits it.
     pub here: bool,
+    /// Choosing it needs a PIN that the front end asks for and sends with the reply
+    /// (`UnlockReply::Slot`'s `pin`): a This PC key's. Windows' own dialog never asks for it.
+    /// A smart card's PIN is still Windows' to ask for.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    #[ts(as = "Option<bool>", optional)]
+    pub needs_pin: bool,
 }
 
 impl UnlockWay {
@@ -104,9 +110,13 @@ pub enum UnlockReply {
     RecoveryKey {
         key: String,
     },
-    /// Use this slot's key or device: a PIN dialog or a touch may follow.
+    /// Use this slot's key or device: a PIN dialog or a touch may follow. For a way in that
+    /// `needs_pin`, `pin` is the PIN the front end asked for.
     Slot {
         slot: u32,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        pin: Option<crate::wire::Secret>,
     },
 }
 
@@ -115,7 +125,8 @@ impl std::fmt::Debug for UnlockReply {
         match self {
             Self::Password { .. } => f.write_str("Password(***)"),
             Self::RecoveryKey { .. } => f.write_str("RecoveryKey(***)"),
-            Self::Slot { slot } => write!(f, "Slot({slot})"),
+            Self::Slot { slot, pin: None } => write!(f, "Slot({slot})"),
+            Self::Slot { slot, pin: Some(_) } => write!(f, "Slot({slot}, PIN ***)"),
         }
     }
 }

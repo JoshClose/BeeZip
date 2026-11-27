@@ -1,7 +1,9 @@
 // The Unlock panel (docs/M14.md §8): an encrypted .bhive that none of your own keys opened asks
 // for a way in. It lists the archive's ways in, a password and a recovery key to type, and a
 // button for each key or device this machine has. BeeZip never touches a device (a PIN dialog,
-// a touch, Windows Hello) unless the person chose it here.
+// a touch, Windows Hello) unless the person chose it here. A This PC key with a PIN gets a PIN
+// field of its own instead: BeeZip asks for that PIN itself, never through Windows' dialog
+// (docs/M14.md §4).
 import { Eye, EyeOff, KeyRound, LockKeyhole } from "lucide-react";
 import { useState } from "react";
 import { Button } from "../../components/ui/button";
@@ -35,9 +37,45 @@ function wayNote(kind: SlotKindName): string | undefined {
   return undefined;
 }
 
+/** What the panel says under a This PC key's PIN field. */
+export const PIN_WARNING = "Windows blocks the TPM for a few hours after several wrong PINs. If you're not sure, open it another way.";
+
+/** A This PC key whose PIN BeeZip asks for: a PIN field and its own Unlock button. */
+function PinWay({ slot, autoFocus, onUnlock }: { slot: number; autoFocus: boolean; onUnlock: (pin: string) => void }) {
+  const [pin, setPin] = useState("");
+  return (
+    <form
+      className="flex flex-col gap-1"
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (pin) onUnlock(pin);
+      }}
+    >
+      <div className="flex items-center gap-2">
+        <Input
+          id={`unlock-pin-${slot}`}
+          aria-label="PIN for This PC"
+          placeholder="PIN for This PC"
+          className="w-48"
+          type="password"
+          autoComplete="off"
+          autoFocus={autoFocus}
+          value={pin}
+          onChange={(e) => setPin(e.target.value)}
+        />
+        <Button type="submit" disabled={!pin}>
+          <LockKeyhole /> Unlock with This PC
+        </Button>
+      </div>
+      <p className="text-[12px] text-muted">{PIN_WARNING}</p>
+    </form>
+  );
+}
+
 export function UnlockPrompt({
   ways,
   attempt,
+  failed,
   title,
   onReply,
   kept = true,
@@ -45,6 +83,8 @@ export function UnlockPrompt({
   ways: UnlockWay[];
   /** 0 the first time; more after a way in that didn't open it. */
   attempt: number;
+  /** Why the way in last chosen didn't open it: a wrong PIN, a TPM that Windows is blocking. */
+  failed?: string;
   title: string;
   onReply: (reply: PromptReply) => void;
   /** What's typed is kept for the archive's tab; a job window has no tab. */
@@ -87,7 +127,7 @@ export function UnlockPrompt({
       <div className="flex flex-col gap-3 pb-2">
         {attempt > 0 && (
           <p role="alert" className="text-danger">
-            That didn't open it. Try again, or another way in.
+            {failed ? `That didn't open it: ${failed}` : "That didn't open it. Try again, or another way in."}
           </p>
         )}
         {passwords && (
@@ -145,14 +185,24 @@ export function UnlockPrompt({
         {devices.length > 0 && (
           <Field label="On this machine">
             <ul className="flex flex-col gap-1.5">
-              {devices.map((w) => (
-                <li key={w.slot} className="flex items-center gap-3">
-                  <Button onClick={() => reply({ way: "slot", slot: w.slot })}>
-                    <LockKeyhole /> {wayButton(w.kind)}
-                  </Button>
-                  <span className="text-[12px] text-muted">{wayNote(w.kind)}</span>
-                </li>
-              ))}
+              {devices.map((w) =>
+                w.needs_pin ? (
+                  <li key={w.slot}>
+                    <PinWay
+                      slot={w.slot}
+                      autoFocus={!passwords && !recovery && w === devices.find((d) => d.needs_pin)}
+                      onUnlock={(pin) => reply({ way: "slot", slot: w.slot, pin })}
+                    />
+                  </li>
+                ) : (
+                  <li key={w.slot} className="flex items-center gap-3">
+                    <Button onClick={() => reply({ way: "slot", slot: w.slot })}>
+                      <LockKeyhole /> {wayButton(w.kind)}
+                    </Button>
+                    <span className="text-[12px] text-muted">{wayNote(w.kind)}</span>
+                  </li>
+                ),
+              )}
             </ul>
           </Field>
         )}

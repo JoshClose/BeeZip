@@ -56,10 +56,14 @@ pub enum Prompt {
     },
     /// An encrypted `.bhive` and how it can be opened (docs/M14.md §8): a password, a recovery
     /// key, or one of its ways in that this machine has. `attempt` counts the answers that
-    /// failed.
+    /// failed; `failed` says why the way in the last one chose didn't open it, when its key or
+    /// device failed (a wrong PIN, a TPM that Windows is blocking).
     Unlock {
         ways: Vec<crate::crypt::UnlockWay>,
         attempt: u32,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        failed: Option<String>,
     },
 }
 
@@ -819,11 +823,13 @@ impl beezip_core::Ctx for JobCtx {
                 slot: w.slot,
                 kind: w.kind.into(),
                 here: w.here,
+                needs_pin: w.needs_pin,
             })
             .collect();
         let reply = self.prompt(Prompt::Unlock {
             ways,
             attempt: request.attempt,
+            failed: request.failed.clone(),
         });
         match reply {
             Ok(PromptReply::Unlock { answer }) => {
@@ -834,7 +840,10 @@ impl beezip_core::Ctx for JobCtx {
                         UnlockAnswer::Password(password)
                     }
                     UnlockReply::RecoveryKey { key } => UnlockAnswer::RecoveryKey(key),
-                    UnlockReply::Slot { slot } => UnlockAnswer::Way(slot),
+                    UnlockReply::Slot { slot, pin } => UnlockAnswer::Way {
+                        slot,
+                        pin: pin.map(|p| zeroize::Zeroizing::new(p.expose().to_owned())),
+                    },
                 })
             }
             // A front end that knows only passwords.

@@ -703,12 +703,18 @@ impl Unlocked {
                  this BeeZip has",
             ));
         }
-        // Keys this machine has open without anyone being asked; devices wait to be chosen.
+        // Keys this machine has open without anyone being asked; devices wait to be chosen, as
+        // do keys with a PIN that BeeZip asks for.
         let mut here = vec![false; views.len()];
+        let mut needs_pin = vec![false; views.len()];
         if let Some(source) = cx.key_source() {
             for (i, v) in views.iter().enumerate() {
                 here[i] = source.offers(v);
-                if !here[i] || v.kind.needs_device() {
+                if !here[i] {
+                    continue;
+                }
+                needs_pin[i] = source.needs_pin(v);
+                if v.kind.needs_device() {
                     continue;
                 }
                 if let Some(secret) = source.secret(v, false)?
@@ -723,11 +729,12 @@ impl Unlocked {
             .any(|v| matches!(v.kind, SlotKind::Password | SlotKind::RecoveryKey));
         let ways: Vec<WayInfo> = views
             .iter()
-            .zip(&here)
-            .map(|(v, &here)| WayInfo {
+            .zip(here.iter().zip(&needs_pin))
+            .map(|(v, (&here, &needs_pin))| WayInfo {
                 slot: v.index as u32,
                 kind: v.kind,
                 here,
+                needs_pin,
             })
             .collect();
         let mut memory = Memory::new(block.slots.len(), total);
@@ -737,6 +744,11 @@ impl Unlocked {
             let request = UnlockRequest {
                 ways: ways.clone(),
                 attempt,
+                // What the person didn't do themselves: a closed dialog needs no reason.
+                failed: failed
+                    .as_ref()
+                    .filter(|e| e.kind != ErrorKind::Cancelled)
+                    .map(|e| e.message.clone()),
             };
             let answer = match cx.unlock(&request) {
                 Ok(a) => a,
@@ -833,20 +845,25 @@ impl Unlocked {
                 }
                 Ok(None)
             }
-            UnlockAnswer::Way(slot) => {
+            UnlockAnswer::Way { slot, pin } => {
                 let Some(v) = views.iter().find(|v| v.index as u32 == *slot) else {
                     return Ok(None);
                 };
                 let Some(source) = cx.key_source() else {
                     return Ok(None);
                 };
-                match source.secret(v, true) {
+                let secret = match pin {
+                    Some(pin) => source.secret_with_pin(v, pin),
+                    None => source.secret(v, true),
+                };
+                match secret {
                     Ok(Some(secret)) => block.try_slot(v, &secret),
                     Ok(None) => Ok(None),
                     // Another try won't mend a damaged slot.
                     Err(e) if e.kind == ErrorKind::Corrupt => Err(e),
-                    // Another security key, a closed dialog, a refused PIN, a device that
-                    // couldn't be reached: the archive may open another way, or this one again.
+                    // Another security key, a closed dialog, a wrong PIN, a device that
+                    // couldn't be reached, a TPM that Windows is blocking: the archive may open
+                    // another way, or this one again.
                     Err(e) => {
                         cx.check()?;
                         if e.kind != ErrorKind::Cancelled {
@@ -1532,17 +1549,24 @@ mod tests {
 
     /// A security key standing in for a device: it fails with each of `fails` in turn when
     /// chosen, then gives the slot's secret. Never asked unless chosen; offered unless it isn't
-    /// `here`.
+    /// `here`. With `pin`, it stands in for a This PC key whose PIN BeeZip asks for: it opens
+    /// only with that PIN, and keeps the PINs it was given.
     struct Device {
         secret: [u8; 32],
         fails: Vec<ErrorKind>,
         asked: u32,
         here: bool,
+        pin: Option<&'static str>,
+        pins: Vec<Option<String>>,
     }
 
     impl KeySource for Device {
         fn offers(&mut self, slot: &SlotView<'_>) -> bool {
             self.here && slot.kind == SlotKind::Fido2
+        }
+
+        fn needs_pin(&mut self, slot: &SlotView<'_>) -> bool {
+            self.offers(slot) && self.pin.is_some()
         }
 
         fn secret(&mut self, slot: &SlotView<'_>, device: bool) -> Result<Option<SlotSecret>> {
@@ -1553,6 +1577,28 @@ mod tests {
             if !self.fails.is_empty() {
                 let kind = self.fails.remove(0);
                 return Err(Error::new(kind, format!("the device failed: {kind:?}")));
+            }
+            if self.pin.is_some() {
+                self.pins.push(None);
+                return Err(Error::new(ErrorKind::PasswordRequired, "no PIN was given"));
+            }
+            Ok(Some(SlotSecret::Shared(Zeroizing::new(
+                self.secret.to_vec(),
+            ))))
+        }
+
+        fn secret_with_pin(
+            &mut self,
+            slot: &SlotView<'_>,
+            pin: &str,
+        ) -> Result<Option<SlotSecret>> {
+            let Some(right) = self.pin else {
+                return self.secret(slot, true);
+            };
+            self.asked += 1;
+            self.pins.push(Some(pin.to_owned()));
+            if pin != right {
+                return Err(Error::new(ErrorKind::WrongPassword, "the PIN is wrong"));
             }
             Ok(Some(SlotSecret::Shared(Zeroizing::new(
                 self.secret.to_vec(),
@@ -1571,6 +1617,8 @@ mod tests {
         cancel_job: bool,
         attempts: Vec<u32>,
         here: Vec<bool>,
+        needs_pin: Vec<bool>,
+        failed: Vec<Option<String>>,
         warnings: Vec<String>,
     }
 
@@ -1582,12 +1630,16 @@ mod tests {
                     fails: fails.to_vec(),
                     asked: 0,
                     here: true,
+                    pin: None,
+                    pins: Vec::new(),
                 },
                 answers,
                 cancel: false,
                 cancel_job: false,
                 attempts: Vec::new(),
                 here: Vec::new(),
+                needs_pin: Vec::new(),
+                failed: Vec::new(),
                 warnings: Vec::new(),
             }
         }
@@ -1615,6 +1667,8 @@ mod tests {
         fn unlock(&mut self, request: &UnlockRequest) -> Result<UnlockAnswer> {
             self.attempts.push(request.attempt);
             self.here = request.ways.iter().map(|w| w.here).collect();
+            self.needs_pin = request.ways.iter().map(|w| w.needs_pin).collect();
+            self.failed.push(request.failed.clone());
             match self.answers.get(request.attempt as usize) {
                 Some(a) => Ok(a.clone()),
                 None if self.cancel => Err(Error::cancelled()),
@@ -1666,7 +1720,7 @@ mod tests {
             ErrorKind::Io,
             ErrorKind::UnsupportedOperation,
         ] {
-            let mut cx = Choosing::new(&[kind], vec![UnlockAnswer::Way(0), honey.clone()]);
+            let mut cx = Choosing::new(&[kind], vec![UnlockAnswer::way(0), honey.clone()]);
             let u = Unlocked::open(&block, &mut cx).unwrap();
             assert!(env.same_key(&u), "{kind:?}");
             assert_eq!(u.opened_by(), 1, "{kind:?}");
@@ -1678,11 +1732,74 @@ mod tests {
         // Or the same way again, once the right key is there.
         let mut cx = Choosing::new(
             &[ErrorKind::KeyRequired, ErrorKind::Cancelled],
-            vec![UnlockAnswer::Way(0); 3],
+            vec![UnlockAnswer::way(0); 3],
         );
         let u = Unlocked::open(&block, &mut cx).unwrap();
         assert_eq!((u.opened_by(), cx.device.asked), (0, 3));
         assert_eq!(cx.attempts, [0, 1, 2]);
+    }
+
+    /// The reason a chosen way in failed reaches the next Unlock prompt, except a closed dialog's,
+    /// which the person did themselves.
+    #[test]
+    fn the_next_prompt_says_why_the_way_in_failed() {
+        let (_, block) = device_block(true);
+        let honey = UnlockAnswer::Password("honey".into());
+        let mut cx = Choosing::new(
+            &[ErrorKind::Io, ErrorKind::Cancelled],
+            vec![UnlockAnswer::way(0), UnlockAnswer::way(0), honey],
+        );
+        Unlocked::open(&block, &mut cx).unwrap();
+        assert_eq!(
+            cx.failed,
+            [None, Some("the device failed: Io".to_owned()), None]
+        );
+    }
+
+    /// A This PC key whose PIN BeeZip asks for: the Unlock prompt says so, the PIN typed reaches
+    /// the key source, and a wrong one is asked again for with the reason, as a wrong password
+    /// is. Chosen without its PIN, it fails rather than ask in a dialog of its own.
+    #[test]
+    fn a_pin_beezip_asks_for_reaches_the_source() {
+        let (env, block) = device_block(true);
+        let with = |pin: &str| UnlockAnswer::Way {
+            slot: 0,
+            pin: Some(Zeroizing::new(pin.to_owned())),
+        };
+        let mut cx = Choosing::new(&[], vec![with("0000"), with("1234")]);
+        cx.device.pin = Some("1234");
+        let u = Unlocked::open(&block, &mut cx).unwrap();
+        assert!(env.same_key(&u));
+        assert_eq!(u.opened_by(), 0);
+        assert_eq!(cx.attempts, [0, 1]);
+        assert_eq!(cx.needs_pin, [true, false]);
+        assert_eq!(cx.failed, [None, Some("the PIN is wrong".to_owned())]);
+        assert_eq!(
+            cx.device.pins,
+            [Some("0000".to_owned()), Some("1234".to_owned())]
+        );
+        assert_eq!(cx.warnings.len(), 1, "{:?}", cx.warnings);
+        assert!(
+            cx.warnings[0].contains("the PIN is wrong"),
+            "{:?}",
+            cx.warnings
+        );
+        // An answer's PIN never reaches a log.
+        assert_eq!(format!("{:?}", with("1234")), "Way(0, PIN ***)");
+
+        // No PIN: the source refuses, and the password still opens it.
+        let honey = UnlockAnswer::Password("honey".into());
+        let mut cx = Choosing::new(&[], vec![UnlockAnswer::way(0), honey]);
+        cx.device.pin = Some("1234");
+        let u = Unlocked::open(&block, &mut cx).unwrap();
+        assert_eq!(u.opened_by(), 1);
+        assert_eq!(cx.device.pins, [None]);
+
+        // A way in that needs none ignores the PIN given.
+        let mut cx = Choosing::new(&[], vec![with("5678")]);
+        let u = Unlocked::open(&block, &mut cx).unwrap();
+        assert_eq!(u.opened_by(), 0);
+        assert_eq!(cx.needs_pin, [false, false]);
     }
 
     /// Cancelling the Unlock prompt itself still ends the open; so do a job cancelled while the
@@ -1690,20 +1807,20 @@ mod tests {
     #[test]
     fn a_cancelled_unlock_prompt_still_ends_it() {
         let (_, block) = device_block(true);
-        let mut cx = Choosing::new(&[ErrorKind::Cancelled], vec![UnlockAnswer::Way(0)]);
+        let mut cx = Choosing::new(&[ErrorKind::Cancelled], vec![UnlockAnswer::way(0)]);
         cx.cancel = true;
         let e = Unlocked::open(&block, &mut cx).unwrap_err();
         assert_eq!(e.kind, ErrorKind::Cancelled);
         assert_eq!(cx.attempts, [0, 1]);
 
         let honey = UnlockAnswer::Password("honey".into());
-        let mut cx = Choosing::new(&[ErrorKind::Cancelled], vec![UnlockAnswer::Way(0), honey]);
+        let mut cx = Choosing::new(&[ErrorKind::Cancelled], vec![UnlockAnswer::way(0), honey]);
         cx.cancel_job = true;
         let e = Unlocked::open(&block, &mut cx).unwrap_err();
         assert_eq!(e.kind, ErrorKind::Cancelled);
         assert_eq!(cx.attempts, [0]);
 
-        let mut cx = Choosing::new(&[ErrorKind::Corrupt], vec![UnlockAnswer::Way(0)]);
+        let mut cx = Choosing::new(&[ErrorKind::Corrupt], vec![UnlockAnswer::way(0)]);
         let e = Unlocked::open(&block, &mut cx).unwrap_err();
         assert_eq!(e.kind, ErrorKind::Corrupt);
         assert_eq!(cx.attempts, [0]);
@@ -1714,7 +1831,7 @@ mod tests {
     #[test]
     fn with_nobody_left_to_ask_the_device_says_why() {
         let (_, block) = device_block(false);
-        let mut cx = Choosing::new(&[ErrorKind::KeyRequired], vec![UnlockAnswer::Way(0)]);
+        let mut cx = Choosing::new(&[ErrorKind::KeyRequired], vec![UnlockAnswer::way(0)]);
         let e = Unlocked::open(&block, &mut cx).unwrap_err();
         assert_eq!(e.kind, ErrorKind::KeyRequired);
         assert!(e.message.contains("the device failed"), "{}", e.message);
@@ -1728,7 +1845,7 @@ mod tests {
         let (_, block) = device_block(true);
         let mut cx = Choosing::new(
             &[ErrorKind::Cancelled],
-            vec![UnlockAnswer::Way(0), UnlockAnswer::Password("bees".into())],
+            vec![UnlockAnswer::way(0), UnlockAnswer::Password("bees".into())],
         );
         let e = Unlocked::open(&block, &mut cx).unwrap_err();
         assert_eq!(e.kind, ErrorKind::PasswordRequired, "{}", e.message);
@@ -1736,7 +1853,7 @@ mod tests {
 
         // Nothing here offers the slot, and no password or recovery key opens the archive.
         let (_, block) = device_block(false);
-        let mut cx = Choosing::new(&[ErrorKind::Io], vec![UnlockAnswer::Way(0)]);
+        let mut cx = Choosing::new(&[ErrorKind::Io], vec![UnlockAnswer::way(0)]);
         cx.device.here = false;
         let e = Unlocked::open(&block, &mut cx).unwrap_err();
         assert_eq!(e.kind, ErrorKind::Io, "{}", e.message);

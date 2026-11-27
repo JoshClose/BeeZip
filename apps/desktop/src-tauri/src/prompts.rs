@@ -244,7 +244,7 @@ mod tests {
             .unwrap();
         let wait = Duration::from_secs(30);
         let (id, prompt) = rx.recv_timeout(wait).unwrap();
-        let Prompt::Unlock { ways, attempt } = prompt else {
+        let Prompt::Unlock { ways, attempt, .. } = prompt else {
             panic!("expected the Unlock prompt, got {prompt:?}");
         };
         assert_eq!(attempt, 0);

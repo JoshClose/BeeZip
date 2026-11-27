@@ -137,7 +137,7 @@ beezip x team.bhive -o out -i my-key.txt            # a key file
 beezip protection secret.bhive                      # its ways in, and whether it resists quantum computers</code></pre>
 <ul>
   <li><strong>Your own keys</strong> (<a href="#keys">below</a>) open an archive without asking. So do the key files <code>-i</code> names (age identities, PEM and PKCS #8 keys, and <code>.pfx</code> and <code>.p12</code> files on Windows and macOS; on Linux, a <code>.pfx</code> is refused, with the <code>openssl pkcs12</code> command that turns it into a PEM file), and on Windows the certificates in your stores and This PC, as long as they don't need a PIN.</li>
-  <li><strong>In a terminal,</strong> BeeZip otherwise asks: the password, the recovery key, or a key or device it has that fits, which Windows then asks a PIN or a touch for. A device is used only when you choose it.</li>
+  <li><strong>In a terminal,</strong> BeeZip otherwise asks: the password, the recovery key, or a key or device it has that fits, which Windows then asks a PIN or a touch for. A device is used only when you choose it. A This PC key with a PIN is the exception: BeeZip asks for its PIN itself, with a hidden prompt. Windows blocks the TPM for a few hours after several wrong PINs, so if you're not sure of it, open the archive another way.</li>
   <li><strong>Without a terminal,</strong> an archive a password or recovery key opens fails with exit code 6, as a zip does, saying to pass <code>-p</code>; one that only keys or devices open fails with exit code 15, saying to pass <code>-i</code>. A wrong password is exit code 7.</li>
 </ul>
 

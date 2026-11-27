@@ -134,7 +134,17 @@ export function Prompts() {
   // A tab keeps what's typed until it closes; a job window's step only for its own run.
   const kept = job.tab !== undefined && !forOneStep(job.tab);
   if (pending.prompt.kind === "Unlock")
-    return <UnlockPrompt key={key} ways={pending.prompt.ways} attempt={pending.prompt.attempt} title={job.title} onReply={reply} kept={kept} />;
+    return (
+      <UnlockPrompt
+        key={key}
+        ways={pending.prompt.ways}
+        attempt={pending.prompt.attempt}
+        failed={pending.prompt.failed}
+        title={job.title}
+        onReply={reply}
+        kept={kept}
+      />
+    );
   return pending.prompt.kind === "Password" ? (
     <PasswordPrompt key={key} entry={pending.prompt.entry} title={job.title} onReply={reply} kept={kept} />
   ) : (
