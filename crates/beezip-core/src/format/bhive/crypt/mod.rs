@@ -131,6 +131,9 @@ impl SlotKind {
     }
 }
 
+/// The label of [`SlotView::kept_id`]: BeeZip's own, in memory only, not one of bhive.md's.
+const KEPT: &[u8] = b"beezip kept slot";
+
 /// A slot as the key block holds it (bhive.md §12.4).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SlotView<'a> {
@@ -186,6 +189,22 @@ impl SlotView<'_> {
         Some(tag)
     }
 
+    /// What a secret kept for this slot is filed under ([`crate::Ctx::keep_secret`]): SHA-256
+    /// over a label, the key id, and the slot's head, public part and commitment. A rebuilt slot
+    /// (a new key makes every slot again, with a new key id) never matches what was kept for the
+    /// old one; an edit, which keeps the key id and the slots byte for byte under a new archive
+    /// id, still does. Never written anywhere.
+    pub fn kept_id(&self) -> [u8; 32] {
+        let mut h = ring::digest::Context::new(&ring::digest::SHA256);
+        h.update(KEPT);
+        h.update(self.key_id);
+        h.update(self.framed);
+        h.update(self.commitment);
+        let mut out = [0; 32];
+        out.copy_from_slice(h.finish().as_ref());
+        out
+    }
+
     /// The tag the slot carries (kinds 5 to 7).
     pub fn tag(&self) -> Option<[u8; 4]> {
         match self.kind {
@@ -200,7 +219,9 @@ impl SlotView<'_> {
 /// What opens a slot: its secret `S`, or, where `S` never leaves a device, the HMAC already
 /// computed from it (`PRK`, bhive.md §12.4 step 2). For kinds 3, 6 and 7 a reader gives the
 /// PRK: their context holds the recipient's public key, which only the key's holder knows
-/// ([`SlotView::context`]). A writer always gives `S` ([`MadeSlot`]).
+/// ([`SlotView::context`]). A writer always gives `S` ([`MadeSlot`]). Wiped when dropped, a
+/// clone too.
+#[derive(Clone)]
 pub enum SlotSecret {
     Shared(Zeroizing<Vec<u8>>),
     Extracted(Zeroizing<[u8; 32]>),
