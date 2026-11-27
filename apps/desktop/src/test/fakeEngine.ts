@@ -11,12 +11,15 @@ export const fake = {
   calls: [] as { name: string; args: unknown }[],
   replies: [] as { job: number; prompt: number; reply: PromptReply }[],
   commands: [] as GuiCommand[],
+  /** The archives locked again, in order (`lock`). */
+  locked: [] as string[],
   nextJob: 1,
   reset() {
     this.handlers.clear();
     this.calls = [];
     this.replies = [];
     this.commands = [];
+    this.locked = [];
     this.nextJob = 1;
   },
 };
@@ -47,3 +50,8 @@ export const respond = vi.fn(async (job: number, prompt: number, reply: PromptRe
 });
 
 export const listCommands = vi.fn(async () => fake.commands);
+
+export const lock = vi.fn(async (path: string) => {
+  fake.locked.push(path);
+  return 0;
+});

@@ -119,6 +119,7 @@ pub fn run() {
             ipc::cmd_respond,
             ipc::cmd_list,
             ipc::cmd_launched,
+            ipc::cmd_lock,
             reveal::cmd_ready,
             save::cmd_save_text,
             drag::cmd_drag_out,

@@ -10,6 +10,7 @@ import { Button } from "../../components/ui/button";
 import { Dialog } from "../../components/ui/dialog";
 import { Field, Input } from "../../components/ui/input";
 import type { PromptReply, SlotKindName, UnlockWay } from "../../gen/commands";
+import { KEPT_UNLOCKED } from "../../lib/jobs";
 import { formatRecoveryKey, recoveryKeyProblem, SLOT_NAMES } from "../../lib/protection";
 
 /** What the button for a key or device here says. */
@@ -87,7 +88,8 @@ export function UnlockPrompt({
   failed?: string;
   title: string;
   onReply: (reply: PromptReply) => void;
-  /** What's typed is kept for the archive's tab; a job window has no tab. */
+  /** The archive stays unlocked for its tab, whichever way in opens it; a job window has no
+   * tab. */
   kept?: boolean;
 }) {
   const passwords = ways.some((w) => w.kind === "password");
@@ -216,7 +218,7 @@ export function UnlockPrompt({
           </Field>
         )}
         <p className="text-[12px] text-muted">
-          {kept ? "BeeZip keeps what you type in memory for this archive until you close it, and never saves it." : "BeeZip uses what you type for this job only, and never saves it."}
+          {kept ? KEPT_UNLOCKED : "BeeZip uses what you type for this job only, and never saves it."}
         </p>
       </div>
     </Dialog>

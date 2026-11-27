@@ -4,8 +4,8 @@
 //! arguments, less `dest`. BeeZip then runs the OLE drag the way 7-Zip's File Manager does
 //! (`PanelDrag.cpp`): its data object names files in a fresh temp folder that don't exist yet,
 //! and only extracts them when a target that accepts the drop asks for them after the button
-//! goes up (ole.rs). The extraction is an ordinary job, so the page shows its progress and
-//! prompts; win.rs says where the drag runs so that they keep coming.
+//! goes up (ole.rs). The extraction is an ordinary job, so the page shows its progress; win.rs
+//! says where the drag runs so that it keeps coming, and why the extraction never prompts.
 
 #[cfg(windows)]
 mod ole;

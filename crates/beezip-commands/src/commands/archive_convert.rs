@@ -315,6 +315,7 @@ impl Command for ArchiveConvert {
         // selection, a level or a method changes what they signed. Core says so once it has
         // opened the source, encrypted or not (docs/M14.md §11).
         cx.set_password(input.password.as_ref());
+        cx.set_archive(&source);
         let open_opts = open_options(
             crate::commands::util::Opening::new(input.name_encoding, input.recover),
             cx,

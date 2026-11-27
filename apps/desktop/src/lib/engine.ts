@@ -63,3 +63,10 @@ export function respond(job: JobId, prompt: number, reply: PromptReply): Promise
 export function listCommands(): Promise<GuiCommand[]> {
   return invoke<GuiCommand[]>("cmd_list");
 }
+
+/** Locks the archive at `path` again: what unlocked it for this window's jobs is wiped from
+ * memory, so the next job on it asks again (docs/M14.md §8). Resolves with how many ways in
+ * were forgotten. */
+export function lock(path: string): Promise<number> {
+  return invoke<number>("cmd_lock", { path });
+}

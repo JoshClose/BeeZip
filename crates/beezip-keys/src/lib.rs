@@ -159,10 +159,7 @@ mod tests {
             other => panic!("{other:?}"),
         }
     }
-}
 
-#[cfg(test)]
-mod tests {
     /// It asks the real desktop, whatever the tests run in: a console, a terminal's hidden one,
     /// or none.
     #[test]

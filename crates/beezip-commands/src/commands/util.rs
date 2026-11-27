@@ -98,7 +98,9 @@ pub fn open_archive_with(
     cx: &mut JobCtx,
 ) -> Result<Opened, CmdError> {
     cx.set_password(password);
-    Ok(open(&absolute(path), opts, cx)?)
+    let path = absolute(path);
+    cx.set_archive(&path);
+    Ok(open(&path, opts, cx)?)
 }
 
 /// An archive lent from the engine's cache, or opened for this job. Dropped without going back,
@@ -191,6 +193,7 @@ fn open_lent(
         recover: opening.recover,
         ..OpenOptions::new(limits.clone()).with_names(names)
     };
+    cx.set_archive(&path);
     let started = std::time::Instant::now();
     let opened = open(&path, &opts, cx)?;
     let opening = started.elapsed();
