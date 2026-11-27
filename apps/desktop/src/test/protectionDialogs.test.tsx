@@ -172,6 +172,7 @@ describe("the create dialog's Protection section (docs/M14.md §8)", () => {
     const user = userEvent.setup();
     render(<CreateDialog inputs={[String.raw`C:\work\src`]} onClose={() => {}} />);
     await waitFor(() => expect(screen.getByRole("option", { name: "bhive" })).toBeInTheDocument());
+    await user.selectOptions(screen.getByLabelText("Format"), "zip");
     expect(screen.queryByText(/A .bhive hides everything/)).toBeNull();
     await user.type(screen.getByLabelText("Password"), "pw");
     expect(screen.getByRole("note")).toHaveTextContent(/Zip's encryption leaves names, sizes and dates readable/);

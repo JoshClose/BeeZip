@@ -32,7 +32,9 @@ using BeeZip will notice. Leave the date out: the Releases page dates each versi
 - **This PC** keeps a key in the PC's TPM, behind an optional PIN that BeeZip asks for itself,
   and **Windows Hello** uses your face, a fingerprint or its PIN. Both open the archive on that
   PC alone, so BeeZip always asks for another way in beside them. **Security keys** (FIDO2) need
-  a touch. Security keys and smart cards haven't been tried on a physical device yet.
+  a touch. A phone's passkey works as one through Windows' QR code when the phone's passkey app
+  gives hmac-secret: Apple's Passwords does; Bitwarden's didn't when we tried it. Hardware
+  security keys and smart cards haven't been tried yet.
 - **Safe from quantum computers, or not:** BeeZip says which. Passwords, recovery keys,
   post-quantum keys and security keys are; classic keys, certificates and This PC aren't.
 - **Changing who can open it doesn't recompress it:** add a way in, remove one, or make a new
@@ -75,6 +77,9 @@ using BeeZip will notice. Leave the date out: the Releases page dates each versi
 
 ### The desktop app
 
+- **New archive starts at `.bhive`,** and asks for the format first, across the dialog, before
+  the files and Save as, so the name it fills in doesn't change after you choose. Convert asks
+  for it right after the source.
 - **New archive and Convert** have a Protection section for `.bhive`: the password with its
   strength, a recovery key, people and keys, This PC, a security key and Windows Hello, and
   **Sign with**.

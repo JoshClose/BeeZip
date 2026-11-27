@@ -202,6 +202,10 @@ describe("the create dialog", () => {
     const user = userEvent.setup();
     render(<CreateDialog inputs={[String.raw`C:\work\src`]} onClose={() => {}} />);
     await waitFor(() => expect(screen.getByRole("option", { name: "tar.zst" })).toBeInTheDocument());
+    // New archive starts at BeeZip's own format.
+    expect(screen.getByLabelText("Format")).toHaveValue("bhive");
+    expect(screen.getByLabelText("Save as")).toHaveValue(String.raw`C:\work\src.bhive`);
+    await user.selectOptions(screen.getByLabelText("Format"), "zip");
     expect(screen.getByLabelText("Save as")).toHaveValue(String.raw`C:\work\src.zip`);
     expect(screen.queryByText("Solid")).toBeNull();
 

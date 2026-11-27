@@ -154,6 +154,9 @@ const KNOWN = [
   ...["iso", "squashfs", "sqfs", "snap", "dmg"],
 ];
 
+/** The format New archive starts at: BeeZip's own, which encrypts and signs whole archives. */
+export const NEW_FORMAT: ArchiveFormatName = "bhive";
+
 /** The new archive's name for a format: `a.zip` → `a.7z`, `a.tar.gz` → `a.tar.zst`. */
 export function withFormat(output: string, to: string): string {
   const lower = output.toLowerCase();
@@ -362,8 +365,8 @@ export function CreateDialog({
   const encryptedSource = convert && source.info !== undefined && source.info.encryption !== "none";
   const [form, setForm] = useState<CreateForm>(() => ({
     inputs: given,
-    output: source ? convertOutput(source.path, convertFormat(source.path)) : defaultOutput(given, "zip"),
-    format: source ? convertFormat(source.path) : "zip",
+    output: source ? convertOutput(source.path, convertFormat(source.path)) : defaultOutput(given, NEW_FORMAT),
+    format: source ? convertFormat(source.path) : NEW_FORMAT,
     solid: true,
     password: "",
     encryption: "aes256",
