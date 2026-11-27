@@ -398,7 +398,13 @@ impl Authenticator for Unavailable {
         Support::NONE
     }
 
-    fn make_credential(&mut self, _: &str, _: &[u8], _: Attachment) -> Result<NewCredential> {
+    fn make_credential(
+        &mut self,
+        _: &str,
+        _: &[u8],
+        _: Attachment,
+        _: Option<&[u8; 32]>,
+    ) -> Result<NewCredential> {
         Err(off_windows())
     }
 
