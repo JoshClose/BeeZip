@@ -32,6 +32,15 @@ pub const USER_ENTITY_INFORMATION_VERSION: u32 = 1;
 pub const CLIENT_DATA_VERSION: u32 = 1;
 pub const COSE_CREDENTIAL_PARAMETER_VERSION: u32 = 1;
 pub const CREDENTIAL_VERSION: u32 = 1;
+pub const CREDENTIAL_EX_VERSION: u32 = 1;
+
+/// `WEBAUTHN_CTAP_TRANSPORT_*`: how an authenticator is reached.
+pub const CTAP_TRANSPORT_USB: u32 = 0x01;
+pub const CTAP_TRANSPORT_NFC: u32 = 0x02;
+pub const CTAP_TRANSPORT_BLE: u32 = 0x04;
+pub const CTAP_TRANSPORT_INTERNAL: u32 = 0x10;
+/// A phone, through Windows' QR code and Bluetooth.
+pub const CTAP_TRANSPORT_HYBRID: u32 = 0x20;
 pub const GET_CREDENTIALS_OPTIONS_VERSION: u32 = 1;
 
 pub const COSE_ALGORITHM_ECDSA_P256_WITH_SHA256: i32 = -7;
@@ -835,6 +844,15 @@ mod tests {
             GetCredentialsOptions = w::WEBAUTHN_GET_CREDENTIALS_OPTIONS,
             CredentialDetailsList = w::WEBAUTHN_CREDENTIAL_DETAILS_LIST,
         );
+        assert_eq!(
+            CREDENTIAL_EX_VERSION,
+            w::WEBAUTHN_CREDENTIAL_EX_CURRENT_VERSION
+        );
+        assert_eq!(CTAP_TRANSPORT_USB, w::WEBAUTHN_CTAP_TRANSPORT_USB);
+        assert_eq!(CTAP_TRANSPORT_NFC, w::WEBAUTHN_CTAP_TRANSPORT_NFC);
+        assert_eq!(CTAP_TRANSPORT_BLE, w::WEBAUTHN_CTAP_TRANSPORT_BLE);
+        assert_eq!(CTAP_TRANSPORT_INTERNAL, w::WEBAUTHN_CTAP_TRANSPORT_INTERNAL);
+        assert_eq!(CTAP_TRANSPORT_HYBRID, w::WEBAUTHN_CTAP_TRANSPORT_HYBRID);
         assert_eq!(
             AUTHENTICATOR_HMAC_SECRET_VALUES_FLAG,
             w::WEBAUTHN_AUTHENTICATOR_HMAC_SECRET_VALUES_FLAG
