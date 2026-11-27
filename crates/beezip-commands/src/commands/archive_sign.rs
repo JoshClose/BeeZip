@@ -94,6 +94,7 @@ impl Command for ArchiveSign {
         })?;
         let _guard = cx.edit_lock(&canonical)?;
         cx.set_password(input.password.as_ref());
+        cx.set_archive(&path);
         let opts = SignOptions {
             open: open_options(None, cx),
             signing,

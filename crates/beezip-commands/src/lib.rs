@@ -17,6 +17,7 @@ pub mod policy;
 pub mod protect;
 mod registry;
 pub mod shell;
+pub mod unlocks;
 pub mod wire;
 
 use std::sync::OnceLock;

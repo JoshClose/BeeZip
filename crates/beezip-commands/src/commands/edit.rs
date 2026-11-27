@@ -391,6 +391,7 @@ pub fn run_edit(
     // An edit changes the contents, which drops a .bhive's signatures: core says so once it has
     // opened the archive, before the new one is swapped in (docs/M14.md §11).
     cx.set_password(password);
+    cx.set_archive(&path);
     let opts = EditOptions {
         open: open_options(names, cx),
         dry_run,

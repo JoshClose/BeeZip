@@ -1353,6 +1353,7 @@ pub fn rewrite_bhive(
     let _guard = cx.edit_lock(&canonical)?;
     let target = Target::check(&path)?;
     cx.set_password(password);
+    cx.set_archive(&path);
     let open_opts = open_options(None, cx);
     let mut opened = open(&target.path, &open_opts, cx)?;
     let (format, codecs) = opened.detection.require_archive()?;

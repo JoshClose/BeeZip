@@ -1508,3 +1508,215 @@ fn a_conversion_that_drops_signatures_says_so_encrypted_or_not() {
         assert_eq!(info["signatures"][0]["status"], "valid", "{info}");
     }
 }
+
+/// What the desktop's main window runs its tabs' jobs under: archives kept unlocked.
+fn keeping() -> Policy {
+    Policy {
+        keep_unlocked: true,
+        ..Policy::unrestricted()
+    }
+}
+
+/// Runs `name` on `engine` under `policy`, with what it sent as events.
+fn run_on(
+    engine: &Engine,
+    policy: &Policy,
+    name: &str,
+    args: Value,
+    interactor: Arc<dyn Interactor>,
+) -> (Result<Value, CmdError>, Vec<JobEvent>) {
+    let events = Arc::new(Mutex::new(Vec::new()));
+    let seen = Arc::clone(&events);
+    let sink: EventSink = Arc::new(move |e| seen.lock().unwrap().push(e));
+    let r = engine
+        .invoke_with_policy(name, args, interactor, sink, Arc::new(policy.clone()))
+        .unwrap()
+        .join();
+    let events = events.lock().unwrap().clone();
+    (r, events)
+}
+
+/// The sealed example of bhive.md §11, under the password "honey", copied into `dir`.
+fn sealed_in(dir: &Path, name: &str) -> PathBuf {
+    let archive = dir.join(name);
+    std::fs::copy(fixtures().join("bhive-m14/spec-sealed.bhive"), &archive).unwrap();
+    archive
+}
+
+fn honey() -> PromptReply {
+    PromptReply::Unlock {
+        answer: UnlockReply::Password {
+            password: "honey".into(),
+        },
+    }
+}
+
+/// A tab's archive, unlocked once through the Unlock prompt, opens for every later job on it
+/// without asking: a listing, a test, an extraction, an edit (which keeps its slots), and a
+/// listing after the edit. A copy elsewhere isn't unlocked, and closing the tab locks it again
+/// (docs/M14.md §8).
+#[test]
+fn a_tab_keeps_its_archive_unlocked_until_it_closes() {
+    let dir = tempfile::tempdir().unwrap();
+    let archive = sealed_in(dir.path(), "a.bhive");
+    let (engine, _cfg) = engine_in(registry(), Policy::unrestricted(), SystemKeys::Off);
+    let tab = keeping();
+    let list = || json!({ "archive": archive, "flat": true });
+    let asked = Scripted::new(vec![honey()]);
+    let (r, _) = run_on(&engine, &tab, "archive.list", list(), asked.clone());
+    r.unwrap();
+    assert_eq!(asked.asked.lock().unwrap().len(), 1);
+    assert_eq!(engine.unlocks().len(), 1);
+
+    let nobody = Scripted::new(vec![]);
+    let new = dir.path().join("new.txt");
+    std::fs::write(&new, "new").unwrap();
+    let out = dir.path().join("out");
+    for (name, args) in [
+        ("archive.list", list()),
+        ("archive.test", json!({ "archive": archive })),
+        (
+            "archive.extract",
+            json!({ "archive": archive, "dest": out }),
+        ),
+        (
+            "archive.add",
+            json!({ "archive": archive, "inputs": [new] }),
+        ),
+        ("archive.list", list()),
+    ] {
+        let (r, events) = run_on(&engine, &tab, name, args, nobody.clone());
+        // The example's link is refused, and the rest extracted.
+        let out = match r {
+            Err(e) if e.code == ErrorCode::Unsafe => e.details.unwrap(),
+            r => r.unwrap_or_else(|e| panic!("{name}: {e:?}")),
+        };
+        assert!(
+            !events.iter().any(|e| matches!(e, JobEvent::Prompt { .. })),
+            "{name} asked"
+        );
+        if name == "archive.list" {
+            assert!(out["entries"].is_array(), "{out}");
+        }
+    }
+    assert!(nobody.asked.lock().unwrap().is_empty());
+    assert!(encrypted(&archive));
+    let (listed, _) = run_on(&engine, &tab, "archive.list", list(), nobody.clone());
+    assert!(listed.unwrap()["entries"].to_string().contains("new.txt"));
+
+    // A copy of it elsewhere asks, as any archive does.
+    let copy = dir.path().join("copy.bhive");
+    std::fs::copy(&archive, &copy).unwrap();
+    let (r, _) = run_on(
+        &engine,
+        &tab,
+        "archive.list",
+        json!({ "archive": copy }),
+        Arc::new(NonInteractive),
+    );
+    assert_eq!(r.unwrap_err().code, ErrorCode::PasswordRequired);
+
+    // The tab closes: what unlocked it is wiped, and the next job asks again.
+    assert_eq!(engine.unlocks().forget(&archive), 1);
+    assert!(engine.unlocks().is_empty());
+    let (r, _) = run_on(
+        &engine,
+        &tab,
+        "archive.list",
+        list(),
+        Arc::new(NonInteractive),
+    );
+    assert_eq!(r.unwrap_err().code, ErrorCode::PasswordRequired);
+}
+
+/// The CLI and MCP keep nothing: a job given the password opens the archive, and the next one
+/// without it is asked for it, as before.
+#[test]
+fn the_cli_and_mcp_keep_nothing_unlocked() {
+    let dir = tempfile::tempdir().unwrap();
+    let archive = sealed_in(dir.path(), "a.bhive");
+    for policy in [Policy::unrestricted(), unattended()] {
+        assert!(!policy.keep_unlocked);
+        let (engine, _cfg) = engine_in(registry(), policy.clone(), SystemKeys::Off);
+        let (r, _) = run_on(
+            &engine,
+            &policy,
+            "archive.list",
+            json!({ "archive": archive, "password": "honey" }),
+            Arc::new(NonInteractive),
+        );
+        r.unwrap();
+        // Through the Unlock prompt too.
+        let (r, _) = run_on(
+            &engine,
+            &policy,
+            "archive.list",
+            json!({ "archive": archive }),
+            Scripted::new(vec![honey()]),
+        );
+        r.unwrap();
+        assert!(engine.unlocks().is_empty());
+        let (r, _) = run_on(
+            &engine,
+            &policy,
+            "archive.list",
+            json!({ "archive": archive }),
+            Arc::new(NonInteractive),
+        );
+        assert_eq!(r.unwrap_err().code, ErrorCode::PasswordRequired);
+    }
+}
+
+/// An interactor that refuses every prompt at once (a drag-out's): no `Prompt` event goes out,
+/// and the job fails as with nobody to ask; it waits on nothing.
+struct Refusing;
+
+impl Interactor for Refusing {
+    fn prompt(&self, job: JobId, id: u64, prompt: &Prompt) -> Result<PromptReply, CmdError> {
+        NonInteractive.prompt(job, id, prompt)
+    }
+
+    fn shows_prompts(&self) -> bool {
+        false
+    }
+}
+
+#[test]
+fn an_interactor_that_shows_no_prompts_fails_without_one() {
+    let dir = tempfile::tempdir().unwrap();
+    let archive = sealed_in(dir.path(), "a.bhive");
+    let (engine, _cfg) = engine_in(registry(), Policy::unrestricted(), SystemKeys::Off);
+    let args = json!({ "archive": archive, "dest": dir.path().join("out") });
+    let (r, events) = run_on(
+        &engine,
+        &keeping(),
+        "archive.extract",
+        args.clone(),
+        Arc::new(Refusing),
+    );
+    let e = r.unwrap_err();
+    assert_eq!(e.code, ErrorCode::PasswordRequired, "{e:?}");
+    assert!(e.details.unwrap()["ways"].is_array());
+    assert!(
+        !events.iter().any(|e| matches!(e, JobEvent::Prompt { .. })),
+        "{events:?}"
+    );
+    // Unlocked by the tab first, it opens.
+    let (r, _) = run_on(
+        &engine,
+        &keeping(),
+        "archive.list",
+        json!({ "archive": archive }),
+        Scripted::new(vec![honey()]),
+    );
+    r.unwrap();
+    let (r, _) = run_on(
+        &engine,
+        &keeping(),
+        "archive.extract",
+        args,
+        Arc::new(Refusing),
+    );
+    // The example's link is refused, and the rest extracted.
+    assert_eq!(r.unwrap_err().details.unwrap()["files"], 2);
+}
