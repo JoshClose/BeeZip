@@ -309,6 +309,16 @@ describe("adding to an encrypted .bhive (docs/M14.md §3)", () => {
 });
 
 describe("converting an encrypted archive into a .bhive (docs/M14.md §8)", () => {
+  it("shows the source, then the format, then where it's saved", async () => {
+    const source = tab({ path: String.raw`C:\work\a.zip`, name: "a.zip", info: info({ format: "zip", chain: "zip" }) });
+    render(<CreateDialog inputs={[]} source={source} onClose={() => {}} />);
+    await waitFor(() => expect(screen.getByRole("option", { name: "bhive" })).toBeInTheDocument());
+    const format = screen.getByLabelText("Format");
+    const after = (a: Element, b: Element) => (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
+    expect(after(screen.getByText(String.raw`C:\work\a.zip`), format)).toBe(true);
+    expect(after(format, screen.getByLabelText("Save as"))).toBe(true);
+  });
+
   it("sends `decrypt` only while the new archive has no way in", async () => {
     const user = userEvent.setup();
     fake.handlers.set("archive.convert", (args) => ({ path: (args as { output: string }).output, format: "bhive", recovery_key: KEY }));
